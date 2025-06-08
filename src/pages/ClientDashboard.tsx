@@ -369,9 +369,9 @@ const ClientDashboard = () => {
     console.log('  professional:', professional);
     console.log('  selectedService:', selectedService);
     
-    // 🚨 VERIFICAÇÃO DUPLA DE CONFLITOS NO CLIENTE
-    console.log('🔍 VERIFICAÇÃO DUPLA - existingAppointmentsForSlots:', existingAppointmentsForSlots);
-    const relevantAppointments = existingAppointmentsForSlots.filter(apt => 
+    // 🚨 VERIFICAÇÃO DUPLA DE CONFLITOS NO CLIENTE (CORRIGIDO PARA NETLIFY)
+    console.log('🔍 VERIFICAÇÃO DUPLA - existingAppointments:', existingAppointments);
+    const relevantAppointments = existingAppointments.filter(apt => 
       apt.appointment_date === appointmentDate &&
       apt.professional === professional &&
       apt.status !== 'cancelled'
