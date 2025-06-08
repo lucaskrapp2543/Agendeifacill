@@ -445,7 +445,6 @@ export const getEstablishmentAppointments = async (establishmentId: string) => {
       price
     `)
     .eq('establishment_id', establishmentId)
-    .neq('status', 'cancelled')
     .order('appointment_date', { ascending: true });
 
   console.log('Agendamentos encontrados:', data);

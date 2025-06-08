@@ -452,11 +452,20 @@ const PremiumDashboard = () => {
               ) : appointments.length > 0 ? (
                 <div className="space-y-4">
                   {appointments.map((appointment) => (
-                    <div key={appointment.id} className="bg-[#242628] rounded-lg p-4 border border-gray-800">
+                    <div 
+                      key={appointment.id} 
+                      className={`rounded-lg p-4 border ${
+                        appointment.status === 'cancelled' 
+                          ? 'bg-red-900/20 border-red-800/50 opacity-75' 
+                          : 'bg-[#242628] border-gray-800'
+                      }`}
+                    >
                       <div className="flex flex-col md:flex-row justify-between items-start gap-4">
                         <div className="flex-1">
                           <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-2">
-                            <h3 className="font-medium text-white">
+                            <h3 className={`font-medium ${
+                              appointment.status === 'cancelled' ? 'text-red-400 line-through' : 'text-white'
+                            }`}>
                               {appointment.establishments?.name || 'Estabelecimento'}
                             </h3>
                             <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
@@ -467,11 +476,13 @@ const PremiumDashboard = () => {
                                 : 'bg-yellow-500/20 text-yellow-500'
                             }`}>
                               {appointment.status === 'confirmed' ? 'Confirmado' : 
-                               appointment.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
+                               appointment.status === 'cancelled' ? 'CANCELADO' : 'Pendente'}
                             </span>
                           </div>
                           
-                          <div className="text-gray-400 space-y-1 text-sm">
+                          <div className={`space-y-1 text-sm ${
+                            appointment.status === 'cancelled' ? 'text-red-500/70' : 'text-gray-400'
+                          }`}>
                             <div className="flex items-center gap-2">
                               <Calendar className="w-4 h-4" />
                               <span>

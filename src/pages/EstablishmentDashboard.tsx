@@ -530,7 +530,6 @@ const EstablishmentDashboard = () => {
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startOfSelectedDate)
         .lte('appointment_date', endOfSelectedDate)
-        .neq('status', 'cancelled')
         .order('appointment_time', { ascending: true });
       
       if (error) throw error;
@@ -571,7 +570,6 @@ const EstablishmentDashboard = () => {
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startDate)
         .lte('appointment_date', endDate)
-        .neq('status', 'cancelled')
         .order('appointment_date', { ascending: true });
       
       if (error) throw error;

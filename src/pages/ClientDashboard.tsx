@@ -613,18 +613,46 @@ const ClientDashboard = () => {
               ) : (
                 <div className="space-y-3 md:space-y-4">
                   {appointments.map((appointment) => (
-                    <div key={appointment.id} className="p-3 md:p-4 rounded-lg bg-[#242628] border border-gray-800">
+                    <div 
+                      key={appointment.id} 
+                      className={`p-3 md:p-4 rounded-lg border ${
+                        appointment.status === 'cancelled' 
+                          ? 'bg-red-900/20 border-red-800/50 opacity-75' 
+                          : 'bg-[#242628] border-gray-800'
+                      }`}
+                    >
                       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-3">
                         <div className="flex-1">
-                          <h3 className="font-medium text-white text-sm md:text-base">{appointment.service}</h3>
-                          <p className="text-xs md:text-sm text-gray-400">{appointment.establishment?.name}</p>
-                          <p className="text-xs md:text-sm text-gray-400">Cliente: {appointment.client_name || user?.user_metadata?.full_name || 'Cliente'}</p>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className={`font-medium text-sm md:text-base ${
+                              appointment.status === 'cancelled' ? 'text-red-400 line-through' : 'text-white'
+                            }`}>
+                              {appointment.service}
+                            </h3>
+                            {appointment.status === 'cancelled' && (
+                              <span className="px-2 py-1 text-xs font-medium bg-red-900/30 text-red-400 rounded-full">
+                                CANCELADO
+                              </span>
+                            )}
+                          </div>
+                          <p className={`text-xs md:text-sm ${
+                            appointment.status === 'cancelled' ? 'text-red-500/70' : 'text-gray-400'
+                          }`}>
+                            {appointment.establishment?.name}
+                          </p>
+                          <p className={`text-xs md:text-sm ${
+                            appointment.status === 'cancelled' ? 'text-red-500/70' : 'text-gray-400'
+                          }`}>
+                            Cliente: {appointment.client_name || user?.user_metadata?.full_name || 'Cliente'}
+                          </p>
                         </div>
-                        {appointment.is_premium && (
-                          <span className="px-2 py-1 text-xs font-medium bg-primary/20 text-primary rounded-full self-start">
-                            Premium
-                          </span>
-                        )}
+                        <div className="flex flex-col gap-1">
+                          {appointment.is_premium && (
+                            <span className="px-2 py-1 text-xs font-medium bg-primary/20 text-primary rounded-full self-start">
+                              Premium
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="text-xs md:text-sm text-gray-400 space-y-1 mb-3">
                         <p>Data: {format(new Date(appointment.appointment_date), 'dd/MM/yyyy')}</p>
