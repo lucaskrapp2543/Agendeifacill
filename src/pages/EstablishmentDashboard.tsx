@@ -99,6 +99,7 @@ const EstablishmentDashboard = () => {
   const [codeCopied, setCodeCopied] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedProfessional, setSelectedProfessional] = useState<string>('all'); // 'all' ou id do profissional
 
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
 
@@ -631,7 +632,11 @@ const EstablishmentDashboard = () => {
 
   const calculateDailyBalance = (appointments: any[]): number => {
     return appointments
-      .filter(appointment => appointment.status !== 'cancelled')
+      .filter(appointment => {
+        const isNotCancelled = appointment.status !== 'cancelled';
+        const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
+        return isNotCancelled && isProfessionalMatch;
+      })
       .reduce((total, appointment) => total + (appointment.price || 0), 0);
   };
 
@@ -639,9 +644,24 @@ const EstablishmentDashboard = () => {
     return appointments
       .filter(appointment => {
         const appointmentDate = new Date(appointment.appointment_date);
-        return isSameMonth(appointmentDate, selectedDate) && appointment.status !== 'cancelled';
+        const isInMonth = isSameMonth(appointmentDate, selectedDate);
+        const isNotCancelled = appointment.status !== 'cancelled';
+        const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
+        return isInMonth && isNotCancelled && isProfessionalMatch;
       })
       .reduce((total, appointment) => total + (appointment.price || 0), 0);
+  };
+
+  // Filtrar agendamentos por profissional selecionado
+  const filteredAppointments = appointments.filter(appointment => {
+    return selectedProfessional === 'all' || appointment.professional === selectedProfessional;
+  });
+
+  // Função para obter o nome do profissional pelo ID
+  const getProfessionalName = (professionalId: string): string => {
+    if (professionalId === 'all') return 'Todos os Profissionais';
+    const professional = establishment?.professionals.find(p => p.id === professionalId);
+    return professional?.name || professionalId;
   };
 
   const addPremiumDrawColumns = async () => {
@@ -1044,38 +1064,77 @@ const EstablishmentDashboard = () => {
 
             {activeTab === 'appointments' && (
               <>
-                <div className="mb-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-white">Agendamentos do Dia</h2>
-                    <div className="flex items-center gap-4">
-                      <button onClick={handlePreviousDay} className="btn-outline">
-                        <ChevronLeft className="h-4 w-4" />
+                {/* Seleção de Profissionais */}
+                {establishment?.professionals && establishment.professionals.length > 0 && (
+                  <div className="mb-6 bg-[#1a1b1c] rounded-lg p-4 border border-gray-800">
+                    <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                      <User className="h-5 w-5 text-primary" />
+                      Filtrar por Profissional
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setSelectedProfessional('all')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          selectedProfessional === 'all'
+                            ? 'bg-primary text-white'
+                            : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                        }`}
+                      >
+                        👥 Todos os Profissionais
                       </button>
-                      <input
-                        type="date"
-                        value={format(selectedDate, 'yyyy-MM-dd')}
-                        onChange={handleDateChange}
-                        className="input-field bg-[#242628] border-gray-800 text-white"
-                      />
-                      <button onClick={handleNextDay} className="btn-outline">
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
+                      {establishment.professionals.map((professional) => (
+                        <button
+                          key={professional.id}
+                          onClick={() => setSelectedProfessional(professional.id)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            selectedProfessional === professional.id
+                              ? 'bg-primary text-white'
+                              : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                          }`}
+                        >
+                          👤 {professional.name}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-sm">
+                      <p className="text-gray-400">
+                        Filtro ativo: <span className="text-primary font-medium">{getProfessionalName(selectedProfessional)}</span>
+                      </p>
+                      <p className="text-gray-400">
+                        {selectedProfessional === 'all' ? filteredAppointments.length : filteredAppointments.length} agendamentos encontrados
+                      </p>
                     </div>
                   </div>
+                )}
+
+                <h2 className="text-2xl font-bold text-white">Agendamentos do Dia</h2>
+                <p className="text-gray-400 mb-4">
+                  {selectedProfessional === 'all' ? 'Todos os profissionais' : `Profissional: ${getProfessionalName(selectedProfessional)}`}
+                </p>
+                <div className="flex items-center gap-4">
+                  <button onClick={handlePreviousDay} className="btn-outline">
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <input
+                    type="date"
+                    value={format(selectedDate, 'yyyy-MM-dd')}
+                    onChange={handleDateChange}
+                    className="input-field bg-[#242628] border-gray-800 text-white"
+                  />
+                  <button onClick={handleNextDay} className="btn-outline">
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                 </div>
 
-                {isLoading ? (
-                  <div className="flex justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
-                  </div>
-                ) : appointments.length === 0 ? (
+                {/* Lista de Agendamentos */}
+                {filteredAppointments.length === 0 ? (
                   <div className="text-center py-8">
                     <Calendar className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
                     <p className="text-gray-400">Nenhum agendamento para este dia</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {appointments.map(appointment => (
+                    {filteredAppointments.map(appointment => (
                       <div key={appointment.id} className="p-4 rounded-lg bg-[#242628] border border-gray-800">
                         <div className="flex items-center justify-between">
                           <div>
@@ -1139,8 +1198,6 @@ const EstablishmentDashboard = () => {
                 {/* ... existing code ... */}
               </div>
             )}
-
-
 
             {/* Seção de Configurações */}
             {activeTab === 'settings' && establishment && (
