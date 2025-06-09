@@ -493,7 +493,7 @@ const ClientDashboard = () => {
             </button>
             <div className="p-6 text-center">
               <img 
-                src="/1.svg" 
+                src="/2.svg" 
                 alt="Bem-vindo ao AgendaFácil" 
                 className="w-full h-auto max-h-80 mx-auto mb-4"
               />
