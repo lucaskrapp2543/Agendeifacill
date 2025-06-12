@@ -52,7 +52,7 @@ INSERT INTO establishments (
         '{"id": "rodrigo", "name": "Rodrigo Silva"}'::jsonb,
         '{"id": "carlos", "name": "Carlos Santos"}'::jsonb
     ],
-    '{"monday": {"isOpen": true, "start": "08:00", "end": "18:00"}, "tuesday": {"isOpen": true, "start": "08:00", "end": "18:00"}, "wednesday": {"isOpen": true, "start": "08:00", "end": "18:00"}, "thursday": {"isOpen": true, "start": "08:00", "end": "18:00"}, "friday": {"isOpen": true, "start": "08:00", "end": "18:00"}, "saturday": {"isOpen": true, "start": "08:00", "end": "16:00"}, "sunday": {"isOpen": false, "start": "00:00", "end": "00:00"}}'::jsonb,
+    '{"monday": {"enabled": true, "open": "08:00", "close": "18:00"}, "tuesday": {"enabled": true, "open": "08:00", "close": "18:00"}, "wednesday": {"enabled": true, "open": "08:00", "close": "18:00"}, "thursday": {"enabled": true, "open": "08:00", "close": "18:00"}, "friday": {"enabled": true, "open": "08:00", "close": "18:00"}, "saturday": {"enabled": true, "open": "08:00", "close": "16:00"}, "sunday": {"enabled": false, "open": "00:00", "close": "00:00"}}'::jsonb,
     null,
     null
 ) ON CONFLICT (code) DO UPDATE SET
@@ -64,4 +64,77 @@ INSERT INTO establishments (
 
 -- Verificar se deu certo
 SELECT 'Políticas aplicadas com sucesso!' as status;
-SELECT name, code FROM establishments WHERE code = '1010'; 
+SELECT name, code FROM establishments WHERE code = '1010';
+
+-- 3. Corrigir estrutura de horários existentes (converter isOpen->enabled, start->open, end->close)
+UPDATE establishments 
+SET business_hours = jsonb_build_object(
+  'monday', CASE 
+    WHEN business_hours->'monday' IS NOT NULL THEN 
+      jsonb_build_object(
+        'enabled', COALESCE(business_hours->'monday'->>'isOpen', business_hours->'monday'->>'enabled')::boolean,
+        'open', COALESCE(business_hours->'monday'->>'start', business_hours->'monday'->>'open'),
+        'close', COALESCE(business_hours->'monday'->>'end', business_hours->'monday'->>'close')
+      )
+    ELSE jsonb_build_object('enabled', true, 'open', '08:00', 'close', '18:00')
+  END,
+  'tuesday', CASE 
+    WHEN business_hours->'tuesday' IS NOT NULL THEN 
+      jsonb_build_object(
+        'enabled', COALESCE(business_hours->'tuesday'->>'isOpen', business_hours->'tuesday'->>'enabled')::boolean,
+        'open', COALESCE(business_hours->'tuesday'->>'start', business_hours->'tuesday'->>'open'),
+        'close', COALESCE(business_hours->'tuesday'->>'end', business_hours->'tuesday'->>'close')
+      )
+    ELSE jsonb_build_object('enabled', true, 'open', '08:00', 'close', '18:00')
+  END,
+  'wednesday', CASE 
+    WHEN business_hours->'wednesday' IS NOT NULL THEN 
+      jsonb_build_object(
+        'enabled', COALESCE(business_hours->'wednesday'->>'isOpen', business_hours->'wednesday'->>'enabled')::boolean,
+        'open', COALESCE(business_hours->'wednesday'->>'start', business_hours->'wednesday'->>'open'),
+        'close', COALESCE(business_hours->'wednesday'->>'end', business_hours->'wednesday'->>'close')
+      )
+    ELSE jsonb_build_object('enabled', true, 'open', '08:00', 'close', '18:00')
+  END,
+  'thursday', CASE 
+    WHEN business_hours->'thursday' IS NOT NULL THEN 
+      jsonb_build_object(
+        'enabled', COALESCE(business_hours->'thursday'->>'isOpen', business_hours->'thursday'->>'enabled')::boolean,
+        'open', COALESCE(business_hours->'thursday'->>'start', business_hours->'thursday'->>'open'),
+        'close', COALESCE(business_hours->'thursday'->>'end', business_hours->'thursday'->>'close')
+      )
+    ELSE jsonb_build_object('enabled', true, 'open', '08:00', 'close', '18:00')
+  END,
+  'friday', CASE 
+    WHEN business_hours->'friday' IS NOT NULL THEN 
+      jsonb_build_object(
+        'enabled', COALESCE(business_hours->'friday'->>'isOpen', business_hours->'friday'->>'enabled')::boolean,
+        'open', COALESCE(business_hours->'friday'->>'start', business_hours->'friday'->>'open'),
+        'close', COALESCE(business_hours->'friday'->>'end', business_hours->'friday'->>'close')
+      )
+    ELSE jsonb_build_object('enabled', true, 'open', '08:00', 'close', '18:00')
+  END,
+  'saturday', CASE 
+    WHEN business_hours->'saturday' IS NOT NULL THEN 
+      jsonb_build_object(
+        'enabled', COALESCE(business_hours->'saturday'->>'isOpen', business_hours->'saturday'->>'enabled')::boolean,
+        'open', COALESCE(business_hours->'saturday'->>'start', business_hours->'saturday'->>'open'),
+        'close', COALESCE(business_hours->'saturday'->>'end', business_hours->'saturday'->>'close')
+      )
+    ELSE jsonb_build_object('enabled', true, 'open', '08:00', 'close', '16:00')
+  END,
+  'sunday', CASE 
+    WHEN business_hours->'sunday' IS NOT NULL THEN 
+      jsonb_build_object(
+        'enabled', COALESCE(business_hours->'sunday'->>'isOpen', business_hours->'sunday'->>'enabled')::boolean,
+        'open', COALESCE(business_hours->'sunday'->>'start', business_hours->'sunday'->>'open'),
+        'close', COALESCE(business_hours->'sunday'->>'end', business_hours->'sunday'->>'close')
+      )
+    ELSE jsonb_build_object('enabled', false, 'open', '00:00', 'close', '00:00')
+  END
+)
+WHERE business_hours IS NOT NULL;
+
+-- Verificar a estrutura corrigida
+SELECT 'Estrutura de horários corrigida!' as status;
+SELECT name, code, business_hours FROM establishments WHERE code = '1010'; 

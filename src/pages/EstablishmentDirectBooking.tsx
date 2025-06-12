@@ -390,6 +390,18 @@ const EstablishmentDirectBooking: React.FC = () => {
               <p className="text-sm text-gray-500">Código: {extractCodeFromSlug(slug || '')}</p>
             </div>
           </div>
+          
+          {/* Botão Premium se houver link afiliado */}
+          {establishment?.affiliate_link && (
+            <div className="mt-4">
+              <button
+                onClick={() => window.open(establishment.affiliate_link, '_blank')}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-md text-sm uppercase tracking-wide transition-colors duration-200"
+              >
+                SER PREMIUM AQUI
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -424,7 +436,7 @@ const EstablishmentDirectBooking: React.FC = () => {
                              day === 'saturday' ? 'Sábado' : 'Domingo'}:
                           </span>
                           <span>
-                            {hours.isOpen === true ? `${hours.start || ''} - ${hours.end || ''}` : 'Fechado'}
+                            {hours.enabled === true ? `${hours.open || ''} - ${hours.close || ''}` : 'Fechado'}
                           </span>
                         </div>
                       );

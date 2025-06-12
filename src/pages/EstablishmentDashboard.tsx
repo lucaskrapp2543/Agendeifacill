@@ -9,6 +9,7 @@ import { getEstablishmentAppointments, createEstablishment, updateEstablishment,
 import type { Appointment } from '../types/supabase';
 import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
+import { TimeSelector } from '../components/TimeSelector';
 
 interface BusinessHours {
   open: string;
@@ -861,22 +862,20 @@ const EstablishmentDashboard = () => {
                       </label>
                     </div>
                     
-                    <input
-                      type="time"
+                    <TimeSelector
                       value={hours.open}
-                      onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open', e.target.value)}
+                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open', value)}
                       disabled={!hours.enabled}
-                      className="input-field w-32"
+                      className="w-32"
                     />
                     
                     <span className="text-gray-500">até</span>
                     
-                    <input
-                      type="time"
+                    <TimeSelector
                       value={hours.close}
-                      onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close', e.target.value)}
+                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close', value)}
                       disabled={!hours.enabled}
-                      className="input-field w-32"
+                      className="w-32"
                     />
                   </div>
                 ))}
@@ -1379,20 +1378,21 @@ const EstablishmentDashboard = () => {
                           <span className="ml-2 capitalize">{day}</span>
                         </label>
                       </div>
-                      <input
-                        type="time"
+                      
+                      <TimeSelector
                         value={hours.open}
-                        onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open', e.target.value)}
+                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open', value)}
                         disabled={!hours.enabled}
-                        className="input-field w-32"
+                        className="w-32"
                       />
+                      
                       <span className="text-gray-500">até</span>
-                      <input
-                        type="time"
+                      
+                      <TimeSelector
                         value={hours.close}
-                        onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close', e.target.value)}
+                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close', value)}
                         disabled={!hours.enabled}
-                        className="input-field w-32"
+                        className="w-32"
                       />
                     </div>
                   ))}
