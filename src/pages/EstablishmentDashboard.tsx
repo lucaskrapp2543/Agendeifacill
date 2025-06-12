@@ -602,7 +602,7 @@ const EstablishmentDashboard = () => {
           .from('establishments')
           .select('*')
           .eq('owner_id', user.id)
-          .single();
+          .maybeSingle();
         
         if (error) throw error;
         
