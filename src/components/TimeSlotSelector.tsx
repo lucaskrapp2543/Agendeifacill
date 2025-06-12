@@ -43,19 +43,6 @@ export function TimeSlotSelector({
     return hours * 60 + minutes;
   };
 
-  // Função para verificar se dois intervalos de tempo se sobrepõem - VERSÃO MAIS ASSERTIVA
-  const timeIntervalsOverlap = (
-    start1: number, 
-    end1: number, 
-    start2: number, 
-    end2: number
-  ): boolean => {
-    // Dois intervalos se sobrepõem se um não termina antes do outro começar
-    // OU se um está totalmente contido no outro
-    // OU se há qualquer sobreposição, mesmo de 1 minuto
-    return (start1 < end2 && end1 > start2);
-  };
-
   // Função para gerar os horários disponíveis
   const generateTimeSlots = (): TimeSlot[] => {
     const slots: TimeSlot[] = [];
@@ -68,10 +55,11 @@ export function TimeSlotSelector({
     // Formato da data para comparação com o banco
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
     
-    // Logs simplificados
-    if (existingAppointments.length > 0) {
-      console.log('📅 Verificando horários para:', selectedDateString, 'Profissional:', selectedProfessional, 'Agendamentos:', existingAppointments.length);
-    }
+    console.log('🚀 INICIANDO VERIFICAÇÃO DE CONFLITOS');
+    console.log('📅 Data:', selectedDateString);
+    console.log('👤 Profissional:', selectedProfessional);
+    console.log('⏱️ Duração do novo serviço:', selectedDuration, 'minutos');
+    console.log('📋 Agendamentos recebidos:', existingAppointments.length);
     
     // Filtrar agendamentos válidos para o dia e profissional
     const relevantAppointments = existingAppointments.filter(apt => {
@@ -79,15 +67,13 @@ export function TimeSlotSelector({
       const isValidProfessional = apt.professional === selectedProfessional;
       const isNotCancelled = apt.status !== 'cancelled';
       
-      // Log simplificado
-      
       return isValidDate && isValidProfessional && isNotCancelled;
     });
     
-    // Log apenas se houver agendamentos relevantes
-    if (relevantAppointments.length > 0) {
-      console.log('🎯 Agendamentos relevantes:', relevantAppointments.length);
-    }
+    console.log('🎯 Agendamentos relevantes filtrados:', relevantAppointments.length);
+    relevantAppointments.forEach((apt, index) => {
+      console.log(`📋 Agendamento ${index + 1}: ${apt.appointment_time} (${apt.duration}min) - ${apt.appointment_time} até ${timeToMinutes(apt.appointment_time) + apt.duration} min totais`);
+    });
     
     // Gera slots de 15 em 15 minutos
     while (
@@ -103,27 +89,24 @@ export function TimeSlotSelector({
       // Verificar se há conflito com algum agendamento existente
       let isAvailable = true;
       let conflictReason = '';
-      let conflictDetails = '';
       
+      // NOVA LÓGICA MAIS RIGOROSA DE VERIFICAÇÃO DE CONFLITOS
       for (const appointment of relevantAppointments) {
         const aptStartMinutes = timeToMinutes(appointment.appointment_time);
         const aptEndMinutes = aptStartMinutes + appointment.duration;
         
-        // Verificar se há sobreposição - LÓGICA MAIS ASSERTIVA
-        const hasConflict = timeIntervalsOverlap(
-          slotStartMinutes,
-          slotEndMinutes,
-          aptStartMinutes,
-          aptEndMinutes
-        );
+        // Verificar TODAS as possibilidades de conflito:
+        // 1. Novo slot começa antes do agendamento existente terminar E termina depois do agendamento existente começar
+        const hasConflict = !(slotEndMinutes <= aptStartMinutes || slotStartMinutes >= aptEndMinutes);
         
         if (hasConflict) {
           isAvailable = false;
           conflictReason = `Conflito com agendamento às ${appointment.appointment_time}`;
-          conflictDetails = `Slot ${timeString} (${slotStartMinutes}-${slotEndMinutes}) vs Agendamento ${appointment.appointment_time} (${aptStartMinutes}-${aptEndMinutes})`;
           
-          // Log simplificado de conflito
-          console.log(`🔴 Conflito: ${timeString} vs agendamento ${appointment.appointment_time}`);
+          console.log(`🔴 CONFLITO DETECTADO em ${timeString}:`);
+          console.log(`   ➤ Novo slot: ${timeString} (${slotStartMinutes} a ${slotEndMinutes} minutos)`);
+          console.log(`   ➤ Agendamento existente: ${appointment.appointment_time} (${aptStartMinutes} a ${aptEndMinutes} minutos)`);
+          console.log(`   ➤ Motivo: Sobreposição de horários`);
           break;
         }
       }
@@ -133,11 +116,17 @@ export function TimeSlotSelector({
       if (slotEndMinutes > businessEndMinutes) {
         isAvailable = false;
         conflictReason = 'Excede horário de funcionamento';
+        console.log(`⚠️ ${timeString}: Excede horário (fim em ${slotEndMinutes}, limite ${businessEndMinutes})`);
       }
       
-      // Log simplificado apenas para horários conflitantes
-      if (!isAvailable && conflictReason) {
-        console.log(`⚠️ ${timeString}: ${conflictReason}`);
+      // Log detalhado para debug dos horários críticos (08:00 a 10:00)
+      if (slotStartMinutes >= 480 && slotStartMinutes <= 600) { // 08:00 a 10:00
+        console.log(`🔍 SLOT CRÍTICO ${timeString}:`);
+        console.log(`   ⏰ Período: ${slotStartMinutes} a ${slotEndMinutes} minutos`);
+        console.log(`   ✅ Status: ${isAvailable ? 'DISPONÍVEL' : 'BLOQUEADO'}`);
+        if (!isAvailable) {
+          console.log(`   ❌ Motivo: ${conflictReason}`);
+        }
       }
 
       slots.push({
@@ -154,11 +143,10 @@ export function TimeSlotSelector({
       }
     }
 
-    // Log final simplificado
-    const unavailableSlots = slots.filter(s => !s.isAvailable);
-    if (unavailableSlots.length > 0) {
-      console.log(`⚠️ ${unavailableSlots.length} horários indisponíveis de ${slots.length} slots`);
-    }
+    console.log('📊 RESUMO FINAL:');
+    console.log(`   Total de slots: ${slots.length}`);
+    console.log(`   Disponíveis: ${slots.filter(s => s.isAvailable).length}`);
+    console.log(`   Bloqueados: ${slots.filter(s => !s.isAvailable).length}`);
 
     return slots;
   };
@@ -183,14 +171,19 @@ export function TimeSlotSelector({
             key={time}
             onClick={() => {
               if (isAvailable) {
-                console.log('🕐 HORÁRIO SELECIONADO:', time);
+                console.log('✅ HORÁRIO SELECIONADO VÁLIDO:', time);
+                console.log(`   ⏱️ Duração: ${selectedDuration} minutos`);
+                console.log(`   🔚 Terminará às: ${Math.floor((timeToMinutes(time) + selectedDuration) / 60)}:${String((timeToMinutes(time) + selectedDuration) % 60).padStart(2, '0')}`);
                 onSelectTime(time);
               } else {
-                console.log('🚫 TENTATIVA DE SELEÇÃO DE HORÁRIO BLOQUEADO:', time, reason);
+                console.log('🚫 TENTATIVA DE SELEÇÃO DE HORÁRIO BLOQUEADO:', time);
+                console.log(`   ❌ Motivo: ${reason}`);
+                console.log('   ⚠️ Este horário não deveria estar clicável!');
+                alert(`Horário indisponível: ${reason}`);
               }
             }}
             disabled={!isAvailable}
-            title={!isAvailable ? reason : `Horário disponível: ${time}`}
+            title={!isAvailable ? reason : `Horário disponível: ${time} (termina às ${Math.floor((timeToMinutes(time) + selectedDuration) / 60)}:${String((timeToMinutes(time) + selectedDuration) % 60).padStart(2, '0')})`}
             className={`
               flex flex-col items-center justify-center p-3 rounded-lg border
               transition-colors duration-200

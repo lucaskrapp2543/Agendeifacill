@@ -44,22 +44,18 @@ const EstablishmentDirectBooking: React.FC = () => {
     return match ? match[1] : '';
   };
 
-  // Função para buscar agendamentos existentes (só funciona se logado)
+  // Função para buscar agendamentos existentes (funciona para usuários logados e anônimos)
   const fetchExistingAppointments = async (establishmentId: string, date: string, professional: string) => {
     if (!establishmentId || !date || !professional) {
       setExistingAppointments([]);
       return;
     }
     
-    // Se não estiver logado, não buscar agendamentos (será usado apenas para mostrar horários)
-    if (!user) {
-      console.log('👤 Usuário não logado - não buscando agendamentos existentes');
-      setExistingAppointments([]);
-      return;
-    }
-    
     try {
-      console.log('📋 Buscando agendamentos existentes...');
+      console.log('📋 Buscando agendamentos existentes (acesso público)...');
+      console.log('📍 Parâmetros:', { establishmentId, date, professional });
+      
+      // Buscar apenas dados necessários para verificar disponibilidade (sem dados pessoais)
       const { data, error } = await supabase
         .from('appointments')
         .select('appointment_date, appointment_time, duration, status, professional')
@@ -70,12 +66,17 @@ const EstablishmentDirectBooking: React.FC = () => {
         
       if (error) {
         console.log('⚠️ Erro ao buscar agendamentos:', error);
-        // Não mostrar erro para o usuário, apenas logs
+        // Em caso de erro, assumir que não há agendamentos (mais seguro)
         setExistingAppointments([]);
         return;
       }
       
       console.log('✅ Agendamentos existentes carregados:', data?.length || 0);
+      console.log('📊 Detalhes dos agendamentos:');
+      data?.forEach((apt, index) => {
+        console.log(`   ${index + 1}: ${apt.appointment_time} (${apt.duration}min) - Status: ${apt.status}`);
+      });
+      
       setExistingAppointments(data || []);
     } catch (error) {
       console.log('⚠️ Erro catch ao carregar agendamentos:', error);
@@ -215,15 +216,15 @@ const EstablishmentDirectBooking: React.FC = () => {
     loadEstablishment();
   }, [slug]);
 
-  // Buscar agendamentos quando data e profissional mudarem (só se logado)
+  // Buscar agendamentos quando data e profissional mudarem (funciona para todos)
   useEffect(() => {
-    if (establishment && selectedDate && selectedProfessional && user) {
+    if (establishment && selectedDate && selectedProfessional) {
       fetchExistingAppointments(establishment.id, selectedDate, selectedProfessional);
-    } else if (!user) {
-      // Se não logado, limpar agendamentos existentes
+    } else {
+      // Se não há dados suficientes, limpar agendamentos
       setExistingAppointments([]);
     }
-  }, [establishment, selectedDate, selectedProfessional, user]);
+  }, [establishment, selectedDate, selectedProfessional]);
 
 
 
