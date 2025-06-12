@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
@@ -42,7 +42,7 @@ interface Establishment {
   affiliate_link?: string;
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'premium-clients';
+type TabType = 'appointments' | 'services' | 'settings';
 
 interface Appointment {
   id: string;
@@ -58,15 +58,6 @@ interface Appointment {
   is_premium: boolean;
   duration: number;
   price: number;
-}
-
-interface PremiumClient {
-  id: string;
-  premium_user_id: string;
-  establishment_id: string;
-  client_name: string;
-  client_phone: string;
-  created_at: string;
 }
 
 const EstablishmentDashboard = () => {
@@ -633,12 +624,6 @@ const EstablishmentDashboard = () => {
   }, [establishment, activeTab]);
 
   useEffect(() => {
-    if (establishment && activeTab === 'premium-clients') {
-      fetchPremiumSubscribers();
-    }
-  }, [establishment, activeTab]);
-
-  useEffect(() => {
     if (establishment) {
       fetchAppointments();
       fetchMonthlyAppointments();
@@ -1040,18 +1025,6 @@ const EstablishmentDashboard = () => {
                   >
                     <Settings className="w-4 h-4" />
                     Configurações
-                  </button>
-
-                  <button
-                    onClick={() => setActiveTab('premium-clients')}
-                    className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
-                      activeTab === 'premium-clients'
-                        ? 'bg-primary text-white'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    <Star className="w-4 h-4" />
-                    CLIENTES PREMIUM
                   </button>
                 </div>
               </div>
@@ -1512,86 +1485,6 @@ const EstablishmentDashboard = () => {
                   </button>
                 </div>
               </form>
-            )}
-
-            {/* Seção de Clientes Premium */}
-            {activeTab === 'premium-clients' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                  <Star className="h-6 w-6 text-yellow-500" />
-                  Clientes Premium
-                </h2>
-                <p className="text-gray-400">
-                  Lista de clientes premium que se cadastraram em seu estabelecimento
-                </p>
-
-                {premiumSubscribers.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Star className="h-16 w-16 mx-auto mb-4 text-gray-400 opacity-30" />
-                    <p className="text-xl text-gray-400 mb-2">Nenhum cliente premium ainda</p>
-                    <p className="text-gray-500">
-                      Quando clientes se cadastrarem como premium em seu estabelecimento, eles aparecerão aqui.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {premiumSubscribers.map((client, index) => (
-                      <div key={client.id} className="p-6 rounded-lg bg-[#1a1b1c] border border-gray-800">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-full flex items-center justify-center">
-                              <Star className="h-6 w-6 text-white" />
-                            </div>
-                            <div>
-                              <h3 className="font-semibold text-white text-lg">
-                                {client.display_name}
-                              </h3>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Phone className="h-4 w-4 text-green-500" />
-                                <span className="text-green-500 font-medium">
-                                  {client.whatsapp}
-                                </span>
-                              </div>
-                              <p className="text-sm text-gray-400 mt-1">
-                                Cadastrado em {new Date(client.created_at).toLocaleDateString('pt-BR')}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn-primary flex items-center gap-2 text-sm"
-                            >
-                              <MessageSquare className="h-4 w-4" />
-                              WhatsApp
-                            </a>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Informações sobre o sistema premium */}
-                <div className="mt-8 p-6 rounded-lg bg-[#1a1b1c] border border-yellow-500/20">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 bg-yellow-500/10 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Star className="h-4 w-4 text-yellow-500" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-white mb-2">Como funciona o sistema Premium?</h3>
-                      <ul className="text-sm text-gray-400 space-y-1">
-                        <li>• Clientes podem se cadastrar como premium em seu estabelecimento</li>
-                        <li>• Cada cliente pode estar cadastrado em apenas 1 estabelecimento por vez</li>
-                        <li>• Os dados ficam salvos aqui para você entrar em contato</li>
-                        <li>• Clientes premium podem participar de sorteios e promoções especiais</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
             )}
           </>
         )}

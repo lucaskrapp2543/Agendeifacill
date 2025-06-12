@@ -5,7 +5,7 @@ import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
-import { getEstablishmentAppointments, createEstablishment, updateEstablishment, getEstablishmentPremiumSubscribers, removePremiumSubscriber } from '../lib/supabase';
+import { getEstablishmentAppointments, createEstablishment, updateEstablishment, removePremiumSubscriber, supabase } from '../lib/supabase';
 import type { Appointment } from '../types/supabase';
 import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
@@ -374,7 +374,17 @@ const EstablishmentDashboard = () => {
     setIsLoadingSubscribers(true);
     
     try {
-      const { data, error } = await getEstablishmentPremiumSubscribers(establishment.id);
+      const { data, error } = await supabase
+        .from('premium_subscriptions')
+        .select(`
+          id,
+          display_name,
+          whatsapp,
+          created_at,
+          user_id
+        `)
+        .eq('establishment_id', establishment.id)
+        .order('created_at', { ascending: false });
       
       if (error) {
         console.error('Erro ao buscar assinantes premium:', error);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Dice1 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
@@ -111,7 +111,15 @@ const EstablishmentDashboard = () => {
   const [selectedProfessional, setSelectedProfessional] = useState<string>('all'); // 'all' ou id do profissional
 
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
-
+  const [premiumClients, setPremiumClients] = useState<PremiumClient[]>([]);
+  const [isLoadingPremiumClients, setIsLoadingPremiumClients] = useState(false);
+  
+  // Estados para sorteio
+  const [isShuffling, setIsShuffling] = useState(false);
+  const [shuffledClients, setShuffledClients] = useState<PremiumClient[]>([]);
+  const [winners, setWinners] = useState<PremiumClient[]>([]);
+  const [showResults, setShowResults] = useState(false);
+  
   const durationOptions = [
     { value: 15, label: '15 minutos' },
     { value: 30, label: '30 minutos' },
@@ -634,7 +642,7 @@ const EstablishmentDashboard = () => {
 
   useEffect(() => {
     if (establishment && activeTab === 'premium-clients') {
-      fetchPremiumSubscribers();
+      fetchPremiumClients();
     }
   }, [establishment, activeTab]);
 
@@ -706,6 +714,100 @@ const EstablishmentDashboard = () => {
     } catch (error: any) {
       console.error('Error adding premium draw columns:', error);
     }
+  };
+
+  // Funções para clientes premium
+  const fetchPremiumClients = async () => {
+    if (!establishment) return;
+    
+    setIsLoadingPremiumClients(true);
+    
+    try {
+      const { data, error } = await supabase
+        .from('premium_clients')
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      setPremiumClients(data as PremiumClient[] || []);
+    } catch (error: any) {
+      console.error('Error fetching premium clients:', error);
+      toast(error.message || 'Erro ao carregar clientes premium', 'error');
+    } finally {
+      setIsLoadingPremiumClients(false);
+    }
+  };
+
+  const handleRemovePremiumClient = async (clientId: string) => {
+    try {
+      const { error } = await supabase
+        .from('premium_clients')
+        .delete()
+        .eq('id', clientId);
+      
+      if (error) throw error;
+      
+      // Atualizar lista local
+      setPremiumClients(prev => prev.filter(client => client.id !== clientId));
+      toast('Cliente premium removido com sucesso', 'success');
+      
+    } catch (error: any) {
+      console.error('Error removing premium client:', error);
+      toast(error.message || 'Erro ao remover cliente premium', 'error');
+    }
+  };
+
+  // Função para sortear clientes premium
+  const shuffleArray = (array: PremiumClient[]): PremiumClient[] => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
+  const handleDrawPremiumWinners = async () => {
+    const winnersCount = Math.floor(premiumClients.length / 20);
+    
+    if (premiumClients.length < 20) {
+      toast('É necessário ter pelo menos 20 clientes premium para realizar o sorteio', 'warning');
+      return;
+    }
+
+    if (winnersCount === 0) {
+      toast('Número insuficiente de clientes para sorteio', 'warning');
+      return;
+    }
+
+    setIsShuffling(true);
+    setShowResults(false);
+    setWinners([]);
+
+    // Simular embaralhamento com múltiplas iterações para efeito visual
+    const shuffleIterations = 10;
+    const shuffleDelay = 200;
+
+    for (let i = 0; i < shuffleIterations; i++) {
+      await new Promise(resolve => setTimeout(resolve, shuffleDelay));
+      const shuffled = shuffleArray(premiumClients);
+      setShuffledClients(shuffled);
+    }
+
+    // Embaralhamento final
+    await new Promise(resolve => setTimeout(resolve, shuffleDelay));
+    const finalShuffled = shuffleArray(premiumClients);
+    setShuffledClients(finalShuffled);
+
+    // Selecionar os vencedores baseado na regra: 1 a cada 20 clientes
+    const selectedWinners = finalShuffled.slice(0, winnersCount);
+    setWinners(selectedWinners);
+    setShowResults(true);
+    setIsShuffling(false);
+
+    toast(`Sorteio realizado! ${winnersCount} ${winnersCount === 1 ? 'cliente foi selecionado' : 'clientes foram selecionados'} como ${winnersCount === 1 ? 'vencedor' : 'vencedores'}!`, 'success');
   };
 
   if (isEstablishmentLoading) {
@@ -1050,46 +1152,67 @@ const EstablishmentDashboard = () => {
                         : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
-                    <Star className="w-4 h-4" />
+                    <Crown className="w-4 h-4" />
                     CLIENTES PREMIUM
                   </button>
                 </div>
-              </div>
-              <button onClick={signOut} className="btn-outline flex items-center gap-2">
-                <LogOut className="w-4 h-4" />
-                <span>Sair</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div className="p-6 rounded-lg bg-[#1a1b1c] border border-gray-800">
-                <div className="flex items-center gap-2 mb-2">
-                  <DollarSign className="h-5 w-5 text-green-500" />
-                  <h2 className="text-lg font-medium text-white">Saldo Hoje</h2>
+                <div className="mt-3 flex items-center justify-between text-sm">
+                  <p className="text-gray-400">
+                    Filtro ativo: <span className="text-primary font-medium">{getProfessionalName(selectedProfessional)}</span>
+                  </p>
+                  <p className="text-gray-400">
+                    {selectedProfessional === 'all' ? filteredAppointments.length : filteredAppointments.length} agendamentos encontrados
+                  </p>
                 </div>
-                <p className="text-3xl font-bold text-green-500">
-                  R$ {calculateDailyBalance(appointments).toFixed(2).replace('.', ',')}
-                </p>
-                <p className="text-sm text-gray-400 mt-1">
-                  {appointments.length} agendamentos hoje
-                </p>
-              </div>
-
-              <div className="p-6 rounded-lg bg-[#1a1b1c] border border-gray-800">
-                <div className="flex items-center gap-2 mb-2">
-                  <DollarSign className="h-5 w-5 text-blue-500" />
-                  <h2 className="text-lg font-medium text-white">Saldo do Mês</h2>
-                </div>
-                <p className="text-3xl font-bold text-blue-500">
-                  R$ {calculateMonthlyBalance(monthlyAppointments).toFixed(2).replace('.', ',')}
-                </p>
-                <p className="text-sm text-gray-400 mt-1">
-                  {monthlyAppointments.length} agendamentos este mês
-                </p>
               </div>
             </div>
 
             {activeTab === 'appointments' && (
+              <>
+                {/* Seleção de Profissionais */}
+                {establishment?.professionals && establishment.professionals.length > 0 && (
+                  <div className="mb-6 bg-[#1a1b1c] rounded-lg p-4 border border-gray-800">
+                    <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                      <User className="h-5 w-5 text-primary" />
+                      Filtrar por Profissional
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setSelectedProfessional('all')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          selectedProfessional === 'all'
+                            ? 'bg-primary text-white'
+                            : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                        }`}
+                      >
+                        👥 Todos os Profissionais
+                      </button>
+                      {establishment.professionals.map((professional) => (
+                        <button
+                          key={professional.id}
+                          onClick={() => setSelectedProfessional(professional.id)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            selectedProfessional === professional.id
+                              ? 'bg-primary text-white'
+                              : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                          }`}
+                        >
+                          👤 {professional.name}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-sm">
+                      <p className="text-gray-400">
+                        Filtro ativo: <span className="text-primary font-medium">{getProfessionalName(selectedProfessional)}</span>
+                      </p>
+                      <p className="text-gray-400">
+                        {selectedProfessional === 'all' ? filteredAppointments.length : filteredAppointments.length} agendamentos encontrados
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'appointments' && (
               <>
                 {/* Seleção de Profissionais */}
                 {establishment?.professionals && establishment.professionals.length > 0 && (
@@ -1517,80 +1640,232 @@ const EstablishmentDashboard = () => {
             {/* Seção de Clientes Premium */}
             {activeTab === 'premium-clients' && (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                  <Star className="h-6 w-6 text-yellow-500" />
-                  Clientes Premium
-                </h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                    <Crown className="h-6 w-6 text-primary" />
+                    Clientes Premium
+                  </h2>
+                </div>
+                
                 <p className="text-gray-400">
-                  Lista de clientes premium que se cadastraram em seu estabelecimento
+                  Aqui estão os clientes que se cadastraram como premium no seu estabelecimento.
                 </p>
 
-                {premiumSubscribers.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Star className="h-16 w-16 mx-auto mb-4 text-gray-400 opacity-30" />
-                    <p className="text-xl text-gray-400 mb-2">Nenhum cliente premium ainda</p>
-                    <p className="text-gray-500">
-                      Quando clientes se cadastrarem como premium em seu estabelecimento, eles aparecerão aqui.
+                {/* Painel de Estatísticas */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-[#242628] rounded-lg p-4 border border-gray-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Crown className="h-5 w-5 text-primary" />
+                      <span className="text-sm font-medium text-gray-400">Total de Clientes</span>
+                    </div>
+                    <p className="text-2xl font-bold text-white">{premiumClients.length}</p>
+                  </div>
+                  
+                  <div className="bg-[#242628] rounded-lg p-4 border border-gray-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">🎲</span>
+                      <span className="text-sm font-medium text-gray-400">Podem ser Sorteados</span>
+                    </div>
+                    <p className="text-2xl font-bold text-primary">{Math.floor(premiumClients.length / 20)}</p>
+                    <p className="text-xs text-gray-500">1 vencedor a cada 20 clientes</p>
+                  </div>
+                  
+                  <div className="bg-[#242628] rounded-lg p-4 border border-gray-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">📊</span>
+                      <span className="text-sm font-medium text-gray-400">Próximo Sorteio</span>
+                    </div>
+                    <p className="text-2xl font-bold text-yellow-400">
+                      {premiumClients.length < 20 ? 20 - premiumClients.length : (Math.ceil(premiumClients.length / 20) * 20) - premiumClients.length}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {premiumClients.length < 20 ? 'clientes para 1º sorteio' : 'clientes para próximo vencedor'}
                     </p>
                   </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {premiumSubscribers.map((client, index) => (
-                      <div key={client.id} className="p-6 rounded-lg bg-[#1a1b1c] border border-gray-800">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-full flex items-center justify-center">
-                              <Star className="h-6 w-6 text-white" />
-                            </div>
-                            <div>
-                              <h3 className="font-semibold text-white text-lg">
-                                {client.display_name}
-                              </h3>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Phone className="h-4 w-4 text-green-500" />
-                                <span className="text-green-500 font-medium">
-                                  {client.whatsapp}
-                                </span>
-                              </div>
-                              <p className="text-sm text-gray-400 mt-1">
-                                Cadastrado em {new Date(client.created_at).toLocaleDateString('pt-BR')}
-                              </p>
-                            </div>
-                          </div>
+                </div>
+
+                {/* Botão de Sorteio */}
+                {premiumClients.length >= 20 && (
+                  <div className="bg-[#242628] rounded-lg p-4 border border-gray-800 mb-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-medium text-white mb-2">🎲 Sorteio de Prêmios</h3>
+                        <p className="text-sm text-gray-400">
+                          {Math.floor(premiumClients.length / 20) === 1 
+                            ? `1 cliente será sorteado de ${premiumClients.length} cadastrados!`
+                            : `${Math.floor(premiumClients.length / 20)} clientes serão sorteados de ${premiumClients.length} cadastrados!`
+                          }
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Regra: 1 vencedor a cada 20 clientes premium
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleDrawPremiumWinners}
+                        disabled={isShuffling}
+                        className={`btn-primary px-6 py-3 font-medium ${
+                          isShuffling ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {isShuffling ? (
                           <div className="flex items-center gap-2">
-                            <a
-                              href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn-primary flex items-center gap-2 text-sm"
-                            >
-                              <MessageSquare className="h-4 w-4" />
-                              WhatsApp
-                            </a>
+                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                            Sorteando...
                           </div>
+                        ) : (
+                          `🎲 Sortear ${Math.floor(premiumClients.length / 20)} ${Math.floor(premiumClients.length / 20) === 1 ? 'Cliente' : 'Clientes'}`
+                        )}
+                      </button>
+                    </div>
+                    
+                    {/* Resultados do Sorteio */}
+                    {showResults && winners.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h4 className="text-md font-medium text-white mb-3">
+                          🏆 {winners.length === 1 ? 'Vencedor' : 'Vencedores'} do Sorteio:
+                        </h4>
+                        <div className="grid gap-3">
+                          {winners.map((winner, index) => (
+                            <div 
+                              key={winner.id} 
+                              className={`p-3 rounded-lg border-2 ${
+                                index === 0 ? 'bg-yellow-500/10 border-yellow-500' :
+                                index === 1 ? 'bg-gray-500/10 border-gray-400' :
+                                index === 2 ? 'bg-orange-500/10 border-orange-500' :
+                                index === 3 ? 'bg-blue-500/10 border-blue-500' :
+                                'bg-green-500/10 border-green-500'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                                  index === 0 ? 'bg-yellow-500 text-black' :
+                                  index === 1 ? 'bg-gray-400 text-black' :
+                                  index === 2 ? 'bg-orange-500 text-white' :
+                                  index === 3 ? 'bg-blue-500 text-white' :
+                                  'bg-green-500 text-white'
+                                }`}>
+                                  {index + 1}°
+                                </div>
+                                <div>
+                                  <p className="font-medium text-white">{winner.client_name}</p>
+                                  <p className="text-sm text-gray-400">{winner.client_phone}</p>
+                                </div>
+                                <div className="ml-auto">
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    index === 0 ? 'bg-yellow-500/20 text-yellow-400' :
+                                    index === 1 ? 'bg-gray-500/20 text-gray-300' :
+                                    index === 2 ? 'bg-orange-500/20 text-orange-400' :
+                                    index === 3 ? 'bg-blue-500/20 text-blue-400' :
+                                    'bg-green-500/20 text-green-400'
+                                  }`}>
+                                    {index === 0 ? '🥇 1º Lugar' : 
+                                     index === 1 ? '🥈 2º Lugar' : 
+                                     index === 2 ? '🥉 3º Lugar' :
+                                     `🏆 ${index + 1}º Lugar`}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
 
-                {/* Informações sobre o sistema premium */}
-                <div className="mt-8 p-6 rounded-lg bg-[#1a1b1c] border border-yellow-500/20">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 bg-yellow-500/10 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Star className="h-4 w-4 text-yellow-500" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-white mb-2">Como funciona o sistema Premium?</h3>
-                      <ul className="text-sm text-gray-400 space-y-1">
-                        <li>• Clientes podem se cadastrar como premium em seu estabelecimento</li>
-                        <li>• Cada cliente pode estar cadastrado em apenas 1 estabelecimento por vez</li>
-                        <li>• Os dados ficam salvos aqui para você entrar em contato</li>
-                        <li>• Clientes premium podem participar de sorteios e promoções especiais</li>
-                      </ul>
-                    </div>
+                {/* Lista de Clientes Premium */}
+                {isLoadingPremiumClients ? (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
                   </div>
-                </div>
+                ) : premiumClients.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Crown className="h-12 w-12 text-gray-600 mx-auto mb-4" />
+                    <p className="text-gray-400">
+                      Os clientes premium aparecerão aqui quando se cadastrarem no seu estabelecimento
+                    </p>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Você precisará de pelo menos 20 clientes para realizar o primeiro sorteio
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Seção Embaralhamento Visual */}
+                    {isShuffling && (
+                      <div className="bg-[#1a1b1c] rounded-lg p-4 border border-primary">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-primary"></div>
+                          <span className="text-primary font-medium">Embaralhando clientes...</span>
+                        </div>
+                        <div className="grid gap-2">
+                          {(shuffledClients.length > 0 ? shuffledClients : premiumClients).slice(0, 6).map((client, index) => (
+                            <div 
+                              key={`${client.id}-${index}`}
+                              className="p-2 bg-[#242628] rounded border border-gray-700 flex items-center gap-2 animate-bounce"
+                              style={{ animationDelay: `${index * 100}ms` }}
+                            >
+                              <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center text-xs font-bold text-white">
+                                {index + 1}
+                              </div>
+                              <span className="text-white text-sm">{client.client_name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Lista Normal */}
+                    {!isShuffling && (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-lg font-medium text-white">
+                            Clientes Cadastrados ({premiumClients.length})
+                          </h3>
+                          {premiumClients.length < 20 && (
+                            <span className="text-sm text-gray-400">
+                              Faltam {20 - premiumClients.length} para 1º sorteio
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="grid gap-4">
+                          {premiumClients.map((client, index) => (
+                            <div key={client.id} className="bg-[#242628] rounded-lg p-4 border border-gray-800">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
+                                    <Crown className="h-5 w-5 text-white" />
+                                  </div>
+                                  <div>
+                                    <h4 className="font-medium text-white">{client.client_name}</h4>
+                                    <p className="text-sm text-gray-400">{client.client_phone}</p>
+                                    <p className="text-xs text-gray-500">
+                                      Cadastrado em {format(new Date(client.created_at), 'dd/MM/yyyy')}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => window.open(`https://wa.me/${client.client_phone.replace(/\D/g, '')}`, '_blank')}
+                                    className="btn-outline text-sm px-3 py-1"
+                                  >
+                                    WhatsApp
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemovePremiumClient(client.id)}
+                                    className="btn-outline text-red-400 hover:text-red-300 text-sm px-3 py-1"
+                                  >
+                                    Remover
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </>

@@ -14,7 +14,6 @@ import {
 import { Calendar, Clock, Scissors, LogOut, Star, User, Plus, Trash2, Heart, Search, X, Crown } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import type { Appointment, Establishment } from '../types/supabase';
@@ -45,7 +44,6 @@ interface FavoriteEstablishment {
 const PremiumDashboard = () => {
   const { user, signOut } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,14 +78,6 @@ const PremiumDashboard = () => {
     loadFavoriteEstablishments();
     checkPremiumStatus();
   }, [user]);
-
-  // DESABILITADO TEMPORARIAMENTE - estava causando problema de voltar após remoção
-  // useEffect(() => {
-  //   if (user && activeTab === 'premium') {
-  //     console.log('🔄 Aba Premium ativada - Verificando status...');
-  //     checkPremiumStatus();
-  //   }
-  // }, [user, activeTab]);
 
   // Função para definir o horário com debug
   const setAppointmentTimeWithDebug = (time: string) => {
@@ -253,21 +243,8 @@ const PremiumDashboard = () => {
         return;
       }
       
-      // Criar slug para redirecionamento
-      const generateSlug = (name: string, code: string) => {
-        const nameSlug = name
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '') // Remove acentos
-          .replace(/[^a-z0-9]/g, '') // Remove caracteres especiais
-          .slice(0, 20); // Limita tamanho
-        return `${nameSlug}${code}`;
-      };
-      
-      const slug = generateSlug(data.name, data.code);
-      
-      // Redirecionar para página dinâmica
-      navigate(`/${slug}`);
+      setEstablishment(data);
+      toast(`Estabelecimento encontrado: ${data.name}`, 'success');
       
     } catch (error: any) {
       toast(error.message || 'Erro ao buscar estabelecimento', 'error');
@@ -444,11 +421,7 @@ const PremiumDashboard = () => {
     setIsActivatingPremium(true);
 
     try {
-      console.log('🔍 VERIFICANDO PREMIUM EXISTENTE:');
-      console.log('  - User ID:', user.id);
-      console.log('  - Establishment ID:', premiumEstablishment.id);
-      
-      // Verificar se já tem premium ativo NESTE estabelecimento específico
+      // Primeiro, verificar se já tem premium ativo NESTE estabelecimento específico
       const { data: existing, error: checkError } = await supabase
         .from('premium_subscriptions')
         .select(`
@@ -459,32 +432,15 @@ const PremiumDashboard = () => {
         `)
         .eq('user_id', user.id)
         .eq('establishment_id', premiumEstablishment.id)
-        .maybeSingle(); // Usar maybeSingle() em vez de single() para evitar erro quando não existe
+        .single();
 
-      console.log('📋 RESULTADO DA VERIFICAÇÃO:');
-      console.log('  - Erro:', checkError);
-      console.log('  - Dados:', existing);
-
-      if (checkError) {
-        console.error('❌ ERRO NA VERIFICAÇÃO:', checkError);
-        // Se der erro, mas não for "PGRST116" (not found), tratar como erro real
-        if (checkError.code !== 'PGRST116') {
-          throw checkError;
-        }
-        console.log('ℹ️ Erro PGRST116 ignorado (normal quando não existe registro)');
-      }
-
-      if (existing) {
-        const establishmentName = existing.establishments?.name || premiumEstablishment.name;
-        console.log('⚠️ JÁ EXISTE PREMIUM:', establishmentName);
-        toast(`Você já é premium em ${establishmentName}!`, 'warning');
+      if (existing && !checkError) {
+        toast(`Você já é premium em ${existing.establishments?.name || 'este estabelecimento'}!`, 'warning');
         return;
       }
 
-      console.log('✅ PODE ATIVAR PREMIUM - Procedendo...');
-
       // Ativar premium
-      const { error: insertError } = await supabase
+      const { error } = await supabase
         .from('premium_subscriptions')
         .insert({
           user_id: user.id,
@@ -493,28 +449,16 @@ const PremiumDashboard = () => {
           whatsapp: clientPhone
         });
 
-      if (insertError) {
-        console.error('❌ ERRO AO INSERIR:', insertError);
-        throw insertError;
-      }
+      if (error) throw error;
 
-      console.log('🎉 PREMIUM ATIVADO COM SUCESSO');
       toast(`🎉 Premium ativado com sucesso em ${premiumEstablishment.name}!`, 'success');
       
-      // Limpar formulário e atualizar status
+      // Limpar formulário
       setPremiumEstablishmentCode('');
       setPremiumEstablishment(null);
-      setClientName('');
-      setClientPhone('');
-      
-      // Aguardar e verificar status
-      setTimeout(() => {
-        console.log('🔄 Verificando status após ativação...');
-        checkPremiumStatus();
-      }, 1000);
       
     } catch (error: any) {
-      console.error('❌ ERRO AO ATIVAR PREMIUM:', error);
+      console.error('Error activating premium:', error);
       toast(error.message || 'Erro ao ativar premium', 'error');
     } finally {
       setIsActivatingPremium(false);
@@ -548,132 +492,24 @@ const PremiumDashboard = () => {
   };
 
   const handleRemovePremium = async () => {
-    if (!currentPremiumStatus) {
-      toast('Nenhum premium ativo para remover', 'warning');
-      return;
-    }
+    if (!currentPremiumStatus) return;
     
-    const establishmentName = currentPremiumStatus.establishments?.name || 'este estabelecimento';
-    
-    if (!confirm(`🚨 CONFIRMAÇÃO DE REMOÇÃO\n\nTem certeza que deseja remover seu premium do estabelecimento "${establishmentName}"?\n\n⚠️ Esta ação:\n- Remove você da lista de clientes premium\n- Não pode ser desfeita\n- É permanente\n\nDeseja continuar?`)) return;
+    if (!confirm('Tem certeza que deseja remover seu premium atual?')) return;
     
     try {
-      console.log('🗑️ INICIANDO REMOÇÃO DE PREMIUM:');
-      console.log('  - ID do registro:', currentPremiumStatus.id);
-      console.log('  - User ID:', user?.id);
-      console.log('  - Establishment ID:', currentPremiumStatus.establishment_id);
-      console.log('  - Estabelecimento:', establishmentName);
-      
-      // ESTRATÉGIA 1: Deletar por user_id + establishment_id (mais seguro para RLS)
-      const { data: deleteData, error: deleteError } = await supabase
+      const { error } = await supabase
         .from('premium_subscriptions')
         .delete()
-        .eq('user_id', user?.id)
-        .eq('establishment_id', currentPremiumStatus.establishment_id)
-        .select(); // Retorna os registros deletados
+        .eq('id', currentPremiumStatus.id);
 
-      console.log('🔍 RESULTADO DA DELEÇÃO (por user_id):');
-      console.log('  - Erro:', deleteError);
-      console.log('  - Dados deletados:', deleteData);
+      if (error) throw error;
       
-      if (deleteError) {
-        console.error('❌ ERRO AO DELETAR POR USER_ID:', deleteError);
-        
-        // ESTRATÉGIA 2: Se falhar, tentar por ID direto
-        console.log('🔄 TENTANDO DELEÇÃO POR ID DIRETO...');
-        const { data: deleteData2, error: deleteError2 } = await supabase
-          .from('premium_subscriptions')
-          .delete()
-          .eq('id', currentPremiumStatus.id)
-          .select();
-          
-        console.log('🔍 RESULTADO DA DELEÇÃO (por ID):');
-        console.log('  - Erro:', deleteError2);
-        console.log('  - Dados deletados:', deleteData2);
-        
-        if (deleteError2) {
-          throw deleteError2;
-        }
-        
-        if (!deleteData2 || deleteData2.length === 0) {
-          throw new Error('Nenhum registro foi deletado. Possível problema de permissão RLS.');
-        }
-        
-        console.log(`✅ SUCESSO (Estratégia 2): ${deleteData2.length} registro(s) deletado(s)`);
-      } else {
-        if (!deleteData || deleteData.length === 0) {
-          throw new Error('Nenhum registro foi deletado. Possível problema de permissão RLS.');
-        }
-        
-        console.log(`✅ SUCESSO (Estratégia 1): ${deleteData.length} registro(s) deletado(s)`);
-      }
-      
-      console.log('✅ DELEÇÃO CONCLUÍDA - Limpando estados...');
-      
-      // Limpar TODOS os estados relacionados IMEDIATAMENTE
+      toast('Premium removido com sucesso!', 'success');
       setCurrentPremiumStatus(null);
       setPremiumEstablishmentCode('');
       setPremiumEstablishment(null);
-      setClientName('');
-      setClientPhone('');
-      
-      // Mostrar sucesso
-      toast(`✅ Premium removido com sucesso!\n\nVocê foi removido da lista de clientes premium do estabelecimento "${establishmentName}".`, 'success');
-      
-      console.log('🎉 REMOÇÃO CONCLUÍDA COM SUCESSO - NÃO vai chamar checkPremiumStatus');
-      
     } catch (error: any) {
-      console.error('❌ ERRO COMPLETO NA REMOÇÃO:', error);
-      console.error('❌ Detalhes do erro:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint
-      });
-      
-      toast(`❌ Erro ao remover premium: ${error.message}`, 'error');
-      
-      // Se der erro, forçar verificação do status real após delay
-      setTimeout(() => {
-        console.log('🔄 Verificando status real após erro...');
-        checkPremiumStatus();
-      }, 2000);
-    }
-  };
-
-  // Função para testar permissões
-  const testPermissions = async () => {
-    if (!user) return;
-    
-    try {
-      console.log('🔍 TESTANDO PERMISSÕES:');
-      console.log('  - Usuário ID:', user.id);
-      
-      // Testar SELECT
-      const { data: selectData, error: selectError } = await supabase
-        .from('premium_subscriptions')
-        .select('*')
-        .eq('user_id', user.id);
-      
-      console.log('📖 SELECT TEST:');
-      console.log('  - Erro:', selectError);
-      console.log('  - Dados:', selectData);
-      
-      // Testar permissão de DELETE
-      const { data: deleteTestData, error: deleteTestError } = await supabase
-        .from('premium_subscriptions')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('id', 'test-id-that-does-not-exist');
-      
-      console.log('🗑️ DELETE TEST (fake ID):');
-      console.log('  - Erro:', deleteTestError);
-      console.log('  - Resultado:', deleteTestData);
-      
-      toast('Teste de permissões concluído - veja o console', 'info');
-      
-    } catch (error) {
-      console.error('❌ ERRO NO TESTE:', error);
+      toast(error.message || 'Erro ao remover premium', 'error');
     }
   };
 
@@ -1198,37 +1034,24 @@ const PremiumDashboard = () => {
                 {/* Status Premium Atual */}
                 {currentPremiumStatus ? (
                   <div className="mb-6 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                    <h3 className="text-white font-medium mb-3 flex items-center gap-2">
+                    <h3 className="text-white font-medium mb-2 flex items-center gap-2">
                       <Crown className="h-4 w-4 text-yellow-500" />
                       Status Premium Atual
                     </h3>
-                    <div className="text-sm text-gray-400 mb-4">
-                      <div className="flex items-center gap-2 mb-2">
+                    <div className="text-sm text-gray-400">
+                      <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                         <span>Você é premium do estabelecimento: <strong className="text-white">{currentPremiumStatus.establishments?.name}</strong></span>
                       </div>
-                      <p className="mb-1">Código: <strong className="text-white">{currentPremiumStatus.establishments?.code}</strong></p>
-                      <p className="mb-1">Nome cadastrado: <strong className="text-white">{currentPremiumStatus.display_name}</strong></p>
-                      <p className="mb-1">WhatsApp: <strong className="text-white">{currentPremiumStatus.whatsapp}</strong></p>
-                      <p className="text-xs text-gray-500">Cadastrado em: {new Date(currentPremiumStatus.created_at).toLocaleDateString('pt-BR')}</p>
-                    </div>
-                    <div className="flex gap-2">
+                      <p className="mt-1">Código: <strong className="text-white">{currentPremiumStatus.establishments?.code}</strong></p>
+                      <p className="mt-1">Para trocar de estabelecimento, remova o premium atual primeiro.</p>
                       <button 
-                        className="btn-outline text-sm flex-1"
-                        onClick={() => checkPremiumStatus()}
-                      >
-                        🔄 Atualizar Status
-                      </button>
-                      <button 
-                        className="btn-outline text-sm text-red-400 hover:text-red-300 border-red-800 hover:border-red-700"
+                        className="mt-2 text-red-400 hover:text-red-300 text-xs underline"
                         onClick={handleRemovePremium}
                       >
-                        🗑️ Remover Premium
+                        Remover Premium Atual
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-2">
-                      💡 Para trocar de estabelecimento, remova o premium atual primeiro.
-                    </p>
                   </div>
                 ) : (
                   <div className="mb-6 p-4 bg-[#1a1b1c] rounded-lg border border-gray-800">
@@ -1236,56 +1059,13 @@ const PremiumDashboard = () => {
                       <Crown className="h-4 w-4 text-gray-500" />
                       Status Premium
                     </h3>
-                    <div className="text-sm text-gray-400 mb-3">
-                      <div className="flex items-center gap-2 mb-1">
+                    <div className="text-sm text-gray-400">
+                      <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
                         <span>Você ainda não é premium de nenhum estabelecimento</span>
                       </div>
-                      <p className="text-xs">Use o formulário abaixo para se tornar premium de um estabelecimento.</p>
+                      <p className="mt-1">Use o formulário abaixo para se tornar premium de um estabelecimento.</p>
                     </div>
-                    <button 
-                      className="btn-outline text-sm w-full"
-                      onClick={() => checkPremiumStatus()}
-                    >
-                      🔄 Verificar Status Premium
-                    </button>
-                    <button 
-                      className="btn-outline text-sm w-full mt-2 text-red-400 border-red-800"
-                      onClick={async () => {
-                        if (!user) return;
-                        if (!confirm('🚨 ATENÇÃO: Isso vai remover TODOS os registros premium deste usuário!\n\nContinuar?')) return;
-                        
-                        try {
-                          console.log('🧹 LIMPEZA FORÇADA - Removendo TODOS os registros do usuário:', user.id);
-                          
-                          const { data, error } = await supabase
-                            .from('premium_subscriptions')
-                            .delete()
-                            .eq('user_id', user.id)
-                            .select();
-                          
-                          console.log('🗑️ RESULTADO DA LIMPEZA:');
-                          console.log('  - Erro:', error);
-                          console.log('  - Registros removidos:', data);
-                          
-                          if (error) {
-                            toast(`Erro na limpeza: ${error.message}`, 'error');
-                          } else {
-                            toast(`🧹 Limpeza concluída! ${data?.length || 0} registro(s) removido(s)`, 'success');
-                            setCurrentPremiumStatus(null);
-                            setPremiumEstablishmentCode('');
-                            setPremiumEstablishment(null);
-                            setClientName('');
-                            setClientPhone('');
-                          }
-                        } catch (error: any) {
-                          console.error('❌ ERRO NA LIMPEZA:', error);
-                          toast(`Erro na limpeza: ${error.message}`, 'error');
-                        }
-                      }}
-                    >
-                      🧹 Limpeza Forçada (DEBUG)
-                    </button>
                   </div>
                 )}
 

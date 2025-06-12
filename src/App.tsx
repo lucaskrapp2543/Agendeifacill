@@ -13,6 +13,7 @@ import EstablishmentDashboard from './pages/EstablishmentDashboard';
 import PremiumDashboard from './pages/PremiumDashboard';
 import NotFound from './pages/NotFound';
 import BookingPage from './pages/BookingPage';
+import EstablishmentDirectBooking from './pages/EstablishmentDirectBooking';
 import { SuccessPage } from './pages/SuccessPage';
 import { Success } from './pages/Success';
 import Suporte060622 from './pages/Suporte060622';
@@ -74,6 +75,9 @@ function App() {
               />
               
               <Route path="/success" element={<Success />} />
+              
+              {/* Rota dinâmica para agendamento direto */}
+              <Route path="/:slug" element={<EstablishmentDirectBooking />} />
               
               <Route path="*" element={<NotFound />} />
             </Routes>

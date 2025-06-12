@@ -209,11 +209,21 @@ const ClientDashboard = () => {
   };
 
   const handleSelectFavoriteEstablishment = (favorite: FavoriteEstablishment) => {
-    setEstablishment(favorite.establishment_data);
-    setEstablishmentCode(favorite.establishment_code);
-    fetchExistingAppointments(favorite.establishment_id, appointmentDate, professional);
-    setActiveTab('book');
-    toast(`Estabelecimento selecionado: ${favorite.establishment_name}`, 'success');
+    // Criar slug para redirecionamento
+    const generateSlug = (name: string, code: string) => {
+      const nameSlug = name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+        .replace(/[^a-z0-9]/g, '') // Remove caracteres especiais
+        .slice(0, 20); // Limita tamanho
+      return `${nameSlug}${code}`;
+    };
+    
+    const slug = generateSlug(favorite.establishment_name, favorite.establishment_code);
+    
+    // Redirecionar para página dinâmica
+    navigate(`/${slug}`);
   };
 
   const fetchExistingAppointments = async (establishmentId: string, date: string, professional: string) => {
@@ -342,13 +352,24 @@ const ClientDashboard = () => {
         return;
       }
       
-      setEstablishment(data);
-      fetchExistingAppointments(data.id, appointmentDate, professional);
-      toast(`Estabelecimento encontrado: ${data.name}`, 'success');
+      // Criar slug para redirecionamento
+      const generateSlug = (name: string, code: string) => {
+        const nameSlug = name
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+          .replace(/[^a-z0-9]/g, '') // Remove caracteres especiais
+          .slice(0, 20); // Limita tamanho
+        return `${nameSlug}${code}`;
+      };
+      
+      const slug = generateSlug(data.name, data.code);
+      
+      // Redirecionar para página dinâmica
+      navigate(`/${slug}`);
       
     } catch (error: any) {
       toast(error.message || 'Erro ao buscar estabelecimento', 'error');
-      setEstablishment(null);
     } finally {
       setIsSearching(false);
     }
@@ -584,7 +605,21 @@ const ClientDashboard = () => {
                       </p>
                     </div>
                     <button
-                      onClick={() => navigate(`/establishment/${appointments[0].establishment_code}`)}
+                      onClick={() => {
+                        // Criar slug para redirecionamento
+                        const generateSlug = (name: string, code: string) => {
+                          const nameSlug = name
+                            .toLowerCase()
+                            .normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+                            .replace(/[^a-z0-9]/g, '') // Remove caracteres especiais
+                            .slice(0, 20); // Limita tamanho
+                          return `${nameSlug}${code}`;
+                        };
+                        
+                        const slug = generateSlug(appointments[0].establishment_name, appointments[0].establishment_code);
+                        navigate(`/${slug}`);
+                      }}
                       className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto text-sm md:text-base px-4 py-2"
                     >
                       <Calendar className="w-4 h-4" />

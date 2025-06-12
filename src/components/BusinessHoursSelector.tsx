@@ -46,19 +46,8 @@ export function BusinessHoursSelector({
   selectedProfessional = '',
   selectedServiceDuration = 30
 }: BusinessHoursSelectorProps) {
-  console.log('BusinessHoursSelector props:', {
-    value,
-    selectedDate,
-    businessHours,
-    existingAppointments,
-    selectedProfessional,
-    selectedServiceDuration
-  });
-
-  // Interceptar onChange para debug
+  // Log simplificado apenas quando necessário
   const handleTimeChange = (time: string) => {
-    console.log('🕐 BusinessHoursSelector - Horário recebido do TimeSlotSelector:', time);
-    console.log('🕐 BusinessHoursSelector - Passando para onChange:', time);
     onChange(time);
   };
 
@@ -69,11 +58,10 @@ export function BusinessHoursSelector({
   // Pegar os horários do dia
   const daySchedule = businessHours[dayInEnglish];
 
-  console.log('Day schedule:', {
-    dayInPortuguese,
-    dayInEnglish,
-    daySchedule
-  });
+  // Log apenas se houver problema
+  if (!daySchedule) {
+    console.log('⚠️ Horário não encontrado para:', dayInEnglish);
+  }
 
   if (!daySchedule || !daySchedule.enabled) {
     return (

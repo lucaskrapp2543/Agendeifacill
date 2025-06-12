@@ -633,12 +633,6 @@ const EstablishmentDashboard = () => {
   }, [establishment, activeTab]);
 
   useEffect(() => {
-    if (establishment && activeTab === 'premium-clients') {
-      fetchPremiumSubscribers();
-    }
-  }, [establishment, activeTab]);
-
-  useEffect(() => {
     if (establishment) {
       fetchAppointments();
       fetchMonthlyAppointments();
@@ -1544,12 +1538,12 @@ const EstablishmentDashboard = () => {
                             </div>
                             <div>
                               <h3 className="font-semibold text-white text-lg">
-                                {client.display_name}
+                                {client.client_name}
                               </h3>
                               <div className="flex items-center gap-2 mt-1">
                                 <Phone className="h-4 w-4 text-green-500" />
                                 <span className="text-green-500 font-medium">
-                                  {client.whatsapp}
+                                  {client.client_phone}
                                 </span>
                               </div>
                               <p className="text-sm text-gray-400 mt-1">
@@ -1559,7 +1553,7 @@ const EstablishmentDashboard = () => {
                           </div>
                           <div className="flex items-center gap-2">
                             <a
-                              href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
+                              href={`https://wa.me/55${client.client_phone.replace(/\D/g, '')}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="btn-primary flex items-center gap-2 text-sm"
