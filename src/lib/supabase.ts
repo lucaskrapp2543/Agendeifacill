@@ -87,7 +87,7 @@ export const createEstablishment = async (establishmentData: any) => {
 
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('profile-images')
-      .upload(filePath, file);
+      .upload(filePath, file, { upsert: true });
 
     if (uploadError) {
       throw uploadError;
@@ -171,7 +171,7 @@ export const updateEstablishment = async (id: string, data: any) => {
     if (profile_image instanceof File) {
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('profile-images')
-        .upload(`establishment/${id}/${profile_image.name}`, profile_image);
+        .upload(`establishment/${id}/${profile_image.name}`, profile_image, { upsert: true });
 
       if (uploadError) throw uploadError;
 
