@@ -709,6 +709,27 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // Função para gerar o slug do estabelecimento
+  const generateSlug = (name: string, code: string) => {
+    const nameSlug = name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[0-\u036f]/g, '') // Remove acentos
+      .replace(/[^a-z0-9]/g, '') // Remove caracteres especiais
+      .slice(0, 20); // Limita tamanho
+    return `${nameSlug}${code}`;
+  };
+
+  const establishmentLink = establishment
+    ? `https://agendeifacil.com/${generateSlug(establishment.name, establishment.code)}`
+    : '';
+
+  const copyLinkToClipboard = () => {
+    if (!establishmentLink) return;
+    navigator.clipboard.writeText(establishmentLink);
+    toast('Link copiado para a área de transferência!', 'success');
+  };
+
   if (isEstablishmentLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -930,7 +951,7 @@ const EstablishmentDashboard = () => {
               {/* Serviços e Preços */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <h4 className="text-md font-medium">Serviços e Preços</h4>
+                  <h4 className="text-md font-medium">MEU LINK</h4>
                   <button
                     type="button"
                     onClick={handleAddService}
@@ -1026,7 +1047,7 @@ const EstablishmentDashboard = () => {
                     }`}
                   >
                     <Scissors className="w-4 h-4" />
-                    Serviços
+                    MEU LINK
                   </button>
 
                   <button
@@ -1591,6 +1612,29 @@ const EstablishmentDashboard = () => {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Informações sobre o link do estabelecimento */}
+            {establishment && (
+              <div className="mb-4 flex gap-2 items-center">
+                <button
+                  type="button"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
+                  onClick={() => window.open(establishmentLink, '_blank')}
+                  title="Abrir página pública do seu estabelecimento"
+                >
+                  MEU LINK
+                </button>
+                <button
+                  type="button"
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-3 rounded-md text-xs transition-colors duration-200"
+                  onClick={copyLinkToClipboard}
+                  title="Copiar link para compartilhar"
+                >
+                  Copiar Link
+                </button>
+                <span className="text-xs text-gray-500 select-all">{establishmentLink}</span>
               </div>
             )}
           </>
