@@ -4,9 +4,11 @@ import { ptBR } from 'date-fns/locale';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
 interface BusinessHours {
-  open: string;
-  close: string;
   enabled: boolean;
+  open1: string;
+  close1: string;
+  open2: string;
+  close2: string;
 }
 
 interface BusinessHoursSelectorProps {
@@ -78,8 +80,10 @@ export function BusinessHoursSelector({
   };
 
   const formattedBusinessHours = {
-    open: formatTime(daySchedule.open),
-    close: formatTime(daySchedule.close)
+    open1: formatTime(daySchedule.open1),
+    close1: formatTime(daySchedule.close1),
+    open2: formatTime(daySchedule.open2),
+    close2: formatTime(daySchedule.close2)
   };
 
   return (

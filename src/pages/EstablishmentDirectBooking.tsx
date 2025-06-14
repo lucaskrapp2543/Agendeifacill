@@ -47,13 +47,15 @@ const EstablishmentDirectBooking: React.FC = () => {
   // Função para buscar agendamentos existentes (funciona para usuários logados e anônimos)
   const fetchExistingAppointments = async (establishmentId: string, date: string, professional: string) => {
     if (!establishmentId || !date || !professional) {
+      console.log('⚠️ fetchExistingAppointments: Parâmetros insuficientes, limpando agendamentos');
+      console.log('📍 Parâmetros recebidos:', { establishmentId, date, professional });
       setExistingAppointments([]);
       return;
     }
     
     try {
-      console.log('📋 Buscando agendamentos existentes (acesso público)...');
-      console.log('📍 Parâmetros:', { establishmentId, date, professional });
+      console.log('🔍 INICIANDO BUSCA DE AGENDAMENTOS - EstablishmentDirectBooking');
+      console.log('📍 Parâmetros da busca:', { establishmentId, date, professional });
       
       // Buscar apenas dados necessários para verificar disponibilidade (sem dados pessoais)
       const { data, error } = await supabase
@@ -65,21 +67,39 @@ const EstablishmentDirectBooking: React.FC = () => {
         .neq('status', 'cancelled');
         
       if (error) {
-        console.log('⚠️ Erro ao buscar agendamentos:', error);
+        console.log('❌ ERRO na consulta de agendamentos:', error);
+        console.log('📝 Detalhes do erro:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
         // Em caso de erro, assumir que não há agendamentos (mais seguro)
         setExistingAppointments([]);
         return;
       }
       
-      console.log('✅ Agendamentos existentes carregados:', data?.length || 0);
-      console.log('📊 Detalhes dos agendamentos:');
-      data?.forEach((apt, index) => {
-        console.log(`   ${index + 1}: ${apt.appointment_time} (${apt.duration}min) - Status: ${apt.status}`);
-      });
+      console.log('✅ CONSULTA REALIZADA COM SUCESSO');
+      console.log('📊 Agendamentos encontrados:', data?.length || 0);
+      
+      if (data && data.length > 0) {
+        console.log('📋 DETALHES DOS AGENDAMENTOS ENCONTRADOS:');
+        data.forEach((apt, index) => {
+          console.log(`   ${index + 1}: Data=${apt.appointment_date}, Hora=${apt.appointment_time}, Duração=${apt.duration}min, Status=${apt.status}, Profissional=${apt.professional}`);
+        });
+      } else {
+        console.log('✅ NENHUM AGENDAMENTO ENCONTRADO - Todos os horários deveriam estar disponíveis!');
+      }
       
       setExistingAppointments(data || []);
+      
+      // Log adicional para confirmar o que foi setado no estado
+      console.log('📝 Estado existingAppointments atualizado com:', data?.length || 0, 'agendamentos');
+      
     } catch (error) {
-      console.log('⚠️ Erro catch ao carregar agendamentos:', error);
+      console.log('💥 ERRO CATCH ao carregar agendamentos:', error);
+      console.log('📝 Tipo do erro:', typeof error);
+      console.log('📝 Erro completo:', JSON.stringify(error, null, 2));
       setExistingAppointments([]);
     }
   };
@@ -437,7 +457,12 @@ const EstablishmentDirectBooking: React.FC = () => {
                              day === 'saturday' ? 'Sábado' : 'Domingo'}:
                           </span>
                           <span>
-                            {hours.enabled === true ? `${hours.open || ''} - ${hours.close || ''}` : 'Fechado'}
+                            {hours.enabled === true ? (
+                              // Verificar se tem intervalo (open2 e close2 diferentes de open1 e close1)
+                              hours.open2 && hours.close2 && (hours.open2 !== hours.close1) ? 
+                                `${hours.open1 || ''} - ${hours.close1 || ''} e ${hours.open2 || ''} - ${hours.close2 || ''}` :
+                                `${hours.open1 || ''} - ${hours.close2 || ''}`
+                            ) : 'Fechado'}
                           </span>
                         </div>
                       );

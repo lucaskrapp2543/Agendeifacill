@@ -11,9 +11,11 @@ import { DurationSelector } from '../components/DurationSelector';
 import { TimeSelector } from '../components/TimeSelector';
 
 interface BusinessHours {
-  open: string;
-  close: string;
   enabled: boolean;
+  open1: string;
+  close1: string;
+  open2: string;
+  close2: string;
 }
 
 interface Professional {
@@ -91,13 +93,13 @@ const EstablishmentDashboard = () => {
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
   
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
-    monday: { open: '09:00', close: '18:00', enabled: true },
-    tuesday: { open: '09:00', close: '18:00', enabled: true },
-    wednesday: { open: '09:00', close: '18:00', enabled: true },
-    thursday: { open: '09:00', close: '18:00', enabled: true },
-    friday: { open: '09:00', close: '18:00', enabled: true },
-    saturday: { open: '09:00', close: '18:00', enabled: false },
-    sunday: { open: '09:00', close: '18:00', enabled: false }
+    monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
   });
   
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -169,7 +171,11 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleBusinessHoursChange = (day: keyof typeof businessHours, field: 'open' | 'close' | 'enabled', value: string | boolean) => {
+  const handleBusinessHoursChange = (
+    day: keyof typeof businessHours,
+    field: 'enabled' | 'open1' | 'close1' | 'open2' | 'close2',
+    value: string | boolean
+  ) => {
     setBusinessHours(prev => ({
       ...prev,
       [day]: {
@@ -611,7 +617,9 @@ const EstablishmentDashboard = () => {
           setEstablishmentDescription(establishments.description || '');
           setEstablishmentCode(establishments.code);
           setAffiliateLink(establishments.affiliate_link || '');
-          setBusinessHours(establishments.business_hours);
+          // Migrar dados antigos para nova estrutura se necessário
+          const migratedBusinessHours = migrateBusinessHours(establishments.business_hours);
+          setBusinessHours(migratedBusinessHours);
           setProfessionals(establishments.professionals || []);
           setServicesWithPrices(establishments.services_with_prices || []);
         }
@@ -721,6 +729,62 @@ const EstablishmentDashboard = () => {
     if (!establishmentLink) return;
     navigator.clipboard.writeText(establishmentLink);
     toast('Link copiado para a área de transferência!', 'success');
+  };
+
+  // Função para migrar dados antigos de horários para nova estrutura
+  const migrateBusinessHours = (oldBusinessHours: any): Record<string, BusinessHours> => {
+    const migratedHours: Record<string, BusinessHours> = {};
+    
+    Object.entries(oldBusinessHours || {}).forEach(([day, hours]: [string, any]) => {
+      if (hours && typeof hours === 'object') {
+        // Se já tem a nova estrutura (open1, close1, open2, close2)
+        if (hours.open1 !== undefined) {
+          migratedHours[day] = {
+            enabled: hours.enabled || false,
+            open1: hours.open1 || '09:00',
+            close1: hours.close1 || '12:00',
+            open2: hours.open2 || '13:30',
+            close2: hours.close2 || '18:00'
+          };
+        } 
+        // Se tem a estrutura antiga (open, close)
+        else if (hours.open !== undefined) {
+          migratedHours[day] = {
+            enabled: hours.enabled || false,
+            open1: hours.open || '09:00',
+            close1: '12:00',
+            open2: '13:30',
+            close2: hours.close || '18:00'
+          };
+        }
+        // Estrutura padrão
+        else {
+          migratedHours[day] = {
+            enabled: false,
+            open1: '09:00',
+            close1: '12:00',
+            open2: '13:30',
+            close2: '18:00'
+          };
+        }
+      }
+    });
+    
+    // Garantir que todos os dias da semana existam
+    const defaultDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    defaultDays.forEach(day => {
+      if (!migratedHours[day]) {
+        migratedHours[day] = {
+          enabled: day !== 'saturday' && day !== 'sunday',
+          open1: '09:00',
+          close1: '12:00',
+          open2: '13:30',
+          close2: '18:00'
+        };
+      }
+    });
+    
+    return migratedHours;
   };
 
   if (isEstablishmentLoading) {
@@ -861,10 +925,9 @@ const EstablishmentDashboard = () => {
               {/* Horário de Funcionamento */}
               <div className="space-y-4">
                 <h4 className="text-md font-medium">Horário de Funcionamento</h4>
-                
                 {Object.entries(businessHours).map(([day, hours]) => (
-                  <div key={day} className="flex items-center space-x-4">
-                    <div className="w-32">
+                  <div key={day} className="flex items-center space-x-4 flex-wrap">
+                    <div className="w-32 min-w-[120px]">
                       <label className="inline-flex items-center">
                         <input
                           type="checkbox"
@@ -872,24 +935,43 @@ const EstablishmentDashboard = () => {
                           onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
                           className="form-checkbox h-4 w-4 text-secondary"
                         />
-                        <span className="ml-2 capitalize">{day}</span>
+                        <span className="ml-2 capitalize">
+                          {day === 'monday' ? 'Segunda' :
+                           day === 'tuesday' ? 'Terça' :
+                           day === 'wednesday' ? 'Quarta' :
+                           day === 'thursday' ? 'Quinta' :
+                           day === 'friday' ? 'Sexta' :
+                           day === 'saturday' ? 'Sábado' : 'Domingo'}
+                        </span>
                       </label>
                     </div>
-                    
+                    <span className="text-gray-400">Abre</span>
                     <TimeSelector
-                      value={hours.open}
-                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open', value)}
+                      value={hours.open1}
+                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
                       disabled={!hours.enabled}
-                      className="w-32"
+                      className="w-24"
                     />
-                    
-                    <span className="text-gray-500">até</span>
-                    
+                    <span className="text-gray-400">Fecha para intervalo</span>
                     <TimeSelector
-                      value={hours.close}
-                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close', value)}
+                      value={hours.close1}
+                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
                       disabled={!hours.enabled}
-                      className="w-32"
+                      className="w-24"
+                    />
+                    <span className="text-gray-400">Reabre</span>
+                    <TimeSelector
+                      value={hours.open2}
+                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
+                      disabled={!hours.enabled}
+                      className="w-24"
+                    />
+                    <span className="text-gray-400">Fecha</span>
+                    <TimeSelector
+                      value={hours.close2}
+                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
+                      disabled={!hours.enabled}
+                      className="w-24"
                     />
                   </div>
                 ))}
@@ -1378,8 +1460,8 @@ const EstablishmentDashboard = () => {
                 <div className="space-y-4">
                   <h4 className="text-md font-medium">Horário de Funcionamento</h4>
                   {Object.entries(businessHours).map(([day, hours]) => (
-                    <div key={day} className="flex items-center space-x-4">
-                      <div className="w-32">
+                    <div key={day} className="flex items-center space-x-4 flex-wrap">
+                      <div className="w-32 min-w-[120px]">
                         <label className="inline-flex items-center">
                           <input
                             type="checkbox"
@@ -1387,24 +1469,43 @@ const EstablishmentDashboard = () => {
                             onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
                             className="form-checkbox h-4 w-4 text-secondary"
                           />
-                          <span className="ml-2 capitalize">{day}</span>
+                          <span className="ml-2 capitalize">
+                            {day === 'monday' ? 'Segunda' :
+                             day === 'tuesday' ? 'Terça' :
+                             day === 'wednesday' ? 'Quarta' :
+                             day === 'thursday' ? 'Quinta' :
+                             day === 'friday' ? 'Sexta' :
+                             day === 'saturday' ? 'Sábado' : 'Domingo'}
+                          </span>
                         </label>
                       </div>
-                      
+                      <span className="text-gray-400">Abre</span>
                       <TimeSelector
-                        value={hours.open}
-                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open', value)}
+                        value={hours.open1}
+                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
                         disabled={!hours.enabled}
-                        className="w-32"
+                        className="w-24"
                       />
-                      
-                      <span className="text-gray-500">até</span>
-                      
+                      <span className="text-gray-400">Fecha para intervalo</span>
                       <TimeSelector
-                        value={hours.close}
-                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close', value)}
+                        value={hours.close1}
+                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
                         disabled={!hours.enabled}
-                        className="w-32"
+                        className="w-24"
+                      />
+                      <span className="text-gray-400">Reabre</span>
+                      <TimeSelector
+                        value={hours.open2}
+                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
+                        disabled={!hours.enabled}
+                        className="w-24"
+                      />
+                      <span className="text-gray-400">Fecha</span>
+                      <TimeSelector
+                        value={hours.close2}
+                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
+                        disabled={!hours.enabled}
+                        className="w-24"
                       />
                     </div>
                   ))}
