@@ -926,8 +926,9 @@ const EstablishmentDashboard = () => {
               <div className="space-y-4">
                 <h4 className="text-md font-medium">Horário de Funcionamento</h4>
                 {Object.entries(businessHours).map(([day, hours]) => (
-                  <div key={day} className="flex items-center space-x-4 flex-wrap">
-                    <div className="w-32 min-w-[120px]">
+                  <div key={day} className="bg-gray-50 p-4 rounded-lg space-y-3">
+                    {/* Cabeçalho do dia com checkbox */}
+                    <div className="flex items-center justify-between">
                       <label className="inline-flex items-center">
                         <input
                           type="checkbox"
@@ -935,44 +936,83 @@ const EstablishmentDashboard = () => {
                           onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
                           className="form-checkbox h-4 w-4 text-secondary"
                         />
-                        <span className="ml-2 capitalize">
-                          {day === 'monday' ? 'Segunda' :
-                           day === 'tuesday' ? 'Terça' :
-                           day === 'wednesday' ? 'Quarta' :
-                           day === 'thursday' ? 'Quinta' :
-                           day === 'friday' ? 'Sexta' :
+                        <span className="ml-2 font-medium text-gray-900">
+                          {day === 'monday' ? 'Segunda-feira' :
+                           day === 'tuesday' ? 'Terça-feira' :
+                           day === 'wednesday' ? 'Quarta-feira' :
+                           day === 'thursday' ? 'Quinta-feira' :
+                           day === 'friday' ? 'Sexta-feira' :
                            day === 'saturday' ? 'Sábado' : 'Domingo'}
                         </span>
                       </label>
+                      {!hours.enabled && (
+                        <span className="text-sm text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                          Fechado
+                        </span>
+                      )}
                     </div>
-                    <span className="text-gray-400">Abre</span>
-                    <TimeSelector
-                      value={hours.open1}
-                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
-                      disabled={!hours.enabled}
-                      className="w-24"
-                    />
-                    <span className="text-gray-400">Fecha para intervalo</span>
-                    <TimeSelector
-                      value={hours.close1}
-                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
-                      disabled={!hours.enabled}
-                      className="w-24"
-                    />
-                    <span className="text-gray-400">Reabre</span>
-                    <TimeSelector
-                      value={hours.open2}
-                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
-                      disabled={!hours.enabled}
-                      className="w-24"
-                    />
-                    <span className="text-gray-400">Fecha</span>
-                    <TimeSelector
-                      value={hours.close2}
-                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
-                      disabled={!hours.enabled}
-                      className="w-24"
-                    />
+                    
+                    {/* Horários - Layout responsivo */}
+                    {hours.enabled && (
+                      <div className="space-y-3">
+                        {/* Período da manhã */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              Abertura
+                            </label>
+                            <TimeSelector
+                              value={hours.open1}
+                              onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
+                              disabled={!hours.enabled}
+                              className="w-full"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              Fecha p/ Intervalo
+                            </label>
+                            <TimeSelector
+                              value={hours.close1}
+                              onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
+                              disabled={!hours.enabled}
+                              className="w-full"
+                            />
+                          </div>
+                        </div>
+                        
+                        {/* Período da tarde */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              Reabertura
+                            </label>
+                            <TimeSelector
+                              value={hours.open2}
+                              onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
+                              disabled={!hours.enabled}
+                              className="w-full"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              Fechamento
+                            </label>
+                            <TimeSelector
+                              value={hours.close2}
+                              onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
+                              disabled={!hours.enabled}
+                              className="w-full"
+                            />
+                          </div>
+                        </div>
+                        
+                        {/* Resumo visual dos horários */}
+                        <div className="mt-3 p-2 bg-blue-50 rounded text-sm text-blue-700">
+                          <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} e {hours.open2} - {hours.close2}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1460,8 +1500,9 @@ const EstablishmentDashboard = () => {
                 <div className="space-y-4">
                   <h4 className="text-md font-medium">Horário de Funcionamento</h4>
                   {Object.entries(businessHours).map(([day, hours]) => (
-                    <div key={day} className="flex items-center space-x-4 flex-wrap">
-                      <div className="w-32 min-w-[120px]">
+                    <div key={day} className="bg-gray-50 p-4 rounded-lg space-y-3">
+                      {/* Cabeçalho do dia com checkbox */}
+                      <div className="flex items-center justify-between">
                         <label className="inline-flex items-center">
                           <input
                             type="checkbox"
@@ -1469,44 +1510,83 @@ const EstablishmentDashboard = () => {
                             onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
                             className="form-checkbox h-4 w-4 text-secondary"
                           />
-                          <span className="ml-2 capitalize">
-                            {day === 'monday' ? 'Segunda' :
-                             day === 'tuesday' ? 'Terça' :
-                             day === 'wednesday' ? 'Quarta' :
-                             day === 'thursday' ? 'Quinta' :
-                             day === 'friday' ? 'Sexta' :
+                          <span className="ml-2 font-medium text-gray-900">
+                            {day === 'monday' ? 'Segunda-feira' :
+                             day === 'tuesday' ? 'Terça-feira' :
+                             day === 'wednesday' ? 'Quarta-feira' :
+                             day === 'thursday' ? 'Quinta-feira' :
+                             day === 'friday' ? 'Sexta-feira' :
                              day === 'saturday' ? 'Sábado' : 'Domingo'}
                           </span>
                         </label>
+                        {!hours.enabled && (
+                          <span className="text-sm text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                            Fechado
+                          </span>
+                        )}
                       </div>
-                      <span className="text-gray-400">Abre</span>
-                      <TimeSelector
-                        value={hours.open1}
-                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
-                        disabled={!hours.enabled}
-                        className="w-24"
-                      />
-                      <span className="text-gray-400">Fecha para intervalo</span>
-                      <TimeSelector
-                        value={hours.close1}
-                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
-                        disabled={!hours.enabled}
-                        className="w-24"
-                      />
-                      <span className="text-gray-400">Reabre</span>
-                      <TimeSelector
-                        value={hours.open2}
-                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
-                        disabled={!hours.enabled}
-                        className="w-24"
-                      />
-                      <span className="text-gray-400">Fecha</span>
-                      <TimeSelector
-                        value={hours.close2}
-                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
-                        disabled={!hours.enabled}
-                        className="w-24"
-                      />
+                      
+                      {/* Horários - Layout responsivo */}
+                      {hours.enabled && (
+                        <div className="space-y-3">
+                          {/* Período da manhã */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                Abertura
+                              </label>
+                              <TimeSelector
+                                value={hours.open1}
+                                onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
+                                disabled={!hours.enabled}
+                                className="w-full"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                Fecha p/ Intervalo
+                              </label>
+                              <TimeSelector
+                                value={hours.close1}
+                                onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
+                                disabled={!hours.enabled}
+                                className="w-full"
+                              />
+                            </div>
+                          </div>
+                          
+                          {/* Período da tarde */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                Reabertura
+                              </label>
+                              <TimeSelector
+                                value={hours.open2}
+                                onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
+                                disabled={!hours.enabled}
+                                className="w-full"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                Fechamento
+                              </label>
+                              <TimeSelector
+                                value={hours.close2}
+                                onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
+                                disabled={!hours.enabled}
+                                className="w-full"
+                              />
+                            </div>
+                          </div>
+                          
+                          {/* Resumo visual dos horários */}
+                          <div className="mt-3 p-2 bg-blue-50 rounded text-sm text-blue-700">
+                            <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} e {hours.open2} - {hours.close2}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
