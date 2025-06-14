@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
@@ -60,6 +60,7 @@ interface Appointment {
   is_premium: boolean;
   duration: number;
   price: number;
+  payment_method?: string;
 }
 
 interface PremiumClient {
@@ -111,6 +112,7 @@ const EstablishmentDashboard = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedProfessional, setSelectedProfessional] = useState<string>('all'); // 'all' ou id do profissional
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('todos'); // 'todos', 'pendente', 'pix', 'credito', 'debito', 'dinheiro'
 
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
 
@@ -371,6 +373,36 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handlePaymentMethodChange = async (appointmentId: string, paymentMethod: string) => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ payment_method: paymentMethod })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      setAppointments(prev => prev.map(appointment => 
+        appointment.id === appointmentId 
+          ? { ...appointment, payment_method: paymentMethod }
+          : appointment
+      ));
+
+      const paymentLabels: { [key: string]: string } = {
+        'pix': 'PIX',
+        'credito': 'Cartão de Crédito',
+        'debito': 'Cartão de Débito',
+        'dinheiro': 'Dinheiro',
+        'pendente': 'Pendente'
+      };
+
+      toast(`Forma de pagamento atualizada para ${paymentLabels[paymentMethod]}!`, 'success');
+    } catch (error: any) {
+      console.error('Erro ao atualizar forma de pagamento:', error);
+      toast('Erro ao atualizar forma de pagamento', 'error');
+    }
+  };
+
   const fetchPremiumSubscribers = async () => {
     if (!establishment) {
       console.log('Estabelecimento não encontrado');
@@ -541,7 +573,8 @@ const EstablishmentDashboard = () => {
           created_at,
           is_premium,
           duration,
-          price
+          price,
+          payment_method
         `)
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startOfSelectedDate)
@@ -581,7 +614,8 @@ const EstablishmentDashboard = () => {
           created_at,
           is_premium,
           duration,
-          price
+          price,
+          payment_method
         `)
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startDate)
@@ -652,7 +686,8 @@ const EstablishmentDashboard = () => {
       .filter(appointment => {
         const isNotCancelled = appointment.status !== 'cancelled';
         const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
-        return isNotCancelled && isProfessionalMatch;
+        const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
+        return isNotCancelled && isProfessionalMatch && isPaymentMethodMatch;
       })
       .reduce((total, appointment) => total + (appointment.price || 0), 0);
   };
@@ -664,14 +699,17 @@ const EstablishmentDashboard = () => {
         const isInMonth = isSameMonth(appointmentDate, selectedDate);
         const isNotCancelled = appointment.status !== 'cancelled';
         const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
-        return isInMonth && isNotCancelled && isProfessionalMatch;
+        const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
+        return isInMonth && isNotCancelled && isProfessionalMatch && isPaymentMethodMatch;
       })
       .reduce((total, appointment) => total + (appointment.price || 0), 0);
   };
 
-  // Filtrar agendamentos por profissional selecionado
+  // Filtrar agendamentos por profissional e forma de pagamento selecionados
   const filteredAppointments = appointments.filter(appointment => {
-    return selectedProfessional === 'all' || appointment.professional === selectedProfessional;
+    const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
+    const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
+    return isProfessionalMatch && isPaymentMethodMatch;
   });
 
   // Função para obter o nome do profissional pelo ID
@@ -1233,7 +1271,10 @@ const EstablishmentDashboard = () => {
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        onClick={() => setSelectedProfessional('all')}
+                        onClick={() => {
+                          setSelectedProfessional('all');
+                          setSelectedPaymentMethod('todos');
+                        }}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           selectedProfessional === 'all'
                             ? 'bg-primary text-white'
@@ -1245,7 +1286,10 @@ const EstablishmentDashboard = () => {
                       {establishment.professionals.map((professional) => (
                         <button
                           key={professional.id}
-                          onClick={() => setSelectedProfessional(professional.id)}
+                          onClick={() => {
+                            setSelectedProfessional(professional.id);
+                            setSelectedPaymentMethod('todos');
+                          }}
                           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                             selectedProfessional === professional.id
                               ? 'bg-primary text-white'
@@ -1266,6 +1310,91 @@ const EstablishmentDashboard = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Filtros por Forma de Pagamento */}
+                <div className="mb-6 bg-[#1a1b1c] rounded-lg p-4 border border-gray-800">
+                  <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                    <CreditCard className="h-5 w-5 text-primary" />
+                    Filtrar por Forma de Pagamento
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setSelectedPaymentMethod('todos')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPaymentMethod === 'todos'
+                          ? 'bg-primary text-white'
+                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                      }`}
+                    >
+                      💳 Todos
+                    </button>
+                    <button
+                      onClick={() => setSelectedPaymentMethod('pendente')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPaymentMethod === 'pendente'
+                          ? 'bg-gray-500 text-white'
+                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                      }`}
+                    >
+                      ⏳ Pendente
+                    </button>
+                    <button
+                      onClick={() => setSelectedPaymentMethod('pix')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPaymentMethod === 'pix'
+                          ? 'bg-green-500 text-white'
+                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                      }`}
+                    >
+                      🟢 PIX
+                    </button>
+                    <button
+                      onClick={() => setSelectedPaymentMethod('credito')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPaymentMethod === 'credito'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                      }`}
+                    >
+                      🔵 Crédito
+                    </button>
+                    <button
+                      onClick={() => setSelectedPaymentMethod('debito')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPaymentMethod === 'debito'
+                          ? 'bg-purple-500 text-white'
+                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                      }`}
+                    >
+                      🟣 Débito
+                    </button>
+                    <button
+                      onClick={() => setSelectedPaymentMethod('dinheiro')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPaymentMethod === 'dinheiro'
+                          ? 'bg-yellow-500 text-white'
+                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                      }`}
+                    >
+                      🟡 Dinheiro
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-sm">
+                    <p className="text-gray-400">
+                      Filtro de pagamento: <span className="text-primary font-medium">
+                        {selectedPaymentMethod === 'todos' ? 'Todos os tipos' :
+                         selectedPaymentMethod === 'pendente' ? 'Pendente' :
+                         selectedPaymentMethod === 'pix' ? 'PIX' :
+                         selectedPaymentMethod === 'credito' ? 'Crédito' :
+                         selectedPaymentMethod === 'debito' ? 'Débito' :
+                         selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : 'Todos'}
+                      </span>
+                    </p>
+                    <p className="text-gray-400">
+                      {filteredAppointments.length} agendamentos encontrados
+                    </p>
+                  </div>
+                </div>
 
                 <h2 className="text-2xl font-bold text-white">Agendamentos do Dia</h2>
                 <p className="text-gray-400 mb-4">
@@ -1325,16 +1454,36 @@ const EstablishmentDashboard = () => {
                             </div>
                           </div>
                           <div className="flex flex-col items-end gap-2">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              appointment.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
-                              appointment.status === 'confirmed' ? 'bg-green-500/10 text-green-500' :
-                              appointment.status === 'cancelled' ? 'bg-red-500/10 text-red-500' :
-                              'bg-blue-500/10 text-blue-500'
-                            }`}>
-                              {appointment.status === 'pending' ? 'Pendente' : 
-                               appointment.status === 'confirmed' ? 'Confirmado' :
-                               appointment.status === 'cancelled' ? 'Cancelado' : 'Concluído'}
-                            </span>
+                            {/* Dropdown de forma de pagamento */}
+                            {appointment.status !== 'cancelled' && (
+                              <div className="flex flex-col gap-1">
+                                <select
+                                  value={appointment.payment_method || 'pendente'}
+                                  onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
+                                  className={`text-xs px-3 py-2 border-2 rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary focus:border-secondary ${
+                                    appointment.payment_method === 'pix' ? 'bg-green-100 border-green-300 text-green-800' :
+                                    appointment.payment_method === 'credito' ? 'bg-blue-100 border-blue-300 text-blue-800' :
+                                    appointment.payment_method === 'debito' ? 'bg-purple-100 border-purple-300 text-purple-800' :
+                                    appointment.payment_method === 'dinheiro' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
+                                    'bg-gray-100 border-gray-300 text-gray-800'
+                                  }`}
+                                >
+                                  <option value="pendente">⏳ Pendente</option>
+                                  <option value="pix">🟢 PIX</option>
+                                  <option value="credito">🔵 Crédito</option>
+                                  <option value="debito">🟣 Débito</option>
+                                  <option value="dinheiro">🟡 Dinheiro</option>
+                                </select>
+                              </div>
+                            )}
+                            
+                            {/* Status cancelado */}
+                            {appointment.status === 'cancelled' && (
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-500/10 text-red-500">
+                                Cancelado
+                              </span>
+                            )}
+                            
                             {appointment.status === 'pending' && (
                               <button
                                 onClick={() => handleCancelAppointment(appointment.id)}
