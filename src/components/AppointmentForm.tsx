@@ -28,7 +28,13 @@ interface Appointment {
 
 interface AppointmentFormProps {
   establishment: {
-    business_hours: Record<string, { open: string; close: string; enabled: boolean }>;
+    business_hours: Record<string, { 
+      enabled: boolean;
+      open1: string;
+      close1: string;
+      open2: string;
+      close2: string;
+    }>;
     services_with_prices: Service[];
     professionals: Professional[];
   };
@@ -49,6 +55,7 @@ export function AppointmentForm({
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -58,7 +65,7 @@ export function AppointmentForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedService || !selectedProfessional || !selectedTime || !clientName) return;
+    if (!selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod) return;
 
     setIsLoading(true);
     try {
@@ -68,7 +75,8 @@ export function AppointmentForm({
         appointment_time: selectedTime,
         duration: selectedService.duration,
         price: selectedService.price,
-        client_name: clientName
+        client_name: clientName,
+        payment_method: selectedPaymentMethod
       });
 
       navigate('/success');
@@ -90,8 +98,10 @@ export function AppointmentForm({
   };
 
   const formattedBusinessHours = businessHoursForDay ? {
-    open: formatTime(businessHoursForDay.open),
-    close: formatTime(businessHoursForDay.close)
+    open1: formatTime(businessHoursForDay.open1),
+    close1: formatTime(businessHoursForDay.close1),
+    open2: formatTime(businessHoursForDay.open2),
+    close2: formatTime(businessHoursForDay.close2)
   } : null;
 
   console.log('AppointmentForm state:', {
@@ -176,6 +186,39 @@ export function AppointmentForm({
         </div>
       )}
 
+      {selectedTime && (
+        <div>
+          <label className="block text-sm font-medium text-white mb-2">Forma de Pagamento</label>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { value: 'pix', label: 'PIX', icon: '💳' },
+              { value: 'credito', label: 'CRÉDITO', icon: '💳' },
+              { value: 'debito', label: 'DÉBITO', icon: '💳' },
+              { value: 'dinheiro', label: 'DINHEIRO', icon: '💵' },
+              { value: 'pagar_local', label: 'PAGAR NO LOCAL', icon: '🏪' }
+            ].map((method) => (
+              <button
+                key={method.value}
+                type="button"
+                onClick={() => setSelectedPaymentMethod(method.value)}
+                className={`
+                  p-3 rounded-lg border-2 transition-all duration-200 text-sm font-medium
+                  ${selectedPaymentMethod === method.value
+                    ? 'border-primary bg-primary/20 text-primary'
+                    : 'border-gray-600 bg-[#242628] text-gray-300 hover:border-gray-500'
+                  }
+                `}
+              >
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-lg">{method.icon}</span>
+                  <span>{method.label}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!businessHoursForDay?.enabled && (
         <div className="text-red-500 text-sm">
           Estabelecimento fechado neste dia
@@ -184,10 +227,10 @@ export function AppointmentForm({
 
       <button
         type="submit"
-        disabled={isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName}
+        disabled={isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod}
         className={`
           w-full px-4 py-2 text-white font-medium rounded-lg
-          ${isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName
+          ${isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod
             ? 'bg-gray-600 cursor-not-allowed'
             : 'bg-primary hover:bg-primary/90 transition-colors'
           }

@@ -1424,6 +1424,16 @@ const EstablishmentDashboard = () => {
                     >
                       🟡 Dinheiro
                     </button>
+                    <button
+                      onClick={() => setSelectedPaymentMethod('pagar_local')}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPaymentMethod === 'pagar_local'
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
+                      }`}
+                    >
+                      🏪 Pagar no Local
+                    </button>
                   </div>
                   <div className="mt-3 flex items-center justify-between text-sm">
                     <p className="text-gray-400">
@@ -1433,7 +1443,8 @@ const EstablishmentDashboard = () => {
                          selectedPaymentMethod === 'pix' ? 'PIX' :
                          selectedPaymentMethod === 'credito' ? 'Crédito' :
                          selectedPaymentMethod === 'debito' ? 'Débito' :
-                         selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : 'Todos'}
+                         selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' :
+                         selectedPaymentMethod === 'pagar_local' ? 'Pagar no Local' : 'Todos'}
                       </span>
                     </p>
                     <p className="text-gray-400">
@@ -1511,6 +1522,7 @@ const EstablishmentDashboard = () => {
                                     appointment.payment_method === 'credito' ? 'bg-blue-100 border-blue-300 text-blue-800' :
                                     appointment.payment_method === 'debito' ? 'bg-purple-100 border-purple-300 text-purple-800' :
                                     appointment.payment_method === 'dinheiro' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
+                                    appointment.payment_method === 'pagar_local' ? 'bg-orange-100 border-orange-300 text-orange-800' :
                                     'bg-gray-100 border-gray-300 text-gray-800'
                                   }`}
                                 >
@@ -1519,6 +1531,7 @@ const EstablishmentDashboard = () => {
                                   <option value="credito">🔵 Crédito</option>
                                   <option value="debito">🟣 Débito</option>
                                   <option value="dinheiro">🟡 Dinheiro</option>
+                                  <option value="pagar_local">🏪 Pagar no Local</option>
                                 </select>
                               </div>
                             )}
