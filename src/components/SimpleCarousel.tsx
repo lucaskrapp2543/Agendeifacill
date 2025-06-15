@@ -1,42 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-interface PhotoCarouselProps {
-  customPhotos: (string | null)[];
+interface SimpleCarouselProps {
   establishmentName: string;
 }
 
-export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({ 
-  customPhotos, 
+export const SimpleCarousel: React.FC<SimpleCarouselProps> = ({ 
   establishmentName 
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Fotos padrão
-  const defaultPhotos = [
+  // SEMPRE usar fotos padrão para teste
+  const photos = [
     '/barbeiro ft 1.png',
     '/barbeiro ft 2.png',
     '/barbeiro ft 3.png'
   ];
 
-  // DEBUG: Logs temporários
-  console.log('🔍 PhotoCarousel - Props recebidas:', {
-    customPhotos,
-    establishmentName,
-    customPhotosLength: customPhotos?.length,
-    customPhotosValues: customPhotos
-  });
-
-  // Combinar fotos personalizadas com padrão
-  const photos = customPhotos.map((customPhoto, index) => 
-    customPhoto || defaultPhotos[index]
-  ).filter(Boolean);
-
-  console.log('📷 PhotoCarousel - Fotos processadas:', {
-    defaultPhotos,
-    photos,
-    photosLength: photos.length
-  });
+  console.log('🧪 SimpleCarousel - Sempre usando fotos padrão:', photos);
 
   // Auto-play: trocar foto a cada 5 segundos
   useEffect(() => {
@@ -61,21 +42,25 @@ export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({
     setCurrentIndex(index);
   };
 
-  if (photos.length === 0) {
-    console.log('❌ PhotoCarousel - Nenhuma foto para exibir, componente não será renderizado');
-    return null;
-  }
-
-  console.log('✅ PhotoCarousel - Renderizando carrossel com', photos.length, 'fotos');
-
   return (
     <div className="relative w-full max-w-2xl mx-auto mb-8">
+      {/* Banner de teste */}
+      <div className="bg-green-500 text-white text-center py-2 mb-4 rounded font-bold">
+        ✅ TESTE SIMPLES: Carrossel funcionando com fotos padrão
+      </div>
+      
       {/* Container da imagem */}
       <div className="relative h-64 md:h-80 rounded-lg overflow-hidden bg-gray-100 shadow-lg">
         <img
           src={photos[currentIndex]}
           alt={`${establishmentName} - Foto ${currentIndex + 1}`}
           className="w-full h-full object-cover transition-opacity duration-500"
+          onError={(e) => {
+            console.error('❌ Erro ao carregar imagem:', photos[currentIndex]);
+          }}
+          onLoad={() => {
+            console.log('✅ Imagem carregada:', photos[currentIndex]);
+          }}
         />
         
         {/* Overlay com gradiente */}

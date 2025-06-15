@@ -1048,7 +1048,7 @@ const EstablishmentDashboard = () => {
                             <TimeSelector
                               value={hours.open1}
                               onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
-                              disabled={!hours.enabled}
+                      disabled={!hours.enabled}
                               className="w-full"
                             />
                           </div>
@@ -1074,7 +1074,7 @@ const EstablishmentDashboard = () => {
                             <TimeSelector
                               value={hours.open2}
                               onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
-                              disabled={!hours.enabled}
+                      disabled={!hours.enabled}
                               className="w-full"
                             />
                           </div>
@@ -1527,7 +1527,7 @@ const EstablishmentDashboard = () => {
                             {appointment.status === 'cancelled' && (
                               <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-500/10 text-red-500">
                                 Cancelado
-                              </span>
+                            </span>
                             )}
                             
                             {appointment.status === 'pending' && (
@@ -1831,7 +1831,7 @@ const EstablishmentDashboard = () => {
                               <TimeSelector
                                 value={hours.open1}
                                 onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
-                                disabled={!hours.enabled}
+                        disabled={!hours.enabled}
                                 className="w-full"
                               />
                             </div>
@@ -1842,7 +1842,7 @@ const EstablishmentDashboard = () => {
                               <TimeSelector
                                 value={hours.close1}
                                 onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
-                                disabled={!hours.enabled}
+                        disabled={!hours.enabled}
                                 className="w-full"
                               />
                             </div>

@@ -7,6 +7,7 @@ import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
 import { AppointmentForm } from '../components/AppointmentForm';
 import { PhotoCarousel } from '../components/PhotoCarousel';
+import { SimpleCarousel } from '../components/SimpleCarousel';
 import { ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
@@ -31,7 +32,12 @@ export default function BookingPage() {
     try {
       const { data, error } = await supabase
         .from('establishments')
-        .select('*')
+        .select(`
+          *,
+          custom_photo_1_url,
+          custom_photo_2_url,
+          custom_photo_3_url
+        `)
         .eq('id', id)
         .single();
 
@@ -151,15 +157,20 @@ export default function BookingPage() {
             </div>
           </div>
 
-          {/* Carrossel de Fotos */}
-          <PhotoCarousel
+          {/* Carrossel de Fotos - TESTE SIMPLES */}
+          <SimpleCarousel
+            establishmentName={establishment.name}
+          />
+          
+          {/* Carrossel Original (temporariamente comentado) */}
+          {/* <PhotoCarousel
             customPhotos={[
               establishment.custom_photo_1_url,
               establishment.custom_photo_2_url,
               establishment.custom_photo_3_url
             ]}
             establishmentName={establishment.name}
-          />
+          /> */}
 
           <div className="card">
             <h2 className="text-lg font-semibold mb-6 text-white">Agendar Horário</h2>
