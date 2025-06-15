@@ -163,8 +163,33 @@ export const getEstablishmentByCode = async (code: string) => {
   return { data, error };
 };
 
+// Função para upload de foto personalizada
+const uploadCustomPhoto = async (file: File, establishmentId: string, photoNumber: number) => {
+  const fileExt = file.name.split('.').pop();
+  const fileName = `custom_photo_${photoNumber}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+  const filePath = `establishments/${establishmentId}/custom_photos/${fileName}`;
+
+  const { data: uploadData, error: uploadError } = await supabase.storage
+    .from('profile-images')
+    .upload(filePath, file, { upsert: true });
+
+  if (uploadError) throw uploadError;
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('profile-images')
+    .getPublicUrl(filePath);
+
+  return publicUrl;
+};
+
 export const updateEstablishment = async (id: string, data: any) => {
-  const { profile_image, ...establishmentData } = data;
+  const { 
+    profile_image, 
+    custom_photo_1, 
+    custom_photo_2, 
+    custom_photo_3, 
+    ...establishmentData 
+  } = data;
   
   try {
     // Se houver uma nova imagem de perfil, faz o upload
@@ -180,6 +205,19 @@ export const updateEstablishment = async (id: string, data: any) => {
         .getPublicUrl(uploadData.path);
 
       establishmentData.profile_image_url = publicUrl;
+    }
+
+    // Upload das fotos personalizadas
+    if (custom_photo_1 instanceof File) {
+      establishmentData.custom_photo_1_url = await uploadCustomPhoto(custom_photo_1, id, 1);
+    }
+    
+    if (custom_photo_2 instanceof File) {
+      establishmentData.custom_photo_2_url = await uploadCustomPhoto(custom_photo_2, id, 2);
+    }
+    
+    if (custom_photo_3 instanceof File) {
+      establishmentData.custom_photo_3_url = await uploadCustomPhoto(custom_photo_3, id, 3);
     }
 
     // Garantir que os arrays não sejam undefined

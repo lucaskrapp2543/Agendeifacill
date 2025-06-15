@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
 import { AppointmentForm } from '../components/AppointmentForm';
+import { PhotoCarousel } from '../components/PhotoCarousel';
+import { PhotoCarouselTest } from '../components/PhotoCarouselTest';
 import { ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
@@ -37,6 +39,11 @@ export default function BookingPage() {
       if (error) throw error;
       if (data) {
         console.log('Dados do estabelecimento:', data);
+        console.log('🖼️ Fotos personalizadas do estabelecimento:', {
+          custom_photo_1_url: data.custom_photo_1_url,
+          custom_photo_2_url: data.custom_photo_2_url,
+          custom_photo_3_url: data.custom_photo_3_url
+        });
         setEstablishment(data);
       }
     } catch (error: any) {
@@ -149,6 +156,21 @@ export default function BookingPage() {
               <p className="text-gray-400">{establishment.address}</p>
             </div>
           </div>
+
+          {/* Carrossel de Fotos - MODO TESTE */}
+          <PhotoCarouselTest
+            establishmentName={establishment.name}
+          />
+          
+          {/* Carrossel Original (comentado para teste) */}
+          {/* <PhotoCarousel
+            customPhotos={[
+              establishment.custom_photo_1_url,
+              establishment.custom_photo_2_url,
+              establishment.custom_photo_3_url
+            ]}
+            establishmentName={establishment.name}
+          /> */}
 
           <div className="card">
             <h2 className="text-lg font-semibold mb-6 text-white">Agendar Horário</h2>

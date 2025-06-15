@@ -42,6 +42,9 @@ interface Establishment {
   services_with_prices: Service[];
   profile_image_url?: string;
   affiliate_link?: string;
+  custom_photo_1_url?: string;
+  custom_photo_2_url?: string;
+  custom_photo_3_url?: string;
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'premium-clients';
@@ -92,6 +95,14 @@ const EstablishmentDashboard = () => {
   const [affiliateLink, setAffiliateLink] = useState('');
   const [profileImage, setProfileImage] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
+  
+  // Estados para fotos personalizadas
+  const [customPhoto1, setCustomPhoto1] = useState<File | null>(null);
+  const [customPhoto2, setCustomPhoto2] = useState<File | null>(null);
+  const [customPhoto3, setCustomPhoto3] = useState<File | null>(null);
+  const [customPhoto1Preview, setCustomPhoto1Preview] = useState<string | null>(null);
+  const [customPhoto2Preview, setCustomPhoto2Preview] = useState<string | null>(null);
+  const [customPhoto3Preview, setCustomPhoto3Preview] = useState<string | null>(null);
   
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
     monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
@@ -170,6 +181,27 @@ const EstablishmentDashboard = () => {
       }
       setProfileImage(file);
       setProfileImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleCustomPhotoChange = (photoNumber: 1 | 2 | 3, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast('A imagem deve ter no máximo 5MB', 'error');
+        return;
+      }
+      
+      if (photoNumber === 1) {
+        setCustomPhoto1(file);
+        setCustomPhoto1Preview(URL.createObjectURL(file));
+      } else if (photoNumber === 2) {
+        setCustomPhoto2(file);
+        setCustomPhoto2Preview(URL.createObjectURL(file));
+      } else if (photoNumber === 3) {
+        setCustomPhoto3(file);
+        setCustomPhoto3Preview(URL.createObjectURL(file));
+      }
     }
   };
 
@@ -336,7 +368,10 @@ const EstablishmentDashboard = () => {
           duration: Number(s.duration)
         })).filter(s => s.name && s.price > 0),
         profile_image: profileImage,
-        affiliate_link: affiliateLink.trim()
+        affiliate_link: affiliateLink.trim(),
+        custom_photo_1: customPhoto1,
+        custom_photo_2: customPhoto2,
+        custom_photo_3: customPhoto3
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -656,6 +691,17 @@ const EstablishmentDashboard = () => {
           setBusinessHours(migratedBusinessHours);
           setProfessionals(establishments.professionals || []);
           setServicesWithPrices(establishments.services_with_prices || []);
+          
+          // Carregar previews das fotos personalizadas existentes
+          if (establishments.custom_photo_1_url) {
+            setCustomPhoto1Preview(establishments.custom_photo_1_url);
+          }
+          if (establishments.custom_photo_2_url) {
+            setCustomPhoto2Preview(establishments.custom_photo_2_url);
+          }
+          if (establishments.custom_photo_3_url) {
+            setCustomPhoto3Preview(establishments.custom_photo_3_url);
+          }
         }
       } catch (error: any) {
         console.error('Error fetching establishment:', error);
@@ -1571,6 +1617,104 @@ const EstablishmentDashboard = () => {
                       </label>
                     </div>
                     <p className="mt-1 text-sm text-gray-500">JPG ou PNG. Máximo 5MB.</p>
+                  </div>
+                  
+                  {/* Fotos Personalizadas para Carrossel */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      Fotos do seu trabalho (Carrossel)
+                    </label>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Adicione até 3 fotos que serão exibidas para os clientes na página de agendamento. 
+                      Se não adicionar, serão usadas fotos padrão.
+                    </p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Foto 1 */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-medium text-gray-600">Foto 1</label>
+                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
+                          {customPhoto1Preview ? (
+                            <img
+                              src={customPhoto1Preview}
+                              alt="Foto personalizada 1"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <ImageIcon className="w-8 h-8 text-gray-400" />
+                            </div>
+                          )}
+                        </div>
+                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png"
+                            className="hidden"
+                            onChange={(e) => handleCustomPhotoChange(1, e)}
+                          />
+                          {customPhoto1Preview ? 'Trocar foto' : 'Escolher foto'}
+                        </label>
+                      </div>
+                      
+                      {/* Foto 2 */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-medium text-gray-600">Foto 2</label>
+                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
+                          {customPhoto2Preview ? (
+                            <img
+                              src={customPhoto2Preview}
+                              alt="Foto personalizada 2"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <ImageIcon className="w-8 h-8 text-gray-400" />
+                            </div>
+                          )}
+                        </div>
+                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png"
+                            className="hidden"
+                            onChange={(e) => handleCustomPhotoChange(2, e)}
+                          />
+                          {customPhoto2Preview ? 'Trocar foto' : 'Escolher foto'}
+                        </label>
+                      </div>
+                      
+                      {/* Foto 3 */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-medium text-gray-600">Foto 3</label>
+                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
+                          {customPhoto3Preview ? (
+                            <img
+                              src={customPhoto3Preview}
+                              alt="Foto personalizada 3"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <ImageIcon className="w-8 h-8 text-gray-400" />
+                            </div>
+                          )}
+                        </div>
+                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png"
+                            className="hidden"
+                            onChange={(e) => handleCustomPhotoChange(3, e)}
+                          />
+                          {customPhoto3Preview ? 'Trocar foto' : 'Escolher foto'}
+                        </label>
+                      </div>
+                    </div>
+                    
+                    <p className="mt-2 text-xs text-gray-500">
+                      JPG ou PNG. Máximo 5MB por foto. Recomendado: 800x600px ou similar.
+                    </p>
                   </div>
                 </div>
 
