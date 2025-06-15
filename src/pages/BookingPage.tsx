@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
 import { AppointmentForm } from '../components/AppointmentForm';
+import { PhotoCarousel } from '../components/PhotoCarousel';
 import { ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
@@ -155,46 +156,20 @@ export default function BookingPage() {
             </div>
           </div>
 
-          {/* CARROSSEL SIMPLES */}
+          {/* CARROSSEL DE FOTOS */}
           <div className="bg-[#1a1b1c] rounded-lg p-6 mb-8">
             <h3 className="text-lg font-semibold text-white mb-4 text-center">
               Fotos do Estabelecimento
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="relative h-48 rounded-lg overflow-hidden bg-gray-800">
-                <img
-                  src={establishment.custom_photo_1_url || '/barbeiro ft 1.png'}
-                  alt={`${establishment.name} - Foto 1`}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.src = '/barbeiro ft 1.png';
-                  }}
-                />
-              </div>
-              
-              <div className="relative h-48 rounded-lg overflow-hidden bg-gray-800">
-                <img
-                  src={establishment.custom_photo_2_url || '/barbeiro ft 2.png'}
-                  alt={`${establishment.name} - Foto 2`}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.src = '/barbeiro ft 2.png';
-                  }}
-                />
-              </div>
-              
-              <div className="relative h-48 rounded-lg overflow-hidden bg-gray-800">
-                <img
-                  src={establishment.custom_photo_3_url || '/barbeiro ft 3.png'}
-                  alt={`${establishment.name} - Foto 3`}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.src = '/barbeiro ft 3.png';
-                  }}
-                />
-              </div>
-            </div>
+            <PhotoCarousel
+              customPhotos={[
+                establishment.custom_photo_1_url,
+                establishment.custom_photo_2_url,
+                establishment.custom_photo_3_url
+              ]}
+              establishmentName={establishment.name}
+            />
           </div>
 
           <div className="card">
