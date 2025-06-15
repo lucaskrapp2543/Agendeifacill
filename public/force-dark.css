@@ -1,0 +1,153 @@
+/* FORÇA TEMA ESCURO - NÃO PODE SER SOBRESCRITO */
+html, body {
+    background-color: #101112 !important;
+    color: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+* {
+    box-sizing: border-box !important;
+    color: white !important;
+}
+
+/* FORÇA TODOS OS CONTAINERS */
+div, main, section, article {
+    background-color: inherit !important;
+    color: white !important;
+}
+
+/* FORÇA TEXTOS VISÍVEIS */
+h1, h2, h3, h4, h5, h6, p, span, label, strong, em {
+    color: white !important;
+}
+
+/* FORÇA NÚMEROS E PREÇOS */
+.price, .value, .number {
+    color: #3b82f6 !important;
+}
+
+/* FORÇA HORÁRIOS */
+.time, .schedule {
+    color: #e5e7eb !important;
+}
+
+/* FORÇA BOTÕES */
+button {
+    color: white !important;
+}
+
+.btn-primary {
+    background-color: #3b82f6 !important;
+    color: white !important;
+}
+
+.btn-outline {
+    border: 1px solid #3b82f6 !important;
+    color: #3b82f6 !important;
+}
+
+/* FORÇA INPUTS */
+input, select, textarea {
+    background-color: #1f2937 !important;
+    color: white !important;
+    border: 1px solid #374151 !important;
+}
+
+/* FORÇA COR DO TEXTO NOS INPUTS QUANDO DIGITANDO */
+input:focus, select:focus, textarea:focus {
+    background-color: #1f2937 !important;
+    color: white !important;
+}
+
+/* FORÇA PLACEHOLDER */
+input::placeholder, textarea::placeholder {
+    color: #9ca3af !important;
+}
+
+/* FORÇA INPUTS EM FORMULÁRIOS */
+form input, form select, form textarea {
+    background-color: #1f2937 !important;
+    color: white !important;
+    border: 1px solid #374151 !important;
+}
+
+/* FORÇA TODOS OS TIPOS DE INPUT */
+input[type="text"], 
+input[type="email"], 
+input[type="password"], 
+input[type="tel"], 
+input[type="number"] {
+    background-color: #1f2937 !important;
+    color: white !important;
+    border: 1px solid #374151 !important;
+}
+
+/* FORÇA CARDS */
+.card {
+    background-color: #1a1b1c !important;
+    color: white !important;
+}
+
+/* FORÇA LINKS */
+a {
+    color: #3b82f6 !important;
+}
+
+/* FORÇA TODOS OS ELEMENTOS COM TEXTO */
+* {
+    color: white !important;
+}
+
+/* FORÇA ESPECÍFICA PARA INPUTS - MÁXIMA PRIORIDADE */
+input, input:focus, input:active, input:hover {
+    background-color: #1f2937 !important;
+    color: white !important;
+    border: 1px solid #374151 !important;
+}
+
+/* FORÇA PARA CAMPOS DE LOGIN/CADASTRO */
+.login-form input, .register-form input, .auth-form input {
+    background-color: #1f2937 !important;
+    color: white !important;
+    border: 1px solid #374151 !important;
+}
+
+/* FORÇA CARROSSEL DE FOTOS */
+.carousel-container {
+    background-color: #1a1b1c !important;
+}
+
+.carousel-button {
+    background-color: rgba(0, 0, 0, 0.5) !important;
+    color: white !important;
+}
+
+.carousel-button:hover {
+    background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+.carousel-indicator {
+    background-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.carousel-indicator.active {
+    background-color: white !important;
+}
+
+.carousel-counter {
+    background-color: rgba(0, 0, 0, 0.5) !important;
+    color: white !important;
+}
+
+/* TESTE VISUAL */
+.test-red-box {
+    background-color: #dc2626 !important;
+    color: white !important;
+    padding: 20px !important;
+    border-radius: 8px !important;
+    margin: 20px 0 !important;
+    text-align: center !important;
+    font-size: 18px !important;
+    font-weight: bold !important;
+} 

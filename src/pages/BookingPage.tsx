@@ -31,12 +31,7 @@ export default function BookingPage() {
     try {
       const { data, error } = await supabase
         .from('establishments')
-        .select(`
-          *,
-          custom_photo_1_url,
-          custom_photo_2_url,
-          custom_photo_3_url
-        `)
+        .select('*')
         .eq('id', id)
         .single();
 
@@ -156,21 +151,8 @@ export default function BookingPage() {
             </div>
           </div>
 
-          {/* CARROSSEL DE FOTOS */}
-          <div className="bg-[#1a1b1c] rounded-lg p-6 mb-8">
-            <h3 className="text-lg font-semibold text-white mb-4 text-center">
-              Fotos do Estabelecimento
-            </h3>
-            
-            <PhotoCarousel
-              customPhotos={[
-                establishment.custom_photo_1_url,
-                establishment.custom_photo_2_url,
-                establishment.custom_photo_3_url
-              ]}
-              establishmentName={establishment.name}
-            />
-          </div>
+          {/* Carrossel de Fotos */}
+          <PhotoCarousel establishment={establishment} />
 
           <div className="card">
             <h2 className="text-lg font-semibold mb-6 text-white">Agendar Horário</h2>

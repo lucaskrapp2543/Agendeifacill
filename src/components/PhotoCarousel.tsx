@@ -2,137 +2,104 @@ import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface PhotoCarouselProps {
-  customPhotos: (string | null)[];
-  establishmentName: string;
+  establishment: {
+    custom_photo_1_url?: string;
+    custom_photo_2_url?: string;
+    custom_photo_3_url?: string;
+    name: string;
+  };
 }
 
-export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({ 
-  customPhotos, 
-  establishmentName 
-}) => {
+export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({ establishment }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Fotos padrão
-  const defaultPhotos = [
-    '/barbeiro ft 1.png',
-    '/barbeiro ft 2.png',
-    '/barbeiro ft 3.png'
+  // Define as fotos - usa personalizadas se disponíveis, senão usa padrão
+  const photos = [
+    establishment.custom_photo_1_url || '/barbeiro ft 1.png',
+    establishment.custom_photo_2_url || '/barbeiro ft 2.png',
+    establishment.custom_photo_3_url || '/barbeiro ft 3.png'
   ];
 
-  // DEBUG: Logs temporários
-  console.log('🔍 PhotoCarousel - Props recebidas:', {
-    customPhotos,
-    establishmentName,
-    customPhotosLength: customPhotos?.length,
-    customPhotosValues: customPhotos
-  });
-
-  // Combinar fotos personalizadas com padrão
-  const photos = customPhotos.map((customPhoto, index) => 
-    customPhoto || defaultPhotos[index]
-  ).filter(Boolean);
-
-  console.log('📷 PhotoCarousel - Fotos processadas:', {
-    defaultPhotos,
-    photos,
-    photosLength: photos.length
-  });
-
-  // Auto-play: trocar foto a cada 5 segundos
+  // Auto-play a cada 5 segundos
   useEffect(() => {
-    if (photos.length > 1) {
-      const interval = setInterval(() => {
-        setCurrentIndex((prevIndex) => 
-          prevIndex === photos.length - 1 ? 0 : prevIndex + 1
-        );
-      }, 5000);
+    const interval = setInterval(() => {
+      setCurrentIndex((prevIndex) => (prevIndex + 1) % photos.length);
+    }, 5000);
 
-      return () => clearInterval(interval);
-    }
+    return () => clearInterval(interval);
   }, [photos.length]);
 
   const goToPrevious = () => {
-    setCurrentIndex(currentIndex === 0 ? photos.length - 1 : currentIndex - 1);
+    setCurrentIndex((prevIndex) => 
+      prevIndex === 0 ? photos.length - 1 : prevIndex - 1
+    );
   };
 
   const goToNext = () => {
-    setCurrentIndex(currentIndex === photos.length - 1 ? 0 : currentIndex + 1);
+    setCurrentIndex((prevIndex) => (prevIndex + 1) % photos.length);
   };
 
   const goToSlide = (index: number) => {
     setCurrentIndex(index);
   };
 
-  if (photos.length === 0) {
-    console.log('❌ PhotoCarousel - Nenhuma foto para exibir, componente não será renderizado');
-    return null;
-  }
-
-  console.log('✅ PhotoCarousel - Renderizando carrossel com', photos.length, 'fotos');
-
   return (
-    <div className="relative w-full max-w-2xl mx-auto mb-8">
-      {/* Container da imagem */}
-      <div className="relative h-64 md:h-80 rounded-lg overflow-hidden bg-gray-800 shadow-lg">
+    <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-800 mb-6">
+      {/* Imagem atual */}
+      <div className="relative w-full h-full">
         <img
           src={photos[currentIndex]}
-          alt={`${establishmentName} - Foto ${currentIndex + 1}`}
+          alt={`${establishment.name} - Foto ${currentIndex + 1}`}
           className="w-full h-full object-cover transition-opacity duration-500"
           onError={(e) => {
-            console.error('Erro ao carregar imagem:', photos[currentIndex]);
-            // Fallback para foto padrão
-            e.currentTarget.src = defaultPhotos[currentIndex] || defaultPhotos[0];
+            // Se a imagem falhar, usa a foto padrão correspondente
+            const target = e.target as HTMLImageElement;
+            const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
+            target.src = defaultPhotos[currentIndex];
           }}
         />
         
-        {/* Overlay com gradiente */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
-        
-        {/* Botões de navegação */}
-        {photos.length > 1 && (
-          <>
-            <button
-              onClick={goToPrevious}
-              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-all duration-200 backdrop-blur-sm"
-              aria-label="Foto anterior"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            
-            <button
-              onClick={goToNext}
-              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-all duration-200 backdrop-blur-sm"
-              aria-label="Próxima foto"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
-          </>
-        )}
+        {/* Overlay escuro para melhor contraste dos botões */}
+        <div className="absolute inset-0 bg-black bg-opacity-20"></div>
       </div>
-      
-      {/* Indicadores de posição */}
-      {photos.length > 1 && (
-        <div className="flex justify-center mt-4 space-x-2">
-          {photos.map((_, index) => (
-            <button
-              key={index}
-              onClick={() => goToSlide(index)}
-              className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                index === currentIndex 
-                  ? 'bg-blue-500 scale-110' 
-                  : 'bg-gray-600 hover:bg-gray-500'
-              }`}
-              aria-label={`Ir para foto ${index + 1}`}
-            />
-          ))}
-        </div>
-      )}
-      
-      {/* Contador de fotos */}
-      <div className="text-center mt-2">
-        <span className="text-sm text-gray-400">
-          {currentIndex + 1} de {photos.length}
-        </span>
+
+      {/* Botão Anterior */}
+      <button
+        onClick={goToPrevious}
+        className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+        aria-label="Foto anterior"
+      >
+        <ChevronLeft className="w-5 h-5" />
+      </button>
+
+      {/* Botão Próximo */}
+      <button
+        onClick={goToNext}
+        className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+        aria-label="Próxima foto"
+      >
+        <ChevronRight className="w-5 h-5" />
+      </button>
+
+      {/* Indicadores (bolinhas) */}
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2 z-10">
+        {photos.map((_, index) => (
+          <button
+            key={index}
+            onClick={() => goToSlide(index)}
+            className={`w-3 h-3 rounded-full transition-all duration-200 ${
+              index === currentIndex
+                ? 'bg-white'
+                : 'bg-white bg-opacity-50 hover:bg-opacity-75'
+            }`}
+            aria-label={`Ir para foto ${index + 1}`}
+          />
+        ))}
+      </div>
+
+      {/* Contador */}
+      <div className="absolute top-4 right-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-full text-sm z-10">
+        {currentIndex + 1} / {photos.length}
       </div>
     </div>
   );
