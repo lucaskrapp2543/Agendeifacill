@@ -806,7 +806,7 @@ const EstablishmentDashboard = () => {
   };
 
   const establishmentLink = establishment
-    ? `https://agendeifacil.com/${generateSlug(establishment.name, establishment.code)}`
+    ? `${window.location.origin}/booking/${establishment.code}`
     : '';
 
   const copyLinkToClipboard = () => {

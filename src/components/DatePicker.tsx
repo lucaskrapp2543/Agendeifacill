@@ -1,7 +1,6 @@
 import React from 'react';
-import { format, addDays, isBefore, startOfDay } from 'date-fns';
+import { format, addMonths, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface DatePickerProps {
   selectedDate: Date;
@@ -21,7 +20,7 @@ const weekDayMap: Record<string, string> = {
 
 export function DatePicker({ selectedDate, onSelectDate, businessHours }: DatePickerProps) {
   const today = startOfDay(new Date());
-  const dates = Array.from({ length: 14 }, (_, i) => addDays(today, i));
+  const maxDate = addMonths(today, 6); // Permitir agendamento até 6 meses no futuro
 
   const isDayEnabled = (date: Date) => {
     const dayInPortuguese = format(date, 'EEEE', { locale: ptBR }).toLowerCase();
@@ -29,67 +28,56 @@ export function DatePicker({ selectedDate, onSelectDate, businessHours }: DatePi
     return businessHours[dayInEnglish]?.enabled ?? true;
   };
 
-  const scrollContainer = (direction: 'left' | 'right') => {
-    const container = document.getElementById('dates-container');
-    if (container) {
-      const scrollAmount = direction === 'left' ? -200 : 200;
-      container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const dateValue = e.target.value;
+    if (dateValue) {
+      const newDate = new Date(dateValue + 'T12:00:00'); // Adicionar horário para evitar problemas de timezone
+      
+      // Verificar se o dia está habilitado
+      if (isDayEnabled(newDate)) {
+        onSelectDate(newDate);
+      } else {
+        // Mostrar aviso se o dia está fechado
+        alert('O estabelecimento está fechado neste dia. Por favor, escolha outro dia.');
+        // Resetar para a data atual se inválida
+        e.target.value = format(selectedDate, 'yyyy-MM-dd');
+      }
     }
   };
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => scrollContainer('left')}
-        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 bg-[#1a1b1c] rounded-full p-1 hover:bg-[#242628] transition-colors"
-      >
-        <ChevronLeft className="h-5 w-5 text-gray-400" />
-      </button>
-
-      <div
-        id="dates-container"
-        className="flex overflow-x-auto hide-scrollbar gap-2 px-4 py-2 scroll-smooth"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-      >
-        {dates.map((date) => {
-          const isSelected = format(date, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd');
-          const isDisabled = !isDayEnabled(date) || isBefore(date, today);
-
-          return (
-            <button
-              key={date.toISOString()}
-              onClick={() => !isDisabled && onSelectDate(date)}
-              disabled={isDisabled}
-              className={`
-                flex flex-col items-center min-w-[100px] p-3 rounded-lg border
-                ${isSelected
-                  ? 'bg-primary border-primary text-white'
-                  : isDisabled
-                    ? 'bg-[#1a1b1c] border-gray-800 text-gray-600 cursor-not-allowed'
-                    : 'bg-[#1a1b1c] border-gray-800 text-white hover:border-gray-700'
-                }
-              `}
-            >
-              <span className="text-sm font-medium">
-                {format(date, 'EEE', { locale: ptBR })}
-              </span>
-              <span className="text-lg font-bold">
-                {format(date, 'dd')}
-              </span>
-              <span className="text-xs">
-                {format(date, 'MMM', { locale: ptBR })}
-              </span>
-            </button>
-          );
-        })}
+    <div className="space-y-3">
+      {/* Input de data principal */}
+      <input
+        type="date"
+        value={format(selectedDate, 'yyyy-MM-dd')}
+        onChange={handleDateChange}
+        min={format(today, 'yyyy-MM-dd')}
+        max={format(maxDate, 'yyyy-MM-dd')}
+        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-lg"
+        required
+      />
+      
+      {/* Informação sobre o dia selecionado */}
+      <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+        <div className="flex items-center justify-between">
+          <span className="font-medium">
+            📅 {format(selectedDate, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+          </span>
+          <span className={`px-2 py-1 rounded text-xs font-medium ${
+            isDayEnabled(selectedDate) 
+              ? 'bg-green-100 text-green-800' 
+              : 'bg-red-100 text-red-800'
+          }`}>
+            {isDayEnabled(selectedDate) ? '✅ Aberto' : '❌ Fechado'}
+          </span>
+        </div>
       </div>
 
-      <button
-        onClick={() => scrollContainer('right')}
-        className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 bg-[#1a1b1c] rounded-full p-1 hover:bg-[#242628] transition-colors"
-      >
-        <ChevronRight className="h-5 w-5 text-gray-400" />
-      </button>
+      {/* Dica para o usuário */}
+      <div className="text-xs text-gray-500 text-center">
+        💡 Você pode agendar até {format(maxDate, 'dd/MM/yyyy')}
+      </div>
     </div>
   );
 } 
