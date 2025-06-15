@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { AppointmentForm } from '../components/AppointmentForm';
 import { PhotoCarousel } from '../components/PhotoCarousel';
 import { SimpleCarousel } from '../components/SimpleCarousel';
+import { TestCarousel } from '../components/TestCarousel';
 import { ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
@@ -144,6 +145,11 @@ export default function BookingPage() {
 
       <main className="container-custom py-8">
         <div className="max-w-3xl mx-auto">
+          {/* TESTE DE RENDERIZAÇÃO - MOVIDO PARA O TOPO */}
+          <TestCarousel
+            establishmentName={establishment.name}
+          />
+          
           <div className="flex items-center gap-4 mb-8">
             <button
               onClick={() => navigate(-1)}
@@ -156,11 +162,11 @@ export default function BookingPage() {
               <p className="text-gray-400">{establishment.address}</p>
             </div>
           </div>
-
+          
           {/* Carrossel de Fotos - TESTE SIMPLES */}
-          <SimpleCarousel
+          {/* <SimpleCarousel
             establishmentName={establishment.name}
-          />
+          /> */}
           
           {/* Carrossel Original (temporariamente comentado) */}
           {/* <PhotoCarousel

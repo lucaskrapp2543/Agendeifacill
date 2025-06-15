@@ -17,6 +17,10 @@ export const SimpleCarousel: React.FC<SimpleCarouselProps> = ({
     '/barbeiro ft 3.png'
   ];
 
+  // DEBUG: Forçar renderização
+  console.log('🚀 SimpleCarousel - INICIANDO RENDERIZAÇÃO');
+  console.log('📷 Fotos que serão usadas:', photos);
+
   console.log('🧪 SimpleCarousel - Sempre usando fotos padrão:', photos);
 
   // Auto-play: trocar foto a cada 5 segundos
