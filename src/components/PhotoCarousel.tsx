@@ -19,19 +19,10 @@ export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({
     '/barbeiro ft 3.png'
   ];
 
-  // Debug logs
-  console.log('🔍 PhotoCarousel Debug:', {
-    customPhotos,
-    establishmentName,
-    defaultPhotos
-  });
-
   // Combinar fotos personalizadas com padrão
   const photos = customPhotos.map((customPhoto, index) => 
     customPhoto || defaultPhotos[index]
   ).filter(Boolean);
-
-  console.log('📷 Fotos finais do carrossel:', photos);
 
   // Auto-play: trocar foto a cada 5 segundos
   useEffect(() => {
@@ -56,12 +47,7 @@ export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({
     setCurrentIndex(index);
   };
 
-  if (photos.length === 0) {
-    console.log('❌ PhotoCarousel: Nenhuma foto para exibir, componente não será renderizado');
-    return null;
-  }
-
-  console.log('✅ PhotoCarousel: Renderizando com', photos.length, 'fotos');
+  if (photos.length === 0) return null;
 
   return (
     <div className="relative w-full max-w-2xl mx-auto mb-8">
