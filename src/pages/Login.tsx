@@ -87,6 +87,16 @@ const Login = () => {
               placeholder="********"
             />
           </div>
+
+          <div className="text-center">
+            <Link 
+              to="/register?role=client" 
+              state={{ from: location.state?.from }} 
+              className="text-primary hover:underline font-medium"
+            >
+              Criar conta
+            </Link>
+          </div>
           
           <button
             type="submit"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getEstablishmentByCode, createAppointment, signIn, signUp, supabase } from '../lib/supabase';
 import { Calendar, Clock, User, MapPin, Phone, Mail, Eye, EyeOff, ArrowLeft } from 'lucide-react';
@@ -11,6 +11,7 @@ const EstablishmentDirectBooking: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { user, userRole, isLoading: authLoading } = useAuth();
+  const location = useLocation();
 
   // Estados do estabelecimento
   const [establishment, setEstablishment] = useState<any>(null);
@@ -28,15 +29,12 @@ const EstablishmentDirectBooking: React.FC = () => {
 
   // Estados de autenticação
   const [showAuth, setShowAuth] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [authData, setAuthData] = useState({
-    email: '',
-    password: '',
-    confirmPassword: '',
-    fullName: ''
-  });
   const [showPassword, setShowPassword] = useState(false);
   const [authFormLoading, setAuthFormLoading] = useState(false);
+  const [authData, setAuthData] = useState({
+    email: '',
+    password: ''
+  });
 
   // Extrair código do slug (assume que o código são os últimos 4 dígitos)
   const extractCodeFromSlug = (slug: string): string => {
@@ -246,52 +244,20 @@ const EstablishmentDirectBooking: React.FC = () => {
     }
   }, [establishment, selectedDate, selectedProfessional]);
 
-
-
   // Handle autenticação
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthFormLoading(true);
     
     try {
-      if (authMode === 'login') {
-        const { data, error } = await signIn(authData.email, authData.password);
-        if (error) throw error;
-        
-        setShowAuth(false);
-        // Aguardar um pouco para o contexto atualizar
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
-        
-      } else {
-        // Validações de registro
-        if (authData.password !== authData.confirmPassword) {
-          alert('Senhas não coincidem');
-          return;
-        }
-        
-        if (authData.password.length < 6) {
-          alert('Senha deve ter pelo menos 6 caracteres');
-          return;
-        }
-        
-        const { data, error } = await signUp(
-          authData.email, 
-          authData.password, 
-          'client',
-          { full_name: authData.fullName }
-        );
-        
-        if (error) throw error;
-        
-        alert('Conta criada com sucesso! Agora faça login.');
-        setAuthMode('login');
-        setAuthData(prev => ({ ...prev, password: '', confirmPassword: '', fullName: '' }));
-      }
+      const { data, error } = await signIn(authData.email, authData.password);
+      if (error) throw error;
       
+      setShowAuth(false);
+      // Recarregar a página para atualizar o estado de autenticação
+      window.location.reload();
     } catch (error: any) {
-      console.error('Erro na autenticação:', error);
+      console.error('Erro no login:', error);
       alert(`Erro: ${error.message}`);
     } finally {
       setAuthFormLoading(false);
@@ -509,17 +475,18 @@ const EstablishmentDirectBooking: React.FC = () => {
                 </div>
                 <div className="space-y-3">
                   <button
-                    onClick={() => { setAuthMode('login'); setShowAuth(true); }}
+                    onClick={() => { setShowAuth(true); }}
                     className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 font-medium"
                   >
                     Fazer Login
                   </button>
-                  <button
-                    onClick={() => { setAuthMode('register'); setShowAuth(true); }}
-                    className="w-full border border-blue-600 text-blue-600 py-3 px-4 rounded-md hover:bg-blue-50 font-medium"
+                  <Link
+                    to={`/register?role=client`}
+                    state={{ from: location.pathname }}
+                    className="w-full border border-blue-600 text-blue-600 py-3 px-4 rounded-md hover:bg-blue-50 font-medium block text-center"
                   >
                     Criar Conta Gratuita
-                  </button>
+                  </Link>
                 </div>
                 <p className="text-xs text-gray-500 mt-4">
                   Criando uma conta você pode agendar em qualquer estabelecimento do AgendaFácil
@@ -642,9 +609,7 @@ const EstablishmentDirectBooking: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full text-gray-900" style={{ backgroundColor: '#ffffff', color: '#111827' }}>
             <div className="p-6">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">
-                  {authMode === 'login' ? 'Fazer Login' : 'Criar Conta'}
-                </h2>
+                <h2 className="text-xl font-bold">Fazer Login</h2>
                 <button
                   onClick={() => setShowAuth(false)}
                   className="text-gray-400 hover:text-gray-600"
@@ -654,22 +619,6 @@ const EstablishmentDirectBooking: React.FC = () => {
               </div>
 
               <form onSubmit={handleAuth} className="space-y-4">
-                {authMode === 'register' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nome Completo
-                    </label>
-                    <input
-                      type="text"
-                      value={authData.fullName}
-                      onChange={(e) => setAuthData(prev => ({ ...prev, fullName: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
-                      style={{ backgroundColor: '#ffffff', color: '#111827' }}
-                      required
-                    />
-                  </div>
-                )}
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Email
@@ -708,40 +657,25 @@ const EstablishmentDirectBooking: React.FC = () => {
                   </div>
                 </div>
 
-                {authMode === 'register' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Confirmar Senha
-                    </label>
-                    <input
-                      type="password"
-                      value={authData.confirmPassword}
-                      onChange={(e) => setAuthData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
-                      style={{ backgroundColor: '#ffffff', color: '#111827' }}
-                      required
-                      minLength={6}
-                    />
-                  </div>
-                )}
-
                 <button
                   type="submit"
                   disabled={authFormLoading}
                   className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                 >
-                  {authFormLoading ? 'Processando...' : (authMode === 'login' ? 'Entrar' : 'Criar Conta')}
+                  {authFormLoading ? 'Processando...' : 'Entrar'}
                 </button>
-              </form>
 
-              <div className="mt-4 text-center">
-                <button
-                  onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
-                  className="text-blue-600 hover:text-blue-700 text-sm"
-                >
-                  {authMode === 'login' ? 'Não tem conta? Criar conta' : 'Já tem conta? Fazer login'}
-                </button>
-              </div>
+                <div className="mt-4 text-center">
+                  <Link
+                    to={`/register?role=client`}
+                    state={{ from: location.pathname }}
+                    className="text-blue-600 hover:text-blue-700 text-sm"
+                    onClick={() => setShowAuth(false)}
+                  >
+                    Não tem conta? Criar conta
+                  </Link>
+                </div>
+              </form>
             </div>
           </div>
         </div>

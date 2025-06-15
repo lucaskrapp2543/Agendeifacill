@@ -27,12 +27,12 @@ const Register = () => {
     
     if (roleParam && ['client', 'premium', 'establishment'].includes(roleParam)) {
       setRole(roleParam);
-      // Se vier especificamente como cliente, ocultar seletor
-      if (roleParam === 'client') {
+      // Se vier como cliente ou da página de login, ocultar seletor
+      if (roleParam === 'client' || location.state?.from?.pathname === '/login') {
         setHideRoleSelector(true);
       }
     }
-  }, [location.search]);
+  }, [location.search, location.state]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,7 +54,7 @@ const Register = () => {
       }
 
       toast('Conta criada com sucesso! Você já pode fazer login.', 'success');
-      navigate('/login');
+      navigate('/login', { state: location.state });
     } catch (error: any) {
       toast(error.message || 'Erro ao criar conta', 'error');
     } finally {

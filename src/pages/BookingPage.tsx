@@ -364,7 +364,7 @@ export default function BookingPage() {
           <PhotoCarousel establishment={establishment} />
 
           <div className="card">
-            <h2 className="text-lg font-semibold mb-6 text-gray-900">
+            <h2 className="text-lg font-semibold mb-6 text-white">
               Agendar Horário
             </h2>
             <AppointmentForm
