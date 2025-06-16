@@ -8,4 +8,12 @@
   status = 200
 
 [build.environment]
-  # Variáveis de ambiente serão definidas no painel do Netlify 
+  NODE_VERSION = "18.17.0"
+  NPM_VERSION = "9.6.7"
+
+# Force usando uma versão LTS do Node.js
+[context.production.environment]
+  NODE_VERSION = "18.17.0"
+  NPM_VERSION = "9.6.7"
+
+# Variáveis de ambiente serão definidas no painel do Netlify 
