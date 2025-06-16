@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
 import { getEstablishmentAppointments, createEstablishment, updateEstablishment, getEstablishmentPremiumSubscribers, removePremiumSubscriber } from '../lib/supabase';
+import type { Appointment } from '../types/supabase';
 import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
-import { TimeSelector } from '../components/TimeSelector';
 
 interface BusinessHours {
+  open: string;
+  close: string;
   enabled: boolean;
-  open1: string;
-  close1: string;
-  open2: string;
-  close2: string;
 }
 
 interface Professional {
@@ -42,12 +40,9 @@ interface Establishment {
   services_with_prices: Service[];
   profile_image_url?: string;
   affiliate_link?: string;
-  custom_photo_1_url?: string;
-  custom_photo_2_url?: string;
-  custom_photo_3_url?: string;
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'premium-clients';
+type TabType = 'appointments' | 'services' | 'settings';
 
 interface Appointment {
   id: string;
@@ -63,16 +58,6 @@ interface Appointment {
   is_premium: boolean;
   duration: number;
   price: number;
-  payment_method?: string;
-}
-
-interface PremiumClient {
-  id: string;
-  premium_user_id: string;
-  establishment_id: string;
-  client_name: string;
-  client_phone: string;
-  created_at: string;
 }
 
 const EstablishmentDashboard = () => {
@@ -96,22 +81,14 @@ const EstablishmentDashboard = () => {
   const [profileImage, setProfileImage] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
   
-  // Estados para fotos personalizadas
-  const [customPhoto1, setCustomPhoto1] = useState<File | null>(null);
-  const [customPhoto2, setCustomPhoto2] = useState<File | null>(null);
-  const [customPhoto3, setCustomPhoto3] = useState<File | null>(null);
-  const [customPhoto1Preview, setCustomPhoto1Preview] = useState<string | null>(null);
-  const [customPhoto2Preview, setCustomPhoto2Preview] = useState<string | null>(null);
-  const [customPhoto3Preview, setCustomPhoto3Preview] = useState<string | null>(null);
-  
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
-    monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    monday: { open: '09:00', close: '18:00', enabled: true },
+    tuesday: { open: '09:00', close: '18:00', enabled: true },
+    wednesday: { open: '09:00', close: '18:00', enabled: true },
+    thursday: { open: '09:00', close: '18:00', enabled: true },
+    friday: { open: '09:00', close: '18:00', enabled: true },
+    saturday: { open: '09:00', close: '18:00', enabled: false },
+    sunday: { open: '09:00', close: '18:00', enabled: false }
   });
   
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -123,7 +100,6 @@ const EstablishmentDashboard = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedProfessional, setSelectedProfessional] = useState<string>('all'); // 'all' ou id do profissional
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('todos'); // 'todos', 'pendente', 'pix', 'credito', 'debito', 'dinheiro'
 
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
 
@@ -184,32 +160,7 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleCustomPhotoChange = (photoNumber: 1 | 2 | 3, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast('A imagem deve ter no máximo 5MB', 'error');
-        return;
-      }
-      
-      if (photoNumber === 1) {
-        setCustomPhoto1(file);
-        setCustomPhoto1Preview(URL.createObjectURL(file));
-      } else if (photoNumber === 2) {
-        setCustomPhoto2(file);
-        setCustomPhoto2Preview(URL.createObjectURL(file));
-      } else if (photoNumber === 3) {
-        setCustomPhoto3(file);
-        setCustomPhoto3Preview(URL.createObjectURL(file));
-      }
-    }
-  };
-
-  const handleBusinessHoursChange = (
-    day: keyof typeof businessHours,
-    field: 'enabled' | 'open1' | 'close1' | 'open2' | 'close2',
-    value: string | boolean
-  ) => {
+  const handleBusinessHoursChange = (day: keyof typeof businessHours, field: 'open' | 'close' | 'enabled', value: string | boolean) => {
     setBusinessHours(prev => ({
       ...prev,
       [day]: {
@@ -368,10 +319,7 @@ const EstablishmentDashboard = () => {
           duration: Number(s.duration)
         })).filter(s => s.name && s.price > 0),
         profile_image: profileImage,
-        affiliate_link: affiliateLink.trim(),
-        custom_photo_1: customPhoto1,
-        custom_photo_2: customPhoto2,
-        custom_photo_3: customPhoto3
+        affiliate_link: affiliateLink.trim()
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -408,36 +356,6 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handlePaymentMethodChange = async (appointmentId: string, paymentMethod: string) => {
-    try {
-      const { error } = await supabase
-        .from('appointments')
-        .update({ payment_method: paymentMethod })
-        .eq('id', appointmentId);
-
-      if (error) throw error;
-
-      setAppointments(prev => prev.map(appointment => 
-        appointment.id === appointmentId 
-          ? { ...appointment, payment_method: paymentMethod }
-          : appointment
-      ));
-
-      const paymentLabels: { [key: string]: string } = {
-        'pix': 'PIX',
-        'credito': 'Cartão de Crédito',
-        'debito': 'Cartão de Débito',
-        'dinheiro': 'Dinheiro',
-        'pendente': 'Pendente'
-      };
-
-      toast(`Forma de pagamento atualizada para ${paymentLabels[paymentMethod]}!`, 'success');
-    } catch (error: any) {
-      console.error('Erro ao atualizar forma de pagamento:', error);
-      toast('Erro ao atualizar forma de pagamento', 'error');
-    }
-  };
-
   const fetchPremiumSubscribers = async () => {
     if (!establishment) {
       console.log('Estabelecimento não encontrado');
@@ -454,7 +372,7 @@ const EstablishmentDashboard = () => {
         throw error;
       }
       
-      setPremiumSubscribers(Array.isArray(data) ? data : []);
+      setPremiumSubscribers(data || []);
     } catch (error: any) {
       console.error('Error fetching premium subscribers:', error);
       toast(error.message || 'Erro ao carregar assinantes premium', 'error');
@@ -574,7 +492,7 @@ const EstablishmentDashboard = () => {
         throw new Error('Vencedores com posições incorretas');
       }
 
-      setPremiumSubscribers(Array.isArray(updatedSubscribers) ? updatedSubscribers : []);
+      setPremiumSubscribers(updatedSubscribers);
       toast('Sorteio realizado com sucesso!', 'success');
     } catch (error: any) {
       console.error('Erro ao realizar sorteio:', error);
@@ -608,8 +526,7 @@ const EstablishmentDashboard = () => {
           created_at,
           is_premium,
           duration,
-          price,
-          payment_method
+          price
         `)
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startOfSelectedDate)
@@ -649,8 +566,7 @@ const EstablishmentDashboard = () => {
           created_at,
           is_premium,
           duration,
-          price,
-          payment_method
+          price
         `)
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startDate)
@@ -676,7 +592,7 @@ const EstablishmentDashboard = () => {
           .from('establishments')
           .select('*')
           .eq('owner_id', user.id)
-          .maybeSingle();
+          .single();
         
         if (error) throw error;
         
@@ -686,22 +602,9 @@ const EstablishmentDashboard = () => {
           setEstablishmentDescription(establishments.description || '');
           setEstablishmentCode(establishments.code);
           setAffiliateLink(establishments.affiliate_link || '');
-          // Migrar dados antigos para nova estrutura se necessário
-          const migratedBusinessHours = migrateBusinessHours(establishments.business_hours);
-          setBusinessHours(migratedBusinessHours);
+          setBusinessHours(establishments.business_hours);
           setProfessionals(establishments.professionals || []);
           setServicesWithPrices(establishments.services_with_prices || []);
-          
-          // Carregar previews das fotos personalizadas existentes
-          if (establishments.custom_photo_1_url) {
-            setCustomPhoto1Preview(establishments.custom_photo_1_url);
-          }
-          if (establishments.custom_photo_2_url) {
-            setCustomPhoto2Preview(establishments.custom_photo_2_url);
-          }
-          if (establishments.custom_photo_3_url) {
-            setCustomPhoto3Preview(establishments.custom_photo_3_url);
-          }
         }
       } catch (error: any) {
         console.error('Error fetching establishment:', error);
@@ -715,7 +618,7 @@ const EstablishmentDashboard = () => {
   }, [user]);
 
   useEffect(() => {
-    if (establishment && activeTab === 'premium-clients') {
+    if (establishment && activeTab === 'premium') {
       fetchPremiumSubscribers();
     }
   }, [establishment, activeTab]);
@@ -732,8 +635,7 @@ const EstablishmentDashboard = () => {
       .filter(appointment => {
         const isNotCancelled = appointment.status !== 'cancelled';
         const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
-        const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
-        return isNotCancelled && isProfessionalMatch && isPaymentMethodMatch;
+        return isNotCancelled && isProfessionalMatch;
       })
       .reduce((total, appointment) => total + (appointment.price || 0), 0);
   };
@@ -745,17 +647,14 @@ const EstablishmentDashboard = () => {
         const isInMonth = isSameMonth(appointmentDate, selectedDate);
         const isNotCancelled = appointment.status !== 'cancelled';
         const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
-        const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
-        return isInMonth && isNotCancelled && isProfessionalMatch && isPaymentMethodMatch;
+        return isInMonth && isNotCancelled && isProfessionalMatch;
       })
       .reduce((total, appointment) => total + (appointment.price || 0), 0);
   };
 
-  // Filtrar agendamentos por profissional e forma de pagamento selecionados
+  // Filtrar agendamentos por profissional selecionado
   const filteredAppointments = appointments.filter(appointment => {
-    const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
-    const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
-    return isProfessionalMatch && isPaymentMethodMatch;
+    return selectedProfessional === 'all' || appointment.professional === selectedProfessional;
   });
 
   // Função para obter o nome do profissional pelo ID
@@ -792,83 +691,6 @@ const EstablishmentDashboard = () => {
     } catch (error: any) {
       console.error('Error adding premium draw columns:', error);
     }
-  };
-
-  // Função para gerar o slug do estabelecimento
-  const generateSlug = (name: string, code: string) => {
-    const nameSlug = name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[0-\u036f]/g, '') // Remove acentos
-      .replace(/[^a-z0-9]/g, '') // Remove caracteres especiais
-      .slice(0, 20); // Limita tamanho
-    return `${nameSlug}${code}`;
-  };
-
-  const establishmentLink = establishment
-    ? `${window.location.origin}/booking/${establishment.code}`
-    : '';
-
-  const copyLinkToClipboard = () => {
-    if (!establishmentLink) return;
-    navigator.clipboard.writeText(establishmentLink);
-    toast('Link copiado para a área de transferência!', 'success');
-  };
-
-  // Função para migrar dados antigos de horários para nova estrutura
-  const migrateBusinessHours = (oldBusinessHours: any): Record<string, BusinessHours> => {
-    const migratedHours: Record<string, BusinessHours> = {};
-    
-    Object.entries(oldBusinessHours || {}).forEach(([day, hours]: [string, any]) => {
-      if (hours && typeof hours === 'object') {
-        // Se já tem a nova estrutura (open1, close1, open2, close2)
-        if (hours.open1 !== undefined) {
-          migratedHours[day] = {
-            enabled: hours.enabled || false,
-            open1: hours.open1 || '09:00',
-            close1: hours.close1 || '12:00',
-            open2: hours.open2 || '13:30',
-            close2: hours.close2 || '18:00'
-          };
-        } 
-        // Se tem a estrutura antiga (open, close)
-        else if (hours.open !== undefined) {
-          migratedHours[day] = {
-            enabled: hours.enabled || false,
-            open1: hours.open || '09:00',
-            close1: '12:00',
-            open2: '13:30',
-            close2: hours.close || '18:00'
-          };
-        }
-        // Estrutura padrão
-        else {
-          migratedHours[day] = {
-            enabled: false,
-            open1: '09:00',
-            close1: '12:00',
-            open2: '13:30',
-            close2: '18:00'
-          };
-        }
-      }
-    });
-    
-    // Garantir que todos os dias da semana existam
-    const defaultDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    defaultDays.forEach(day => {
-      if (!migratedHours[day]) {
-        migratedHours[day] = {
-          enabled: day !== 'saturday' && day !== 'sunday',
-          open1: '09:00',
-          close1: '12:00',
-          open2: '13:30',
-          close2: '18:00'
-        };
-      }
-    });
-    
-    return migratedHours;
   };
 
   if (isEstablishmentLoading) {
@@ -914,7 +736,7 @@ const EstablishmentDashboard = () => {
             <form onSubmit={handleCreateEstablishment} className="space-y-6">
               {/* Informações Básicas */}
               <div className="space-y-4">
-                <h4 className="text-md font-medium text-gray-800">Informações Básicas</h4>
+                <h4 className="text-md font-medium">Informações Básicas</h4>
                 
                 <div>
                   <label htmlFor="establishmentName" className="block text-sm font-medium text-gray-700 mb-1">
@@ -1009,10 +831,10 @@ const EstablishmentDashboard = () => {
               {/* Horário de Funcionamento */}
               <div className="space-y-4">
                 <h4 className="text-md font-medium">Horário de Funcionamento</h4>
+                
                 {Object.entries(businessHours).map(([day, hours]) => (
-                  <div key={day} className="bg-gray-50 p-4 rounded-lg space-y-3">
-                    {/* Cabeçalho do dia com checkbox */}
-                    <div className="flex items-center justify-between">
+                  <div key={day} className="flex items-center space-x-4">
+                    <div className="w-32">
                       <label className="inline-flex items-center">
                         <input
                           type="checkbox"
@@ -1020,83 +842,27 @@ const EstablishmentDashboard = () => {
                           onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
                           className="form-checkbox h-4 w-4 text-secondary"
                         />
-                        <span className="ml-2 font-medium text-gray-900">
-                          {day === 'monday' ? 'Segunda-feira' :
-                           day === 'tuesday' ? 'Terça-feira' :
-                           day === 'wednesday' ? 'Quarta-feira' :
-                           day === 'thursday' ? 'Quinta-feira' :
-                           day === 'friday' ? 'Sexta-feira' :
-                           day === 'saturday' ? 'Sábado' : 'Domingo'}
-                        </span>
+                        <span className="ml-2 capitalize">{day}</span>
                       </label>
-                      {!hours.enabled && (
-                        <span className="text-sm text-gray-500 bg-gray-200 px-2 py-1 rounded">
-                          Fechado
-                        </span>
-                      )}
                     </div>
                     
-                    {/* Horários - Layout responsivo */}
-                    {hours.enabled && (
-                      <div className="space-y-3">
-                        {/* Período da manhã */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div className="space-y-2">
-                            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
-                              Abertura
-                            </label>
-                            <TimeSelector
-                              value={hours.open1}
-                              onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
+                    <input
+                      type="time"
+                      value={hours.open}
+                      onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open', e.target.value)}
                       disabled={!hours.enabled}
-                              className="w-full"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
-                              Fecha p/ Intervalo
-                            </label>
-                            <TimeSelector
-                              value={hours.close1}
-                              onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
-                              disabled={!hours.enabled}
-                              className="w-full"
-                            />
-                          </div>
-                        </div>
-                        
-                        {/* Período da tarde */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div className="space-y-2">
-                            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
-                              Reabertura
-                            </label>
-                            <TimeSelector
-                              value={hours.open2}
-                              onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
+                      className="input-field w-32"
+                    />
+                    
+                    <span className="text-gray-500">até</span>
+                    
+                    <input
+                      type="time"
+                      value={hours.close}
+                      onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close', e.target.value)}
                       disabled={!hours.enabled}
-                              className="w-full"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
-                              Fechamento
-                            </label>
-                            <TimeSelector
-                              value={hours.close2}
-                              onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
-                              disabled={!hours.enabled}
-                              className="w-full"
-                            />
-                          </div>
-                        </div>
-                        
-                        {/* Resumo visual dos horários */}
-                        <div className="mt-3 p-2 bg-blue-50 rounded text-sm text-blue-700">
-                          <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} e {hours.open2} - {hours.close2}
-                        </div>
-                      </div>
-                    )}
+                      className="input-field w-32"
+                    />
                   </div>
                 ))}
               </div>
@@ -1150,7 +916,7 @@ const EstablishmentDashboard = () => {
               {/* Serviços e Preços */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <h4 className="text-md font-medium">MEU LINK</h4>
+                  <h4 className="text-md font-medium">Serviços e Preços</h4>
                   <button
                     type="button"
                     onClick={handleAddService}
@@ -1163,58 +929,39 @@ const EstablishmentDashboard = () => {
                 
                 <div className="space-y-4">
                   {servicesWithPrices.map((service) => (
-                    <div key={service.id} className="p-4 bg-gray-50 rounded-lg">
-                      <div className="flex flex-col sm:flex-row gap-4">
-                        <div className="flex-1">
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Nome do serviço
-                          </label>
-                          <input
-                            type="text"
-                            value={service.name}
-                            onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
-                            placeholder="Nome do serviço"
-                            className="input-field w-full"
-                          />
-                        </div>
-                        <div className="w-full sm:w-32">
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Preço
-                          </label>
-                          <input
-                            type="number"
-                            value={service.price}
-                            onChange={(e) => handleServiceChange(service.id, 'price', Number(e.target.value))}
-                            placeholder="Preço"
-                            className="input-field w-full"
-                          />
-                        </div>
-                        <div className="w-full sm:w-40">
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Duração
-                          </label>
-                          <select
-                            value={service.duration}
-                            onChange={(e) => handleServiceChange(service.id, 'duration', Number(e.target.value))}
-                            className="input-field w-full"
-                          >
-                            {durationOptions.map(option => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex items-end justify-end sm:w-10">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveService(service.id)}
-                            className="text-error hover:text-error/80 mb-1"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </div>
+                    <div key={service.id} className="flex items-center gap-4">
+                      <input
+                        type="text"
+                        value={service.name}
+                        onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
+                        placeholder="Nome do serviço"
+                        className="input-field flex-1"
+                      />
+                      <input
+                        type="number"
+                        value={service.price}
+                        onChange={(e) => handleServiceChange(service.id, 'price', Number(e.target.value))}
+                        placeholder="Preço"
+                        className="input-field w-32"
+                      />
+                      <select
+                        value={service.duration}
+                        onChange={(e) => handleServiceChange(service.id, 'duration', Number(e.target.value))}
+                        className="input-field w-40"
+                      >
+                        {durationOptions.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveService(service.id)}
+                        className="text-error hover:text-error/80"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   ))}
                   {servicesWithPrices.length === 0 && (
@@ -1244,52 +991,42 @@ const EstablishmentDashboard = () => {
           <>
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-4">
-                <nav className="flex space-x-1 md:space-x-4 overflow-x-auto scrollbar-hide pb-1 -mb-px w-full">
+                <div className="flex space-x-4 mb-8">
                   <button
                     onClick={() => setActiveTab('appointments')}
-                    className={`py-2 px-3 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 flex items-center gap-1 ${
+                    className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
                       activeTab === 'appointments'
-                        ? 'border-primary text-primary bg-primary/10'
-                        : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
+                        ? 'bg-primary text-white'
+                        : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     <Calendar className="w-4 h-4" />
-                    <span className="">Agend.</span>
+                    Agendamentos
                   </button>
                   <button
                     onClick={() => setActiveTab('services')}
-                    className={`py-2 px-3 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 flex items-center gap-1 ${
+                    className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
                       activeTab === 'services'
-                        ? 'border-primary text-primary bg-primary/10'
-                        : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
+                        ? 'bg-primary text-white'
+                        : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     <Scissors className="w-4 h-4" />
-                    <span className="">MEU LINK</span>
+                    Serviços
                   </button>
+
                   <button
                     onClick={() => setActiveTab('settings')}
-                    className={`py-2 px-3 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 flex items-center gap-1 ${
+                    className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
                       activeTab === 'settings'
-                        ? 'border-primary text-primary bg-primary/10'
-                        : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
+                        ? 'bg-primary text-white'
+                        : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     <Settings className="w-4 h-4" />
-                    <span className="">Config.</span>
+                    Configurações
                   </button>
-                  <button
-                    onClick={() => setActiveTab('premium-clients')}
-                    className={`py-2 px-3 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 flex items-center gap-1 ${
-                      activeTab === 'premium-clients'
-                        ? 'border-primary text-primary bg-primary/10'
-                        : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
-                    }`}
-                  >
-                    <Crown className="w-4 h-4" />
-                    <span className="">Premium</span>
-                  </button>
-                </nav>
+                </div>
               </div>
               <button onClick={signOut} className="btn-outline flex items-center gap-2">
                 <LogOut className="w-4 h-4" />
@@ -1336,10 +1073,7 @@ const EstablishmentDashboard = () => {
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        onClick={() => {
-                          setSelectedProfessional('all');
-                          setSelectedPaymentMethod('todos');
-                        }}
+                        onClick={() => setSelectedProfessional('all')}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           selectedProfessional === 'all'
                             ? 'bg-primary text-white'
@@ -1351,10 +1085,7 @@ const EstablishmentDashboard = () => {
                       {establishment.professionals.map((professional) => (
                         <button
                           key={professional.id}
-                          onClick={() => {
-                            setSelectedProfessional(professional.id);
-                            setSelectedPaymentMethod('todos');
-                          }}
+                          onClick={() => setSelectedProfessional(professional.id)}
                           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                             selectedProfessional === professional.id
                               ? 'bg-primary text-white'
@@ -1375,102 +1106,6 @@ const EstablishmentDashboard = () => {
                     </div>
                   </div>
                 )}
-
-                {/* Filtros por Forma de Pagamento */}
-                <div className="mb-6 bg-[#1a1b1c] rounded-lg p-4 border border-gray-800">
-                  <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
-                    <CreditCard className="h-5 w-5 text-primary" />
-                    Filtrar por Forma de Pagamento
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setSelectedPaymentMethod('todos')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'todos'
-                          ? 'bg-primary text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      💳 Todos
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('pendente')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'pendente'
-                          ? 'bg-gray-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      ⏳ Pendente
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('pix')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'pix'
-                          ? 'bg-green-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🟢 PIX
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('credito')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'credito'
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🔵 Crédito
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('debito')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'debito'
-                          ? 'bg-purple-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🟣 Débito
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('dinheiro')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'dinheiro'
-                          ? 'bg-yellow-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🟡 Dinheiro
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('pagar_local')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'pagar_local'
-                          ? 'bg-orange-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🏪 Pagar no Local
-                    </button>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between text-sm">
-                    <p className="text-gray-400">
-                      Filtro de pagamento: <span className="text-primary font-medium">
-                        {selectedPaymentMethod === 'todos' ? 'Todos os tipos' :
-                         selectedPaymentMethod === 'pendente' ? 'Pendente' :
-                         selectedPaymentMethod === 'pix' ? 'PIX' :
-                         selectedPaymentMethod === 'credito' ? 'Crédito' :
-                         selectedPaymentMethod === 'debito' ? 'Débito' :
-                         selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' :
-                         selectedPaymentMethod === 'pagar_local' ? 'Pagar no Local' : 'Todos'}
-                      </span>
-                    </p>
-                    <p className="text-gray-400">
-                      {filteredAppointments.length} agendamentos encontrados
-                    </p>
-                  </div>
-                </div>
 
                 <h2 className="text-2xl font-bold text-white">Agendamentos do Dia</h2>
                 <p className="text-gray-400 mb-4">
@@ -1530,38 +1165,16 @@ const EstablishmentDashboard = () => {
                             </div>
                           </div>
                           <div className="flex flex-col items-end gap-2">
-                            {/* Dropdown de forma de pagamento */}
-                            {appointment.status !== 'cancelled' && (
-                              <div className="flex flex-col gap-1">
-                                <select
-                                  value={appointment.payment_method || 'pendente'}
-                                  onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
-                                  className={`text-xs px-3 py-2 border-2 rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary focus:border-secondary ${
-                                    appointment.payment_method === 'pix' ? 'bg-green-100 border-green-300 text-green-800' :
-                                    appointment.payment_method === 'credito' ? 'bg-blue-100 border-blue-300 text-blue-800' :
-                                    appointment.payment_method === 'debito' ? 'bg-purple-100 border-purple-300 text-purple-800' :
-                                    appointment.payment_method === 'dinheiro' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
-                                    appointment.payment_method === 'pagar_local' ? 'bg-orange-100 border-orange-300 text-orange-800' :
-                                    'bg-gray-100 border-gray-300 text-gray-800'
-                                  }`}
-                                >
-                                  <option value="pendente">⏳ Pendente</option>
-                                  <option value="pix">🟢 PIX</option>
-                                  <option value="credito">🔵 Crédito</option>
-                                  <option value="debito">🟣 Débito</option>
-                                  <option value="dinheiro">🟡 Dinheiro</option>
-                                  <option value="pagar_local">🏪 Pagar no Local</option>
-                                </select>
-                              </div>
-                            )}
-                            
-                            {/* Status cancelado */}
-                            {appointment.status === 'cancelled' && (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-500/10 text-red-500">
-                                Cancelado
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                              appointment.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
+                              appointment.status === 'confirmed' ? 'bg-green-500/10 text-green-500' :
+                              appointment.status === 'cancelled' ? 'bg-red-500/10 text-red-500' :
+                              'bg-blue-500/10 text-blue-500'
+                            }`}>
+                              {appointment.status === 'pending' ? 'Pendente' : 
+                               appointment.status === 'confirmed' ? 'Confirmado' :
+                               appointment.status === 'cancelled' ? 'Cancelado' : 'Concluído'}
                             </span>
-                            )}
-                            
                             {appointment.status === 'pending' && (
                               <button
                                 onClick={() => handleCancelAppointment(appointment.id)}
@@ -1592,7 +1205,7 @@ const EstablishmentDashboard = () => {
                 <h2 className="text-2xl font-bold text-white">Editar Estabelecimento</h2>
                 {/* Informações Básicas */}
                 <div className="space-y-4">
-                  <h4 className="text-md font-medium text-secondary">Informações Básicas</h4>
+                  <h4 className="text-md font-medium">Informações Básicas</h4>
                   <div>
                     <label htmlFor="establishmentName" className="block text-sm font-medium text-gray-700 mb-1">
                       Nome do estabelecimento
@@ -1650,109 +1263,11 @@ const EstablishmentDashboard = () => {
                     </div>
                     <p className="mt-1 text-sm text-gray-500">JPG ou PNG. Máximo 5MB.</p>
                   </div>
-                  
-                  {/* Fotos Personalizadas para Carrossel */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      Fotos do seu trabalho (Carrossel)
-                    </label>
-                    <p className="text-sm text-gray-500 mb-4">
-                      Adicione até 3 fotos que serão exibidas para os clientes na página de agendamento. 
-                      Se não adicionar, serão usadas fotos padrão.
-                    </p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Foto 1 */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium text-gray-600">Foto 1</label>
-                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
-                          {customPhoto1Preview ? (
-                            <img
-                              src={customPhoto1Preview}
-                              alt="Foto personalizada 1"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <ImageIcon className="w-8 h-8 text-gray-400" />
-                            </div>
-                          )}
-                        </div>
-                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            className="hidden"
-                            onChange={(e) => handleCustomPhotoChange(1, e)}
-                          />
-                          {customPhoto1Preview ? 'Trocar foto' : 'Escolher foto'}
-                        </label>
-                      </div>
-                      
-                      {/* Foto 2 */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium text-gray-600">Foto 2</label>
-                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
-                          {customPhoto2Preview ? (
-                            <img
-                              src={customPhoto2Preview}
-                              alt="Foto personalizada 2"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <ImageIcon className="w-8 h-8 text-gray-400" />
-                            </div>
-                          )}
-                        </div>
-                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            className="hidden"
-                            onChange={(e) => handleCustomPhotoChange(2, e)}
-                          />
-                          {customPhoto2Preview ? 'Trocar foto' : 'Escolher foto'}
-                        </label>
-                      </div>
-                      
-                      {/* Foto 3 */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium text-gray-600">Foto 3</label>
-                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
-                          {customPhoto3Preview ? (
-                            <img
-                              src={customPhoto3Preview}
-                              alt="Foto personalizada 3"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <ImageIcon className="w-8 h-8 text-gray-400" />
-                            </div>
-                          )}
-                        </div>
-                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            className="hidden"
-                            onChange={(e) => handleCustomPhotoChange(3, e)}
-                          />
-                          {customPhoto3Preview ? 'Trocar foto' : 'Escolher foto'}
-                        </label>
-                      </div>
-                    </div>
-                    
-                    <p className="mt-2 text-xs text-gray-500">
-                      JPG ou PNG. Máximo 5MB por foto. Recomendado: 800x600px ou similar.
-                    </p>
-                  </div>
                 </div>
 
                 {/* Código do Estabelecimento */}
                 <div className="space-y-4">
-                  <h4 className="text-md font-medium text-secondary">Código do Estabelecimento</h4>
+                  <h4 className="text-md font-medium">Código do Estabelecimento</h4>
                   <div>
                     <label htmlFor="establishmentCode" className="block text-sm font-medium text-gray-700 mb-1">
                       Código do estabelecimento
@@ -1802,7 +1317,7 @@ const EstablishmentDashboard = () => {
 
                 {/* Link Afiliado */}
                 <div className="space-y-4">
-                  <h4 className="text-md font-medium text-secondary">Seu Link Afiliado Aqui</h4>
+                  <h4 className="text-md font-medium">Seu Link Afiliado Aqui</h4>
                   <div>
                     <label htmlFor="affiliateLink" className="block text-sm font-medium text-gray-700 mb-1">
                       Link do seu site, Instagram ou loja
@@ -1823,11 +1338,10 @@ const EstablishmentDashboard = () => {
 
                 {/* Horário de Funcionamento */}
                 <div className="space-y-4">
-                  <h4 className="text-md font-medium text-secondary">Horário de Funcionamento</h4>
+                  <h4 className="text-md font-medium">Horário de Funcionamento</h4>
                   {Object.entries(businessHours).map(([day, hours]) => (
-                    <div key={day} className="bg-gray-50 p-4 rounded-lg space-y-3">
-                      {/* Cabeçalho do dia com checkbox */}
-                      <div className="flex items-center justify-between">
+                    <div key={day} className="flex items-center space-x-4">
+                      <div className="w-32">
                         <label className="inline-flex items-center">
                           <input
                             type="checkbox"
@@ -1835,90 +1349,31 @@ const EstablishmentDashboard = () => {
                             onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
                             className="form-checkbox h-4 w-4 text-secondary"
                           />
-                          <span className="ml-2 font-medium text-gray-900">
-                            {day === 'monday' ? 'Segunda-feira' :
-                             day === 'tuesday' ? 'Terça-feira' :
-                             day === 'wednesday' ? 'Quarta-feira' :
-                             day === 'thursday' ? 'Quinta-feira' :
-                             day === 'friday' ? 'Sexta-feira' :
-                             day === 'saturday' ? 'Sábado' : 'Domingo'}
-                          </span>
+                          <span className="ml-2 capitalize">{day}</span>
                         </label>
-                        {!hours.enabled && (
-                          <span className="text-sm text-gray-500 bg-gray-200 px-2 py-1 rounded">
-                            Fechado
-                          </span>
-                        )}
                       </div>
-                      
-                      {/* Horários - Layout responsivo */}
-                      {hours.enabled && (
-                        <div className="space-y-3">
-                          {/* Período da manhã */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div className="space-y-2">
-                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
-                                Abertura
-                              </label>
-                              <TimeSelector
-                                value={hours.open1}
-                                onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
+                      <input
+                        type="time"
+                        value={hours.open}
+                        onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open', e.target.value)}
                         disabled={!hours.enabled}
-                                className="w-full"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
-                                Fecha p/ Intervalo
-                              </label>
-                              <TimeSelector
-                                value={hours.close1}
-                                onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
+                        className="input-field w-32"
+                      />
+                      <span className="text-gray-500">até</span>
+                      <input
+                        type="time"
+                        value={hours.close}
+                        onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close', e.target.value)}
                         disabled={!hours.enabled}
-                                className="w-full"
-                              />
-                            </div>
-                          </div>
-                          
-                          {/* Período da tarde */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div className="space-y-2">
-                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
-                                Reabertura
-                              </label>
-                              <TimeSelector
-                                value={hours.open2}
-                                onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
-                                disabled={!hours.enabled}
-                                className="w-full"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
-                                Fechamento
-                              </label>
-                              <TimeSelector
-                                value={hours.close2}
-                                onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
-                                disabled={!hours.enabled}
-                                className="w-full"
-                              />
-                            </div>
-                          </div>
-                          
-                          {/* Resumo visual dos horários */}
-                          <div className="mt-3 p-2 bg-blue-50 rounded text-sm text-blue-700">
-                            <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} e {hours.open2} - {hours.close2}
-                          </div>
-                        </div>
-                      )}
+                        className="input-field w-32"
+                      />
                     </div>
                   ))}
                 </div>
                 {/* Profissionais */}
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <h4 className="text-md font-medium text-secondary">Profissionais</h4>
+                    <h4 className="text-md font-medium">Profissionais</h4>
                     <button
                       type="button"
                       onClick={handleAddProfessional}
@@ -1962,7 +1417,7 @@ const EstablishmentDashboard = () => {
                 {/* Serviços e Preços */}
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <h4 className="text-md font-medium text-secondary">Serviços e Preços</h4>
+                    <h4 className="text-md font-medium">Serviços e Preços</h4>
                     <button
                       type="button"
                       onClick={handleAddService}
@@ -1974,58 +1429,39 @@ const EstablishmentDashboard = () => {
                   </div>
                   <div className="space-y-4">
                     {servicesWithPrices.map((service) => (
-                      <div key={service.id} className="p-4 bg-gray-50 rounded-lg">
-                        <div className="flex flex-col sm:flex-row gap-4">
-                          <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Nome do serviço
-                            </label>
-                            <input
-                              type="text"
-                              value={service.name}
-                              onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
-                              placeholder="Nome do serviço"
-                              className="input-field w-full"
-                            />
-                          </div>
-                          <div className="w-full sm:w-32">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Preço
-                            </label>
-                            <input
-                              type="number"
-                              value={service.price}
-                              onChange={(e) => handleServiceChange(service.id, 'price', Number(e.target.value))}
-                              placeholder="Preço"
-                              className="input-field w-full"
-                            />
-                          </div>
-                          <div className="w-full sm:w-40">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Duração
-                            </label>
-                            <select
-                              value={service.duration}
-                              onChange={(e) => handleServiceChange(service.id, 'duration', Number(e.target.value))}
-                              className="input-field w-full"
-                            >
-                              {durationOptions.map(option => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex items-end justify-end sm:w-10">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveService(service.id)}
-                              className="text-error hover:text-error/80 mb-1"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          </div>
-                        </div>
+                      <div key={service.id} className="flex items-center gap-4">
+                        <input
+                          type="text"
+                          value={service.name}
+                          onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
+                          placeholder="Nome do serviço"
+                          className="input-field flex-1"
+                        />
+                        <input
+                          type="number"
+                          value={service.price}
+                          onChange={(e) => handleServiceChange(service.id, 'price', Number(e.target.value))}
+                          placeholder="Preço"
+                          className="input-field w-32"
+                        />
+                        <select
+                          value={service.duration}
+                          onChange={(e) => handleServiceChange(service.id, 'duration', Number(e.target.value))}
+                          className="input-field w-40"
+                        >
+                          {durationOptions.map(option => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveService(service.id)}
+                          className="text-error hover:text-error/80"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     ))}
                     {servicesWithPrices.length === 0 && (
@@ -2049,109 +1485,6 @@ const EstablishmentDashboard = () => {
                   </button>
                 </div>
               </form>
-            )}
-
-            {/* Seção de Clientes Premium */}
-            {activeTab === 'premium-clients' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                  <Star className="h-6 w-6 text-yellow-500" />
-                  Clientes Premium
-                </h2>
-                <p className="text-gray-400">
-                  Lista de clientes premium que se cadastraram em seu estabelecimento
-                </p>
-
-                {premiumSubscribers.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Star className="h-16 w-16 mx-auto mb-4 text-gray-400 opacity-30" />
-                    <p className="text-xl text-gray-400 mb-2">Nenhum cliente premium ainda</p>
-                    <p className="text-gray-500">
-                      Quando clientes se cadastrarem como premium em seu estabelecimento, eles aparecerão aqui.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {premiumSubscribers.map((client, index) => (
-                      <div key={client.id} className="p-6 rounded-lg bg-[#1a1b1c] border border-gray-800">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-full flex items-center justify-center">
-                              <Star className="h-6 w-6 text-white" />
-                            </div>
-                            <div>
-                              <h3 className="font-semibold text-white text-lg">
-                                {client.display_name}
-                              </h3>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Phone className="h-4 w-4 text-green-500" />
-                                <span className="text-green-500 font-medium">
-                                  {client.whatsapp}
-                                </span>
-                              </div>
-                              <p className="text-sm text-gray-400 mt-1">
-                                Cadastrado em {new Date(client.created_at).toLocaleDateString('pt-BR')}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn-primary flex items-center gap-2 text-sm"
-                            >
-                              <MessageSquare className="h-4 w-4" />
-                              WhatsApp
-                            </a>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Informações sobre o sistema premium */}
-                <div className="mt-8 p-6 rounded-lg bg-[#1a1b1c] border border-yellow-500/20">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 bg-yellow-500/10 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Star className="h-4 w-4 text-yellow-500" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-white mb-2">Como funciona o sistema Premium?</h3>
-                      <ul className="text-sm text-gray-400 space-y-1">
-                        <li>• Clientes podem se cadastrar como premium em seu estabelecimento</li>
-                        <li>• Cada cliente pode estar cadastrado em apenas 1 estabelecimento por vez</li>
-                        <li>• Os dados ficam salvos aqui para você entrar em contato</li>
-                        <li>• Clientes premium podem participar de sorteios e promoções especiais</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Informações sobre o link do estabelecimento */}
-            {establishment && (
-              <div className="mb-4 flex gap-2 items-center">
-                <button
-                  type="button"
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
-                  onClick={() => window.open(establishmentLink, '_blank')}
-                  title="Abrir página pública do seu estabelecimento"
-                >
-                  MEU LINK
-                </button>
-                <button
-                  type="button"
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-3 rounded-md text-xs transition-colors duration-200"
-                  onClick={copyLinkToClipboard}
-                  title="Copiar link para compartilhar"
-                >
-                  Copiar Link
-                </button>
-                <span className="text-xs text-gray-500 select-all">{establishmentLink}</span>
-              </div>
             )}
           </>
         )}

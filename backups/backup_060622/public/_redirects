@@ -1,0 +1,7 @@
+# Redirecionar todas as rotas para index.html para suportar client-side routing
+# Isso permite que o React Router gerencie as rotas no lado do cliente
+/*    /index.html   200
+
+# Opcional: Redirecionamentos específicos se necessário
+# /api/*  /api/:splat  200
+# /admin/*  /admin/:splat  200 

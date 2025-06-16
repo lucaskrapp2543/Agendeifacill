@@ -447,13 +447,10 @@ const EstablishmentDirectBooking: React.FC = () => {
                     // Verificar se service é um objeto válido
                     if (!service || typeof service !== 'object') return null;
                     
-                    const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
-                    const isSelected = selectedService?.id === service.id;
-                    
                     return (
                       <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
                         <span>{service.name || 'Serviço'}</span>
-                        <span className="font-semibold text-blue-600">R$ {formattedPrice}</span>
+                        <span className="font-semibold text-blue-600">R$ {service.price || '0,00'}</span>
                       </div>
                     );
                   })}
@@ -518,7 +515,7 @@ const EstablishmentDirectBooking: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Serviço
                   </label>
-                  <div className="grid grid-cols-1 gap-2">
+                  <div className="space-y-2">
                     {establishment?.services_with_prices?.map((service: any) => {
                       if (!service || typeof service !== 'object') return null;
                       const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
@@ -529,14 +526,14 @@ const EstablishmentDirectBooking: React.FC = () => {
                           key={service.id}
                           type="button"
                           onClick={() => setSelectedService(service)}
-                          className={`w-full p-4 rounded-lg ${
+                          className={`w-full p-3 rounded-lg flex flex-col items-start ${
                             isSelected ? 'bg-[#242628] text-white' : 'bg-gray-50 text-gray-900'
                           }`}
                         >
-                          <div className="flex flex-col items-start gap-1">
-                            <span className="text-base font-medium">{service.name}</span>
-                            <span className="text-sm opacity-80">R$ {formattedPrice}</span>
-                            <span className="text-sm opacity-80">{service.duration}min</span>
+                          <span className="text-base font-medium mb-1">{service.name}</span>
+                          <div className="flex flex-col text-sm opacity-80">
+                            <span>{service.duration}min</span>
+                            <span className="font-medium">R$ {formattedPrice}</span>
                           </div>
                         </button>
                       );

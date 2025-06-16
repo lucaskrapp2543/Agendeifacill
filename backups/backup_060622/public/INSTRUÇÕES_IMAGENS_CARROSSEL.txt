@@ -1,0 +1,31 @@
+📸 INSTRUÇÕES PARA IMAGENS DO CARROSSEL
+==========================================
+
+Para que o carrossel funcione corretamente, você precisa adicionar 3 imagens na pasta public/:
+
+1. barbeiro ft 1.png
+2. barbeiro ft 2.png  
+3. barbeiro ft 3.png
+
+ESPECIFICAÇÕES DAS IMAGENS:
+- Formato: PNG ou JPG
+- Tamanho recomendado: 800x600 pixels (ou proporção 4:3)
+- Qualidade: Boa resolução para web
+- Conteúdo: Fotos do estabelecimento, barbeiro, ambiente, etc.
+
+COMO ADICIONAR:
+1. Coloque as 3 imagens na pasta public/
+2. Nomeie exatamente como: "barbeiro ft 1.png", "barbeiro ft 2.png", "barbeiro ft 3.png"
+3. O carrossel irá usar essas imagens automaticamente
+
+FOTOS PERSONALIZADAS:
+- Cada estabelecimento pode fazer upload de suas próprias fotos no dashboard
+- As fotos personalizadas substituem as padrão quando disponíveis
+- Se não houver foto personalizada, usa a padrão correspondente
+
+FUNCIONAMENTO:
+✅ Auto-play a cada 5 segundos
+✅ Botões de navegação manual
+✅ Indicadores (bolinhas)
+✅ Contador de fotos
+✅ Fallback para fotos padrão em caso de erro 
