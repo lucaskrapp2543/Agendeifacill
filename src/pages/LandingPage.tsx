@@ -61,6 +61,18 @@ const LandingPage = () => {
 
       <main className="container-custom py-4">
         <section className="text-center max-w-3xl mx-auto py-4">
+          <div className="mb-8">
+            <div className="aspect-video w-full">
+              <iframe
+                className="w-full h-full rounded-lg shadow-lg"
+                src="https://www.youtube.com/embed/YUamwYx77Lw"
+                title="Vídeo de apresentação"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              ></iframe>
+            </div>
+          </div>
+
           <PromoBanner />
 
           <div className="mt-8">
