@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from '../components/ui/Toaster';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { 
   getClientAppointments, 
   createAppointment, 
@@ -14,7 +15,6 @@ import {
 import { Calendar, Clock, Scissors, LogOut, Star, User, Plus, Trash2, Heart, Search, X, Crown } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import type { Appointment, Establishment } from '../types/supabase';
@@ -44,7 +44,6 @@ interface FavoriteEstablishment {
 
 const PremiumDashboard = () => {
   const { user, signOut } = useAuth();
-  const { toast } = useToast();
   const navigate = useNavigate();
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -124,7 +123,7 @@ const PremiumDashboard = () => {
       
       setAppointments(data || []);
     } catch (error: any) {
-      toast(error.message || 'Erro ao buscar agendamentos', 'error');
+      toast.error(error.message || 'Erro ao buscar agendamentos');
     } finally {
       setIsLoading(false);
     }
@@ -157,7 +156,7 @@ const PremiumDashboard = () => {
       );
       
       if (existing) {
-        toast('Este estabelecimento já está nos seus favoritos', 'warning');
+        toast.warning('Este estabelecimento já está nos seus favoritos');
         return;
       }
       
@@ -173,10 +172,10 @@ const PremiumDashboard = () => {
       const updatedFavorites = [...favoriteEstablishments, newFavorite];
       saveFavoriteEstablishments(updatedFavorites);
       
-      toast('Estabelecimento adicionado aos favoritos!', 'success');
+      toast.success('Estabelecimento adicionado aos favoritos!');
       
     } catch (error: any) {
-      toast('Erro ao adicionar aos favoritos', 'error');
+      toast.error('Erro ao adicionar aos favoritos');
     } finally {
       setIsAddingFavorite(false);
     }
@@ -185,7 +184,7 @@ const PremiumDashboard = () => {
   const handleRemoveFromFavorites = (favoriteId: string) => {
     const updatedFavorites = favoriteEstablishments.filter(fav => fav.id !== favoriteId);
     saveFavoriteEstablishments(updatedFavorites);
-    toast('Estabelecimento removido dos favoritos', 'success');
+    toast.success('Estabelecimento removido dos favoritos');
   };
 
   const handleSelectFavoriteEstablishment = (favorite: FavoriteEstablishment) => {
@@ -193,7 +192,7 @@ const PremiumDashboard = () => {
     setEstablishmentCode(favorite.establishment_code);
     fetchExistingAppointments(favorite.establishment_id, appointmentDate, professional);
     setActiveTab('book');
-    toast(`Estabelecimento selecionado: ${favorite.establishment_name}`, 'success');
+    toast.success(`Estabelecimento selecionado: ${favorite.establishment_name}`);
   };
 
   const fetchExistingAppointments = async (establishmentId: string, date: string, professional: string) => {
@@ -220,7 +219,7 @@ const PremiumDashboard = () => {
       
     } catch (error: any) {
       console.error('❌ Erro ao buscar agendamentos:', error);
-      toast(error.message || 'Erro ao buscar agendamentos existentes', 'error');
+      toast.error(error.message || 'Erro ao buscar agendamentos existentes');
       setExistingAppointmentsForSlots([]);
     }
   };
@@ -235,7 +234,7 @@ const PremiumDashboard = () => {
   const handleSearchEstablishment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!establishmentCode.trim()) {
-      toast('Por favor, informe o código do estabelecimento', 'warning');
+      toast.warning('Por favor, informe o código do estabelecimento');
       return;
     }
     
@@ -249,7 +248,7 @@ const PremiumDashboard = () => {
       }
       
       if (!data) {
-        toast('Estabelecimento não encontrado', 'error');
+        toast.error('Estabelecimento não encontrado');
         return;
       }
       
@@ -270,7 +269,7 @@ const PremiumDashboard = () => {
       navigate(`/${slug}`);
       
     } catch (error: any) {
-      toast(error.message || 'Erro ao buscar estabelecimento', 'error');
+      toast.error(error.message || 'Erro ao buscar estabelecimento');
     } finally {
       setIsSearching(false);
     }
@@ -280,7 +279,7 @@ const PremiumDashboard = () => {
     e.preventDefault();
     if (!user || !establishment) return;
     if (!appointmentTime || !selectedService || !professional || !appointmentDate || !clientName) {
-      toast('Preencha todos os campos para agendar', 'warning');
+      toast.warning('Preencha todos os campos para agendar');
       return;
     }
     
@@ -320,7 +319,7 @@ const PremiumDashboard = () => {
       if (hasConflict) {
         const errorMsg = `🚨 CONFLITO DETECTADO NO CLIENTE! Horário ${appointmentTime} conflita com agendamento existente às ${existing.appointment_time}`;
         console.error(errorMsg);
-        toast('Conflito de horário detectado! Recarregue a página e tente novamente.', 'error');
+        toast.error('Conflito de horário detectado! Recarregue a página e tente novamente.');
         return;
       }
     }
@@ -349,7 +348,7 @@ const PremiumDashboard = () => {
       
       console.log('✅ AGENDAMENTO SALVO:', data);
       
-      toast('Agendamento criado com sucesso!', 'success');
+      toast.success('Agendamento criado com sucesso!');
       
       // Forçar reload dos agendamentos após 1 segundo para dar tempo do Supabase processar
       setTimeout(() => {
@@ -370,7 +369,7 @@ const PremiumDashboard = () => {
       setClientName('');
       setActiveTab('appointments');
     } catch (error: any) {
-      toast(error.message || 'Erro ao criar agendamento', 'error');
+      toast.error(error.message || 'Erro ao criar agendamento');
     } finally {
       setIsBooking(false);
     }
@@ -387,7 +386,7 @@ const PremiumDashboard = () => {
         throw error;
       }
 
-      toast('Agendamento cancelado com sucesso', 'success');
+      toast.success('Agendamento cancelado com sucesso');
       
       // Aguardar um pouco e recarregar
       setTimeout(() => {
@@ -397,14 +396,14 @@ const PremiumDashboard = () => {
       fetchAppointments();
     } catch (error: any) {
       console.error('❌ Error cancelling appointment:', error);
-      toast(error.message || 'Erro ao cancelar agendamento', 'error');
+      toast.error(error.message || 'Erro ao cancelar agendamento');
     }
   };
 
   const handleSearchPremiumEstablishment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!premiumEstablishmentCode.trim()) {
-      toast('Por favor, informe o código do estabelecimento', 'warning');
+      toast.warning('Por favor, informe o código do estabelecimento');
       return;
     }
 
@@ -419,15 +418,15 @@ const PremiumDashboard = () => {
       }
       
       if (!data) {
-        toast('Estabelecimento não encontrado. Verifique o código.', 'error');
+        toast.error('Estabelecimento não encontrado. Verifique o código.');
         return;
       }
       
       setPremiumEstablishment(data);
-      toast(`Estabelecimento encontrado: ${data.name}`, 'success');
+      toast.success(`Estabelecimento encontrado: ${data.name}`);
       
     } catch (error: any) {
-      toast(error.message || 'Erro ao buscar estabelecimento', 'error');
+      toast.error(error.message || 'Erro ao buscar estabelecimento');
     } finally {
       setIsPremiumSearching(false);
     }
@@ -437,7 +436,7 @@ const PremiumDashboard = () => {
     e.preventDefault();
     
     if (!user || !premiumEstablishment || !clientName.trim() || !clientPhone.trim()) {
-      toast('Por favor, preencha todos os campos', 'warning');
+      toast.warning('Por favor, preencha todos os campos');
       return;
     }
 
@@ -477,7 +476,7 @@ const PremiumDashboard = () => {
       if (existing) {
         const establishmentName = existing.establishments?.name || premiumEstablishment.name;
         console.log('⚠️ JÁ EXISTE PREMIUM:', establishmentName);
-        toast(`Você já é premium em ${establishmentName}!`, 'warning');
+        toast.warning(`Você já é premium em ${establishmentName}!`);
         return;
       }
 
@@ -499,7 +498,7 @@ const PremiumDashboard = () => {
       }
 
       console.log('🎉 PREMIUM ATIVADO COM SUCESSO');
-      toast(`🎉 Premium ativado com sucesso em ${premiumEstablishment.name}!`, 'success');
+      toast.success(`🎉 Premium ativado com sucesso em ${premiumEstablishment.name}!`);
       
       // Limpar formulário e atualizar status
       setPremiumEstablishmentCode('');
@@ -515,7 +514,7 @@ const PremiumDashboard = () => {
       
     } catch (error: any) {
       console.error('❌ ERRO AO ATIVAR PREMIUM:', error);
-      toast(error.message || 'Erro ao ativar premium', 'error');
+      toast.error(error.message || 'Erro ao ativar premium');
     } finally {
       setIsActivatingPremium(false);
     }
@@ -549,7 +548,7 @@ const PremiumDashboard = () => {
 
   const handleRemovePremium = async () => {
     if (!currentPremiumStatus) {
-      toast('Nenhum premium ativo para remover', 'warning');
+      toast.warning('Nenhum premium ativo para remover');
       return;
     }
     
@@ -558,7 +557,7 @@ const PremiumDashboard = () => {
     if (!confirm(`🚨 CONFIRMAÇÃO DE REMOÇÃO\n\nTem certeza que deseja remover seu premium do estabelecimento "${establishmentName}"?\n\n⚠️ Esta ação:\n- Remove você da lista de clientes premium\n- Não pode ser desfeita\n- É permanente\n\nDeseja continuar?`)) return;
     
     try {
-      console.log('🗑️ INICIANDO REMOÇÃO DE PREMIUM:');
+      console.log('��️ INICIANDO REMOÇÃO DE PREMIUM:');
       console.log('  - ID do registro:', currentPremiumStatus.id);
       console.log('  - User ID:', user?.id);
       console.log('  - Establishment ID:', currentPremiumStatus.establishment_id);
@@ -618,7 +617,7 @@ const PremiumDashboard = () => {
       setClientPhone('');
       
       // Mostrar sucesso
-      toast(`✅ Premium removido com sucesso!\n\nVocê foi removido da lista de clientes premium do estabelecimento "${establishmentName}".`, 'success');
+      toast.success(`✅ Premium removido com sucesso!\n\nVocê foi removido da lista de clientes premium do estabelecimento "${establishmentName}".`);
       
       console.log('🎉 REMOÇÃO CONCLUÍDA COM SUCESSO - NÃO vai chamar checkPremiumStatus');
       
@@ -631,7 +630,7 @@ const PremiumDashboard = () => {
         hint: error.hint
       });
       
-      toast(`❌ Erro ao remover premium: ${error.message}`, 'error');
+      toast.error(`❌ Erro ao remover premium: ${error.message}`);
       
       // Se der erro, forçar verificação do status real após delay
       setTimeout(() => {
@@ -670,10 +669,20 @@ const PremiumDashboard = () => {
       console.log('  - Erro:', deleteTestError);
       console.log('  - Resultado:', deleteTestData);
       
-      toast('Teste de permissões concluído - veja o console', 'info');
+      toast.info('Teste de permissões concluído - veja o console');
       
     } catch (error) {
       console.error('❌ ERRO NO TESTE:', error);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      toast.success('Logout realizado com sucesso!');
+      navigate('/login');
+    } catch (error) {
+      toast.error('Erro ao fazer logout');
     }
   };
 
@@ -691,7 +700,7 @@ const PremiumDashboard = () => {
             </div>
             <div className="flex items-center gap-2 md:gap-4">
               <span className="text-gray-400 text-sm md:text-base hidden sm:block">{user?.email}</span>
-              <button onClick={signOut} className="btn-outline text-sm md:text-base px-3 py-1 md:px-4 md:py-2">
+              <button onClick={handleSignOut} className="btn-outline text-sm md:text-base px-3 py-1 md:px-4 md:py-2">
                 Sair
               </button>
             </div>
@@ -1269,9 +1278,9 @@ const PremiumDashboard = () => {
                           console.log('  - Registros removidos:', data);
                           
                           if (error) {
-                            toast(`Erro na limpeza: ${error.message}`, 'error');
+                            toast.error(`Erro na limpeza: ${error.message}`);
                           } else {
-                            toast(`🧹 Limpeza concluída! ${data?.length || 0} registro(s) removido(s)`, 'success');
+                            toast.success(`🧹 Limpeza concluída! ${data?.length || 0} registro(s) removido(s)`);
                             setCurrentPremiumStatus(null);
                             setPremiumEstablishmentCode('');
                             setPremiumEstablishment(null);
@@ -1280,7 +1289,7 @@ const PremiumDashboard = () => {
                           }
                         } catch (error: any) {
                           console.error('❌ ERRO NA LIMPEZA:', error);
-                          toast(`Erro na limpeza: ${error.message}`, 'error');
+                          toast.error(`Erro na limpeza: ${error.message}`);
                         }
                       }}
                     >

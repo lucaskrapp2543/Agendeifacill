@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { format, parseISO } from 'date-fns';
 import { Star, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useToast } from './ui/Toaster';
+import toast from 'react-hot-toast';
+import { getEstablishmentPremiumSubscribers, removePremiumSubscriber } from '../lib/supabase';
+import { Crown } from 'lucide-react';
 
 interface PremiumSubscriber {
   id: string;
@@ -14,28 +16,42 @@ interface PremiumSubscriber {
 }
 
 interface PremiumSubscribersProps {
-  subscribers: PremiumSubscriber[];
   establishmentId: string;
-  onUpdate: () => void;
-  isLoading: boolean;
+  onSubscriberRemoved?: () => void;
 }
 
-export const PremiumSubscribers = ({
-  subscribers,
-  establishmentId,
-  onUpdate,
-  isLoading
-}: PremiumSubscribersProps) => {
-  const { toast } = useToast();
-  const [isDrawing, setIsDrawing] = React.useState(false);
+export const PremiumSubscribers: React.FC<PremiumSubscribersProps> = ({ establishmentId, onSubscriberRemoved }) => {
+  const [subscribers, setSubscribers] = useState<PremiumSubscriber[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRemoving, setIsRemoving] = useState(false);
+
+  const handleRemoveSubscriber = async (subscriberId: string) => {
+    if (!confirm('Tem certeza que deseja remover este assinante premium?')) {
+      return;
+    }
+
+    setIsRemoving(true);
+
+    try {
+      const { error } = await removePremiumSubscriber(subscriberId);
+      
+      if (error) throw error;
+
+      toast.success('Assinante premium removido com sucesso!');
+      setSubscribers(prev => prev.filter(sub => sub.id !== subscriberId));
+      onSubscriberRemoved?.();
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao remover assinante');
+    } finally {
+      setIsRemoving(false);
+    }
+  };
 
   const handleDrawWinners = async () => {
     if (subscribers.length < 20) {
       toast('É necessário ter pelo menos 20 assinantes premium para realizar o sorteio', 'warning');
       return;
     }
-
-    setIsDrawing(true);
 
     try {
       // Resetar vencedores anteriores
@@ -72,32 +88,28 @@ export const PremiumSubscribers = ({
       await Promise.all(updatePromises);
 
       // Atualizar lista de assinantes
-      onUpdate();
+      setSubscribers(prev => [...prev.map(sub => sub.is_winner ? { ...sub, is_winner: false } : sub)]);
       toast('Sorteio realizado com sucesso!', 'success');
     } catch (error: any) {
       console.error('Erro ao realizar sorteio:', error);
       toast(error.message || 'Erro ao realizar sorteio', 'error');
-    } finally {
-      setIsDrawing(false);
     }
   };
 
-  const handleRemoveSubscriber = async (subscriberId: string) => {
-    try {
-      const { error } = await supabase
-        .from('premium_subscriptions')
-        .delete()
-        .eq('id', subscriberId);
+  useEffect(() => {
+    const fetchSubscribers = async () => {
+      try {
+        const data = await getEstablishmentPremiumSubscribers(establishmentId);
+        setSubscribers(data);
+        setIsLoading(false);
+      } catch (error: any) {
+        console.error('Erro ao buscar assinantes:', error);
+        setIsLoading(false);
+      }
+    };
 
-      if (error) throw error;
-
-      toast('Cliente premium removido com sucesso', 'success');
-      onUpdate();
-    } catch (error: any) {
-      console.error('Error removing premium subscriber:', error);
-      toast(error.message || 'Erro ao remover cliente premium', 'error');
-    }
-  };
+    fetchSubscribers();
+  }, [establishmentId]);
 
   return (
     <div className="space-y-4">
@@ -106,11 +118,10 @@ export const PremiumSubscribers = ({
         {subscribers.length >= 20 && (
           <button
             onClick={handleDrawWinners}
-            disabled={isDrawing}
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 disabled:opacity-50"
           >
             <Star className="w-4 h-4" />
-            {isDrawing ? 'Sorteando...' : 'Sortear Vencedores'}
+            Sortear Vencedores
           </button>
         )}
       </div>

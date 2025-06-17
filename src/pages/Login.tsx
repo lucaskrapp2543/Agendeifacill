@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useToast } from '../components/ui/Toaster';
+import toast from 'react-hot-toast';
 import { signIn } from '../lib/supabase';
-import { Calendar, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -27,17 +26,17 @@ const Login = () => {
       if (data && data.user) {
         const userRole = data.user.user_metadata?.role;
         if (userRole) {
-          toast('Login realizado com sucesso!', 'success');
+          toast.success('Login realizado com sucesso!');
           
           // Verificar se há uma página anterior para redirecionar
           const from = (location.state as any)?.from?.pathname || `/dashboard/${userRole}`;
           navigate(from, { replace: true });
         } else {
-          toast('Erro: tipo de conta não identificado.', 'error');
+          toast.error('Erro: tipo de conta não identificado.');
         }
       }
     } catch (error: any) {
-      toast(error.message || 'Erro ao fazer login', 'error');
+      toast.error(error.message || 'Erro ao fazer login');
     } finally {
       setIsLoading(false);
     }
@@ -51,11 +50,19 @@ const Login = () => {
           Voltar para a página inicial
         </Link>
         
-        <div className="flex justify-center mb-6">
-          <Calendar className="h-10 w-10 text-primary" />
+        <div className="mb-8 text-center">
+          <img 
+            src="/logologin.png" 
+            alt="Logo" 
+            className="h-32 w-auto mx-auto mb-4"
+          />
+          <h1 className="text-3xl font-bold text-white mb-2">Login</h1>
+          <p className="text-gray-300 text-sm">
+            ENTRE OU CADASTRE-SE PARA AGENDAR COM SEU ESTABELECIMENTO
+            <br />
+            <span className="text-primary">Cadastro é super mega rápido</span>
+          </p>
         </div>
-        
-        <h1 className="text-2xl font-bold text-center mb-8">Login</h1>
         
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>

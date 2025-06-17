@@ -180,167 +180,129 @@ export function AppointmentForm({
     <div className="space-y-6">
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* 1. NOME DO CLIENTE */}
-      <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
             1. Nome do Cliente
           </label>
-        <input
-          type="text"
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-          placeholder="Digite o nome do cliente"
-          required
-        />
-      </div>
+          <input
+            type="text"
+            value={clientName}
+            onChange={(e) => setClientName(e.target.value)}
+            className="input-field"
+            placeholder="Digite o nome do cliente"
+            required
+          />
+        </div>
 
         {/* 2. SERVIÇO */}
-      <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
             2. Escolha o Serviço
           </label>
-        <ServiceList
-          services={establishment.services_with_prices}
-          selectedService={selectedService}
-          onSelect={(service) => {
-            setSelectedService(service);
-              setSelectedTime(''); // Reset horário quando muda serviço
-          }}
-        />
-      </div>
+          <ServiceList
+            services={establishment.services_with_prices}
+            selectedService={selectedService}
+            onSelect={setSelectedService}
+          />
+        </div>
 
         {/* 3. PROFISSIONAL */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            3. Escolha o Profissional
+          </label>
+          <select
+            value={selectedProfessional?.id || ''}
+            onChange={(e) => {
+              const professional = establishment.professionals.find(p => p.id === e.target.value);
+              setSelectedProfessional(professional);
+            }}
+            className="input-field"
+            required
+          >
+            <option value="">Selecione um profissional</option>
+            {establishment.professionals.map((professional) => (
+              <option key={professional.id} value={professional.id}>
+                {professional.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* 4. DATA */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            4. Escolha a Data
+          </label>
+          <DatePicker 
+            selectedDate={selectedDate} 
+            onSelectDate={onSelectDate}
+            businessHours={establishment.business_hours}
+          />
+        </div>
+
+        {/* 5. HORÁRIO */}
         {selectedService && (
-      <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              3. Escolha o Profissional
-            </label>
-        <select
-          value={selectedProfessional?.id || ''}
-          onChange={(e) => {
-            const professional = establishment.professionals.find(p => p.id === e.target.value);
-            setSelectedProfessional(professional);
-                setSelectedTime(''); // Reset horário quando muda profissional
-          }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-          required
-        >
-          <option value="">Selecione um profissional</option>
-          {establishment.professionals.map(professional => (
-            <option key={professional.id} value={professional.id}>
-              {professional.name}
-            </option>
-          ))}
-        </select>
-      </div>
-        )}
-
-        {/* 4. FORMA DE PAGAMENTO - LAYOUT MOBILE MELHORADO */}
-        {selectedService && selectedProfessional && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              4. Escolha a Forma de Pagamento
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              5. Escolha o Horário
             </label>
-            {/* Layout responsivo: 1 coluna no mobile, 2 no tablet, 3 no desktop */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {[
-                { value: 'pix', label: 'PIX', icon: '💳' },
-                { value: 'credito', label: 'CRÉDITO', icon: '💳' },
-                { value: 'debito', label: 'DÉBITO', icon: '💳' },
-                { value: 'dinheiro', label: 'DINHEIRO', icon: '💵' },
-                { value: 'pagar_local', label: 'PAGAR NO LOCAL', icon: '🏪' }
-              ].map((method) => (
-                <button
-                  key={method.value}
-                  type="button"
-                  onClick={() => setSelectedPaymentMethod(method.value)}
-                  className={`
-                    p-4 rounded-lg border-2 transition-all duration-200 text-sm font-medium min-h-[80px] w-full
-                    ${selectedPaymentMethod === method.value
-                      ? 'border-primary bg-primary/20 text-primary'
-                      : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
-                    }
-                  `}
-                >
-                  <div className="flex flex-col items-center justify-center gap-2 h-full">
-                    <span className="text-xl">{method.icon}</span>
-                    <span className="text-center leading-tight text-xs sm:text-sm">{method.label}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 5. DATA */}
-        {selectedPaymentMethod && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              5. Escolha a Data
-            </label>
-            <DatePicker
-              selectedDate={selectedDate}
-              onSelectDate={onSelectDate}
-              businessHours={establishment.business_hours}
-            />
-          </div>
-        )}
-
-        {/* 6. HORÁRIO */}
-        {selectedPaymentMethod && selectedService && selectedProfessional && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              6. Escolha o Horário
-            </label>
-            {businessHoursForDay?.enabled && formattedBusinessHours ? (
-              <TimeSlotSelector
+            <TimeSlotSelector
               selectedDate={selectedDate}
               selectedDuration={selectedService.duration}
               existingAppointments={existingAppointments}
-              selectedProfessional={selectedProfessional.id}
+              selectedProfessional={selectedProfessional?.id || ''}
               onSelectTime={handleTimeSelect}
               selectedTime={selectedTime}
-              businessHours={formattedBusinessHours}
+              businessHours={formattedBusinessHours || {
+                open1: '',
+                close1: '',
+                open2: '',
+                close2: ''
+              }}
             />
-            ) : (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="text-red-600 text-sm font-medium">
-                  ⚠️ Estabelecimento fechado neste dia
+          </div>
+        )}
+
+        {/* 6. FORMA DE PAGAMENTO */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            6. Escolha a Forma de Pagamento
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[
+              { value: 'pix', label: 'PIX', icon: '💸' },
+              { value: 'credito', label: 'CRÉDITO', icon: '💳' },
+              { value: 'debito', label: 'DÉBITO', icon: '💳' },
+              { value: 'dinheiro', label: 'DINHEIRO', icon: '💵' },
+              { value: 'pagar_local', label: 'PAGAR NO LOCAL', icon: '🏪' }
+            ].map((method) => (
+              <button
+                key={method.value}
+                type="button"
+                onClick={() => setSelectedPaymentMethod(method.value)}
+                className={`flex items-center justify-center p-4 rounded-lg border ${
+                  selectedPaymentMethod === method.value
+                    ? 'bg-primary/20 border-primary text-primary'
+                    : 'border-gray-700 text-gray-300 hover:bg-gray-800'
+                }`}
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-xl">{method.icon}</span>
+                  <span className="text-sm">{method.label}</span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
-      )}
-        </div>
-      )}
-
-        {/* 7. BOTÃO CONFIRMAR */}
-      <button
-        type="submit"
-          disabled={isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod}
-        className={`
-            w-full px-6 py-3 text-white font-medium rounded-lg text-lg
-            ${isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod
-              ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-primary hover:bg-primary/90 transition-colors'
-          }
-        `}
-      >
-          {isLoading ? (
-            <div className="flex items-center justify-center gap-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
-              Agendando...
-            </div>
-          ) : (
-            '7. Confirmar Agendamento'
-          )}
-      </button>
 
         {/* RESUMO DO AGENDAMENTO */}
         {selectedService && selectedProfessional && selectedPaymentMethod && selectedTime && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="font-medium text-blue-900 mb-2">📋 Resumo do Agendamento:</h3>
-            <div className="text-sm text-blue-800 space-y-1">
+          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
+            <div className="text-sm text-gray-300 space-y-1">
               <div><strong>Cliente:</strong> {clientName || 'Não informado'}</div>
-              <div><strong>Serviço:</strong> {selectedService.name} - R$ {selectedService.price.toFixed(2)}</div>
+              <div><strong>Serviço:</strong> {selectedService.name} - R$ {selectedService.price.toFixed(2).replace('.', ',')}</div>
               <div><strong>Profissional:</strong> {selectedProfessional.name}</div>
               <div><strong>Pagamento:</strong> {
                 selectedPaymentMethod === 'pix' ? 'PIX' :
@@ -355,7 +317,26 @@ export function AppointmentForm({
             </div>
           </div>
         )}
-    </form>
+
+        <button
+          type="submit"
+          disabled={isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod}
+          className={`w-full flex justify-center items-center px-6 py-3 rounded-lg text-lg font-medium transition-colors ${
+            isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod
+              ? 'bg-gray-600 cursor-not-allowed text-gray-300'
+              : 'btn-primary'
+          }`}
+        >
+          {isLoading ? (
+            <div className="flex items-center gap-2">
+              <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
+              <span>Agendando...</span>
+            </div>
+          ) : (
+            'Confirmar Agendamento'
+          )}
+        </button>
+      </form>
     </div>
   );
 } 

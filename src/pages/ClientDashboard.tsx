@@ -1,18 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from '../components/ui/Toaster';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { getClientAppointments, cancelAppointment } from '../lib/supabase';
 import { Calendar, LogOut, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Database } from '../types/supabase';
-import { useNavigate } from 'react-router-dom';
+import { CancelAppointmentButton } from '../components/CancelAppointmentButton';
 
-type Appointment = Database['public']['Tables']['appointments']['Row'];
+type Appointment = {
+  id: string;
+  created_at: string;
+  establishment_name: string;
+  service_name: string;
+  service_price: number;
+  appointment_date: string;
+  appointment_time: string;
+  professional_name?: string;
+  duration?: number;
+  status: 'pending' | 'confirmed' | 'cancelled';
+};
 
 const ClientDashboard = () => {
   const { user, signOut } = useAuth();
-  const { toast } = useToast();
   const navigate = useNavigate();
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -191,6 +202,36 @@ const ClientDashboard = () => {
                             </p>
                           )}
                         </div>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-400">Status:</span>
+                          <span className={`font-medium ${
+                            appointment.status === 'cancelled' 
+                              ? 'text-red-500' 
+                              : appointment.status === 'confirmed' 
+                              ? 'text-green-500' 
+                              : 'text-yellow-500'
+                          }`}>
+                            {appointment.status === 'cancelled' 
+                              ? 'Cancelado' 
+                              : appointment.status === 'confirmed' 
+                              ? 'Confirmado' 
+                              : 'Pendente'}
+                          </span>
+                        </div>
+
+                        {appointment.status !== 'cancelled' && (
+                          <div className="mt-4">
+                            <CancelAppointmentButton
+                              appointmentId={appointment.id}
+                              onCancelled={() => {
+                                fetchAppointments();
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
 

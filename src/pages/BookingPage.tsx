@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
 import { AppointmentForm } from '../components/AppointmentForm';
 import { PhotoCarousel } from '../components/PhotoCarousel';
 import { ChevronLeft } from 'lucide-react';
@@ -15,7 +15,6 @@ export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
-  const { toast } = useToast();
   
   const [establishment, setEstablishment] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,7 +100,7 @@ export default function BookingPage() {
         console.log('🔄 Chamando setEstablishment...');
         
         // Verificar estrutura dos dados antes de setar
-        console.log('🔍 VERIFICAÇÃO DETALHADA DOS DADOS:');
+        console.log('�� VERIFICAÇÃO DETALHADA DOS DADOS:');
         console.log('  - Tipo do objeto:', typeof data);
         console.log('  - É array?', Array.isArray(data));
         console.log('  - Chaves do objeto:', Object.keys(data));

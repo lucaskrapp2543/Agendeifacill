@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { SupabaseProvider } from './context/SupabaseContext';
 import { AuthProvider } from './context/AuthContext';
-import { Toaster } from './components/ui/Toaster';
+import { Toaster } from 'react-hot-toast';
 
 // Pages
 import LandingPage from './pages/LandingPage';
@@ -25,9 +25,19 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
-    <SupabaseProvider>
-      <AuthProvider>
-        <Toaster>
+    <div className="min-h-screen bg-background text-foreground">
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: '#1a1b1c',
+            color: '#ffffff',
+            border: '1px solid #374151'
+          }
+        }}
+      />
+      <SupabaseProvider>
+        <AuthProvider>
           <Router>
             <Routes>
               <Route path="/" element={<LandingPage />} />
@@ -82,9 +92,9 @@ function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Router>
-        </Toaster>
-      </AuthProvider>
-    </SupabaseProvider>
+        </AuthProvider>
+      </SupabaseProvider>
+    </div>
   );
 }
 

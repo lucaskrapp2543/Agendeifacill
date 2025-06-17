@@ -136,10 +136,10 @@ export function TimeSlotSelector({
             className={`
               p-3 rounded-lg border text-sm font-medium transition-all duration-200
               ${!isAvailable 
-                ? 'bg-red-50 border-red-200 text-red-500 cursor-not-allowed' 
+                ? 'bg-red-600/20 border-red-600/20 text-red-400 cursor-not-allowed' 
                 : isSelected
-                  ? 'bg-primary border-primary text-white'
-                  : 'bg-white border-gray-300 text-gray-700 hover:border-primary hover:text-primary'
+                  ? 'bg-green-500/20 border-green-500 text-green-500'
+                  : 'bg-green-500/10 border-green-500/20 text-green-500 hover:border-green-500 hover:bg-green-500/20'
               }
             `}
             type="button"
@@ -147,7 +147,7 @@ export function TimeSlotSelector({
             <div className="text-center">
               <div className={!isAvailable ? 'line-through' : ''}>{time}</div>
               {!isAvailable && (
-                <div className="text-xs mt-1">{reason}</div>
+                <div className="text-xs mt-1 text-red-400">{reason}</div>
               )}
             </div>
           </button>

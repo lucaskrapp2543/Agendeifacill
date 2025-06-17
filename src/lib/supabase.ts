@@ -727,27 +727,14 @@ export const addPremiumDrawColumns = async () => {
 
 // Cancel appointment function
 export const cancelAppointment = async (appointmentId: string) => {
-  console.log('🚫 Cancelando agendamento:', appointmentId);
+  const supabase = createClient();
   
-  try {
-    const { data, error } = await supabase
-      .from('appointments')
-      .update({ status: 'cancelled' })
-      .eq('id', appointmentId)
-      .select();
-
-    console.log('✅ Agendamento cancelado:', data);
-    console.log('❌ Erro (se houver):', error);
-    
-    if (error) {
-      console.error('❌ Erro ao cancelar:', error);
-    }
-    
-    return { data, error };
-  } catch (err) {
-    console.error('❌ Erro catch cancelAppointment:', err);
-    return { data: null, error: err };
-  }
+  return await supabase
+    .from('appointments')
+    .update({ status: 'cancelled' })
+    .eq('id', appointmentId)
+    .select()
+    .single();
 };
 
 // Backup usando localStorage (solução temporária para problemas de RLS)

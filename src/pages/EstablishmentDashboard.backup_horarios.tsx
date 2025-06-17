@@ -936,7 +936,7 @@ const EstablishmentDashboard = () => {
               }`}
             >
               <Scissors className="h-5 w-5" />
-              <span className="hidden sm:inline">SEUS LINKS</span>
+              <span className="hidden sm:inline">Serviços</span>
             </button>
 
             <button
@@ -1131,20 +1131,10 @@ const EstablishmentDashboard = () => {
                 </div>
               </div>
 
-              <div className="mb-4">
-                <h2 className="text-2xl font-bold text-white mb-2">Agendamentos do Dia</h2>
-                <p className="text-gray-400 mb-3">
-                  {selectedProfessional === 'all' ? 'Todos os profissionais' : `Profissional: ${getProfessionalName(selectedProfessional)}`}
-                </p>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 text-left">
-                  <p className="text-lg font-medium text-green-500">
-                    Hoje: R$ {calculateDailyBalance(filteredAppointments).toFixed(2)}
-                  </p>
-                  <p className="text-sm text-blue-500">
-                    Este mês: R$ {calculateMonthlyBalance(monthlyAppointments).toFixed(2)}
-                  </p>
-                </div>
-              </div>
+              <h2 className="text-2xl font-bold text-white">Agendamentos do Dia</h2>
+              <p className="text-gray-400 mb-4">
+                {selectedProfessional === 'all' ? 'Todos os profissionais' : `Profissional: ${getProfessionalName(selectedProfessional)}`}
+              </p>
               <div className="flex items-center gap-4">
                 <button onClick={handlePreviousDay} className="btn-outline">
                   <ChevronLeft className="h-4 w-4" />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useToast } from '../components/ui/Toaster';
+import toast from 'react-hot-toast';
 import { signUp } from '../lib/supabase';
 import { Calendar, ArrowLeft, User, Scissors, Star } from 'lucide-react';
 
@@ -16,7 +16,6 @@ const Register = () => {
   
   const location = useLocation();
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   const [hideRoleSelector, setHideRoleSelector] = useState(false);
 
@@ -38,7 +37,7 @@ const Register = () => {
     e.preventDefault();
     
     if (password !== confirmPassword) {
-      toast('As senhas não correspondem', 'error');
+      toast.error('As senhas não correspondem');
       return;
     }
 
@@ -53,10 +52,10 @@ const Register = () => {
         throw error;
       }
 
-      toast('Conta criada com sucesso! Você já pode fazer login.', 'success');
+      toast.success('Conta criada com sucesso! Você já pode fazer login.');
       navigate('/login', { state: location.state });
     } catch (error: any) {
-      toast(error.message || 'Erro ao criar conta', 'error');
+      toast.error(error.message || 'Erro ao criar conta');
     } finally {
       setIsLoading(false);
     }
