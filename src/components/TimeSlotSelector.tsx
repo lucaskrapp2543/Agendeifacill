@@ -23,10 +23,11 @@ interface TimeSlotSelectorProps {
   onSelectTime: (time: string) => void;
   selectedTime?: string;
   businessHours: {
+    enabled: boolean;
     open1: string;
     close1: string;
-    open2: string;
-    close2: string;
+    open2: string | null;
+    close2: string | null;
   };
 }
 
@@ -57,14 +58,20 @@ export function TimeSlotSelector({
       apt.status !== 'cancelled'
     );
 
+    console.log('🕒 TimeSlotSelector - Gerando horários:');
+    console.log('  - businessHours:', businessHours);
+    console.log('  - relevantAppointments:', relevantAppointments);
+
     // Gerar horários para os dois períodos
     const periods = [
       { start: businessHours.open1, end: businessHours.close1 },
-      { start: businessHours.open2, end: businessHours.close2 }
-    ];
+      businessHours.open2 && businessHours.close2 
+        ? { start: businessHours.open2, end: businessHours.close2 }
+        : null
+    ].filter(period => period && period.start && period.end);
 
     for (const period of periods) {
-      if (!period.start || !period.end) continue;
+      if (!period?.start || !period?.end) continue;
       
       const startMinutes = timeToMinutes(period.start);
       const endMinutes = timeToMinutes(period.end);

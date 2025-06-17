@@ -77,6 +77,9 @@ export const getCurrentUser = async () => {
 // Database functions for Establishments
 export const createEstablishment = async (establishmentData: any) => {
   let profileImageUrl = null;
+  let customPhoto1Url = null;
+  let customPhoto2Url = null;
+  let customPhoto3Url = null;
 
   // Upload profile image if exists
   if (establishmentData.profile_image) {
@@ -100,32 +103,137 @@ export const createEstablishment = async (establishmentData: any) => {
     profileImageUrl = publicUrl;
   }
 
-  // Remove the file object and add the URL
+  // Upload custom photos if they exist
+  if (establishmentData.custom_photo_1) {
+    const file = establishmentData.custom_photo_1;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const filePath = `establishments/${fileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('custom-photos')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('custom-photos')
+      .getPublicUrl(filePath);
+
+    customPhoto1Url = publicUrl;
+  }
+
+  if (establishmentData.custom_photo_2) {
+    const file = establishmentData.custom_photo_2;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const filePath = `establishments/${fileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('custom-photos')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('custom-photos')
+      .getPublicUrl(filePath);
+
+    customPhoto2Url = publicUrl;
+  }
+
+  if (establishmentData.custom_photo_3) {
+    const file = establishmentData.custom_photo_3;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const filePath = `establishments/${fileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('custom-photos')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('custom-photos')
+      .getPublicUrl(filePath);
+
+    customPhoto3Url = publicUrl;
+  }
+
+  // Remove the file objects and add the URLs
   delete establishmentData.profile_image;
+  delete establishmentData.custom_photo_1;
+  delete establishmentData.custom_photo_2;
+  delete establishmentData.custom_photo_3;
+  
   establishmentData.profile_image_url = profileImageUrl;
+  establishmentData.custom_photo_1_url = customPhoto1Url;
+  establishmentData.custom_photo_2_url = customPhoto2Url;
+  establishmentData.custom_photo_3_url = customPhoto3Url;
 
-  // Garantir que os arrays não sejam undefined
-  const professionals = establishmentData.professionals || [];
-  const services_with_prices = establishmentData.services_with_prices || [];
+  // Configurações padrão para novos estabelecimentos
+  const defaultBusinessHours = {
+    monday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
+    tuesday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
+    wednesday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
+    thursday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
+    friday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
+    saturday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null },
+    sunday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null }
+  };
 
-  console.log('Dados a serem criados:', {
-    ...establishmentData,
-    professionals,
-    services_with_prices
-  });
+  const defaultServices = [
+    {
+      id: '1',
+      name: 'Corte',
+      price: 25.00,
+      duration: 30
+    },
+    {
+      id: '2',
+      name: 'Barba',
+      price: 15.00,
+      duration: 20
+    }
+  ];
+
+  const defaultProfessionals = [
+    {
+      id: '1',
+      name: 'Profissional 1',
+      specialties: ['Corte', 'Barba']
+    }
+  ];
+
+  // Garantir que os campos obrigatórios existam, mesmo que vazios
+  const dataToInsert = {
+    name: establishmentData.name?.trim() || 'Estabelecimento',
+    description: establishmentData.description?.trim() || 'Descrição não disponível',
+    code: establishmentData.code?.trim() || '',
+    owner_id: establishmentData.owner_id,
+    business_hours: establishmentData.business_hours || defaultBusinessHours,
+    professionals: establishmentData.professionals?.length > 0 ? establishmentData.professionals : defaultProfessionals,
+    services_with_prices: establishmentData.services_with_prices?.length > 0 ? establishmentData.services_with_prices : defaultServices,
+    profile_image_url: profileImageUrl,
+    affiliate_link: establishmentData.affiliate_link || null,
+    custom_photo_1_url: customPhoto1Url,
+    custom_photo_2_url: customPhoto2Url,
+    custom_photo_3_url: customPhoto3Url
+  };
+
+  console.log('Dados a serem criados:', dataToInsert);
 
   const { data, error } = await supabase
     .from('establishments')
-    .insert([{
-      ...establishmentData,
-      professionals,
-      services_with_prices
-    }])
-    .select(`
-      *,
-      services_with_prices,
-      professionals
-    `);
+    .insert([dataToInsert])
+    .select();
 
   if (error) {
     console.error('Erro ao criar estabelecimento:', error);
@@ -152,6 +260,9 @@ export const getEstablishmentByCode = async (code: string) => {
       business_hours,
       profile_image_url,
       affiliate_link,
+      custom_photo_1_url,
+      custom_photo_2_url,
+      custom_photo_3_url,
       created_at,
       updated_at
     `)
@@ -859,4 +970,38 @@ export const checkIfEstablishmentIsFavorite = async (establishmentId: string) =>
     .maybeSingle();
 
   return { data: !!data, error };
+};
+
+export const loadEstablishmentDirect = async (code: string) => {
+  console.log('🔍 Buscando estabelecimento:', code);
+  
+  const { data, error } = await supabase
+    .from('establishments')
+    .select(`
+      id,
+      name,
+      description,
+      code,
+      owner_id,
+      business_hours,
+      professionals,
+      services_with_prices,
+      profile_image_url,
+      affiliate_link,
+      custom_photo_1_url,
+      custom_photo_2_url,
+      custom_photo_3_url,
+      created_at,
+      updated_at
+    `)
+    .eq('code', code)
+    .single();
+
+  if (error) {
+    console.error('❌ Erro ao buscar estabelecimento:', error);
+  } else {
+    console.log('✅ Estabelecimento encontrado:', data);
+  }
+
+  return { data, error };
 };

@@ -5,7 +5,13 @@ import { ptBR } from 'date-fns/locale';
 interface DatePickerProps {
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
-  businessHours: Record<string, { enabled: boolean }>;
+  businessHours: Record<string, { 
+    enabled: boolean;
+    open1: string;
+    close1: string;
+    open2: string | null;
+    close2: string | null;
+  }>;
 }
 
 const weekDayMap: Record<string, string> = {

@@ -7,8 +7,8 @@ interface BusinessHours {
   enabled: boolean;
   open1: string;
   close1: string;
-  open2: string;
-  close2: string;
+  open2: string | null;
+  close2: string | null;
 }
 
 interface BusinessHoursSelectorProps {
@@ -48,43 +48,27 @@ export function BusinessHoursSelector({
   selectedProfessional = '',
   selectedServiceDuration = 30
 }: BusinessHoursSelectorProps) {
-  // Log simplificado apenas quando necessário
+  const dayOfWeek = format(selectedDate, 'EEEE', { locale: ptBR });
+  const dayKey = dayOfWeek.toLowerCase() as keyof typeof businessHours;
+  const businessHoursForDay = businessHours[dayKey];
+
+  console.log('🕒 BusinessHoursSelector - Dados recebidos:');
+  console.log('  - businessHours:', businessHours);
+  console.log('  - dayKey:', dayKey);
+  console.log('  - businessHoursForDay:', businessHoursForDay);
+
   const handleTimeChange = (time: string) => {
+    console.log('⏰ Horário selecionado:', time);
     onChange(time);
   };
 
-  // Pegar o dia da semana em português e converter para inglês
-  const dayInPortuguese = format(selectedDate, 'EEEE', { locale: ptBR }).toLowerCase();
-  const dayInEnglish = weekDayMap[dayInPortuguese];
-  
-  // Pegar os horários do dia
-  const daySchedule = businessHours[dayInEnglish];
-
-  // Log apenas se houver problema
-  if (!daySchedule) {
-    console.log('⚠️ Horário não encontrado para:', dayInEnglish);
-  }
-
-  if (!daySchedule || !daySchedule.enabled) {
+  if (!businessHoursForDay?.enabled) {
     return (
-      <div className="text-sm text-gray-400">
+      <div className="text-red-500 text-sm">
         Estabelecimento fechado neste dia
       </div>
     );
   }
-
-  // Garantir que os horários estão no formato correto (HH:mm)
-  const formatTime = (time: string) => {
-    const [hours, minutes] = time.split(':').map(Number);
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-  };
-
-  const formattedBusinessHours = {
-    open1: formatTime(daySchedule.open1),
-    close1: formatTime(daySchedule.close1),
-    open2: formatTime(daySchedule.open2),
-    close2: formatTime(daySchedule.close2)
-  };
 
   return (
     <div className={className}>
@@ -95,7 +79,7 @@ export function BusinessHoursSelector({
         selectedProfessional={selectedProfessional}
         onSelectTime={handleTimeChange}
         selectedTime={value}
-        businessHours={formattedBusinessHours}
+        businessHours={businessHoursForDay}
       />
     </div>
   );

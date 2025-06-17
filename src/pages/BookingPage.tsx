@@ -76,78 +76,68 @@ export default function BookingPage() {
         .eq('code', id)
         .single();
 
-      console.log('📋 Resultado da busca específica:');
-      console.log('  - Data:', data);
-      console.log('  - Error:', error);
-
       if (error) {
         console.error('❌ Erro ao buscar estabelecimento:', error);
         console.error('❌ Código do erro:', error.code);
         console.error('❌ Mensagem do erro:', error.message);
         console.error('❌ Detalhes completos:', JSON.stringify(error, null, 2));
-        
-        if (error.code === 'PGRST116') {
-          console.log('💡 Erro PGRST116: Nenhum resultado encontrado para o código:', id);
-        }
         throw error;
       }
-      
-      if (data) {
-        console.log('✅ Estabelecimento encontrado:', data);
-        console.log('✅ Nome:', data.name);
-        console.log('✅ ID:', data.id);
-        console.log('✅ Código:', data.code);
-        console.log('🔄 Chamando setEstablishment...');
-        
-        // Verificar estrutura dos dados antes de setar
-        console.log('�� VERIFICAÇÃO DETALHADA DOS DADOS:');
-        console.log('  - Tipo do objeto:', typeof data);
-        console.log('  - É array?', Array.isArray(data));
-        console.log('  - Chaves do objeto:', Object.keys(data));
-        console.log('  - services_with_prices existe?', 'services_with_prices' in data);
-        console.log('  - professionals existe?', 'professionals' in data);
-        console.log('  - business_hours existe?', 'business_hours' in data);
-        console.log('  - services_with_prices valor:', data.services_with_prices);
-        console.log('  - professionals valor:', data.professionals);
-        console.log('  - business_hours valor:', data.business_hours);
-        
-        // Garantir que os campos essenciais existem
-        const establishmentData = {
-          ...data,
-          services_with_prices: data.services_with_prices || [],
-          professionals: data.professionals || [],
-          business_hours: data.business_hours || {}
-        };
-        
-        console.log('🔧 Dados processados para setState:', establishmentData);
-        
-        // SOLUÇÃO ALTERNATIVA: Usar múltiplas estratégias para garantir que o estado seja atualizado
-        setEstablishment(establishmentData);
-        setForceRender(prev => prev + 1); // Força re-renderização
-        
-        // Tentar novamente após um pequeno delay
-        setTimeout(() => {
-          console.log('🔄 Tentativa adicional de setEstablishment...');
-          setEstablishment(establishmentData);
-          setForceRender(prev => prev + 1);
-        }, 50);
-        
-        console.log('✅ setEstablishment chamado com sucesso');
-        
-        // Verificar se o estado foi atualizado
-        setTimeout(() => {
-          console.log('🔍 Verificando estado após 100ms...');
-          console.log('🏢 Estado atual do establishment:', establishment);
-        }, 100);
-      } else {
+
+      if (!data) {
         console.log('❌ Nenhum estabelecimento encontrado com código:', id);
+        throw new Error(`Estabelecimento com código "${id}" não encontrado`);
       }
+
+      console.log('✅ Estabelecimento encontrado:', data);
+      
+      // Converter formato dos horários de funcionamento
+      const convertedBusinessHours = Object.entries(data.business_hours || {}).reduce((acc, [day, hours]) => {
+        if (!hours) return acc;
+        
+        const { open, close, enabled } = hours as any;
+        return {
+          ...acc,
+          [day]: {
+            enabled: enabled || false,
+            open1: open || '09:00',
+            close1: close || '18:00',
+            open2: null,
+            close2: null
+          }
+        };
+      }, {});
+
+      // Combinar dados convertidos
+      const establishmentData = {
+        ...data,
+        business_hours: convertedBusinessHours
+      };
+
+      console.log('✅ Dados convertidos:', establishmentData);
+      setEstablishment(establishmentData);
+      setForceRender(prev => prev + 1); // Força re-renderização
+      
+      // Tentar novamente após um pequeno delay
+      setTimeout(() => {
+        console.log('🔄 Tentativa adicional de setEstablishment...');
+        setEstablishment(establishmentData);
+        setForceRender(prev => prev + 1);
+      }, 50);
+      
+      console.log('✅ setEstablishment chamado com sucesso');
+      
+      // Verificar se o estado foi atualizado
+      setTimeout(() => {
+        console.log('🔍 Verificando estado após 100ms...');
+        console.log('🏢 Estado atual do establishment:', establishment);
+      }, 100);
     } catch (error: any) {
       console.error('❌ Error fetching establishment:', error);
       console.error('❌ Error name:', error.name);
       console.error('❌ Error message:', error.message);
       console.error('❌ Error stack:', error.stack);
-      toast(`Estabelecimento com código "${id}" não encontrado`, 'error');
+      toast.error(`Estabelecimento com ID "${id}" não encontrado`);
     } finally {
       console.log('🏁 Finalizando busca, setIsLoading(false)');
       setIsLoading(false);
@@ -179,7 +169,7 @@ export default function BookingPage() {
       navigate('/');
     } catch (error: any) {
       console.error('Error signing out:', error);
-      toast(error.message || 'Erro ao sair', 'error');
+      toast.error(error.message || 'Erro ao sair');
     }
   };
 
@@ -198,7 +188,7 @@ export default function BookingPage() {
 
       if (error) throw error;
 
-      toast('Agendamento realizado com sucesso!', 'success');
+      toast.success('Agendamento realizado com sucesso!');
       
       // Atualizar lista de agendamentos após sucesso
       await fetchExistingAppointments();
@@ -206,7 +196,7 @@ export default function BookingPage() {
       navigate('/dashboard/client');
     } catch (error: any) {
       console.error('Error creating appointment:', error);
-      toast(error.message || 'Erro ao criar agendamento', 'error');
+      toast.error(error.message || 'Erro ao criar agendamento');
     }
   };
 
@@ -268,37 +258,20 @@ export default function BookingPage() {
                 </ul>
               </div>
 
-              <div className="space-y-3">
+              <div className="text-center">
                 <button
                   onClick={() => navigate(-1)}
-                  className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                  className="btn-outline"
                 >
-                  <ChevronLeft className="w-5 h-5 mr-1" />
                   Voltar
                 </button>
-                
-                <div className="text-sm text-gray-600">
-                  <p>Tem um estabelecimento?</p>
-                  <Link 
-                    to="/dashboard/establishment" 
-                    className="text-primary hover:underline font-medium"
-                  >
-                    Acesse o dashboard para configurar
-                  </Link>
-                </div>
-                
-                <div className="mt-4">
-                  <button
-                    onClick={() => {
-                      console.log('🔄 Botão: Tentando buscar novamente...');
-                      setIsLoading(true);
-                      fetchEstablishment();
-                    }}
-                    className="btn-outline"
-                  >
-                    🔄 Tentar Novamente
-                  </button>
-                </div>
+              </div>
+
+              <div className="mt-8 text-sm text-gray-600">
+                <p>Tem um estabelecimento?</p>
+                <Link to="/dashboard" className="text-primary hover:underline">
+                  Acesse o dashboard para configurar
+                </Link>
               </div>
             </div>
           </div>
@@ -309,6 +282,43 @@ export default function BookingPage() {
 
   console.log('✅ Estado: RENDERIZANDO PÁGINA PRINCIPAL');
   console.log('🏢 Estabelecimento para renderizar:', establishment);
+
+  // Pegar o dia da semana em inglês (como está no banco de dados)
+  const dayOfWeek = format(selectedDate, 'EEEE').toLowerCase(); // segunda-feira -> monday
+  const businessHoursForDay = establishment.business_hours[dayOfWeek];
+  
+  // Debug para verificar o mapeamento
+  console.log('🗓️ Data selecionada:', format(selectedDate, 'dd/MM/yyyy'));
+  console.log('📅 Dia da semana (inglês):', dayOfWeek);
+  console.log('🏢 Horários do estabelecimento:', establishment.business_hours);
+  console.log('⏰ Horários para este dia:', businessHoursForDay);
+
+  // Converter formato dos horários do banco de dados para o formato da interface
+  const convertBusinessHours = (hours: any) => {
+    if (!hours) return null;
+    return {
+      enabled: hours.enabled || false,
+      open1: hours.open || '09:00',
+      close1: hours.close || '18:00',
+      open2: null,
+      close2: null
+    };
+  };
+
+  // Garantir que os horários estão no formato correto (HH:mm)
+  const formatTime = (time: string | null) => {
+    if (!time) return null;
+    const [hours, minutes] = time.split(':').map(Number);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  };
+
+  const formattedBusinessHours = businessHoursForDay ? {
+    enabled: businessHoursForDay.enabled,
+    open1: formatTime(businessHoursForDay.open) || '',
+    close1: formatTime(businessHoursForDay.close) || '',
+    open2: null,
+    close2: null
+  } : null;
 
   return (
     <div className="min-h-screen bg-white">
@@ -367,7 +377,13 @@ export default function BookingPage() {
               Agendar Horário
             </h2>
             <AppointmentForm
-              establishment={establishment}
+              establishment={{
+                ...establishment,
+                business_hours: Object.entries(establishment.business_hours).reduce((acc, [day, hours]) => ({
+                  ...acc,
+                  [day]: convertBusinessHours(hours)
+                }), {})
+              }}
               onSubmit={handleSubmit}
               selectedDate={selectedDate}
               onSelectDate={setSelectedDate}

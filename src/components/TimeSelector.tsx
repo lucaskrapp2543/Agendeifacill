@@ -1,8 +1,8 @@
 import React from 'react';
 
 interface TimeSelectorProps {
-  value: string;
-  onChange: (value: string) => void;
+  value: string | null;
+  onChange: (value: string | null) => void;
   disabled?: boolean;
   className?: string;
 }
@@ -15,7 +15,9 @@ export const TimeSelector: React.FC<TimeSelectorProps> = ({
 }) => {
   // Gerar opções de horário de 15 em 15 minutos
   const generateTimeOptions = () => {
-    const options = [];
+    const options = [
+      { value: '', label: 'Selecione um horário' }
+    ];
     
     for (let hour = 0; hour < 24; hour++) {
       for (let minute = 0; minute < 60; minute += 15) {
@@ -37,8 +39,8 @@ export const TimeSelector: React.FC<TimeSelectorProps> = ({
 
   return (
     <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
+      value={value || ''}
+      onChange={(e) => onChange(e.target.value || null)}
       disabled={disabled}
       className={`input-field ${className}`}
     >

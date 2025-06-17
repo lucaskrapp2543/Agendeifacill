@@ -30,8 +30,8 @@ interface AvailableTimesViewerProps {
       enabled: boolean;
       open1: string;
       close1: string;
-      open2: string;
-      close2: string;
+      open2: string | null;
+      close2: string | null;
     }>;
     services_with_prices: Service[];
     professionals: Professional[];
@@ -59,6 +59,18 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
   const getEnglishDayName = (date: Date): string => {
     const portugueseDayName = format(date, 'EEEE', { locale: ptBR }).toLowerCase();
     return weekDayMap[portugueseDayName] || '';
+  };
+
+  // Função para obter os horários do dia selecionado
+  const getBusinessHoursForDay = (date: Date) => {
+    const dayName = getEnglishDayName(date);
+    const dayHours = establishment.business_hours[dayName];
+    return {
+      open1: dayHours?.open1 || '',
+      close1: dayHours?.close1 || '',
+      open2: dayHours?.open2 || null,
+      close2: dayHours?.close2 || null
+    };
   };
 
   return (
@@ -135,12 +147,7 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
             existingAppointments={existingAppointments}
             selectedProfessional={selectedProfessional.id}
             onSelectTime={() => {}} // Não faz nada ao clicar, apenas visualização
-            businessHours={{
-              open1: establishment.business_hours[getEnglishDayName(selectedDate)]?.open1 || '',
-              close1: establishment.business_hours[getEnglishDayName(selectedDate)]?.close1 || '',
-              open2: establishment.business_hours[getEnglishDayName(selectedDate)]?.open2 || '',
-              close2: establishment.business_hours[getEnglishDayName(selectedDate)]?.close2 || ''
-            }}
+            businessHours={getBusinessHoursForDay(selectedDate)}
           />
         </div>
       )}

@@ -164,14 +164,16 @@ export function AppointmentForm({
   console.log('⏰ Horários para este dia:', businessHoursForDay);
 
   // Garantir que os horários estão no formato correto (HH:mm)
-  const formatTime = (time: string) => {
+  const formatTime = (time: string | null) => {
+    if (!time) return null;
     const [hours, minutes] = time.split(':').map(Number);
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
   };
 
   const formattedBusinessHours = businessHoursForDay ? {
-    open1: formatTime(businessHoursForDay.open1),
-    close1: formatTime(businessHoursForDay.close1),
+    enabled: businessHoursForDay.enabled,
+    open1: formatTime(businessHoursForDay.open1) || '',
+    close1: formatTime(businessHoursForDay.close1) || '',
     open2: formatTime(businessHoursForDay.open2),
     close2: formatTime(businessHoursForDay.close2)
   } : null;
@@ -255,10 +257,11 @@ export function AppointmentForm({
               onSelectTime={handleTimeSelect}
               selectedTime={selectedTime}
               businessHours={formattedBusinessHours || {
+                enabled: false,
                 open1: '',
                 close1: '',
-                open2: '',
-                close2: ''
+                open2: null,
+                close2: null
               }}
             />
           </div>

@@ -25,15 +25,30 @@ const Login = () => {
 
       if (data && data.user) {
         const userRole = data.user.user_metadata?.role;
-        if (userRole) {
-          toast.success('Login realizado com sucesso!');
-          
-          // Verificar se há uma página anterior para redirecionar
-          const from = (location.state as any)?.from?.pathname || `/dashboard/${userRole}`;
-          navigate(from, { replace: true });
-        } else {
-          toast.error('Erro: tipo de conta não identificado.');
+        console.log('🔑 Login bem sucedido:', {
+          userId: data.user.id,
+          userRole: userRole,
+          metadata: data.user.user_metadata
+        });
+        
+        // Redirecionar baseado no tipo de conta
+        switch (userRole) {
+          case 'establishment':
+            toast.success('Login realizado com sucesso!');
+            navigate('/dashboard/establishment', { replace: true });
+            break;
+          case 'premium':
+            toast.success('Login realizado com sucesso!');
+            navigate('/dashboard/premium', { replace: true });
+            break;
+          case 'client':
+          default:
+            toast.success('Login realizado com sucesso!');
+            navigate('/dashboard/client', { replace: true });
+            break;
         }
+      } else {
+        toast.error('Erro: usuário não encontrado');
       }
     } catch (error: any) {
       toast.error(error.message || 'Erro ao fazer login');
