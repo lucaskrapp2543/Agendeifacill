@@ -46,7 +46,6 @@ function App() {
               <Route path="/suporte060622" element={<Suporte060622 />} />
               <Route path="/cadastropremium060622" element={<CadastroPremium060622 />} />
               <Route path="/cadastroestabelecimento060622" element={<CadastroEstabelecimento060622 />} />
-              <Route path="/success" element={<Success />} />
               
               {/* Protected Routes */}
               <Route 
@@ -85,7 +84,9 @@ function App() {
                 } 
               />
               
-              {/* Rota dinâmica para agendamento direto - deve ser a última */}
+              <Route path="/success" element={<Success />} />
+              
+              {/* Rota dinâmica para agendamento direto */}
               <Route path="/:slug" element={<EstablishmentDirectBooking />} />
               
               <Route path="*" element={<NotFound />} />
