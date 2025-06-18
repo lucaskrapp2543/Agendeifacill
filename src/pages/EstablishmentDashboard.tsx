@@ -343,14 +343,10 @@ const EstablishmentDashboard = () => {
         setEstablishment(data[0]);
         toast.success('Estabelecimento criado com sucesso!');
         
-        // Redirecionar para a página do estabelecimento
-        const code = data[0].code;
-        if (code) {
-          // Aguardar um pouco para garantir que o estabelecimento foi criado no banco
-          setTimeout(() => {
-            window.location.href = `/${code}`;
-          }, 1500);
-        }
+        // Redirecionar para o dashboard do estabelecimento
+        setTimeout(() => {
+          window.location.href = '/dashboard/establishment';
+        }, 1500);
       } else {
         throw new Error('Erro ao criar estabelecimento: dados não retornados');
       }
