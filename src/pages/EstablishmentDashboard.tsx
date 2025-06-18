@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard } from 'lucide-react';
@@ -10,6 +11,7 @@ import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
 import { TimeSelector } from '../components/TimeSelector';
 import { AvailableTimesViewer } from '../components/AvailableTimesViewer';
+import { v4 as uuidv4 } from 'uuid';
 
 interface BusinessHours {
   enabled: boolean;
@@ -78,6 +80,7 @@ interface PremiumClient {
 
 const EstablishmentDashboard = () => {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
 
   // Estados básicos
   const [isLoading, setIsLoading] = useState(true);
@@ -345,7 +348,7 @@ const EstablishmentDashboard = () => {
         
         // Redirecionar para o dashboard do estabelecimento
         setTimeout(() => {
-          window.location.href = '/dashboard/establishment';
+          navigate('/dashboard/establishment');
         }, 1500);
       } else {
         throw new Error('Erro ao criar estabelecimento: dados não retornados');
@@ -1175,70 +1178,58 @@ const EstablishmentDashboard = () => {
               <div className="flex items-center gap-4">
                   <button
                     onClick={() => setActiveTab('appointments')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'appointments'
-                  ? 'bg-primary text-white'
-                  : 'text-gray-400 hover:text-white'
+                        ? 'bg-primary text-white'
+                        : 'text-gray-400 hover:text-white'
                     }`}
                   >
-              <Calendar className="h-5 w-5" />
-              <span className="hidden sm:inline">Agend.</span>
+                    <Calendar className="h-5 w-5" />
+                    <span className="hidden sm:inline">Agend.</span>
                   </button>
 
                   <button
-              onClick={() => setActiveTab('available-times')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                activeTab === 'available-times'
-                  ? 'bg-primary text-white'
-                  : 'text-gray-400 hover:text-white'
+                    onClick={() => setActiveTab('services')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                      activeTab === 'services'
+                        ? 'bg-primary text-white'
+                        : 'text-gray-400 hover:text-white'
                     }`}
                   >
-              <Clock className="h-5 w-5" />
-              <span className="hidden sm:inline">Horários</span>
-                  </button>
-
-                  <button
-              onClick={() => setActiveTab('services')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                activeTab === 'services'
-                  ? 'bg-primary text-white'
-                  : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-              <Scissors className="h-5 w-5" />
-              <span className="hidden sm:inline">SEUS LINKS</span>
+                    <Scissors className="h-5 w-5" />
+                    <span className="hidden sm:inline">SEUS LINKS</span>
                   </button>
 
                   <button
                     onClick={() => setActiveTab('premium-clients')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'premium-clients'
-                  ? 'bg-primary text-white'
-                  : 'text-gray-400 hover:text-white'
+                        ? 'bg-primary text-white'
+                        : 'text-gray-400 hover:text-white'
                     }`}
                   >
-              <Star className="h-5 w-5" />
-              <span className="hidden sm:inline">Premium</span>
+                    <Star className="h-5 w-5" />
+                    <span className="hidden sm:inline">Premium</span>
                   </button>
 
                   <button
                     onClick={() => setActiveTab('settings')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'settings'
-                  ? 'bg-primary text-white'
-                  : 'text-gray-400 hover:text-white'
+                        ? 'bg-primary text-white'
+                        : 'text-gray-400 hover:text-white'
                     }`}
                   >
-              <Settings className="h-5 w-5" />
-              <span className="hidden sm:inline">Config.</span>
-              </button>
+                    <Settings className="h-5 w-5" />
+                    <span className="hidden sm:inline">Config.</span>
+                  </button>
 
                   <button
-              onClick={signOut}
-              className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white transition-colors rounded-lg"
+                    onClick={signOut}
+                    className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white transition-colors rounded-lg"
                   >
-              <LogOut className="h-5 w-5" />
-              <span className="hidden sm:inline">Sair</span>
+                    <LogOut className="h-5 w-5" />
+                    <span className="hidden sm:inline">Sair</span>
                   </button>
                 </div>
               </div>
@@ -2082,24 +2073,29 @@ const EstablishmentDashboard = () => {
 
             {/* Informações sobre o link do estabelecimento */}
             {establishment && (
-              <div className="mb-4 flex gap-2 items-center">
-                <button
-                  type="button"
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
-                  onClick={() => window.open(establishmentLink, '_blank')}
-                  title="Abrir página pública do seu estabelecimento"
-                >
-                  MEU LINK
-                </button>
-                <button
-                  type="button"
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-3 rounded-md text-xs transition-colors duration-200"
-                  onClick={copyLinkToClipboard}
-                  title="Copiar link para compartilhar"
-                >
-                  Copiar Link
-                </button>
-                <span className="text-xs text-gray-500 select-all">{establishmentLink}</span>
+              <div className="mb-4 space-y-3">
+                <div className="flex gap-2 items-center">
+                  <a
+                    href={`/booking/${establishment.code}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
+                    title="Abrir página de agendamentos"
+                  >
+                    Reservar Cliente
+                  </a>
+                  <button
+                    type="button"
+                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-3 rounded-md text-xs transition-colors duration-200"
+                    onClick={copyLinkToClipboard}
+                    title="Copiar link para compartilhar"
+                  >
+                    Copiar Link
+                  </button>
+                </div>
+                <p className="text-sm text-gray-400">
+                  Clique em "Reservar Cliente" para acessar a página de agendamentos.
+                </p>
               </div>
             )}
         </div>
