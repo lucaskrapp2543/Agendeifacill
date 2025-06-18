@@ -137,12 +137,17 @@ export default function BookingPage() {
     if (!user || !establishment) return;
 
     try {
+      // Verificar se o usuário é o próprio estabelecimento
+      const isEstablishmentOwner = user.id === establishment.owner_id;
+      
       const { error } = await supabase
         .from('appointments')
         .insert([{
           client_id: user.id,
           establishment_id: establishment.id,
           appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+          // TODO: Adicionar is_establishment_booking quando a coluna for criada no banco
+          // is_establishment_booking: isEstablishmentOwner,
           ...appointmentData
         }]);
 
@@ -153,7 +158,12 @@ export default function BookingPage() {
       // Atualizar lista de agendamentos após sucesso
       await fetchExistingAppointments();
       
-      navigate('/dashboard/client');
+      // Se for o estabelecimento, redirecionar para o dashboard do estabelecimento
+      if (isEstablishmentOwner) {
+        navigate('/dashboard/establishment');
+      } else {
+        navigate('/dashboard/client');
+      }
     } catch (error: any) {
       console.error('Error creating appointment:', error);
       toast.error(error.message || 'Erro ao criar agendamento');

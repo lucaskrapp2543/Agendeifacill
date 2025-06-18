@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { TimeSlotSelector } from './TimeSlotSelector';
 import { DatePicker } from './DatePicker';
 import { ServiceList } from './ServiceList';
+import { useAuth } from '../context/AuthContext';
 
 interface Service {
   id: string;
@@ -28,6 +29,7 @@ interface Appointment {
 
 interface AppointmentFormProps {
   establishment: {
+    owner_id: string;
     business_hours: Record<string, { 
       enabled: boolean;
       open1: string;
@@ -51,6 +53,9 @@ export function AppointmentForm({
   onSelectDate,
   existingAppointments = []
 }: AppointmentFormProps) {
+  const { user } = useAuth();
+  const isEstablishmentOwner = user?.id === establishment?.owner_id;
+
   console.log('🏗️ AppointmentForm - Dados recebidos:');
   console.log('  - establishment:', establishment);
   console.log('  - services_with_prices:', establishment?.services_with_prices);
@@ -179,16 +184,21 @@ export function AppointmentForm({
         {/* 1. NOME DO CLIENTE */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            1. Nome do Cliente
+            {isEstablishmentOwner ? '1. Nome do Cliente (Reserva pelo Estabelecimento)' : '1. Nome do Cliente'}
           </label>
           <input
             type="text"
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
             className="input-field"
-            placeholder="Digite o nome do cliente"
+            placeholder={isEstablishmentOwner ? "Digite o nome do cliente que você está reservando" : "Digite seu nome"}
             required
           />
+          {isEstablishmentOwner && (
+            <p className="mt-1 text-sm text-gray-400">
+              Você está fazendo uma reserva como estabelecimento para um cliente.
+            </p>
+          )}
         </div>
 
         {/* 2. SERVIÇO */}

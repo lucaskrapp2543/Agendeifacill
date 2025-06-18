@@ -1185,17 +1185,13 @@ const EstablishmentDashboard = () => {
               <span className="hidden sm:inline">Agend.</span>
                   </button>
 
-                  <button
-              onClick={() => setActiveTab('available-times')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                activeTab === 'available-times'
-                  ? 'bg-primary text-white'
-                  : 'text-gray-400 hover:text-white'
-                    }`}
+                  <div
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-500 cursor-not-allowed opacity-50"
+                    title="Em breve"
                   >
-              <Clock className="h-5 w-5" />
-              <span className="hidden sm:inline">Horários</span>
-                  </button>
+                    <Clock className="h-5 w-5" />
+                    <span className="hidden sm:inline">Horários</span>
+                  </div>
 
                   <button
               onClick={() => setActiveTab('services')}
@@ -2082,24 +2078,29 @@ const EstablishmentDashboard = () => {
 
             {/* Informações sobre o link do estabelecimento */}
             {establishment && (
-              <div className="mb-4 flex gap-2 items-center">
-                <button
-                  type="button"
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
-                  onClick={() => window.open(establishmentLink, '_blank')}
-                  title="Abrir página pública do seu estabelecimento"
-                >
-                  MEU LINK
-                </button>
-                <button
-                  type="button"
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-3 rounded-md text-xs transition-colors duration-200"
-                  onClick={copyLinkToClipboard}
-                  title="Copiar link para compartilhar"
-                >
-                  Copiar Link
-                </button>
-                <span className="text-xs text-gray-500 select-all">{establishmentLink}</span>
+              <div className="mb-4 space-y-3">
+                <div className="flex gap-2 items-center">
+                  <a
+                    href={`/booking/${establishment.code}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
+                    title="Abrir página de agendamentos"
+                  >
+                    Reservar Cliente
+                  </a>
+                  <button
+                    type="button"
+                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-3 rounded-md text-xs transition-colors duration-200"
+                    onClick={copyLinkToClipboard}
+                    title="Copiar link para compartilhar"
+                  >
+                    Copiar Link
+                  </button>
+                </div>
+                <p className="text-sm text-gray-400">
+                  Clique em "Reservar Cliente" para acessar a página de agendamentos. Você pode fazer reservas para seus clientes através desta página.
+                </p>
               </div>
             )}
         </div>
