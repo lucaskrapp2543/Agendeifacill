@@ -87,7 +87,7 @@ const EstablishmentDashboard = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
-
+  
   // Estados do formulário
   const [establishmentName, setEstablishmentName] = useState('');
   const [establishmentDescription, setEstablishmentDescription] = useState('');
@@ -103,7 +103,7 @@ const EstablishmentDashboard = () => {
   const [customPhoto1Preview, setCustomPhoto1Preview] = useState<string | null>(null);
   const [customPhoto2Preview, setCustomPhoto2Preview] = useState<string | null>(null);
   const [customPhoto3Preview, setCustomPhoto3Preview] = useState<string | null>(null);
-
+  
   // Estados de horários e profissionais
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
     monday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
@@ -114,13 +114,13 @@ const EstablishmentDashboard = () => {
     saturday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null },
     sunday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null }
   });
-
+  
   const [professionals, setProfessionals] = useState<Professional[]>([{
     id: '1',
     name: 'Profissional 1',
     specialties: ['Corte', 'Barba']
   }]);
-
+  
   const [servicesWithPrices, setServicesWithPrices] = useState<Service[]>([{
     id: '1',
     name: 'Corte',
@@ -144,7 +144,7 @@ const EstablishmentDashboard = () => {
   const [premiumSubscribers, setPremiumSubscribers] = useState<any[]>([]);
   const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
-  
+
   const durationOptions = [
     { value: 15, label: '15 minutos' },
     { value: 30, label: '30 minutos' },
@@ -343,10 +343,14 @@ const EstablishmentDashboard = () => {
         setEstablishment(data[0]);
         toast.success('Estabelecimento criado com sucesso!');
         
-        // Redirecionar para o dashboard do estabelecimento
-        setTimeout(() => {
-          window.location.href = '/dashboard/establishment';
-        }, 1500);
+        // Redirecionar para a página do estabelecimento
+        const code = data[0].code;
+        if (code) {
+          // Aguardar um pouco para garantir que o estabelecimento foi criado no banco
+          setTimeout(() => {
+            window.location.href = `/${code}`;
+          }, 1500);
+        }
       } else {
         throw new Error('Erro ao criar estabelecimento: dados não retornados');
       }
@@ -721,16 +725,16 @@ const EstablishmentDashboard = () => {
           }
         } else {
           console.log('Estabelecimento encontrado:', establishments);
-          if (establishments) {
-            setEstablishment(establishments);
-            setEstablishmentName(establishments.name);
-            setEstablishmentDescription(establishments.description || '');
-            setEstablishmentCode(establishments.code);
-            setAffiliateLink(establishments.affiliate_link || '');
+        if (establishments) {
+          setEstablishment(establishments);
+          setEstablishmentName(establishments.name);
+          setEstablishmentDescription(establishments.description || '');
+          setEstablishmentCode(establishments.code);
+          setAffiliateLink(establishments.affiliate_link || '');
             
-            // Migrar dados antigos para nova estrutura se necessário
-            const migratedBusinessHours = migrateBusinessHours(establishments.business_hours);
-            setBusinessHours(migratedBusinessHours);
+          // Migrar dados antigos para nova estrutura se necessário
+          const migratedBusinessHours = migrateBusinessHours(establishments.business_hours);
+          setBusinessHours(migratedBusinessHours);
             
             // Configurar profissionais e serviços
             setProfessionals(establishments.professionals || [{
@@ -750,19 +754,19 @@ const EstablishmentDashboard = () => {
               price: 15,
               duration: 20
             }]);
-            
-            // Carregar previews das fotos personalizadas existentes
+          
+          // Carregar previews das fotos personalizadas existentes
             if (establishments.profile_image_url) {
               setProfileImagePreview(establishments.profile_image_url);
             }
-            if (establishments.custom_photo_1_url) {
-              setCustomPhoto1Preview(establishments.custom_photo_1_url);
-            }
-            if (establishments.custom_photo_2_url) {
-              setCustomPhoto2Preview(establishments.custom_photo_2_url);
-            }
-            if (establishments.custom_photo_3_url) {
-              setCustomPhoto3Preview(establishments.custom_photo_3_url);
+          if (establishments.custom_photo_1_url) {
+            setCustomPhoto1Preview(establishments.custom_photo_1_url);
+          }
+          if (establishments.custom_photo_2_url) {
+            setCustomPhoto2Preview(establishments.custom_photo_2_url);
+          }
+          if (establishments.custom_photo_3_url) {
+            setCustomPhoto3Preview(establishments.custom_photo_3_url);
             }
           }
         }
@@ -889,8 +893,8 @@ const EstablishmentDashboard = () => {
         friday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
         saturday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null },
         sunday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null }
-      };
-    }
+          };
+        }
 
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     const newBusinessHours: Record<string, BusinessHours> = {};
@@ -903,9 +907,9 @@ const EstablishmentDashboard = () => {
         close1: dayHours?.close1 || '18:00',
         open2: dayHours?.open2 || null,
         close2: dayHours?.close2 || null
-      };
+        };
     });
-
+    
     return newBusinessHours;
   };
 
@@ -920,7 +924,7 @@ const EstablishmentDashboard = () => {
 
   // Se não há usuário, mostra mensagem de erro
   if (!user) {
-    return (
+  return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-white mb-4">Erro de Autenticação</h2>
@@ -930,9 +934,9 @@ const EstablishmentDashboard = () => {
             className="mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
           >
             Fazer Login
-          </button>
-        </div>
-      </div>
+              </button>
+            </div>
+          </div>
     );
   }
 
@@ -945,27 +949,27 @@ const EstablishmentDashboard = () => {
             <h2 className="text-2xl font-bold text-white mb-4">Criar Novo Estabelecimento</h2>
             <p className="text-gray-400 mb-8">
               Você ainda não tem um estabelecimento cadastrado. Preencha o formulário abaixo para criar seu primeiro estabelecimento.
-            </p>
+              </p>
             <form onSubmit={handleCreateEstablishment} className="space-y-6">
-              <div>
+                <div>
                 <label htmlFor="name" className="block text-sm font-medium text-white mb-2">
                   Nome do Estabelecimento
-                </label>
-                <input
-                  type="text"
+                  </label>
+                  <input
+                    type="text"
                   id="name"
-                  value={establishmentName}
-                  onChange={(e) => setEstablishmentName(e.target.value)}
+                    value={establishmentName}
+                    onChange={(e) => setEstablishmentName(e.target.value)}
                   className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="Ex: Barbearia do João"
-                  required
-                />
-              </div>
+                    required
+                  />
+                </div>
 
-              <div>
+                <div>
                 <label htmlFor="description" className="block text-sm font-medium text-white mb-2">
                   Descrição
-                </label>
+                  </label>
                 <textarea
                   id="description"
                   value={establishmentDescription}
@@ -981,78 +985,78 @@ const EstablishmentDashboard = () => {
                   Código do Estabelecimento
                 </label>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
+                    <input
+                      type="text"
                     id="code"
-                    value={establishmentCode}
+                      value={establishmentCode}
                     onChange={(e) => setEstablishmentCode(e.target.value)}
                     className="flex-1 px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="Ex: 1234"
-                    maxLength={4}
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={generateRandomCode}
+                      maxLength={4}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={generateRandomCode}
                     className="px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white hover:bg-[#242628] transition-colors"
-                  >
+                    >
                     Gerar Código
-                  </button>
-                </div>
+                    </button>
+                  </div>
                 <p className="mt-1 text-sm text-gray-400">
                   Este código será usado para acessar a página do seu estabelecimento
-                </p>
-              </div>
-
-              <div>
+                  </p>
+                </div>
+                
+                <div>
                 <label htmlFor="profile_image" className="block text-sm font-medium text-white mb-2">
                   Logo/Imagem do Estabelecimento
-                </label>
+                  </label>
                 <div className="flex items-center gap-4">
                   {profileImagePreview && (
-                    <img
-                      src={profileImagePreview}
-                      alt="Preview"
+                        <img
+                          src={profileImagePreview}
+                          alt="Preview"
                       className="w-20 h-20 rounded-lg object-cover"
-                    />
-                  )}
+                        />
+                      )}
                   <label className="flex-1 cursor-pointer">
                     <div className="px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white hover:bg-[#242628] transition-colors text-center">
                       <ImageIcon className="h-5 w-5 inline-block mr-2" />
                       {profileImage ? 'Trocar Imagem' : 'Escolher Imagem'}
                     </div>
-                    <input
-                      type="file"
+                      <input
+                        type="file"
                       id="profile_image"
-                      onChange={handleImageChange}
+                        onChange={handleImageChange}
                       accept="image/*"
                       className="hidden"
-                    />
-                  </label>
+                      />
+                    </label>
                 </div>
               </div>
 
               <div>
                 <h3 className="text-lg font-medium text-white mb-4">Profissionais</h3>
-                <div className="space-y-4">
+              <div className="space-y-4">
                   {professionals.map((professional, index) => (
                     <div key={professional.id} className="flex gap-4 items-start">
-                      <div className="flex-1">
-                        <input
-                          type="text"
-                          value={professional.name}
-                          onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            value={professional.name}
+                            onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
                           className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                           placeholder={`Nome do Profissional ${index + 1}`}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveProfessional(professional.id)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveProfessional(professional.id)}
                         className="px-3 py-2 text-red-500 hover:text-red-400 transition-colors"
-                      >
+                        >
                         <Trash2 className="h-5 w-5" />
-                      </button>
+                        </button>
                     </div>
                   ))}
                   <button
@@ -1064,55 +1068,55 @@ const EstablishmentDashboard = () => {
                     Adicionar Profissional
                   </button>
                 </div>
-              </div>
-
+                </div>
+                
               <div>
                 <h3 className="text-lg font-medium text-white mb-4">Serviços</h3>
                 <div className="space-y-4">
                   {servicesWithPrices.map((service, index) => (
                     <div key={service.id} className="flex gap-4 items-start">
                       <div className="flex-1 space-y-2">
-                        <input
-                          type="text"
-                          value={service.name}
-                          onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
+                          <input
+                            type="text"
+                            value={service.name}
+                            onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
                           className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                           placeholder={`Nome do Serviço ${index + 1}`}
                         />
                         <div className="flex gap-2">
                           <div className="flex-1">
-                            <input
-                              type="number"
-                              value={service.price}
+                          <input
+                            type="number"
+                            value={service.price}
                               onChange={(e) => handleServiceChange(service.id, 'price', parseFloat(e.target.value))}
                               className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                              placeholder="Preço"
+                            placeholder="Preço"
                               min="0"
                               step="0.01"
-                            />
-                          </div>
+                          />
+                        </div>
                           <div className="flex-1">
-                            <select
-                              value={service.duration}
+                          <select
+                            value={service.duration}
                               onChange={(e) => handleServiceChange(service.id, 'duration', parseInt(e.target.value))}
                               className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                            >
-                              {durationOptions.map(option => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                          >
+                            {durationOptions.map(option => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveService(service.id)}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveService(service.id)}
                         className="px-3 py-2 text-red-500 hover:text-red-400 transition-colors"
-                      >
+                          >
                         <Trash2 className="h-5 w-5" />
-                      </button>
+                          </button>
                     </div>
                   ))}
                   <button
@@ -1126,22 +1130,22 @@ const EstablishmentDashboard = () => {
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={isCreating}
+                <button
+                  type="submit"
+                  disabled={isCreating}
                 className={`w-full px-6 py-3 bg-primary text-white rounded-lg font-medium ${
                   isCreating ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary/80'
                 } transition-colors`}
-              >
-                {isCreating ? (
+                >
+                  {isCreating ? (
                   <>
                     <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white inline-block mr-2" />
                     Criando...
                   </>
-                ) : (
-                  'Criar Estabelecimento'
-                )}
-              </button>
+                  ) : (
+                    'Criar Estabelecimento'
+                  )}
+                </button>
             </form>
           </div>
         </div>
@@ -1172,30 +1176,30 @@ const EstablishmentDashboard = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setActiveTab('appointments')}
+              <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => setActiveTab('appointments')}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                activeTab === 'appointments'
+                      activeTab === 'appointments'
                   ? 'bg-primary text-white'
                   : 'text-gray-400 hover:text-white'
-              }`}
-            >
+                    }`}
+                  >
               <Calendar className="h-5 w-5" />
               <span className="hidden sm:inline">Agend.</span>
-            </button>
+                  </button>
 
-            <button
+                  <button
               onClick={() => setActiveTab('available-times')}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                 activeTab === 'available-times'
                   ? 'bg-primary text-white'
                   : 'text-gray-400 hover:text-white'
-              }`}
-            >
+                    }`}
+                  >
               <Clock className="h-5 w-5" />
               <span className="hidden sm:inline">Horários</span>
-                        </button>
+                  </button>
 
                   <button
               onClick={() => setActiveTab('services')}
@@ -1203,23 +1207,23 @@ const EstablishmentDashboard = () => {
                 activeTab === 'services'
                   ? 'bg-primary text-white'
                   : 'text-gray-400 hover:text-white'
-              }`}
+                    }`}
                   >
               <Scissors className="h-5 w-5" />
               <span className="hidden sm:inline">SEUS LINKS</span>
                   </button>
 
-                          <button
-              onClick={() => setActiveTab('premium-clients')}
+                  <button
+                    onClick={() => setActiveTab('premium-clients')}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                activeTab === 'premium-clients'
+                      activeTab === 'premium-clients'
                   ? 'bg-primary text-white'
                   : 'text-gray-400 hover:text-white'
-              }`}
-                          >
+                    }`}
+                  >
               <Star className="h-5 w-5" />
               <span className="hidden sm:inline">Premium</span>
-                          </button>
+                  </button>
 
                   <button
                     onClick={() => setActiveTab('settings')}
@@ -1231,7 +1235,7 @@ const EstablishmentDashboard = () => {
                   >
               <Settings className="h-5 w-5" />
               <span className="hidden sm:inline">Config.</span>
-                  </button>
+              </button>
 
                   <button
               onClick={signOut}
@@ -1240,8 +1244,8 @@ const EstablishmentDashboard = () => {
               <LogOut className="h-5 w-5" />
               <span className="hidden sm:inline">Sair</span>
                   </button>
+                </div>
               </div>
-            </div>
 
         {/* Conteúdo Principal */}
         <div className="space-y-6">

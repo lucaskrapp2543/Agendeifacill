@@ -155,28 +155,23 @@ export function AppointmentForm({
 
   // Pegar o dia da semana em inglês (como está no banco de dados)
   const dayOfWeek = format(selectedDate, 'EEEE').toLowerCase(); // segunda-feira -> monday
-  const businessHoursForDay = establishment.business_hours[dayOfWeek];
   
   // Debug para verificar o mapeamento
   console.log('🗓️ Data selecionada:', format(selectedDate, 'dd/MM/yyyy'));
   console.log('📅 Dia da semana (inglês):', dayOfWeek);
   console.log('🏢 Horários do estabelecimento:', establishment.business_hours);
-  console.log('⏰ Horários para este dia:', businessHoursForDay);
 
-  // Garantir que os horários estão no formato correto (HH:mm)
-  const formatTime = (time: string | null) => {
-    if (!time) return null;
-    const [hours, minutes] = time.split(':').map(Number);
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  // Garantir que os horários estão no formato correto
+  const defaultBusinessHours = {
+    enabled: false,
+    open1: '',
+    close1: '',
+    open2: null,
+    close2: null
   };
 
-  const formattedBusinessHours = businessHoursForDay ? {
-    enabled: businessHoursForDay.enabled,
-    open1: formatTime(businessHoursForDay.open1) || '',
-    close1: formatTime(businessHoursForDay.close1) || '',
-    open2: formatTime(businessHoursForDay.open2),
-    close2: formatTime(businessHoursForDay.close2)
-  } : null;
+  // Converter os horários do estabelecimento para o formato correto
+  const businessHours = establishment.business_hours?.[dayOfWeek] || defaultBusinessHours;
 
   return (
     <div className="space-y-6">
@@ -251,18 +246,12 @@ export function AppointmentForm({
             </label>
             <TimeSlotSelector
               selectedDate={selectedDate}
-              selectedDuration={selectedService.duration}
+              selectedDuration={selectedService?.duration || 30}
               existingAppointments={existingAppointments}
               selectedProfessional={selectedProfessional?.id || ''}
               onSelectTime={handleTimeSelect}
               selectedTime={selectedTime}
-              businessHours={formattedBusinessHours || {
-                enabled: false,
-                open1: '',
-                close1: '',
-                open2: null,
-                close2: null
-              }}
+              businessHours={businessHours}
             />
           </div>
         )}
@@ -305,8 +294,8 @@ export function AppointmentForm({
             <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
             <div className="text-sm text-gray-300 space-y-1">
               <div><strong>Cliente:</strong> {clientName || 'Não informado'}</div>
-              <div><strong>Serviço:</strong> {selectedService.name} - R$ {selectedService.price.toFixed(2).replace('.', ',')}</div>
-              <div><strong>Profissional:</strong> {selectedProfessional.name}</div>
+              <div><strong>Serviço:</strong> {selectedService?.name || ''} - R$ {selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}</div>
+              <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
               <div><strong>Pagamento:</strong> {
                 selectedPaymentMethod === 'pix' ? 'PIX' :
                 selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
@@ -316,7 +305,7 @@ export function AppointmentForm({
               }</div>
               <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
               <div><strong>Horário:</strong> {selectedTime}</div>
-              <div><strong>Duração:</strong> {selectedService.duration} minutos</div>
+              <div><strong>Duração:</strong> {selectedService?.duration || 30} minutos</div>
             </div>
           </div>
         )}

@@ -41,7 +41,8 @@ export function TimeSlotSelector({
   businessHours
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
-  const timeToMinutes = (time: string): number => {
+  const timeToMinutes = (time: string | null): number => {
+    if (!time) return 0;
     const [hours, minutes] = time.split(':').map(Number);
     return hours * 60 + minutes;
   };
@@ -51,6 +52,11 @@ export function TimeSlotSelector({
     const slots: TimeSlot[] = [];
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
     
+    // Se não houver horários de funcionamento ou não estiver habilitado, retornar array vazio
+    if (!businessHours || !businessHours.enabled) {
+      return slots;
+    }
+
     // Filtrar agendamentos para o dia e profissional específicos
     const relevantAppointments = existingAppointments.filter(apt => 
       apt.appointment_date === selectedDateString &&
@@ -62,19 +68,10 @@ export function TimeSlotSelector({
     console.log('  - businessHours:', businessHours);
     console.log('  - relevantAppointments:', relevantAppointments);
 
-    // Gerar horários para os dois períodos
-    const periods = [
-      { start: businessHours.open1, end: businessHours.close1 },
-      businessHours.open2 && businessHours.close2 
-        ? { start: businessHours.open2, end: businessHours.close2 }
-        : null
-    ].filter(period => period && period.start && period.end);
-
-    for (const period of periods) {
-      if (!period?.start || !period?.end) continue;
-      
-      const startMinutes = timeToMinutes(period.start);
-      const endMinutes = timeToMinutes(period.end);
+    // Gerar horários para o primeiro período
+    if (businessHours.open1 && businessHours.close1) {
+      const startMinutes = timeToMinutes(businessHours.open1);
+      const endMinutes = timeToMinutes(businessHours.close1);
       
       // Gerar slots de 15 em 15 minutos
       for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
@@ -101,6 +98,45 @@ export function TimeSlotSelector({
         }
 
         // Verificar se o serviço não ultrapassa o horário de funcionamento
+        if (slotEndMinutes > endMinutes) {
+          isAvailable = false;
+          conflictReason = 'Serviço ultrapassaria horário';
+        }
+
+        slots.push({
+          time: timeString,
+          isAvailable,
+          reason: conflictReason
+        });
+      }
+    }
+
+    // Se houver segundo período, gerar horários para ele também
+    if (businessHours.open2 && businessHours.close2) {
+      const startMinutes = timeToMinutes(businessHours.open2);
+      const endMinutes = timeToMinutes(businessHours.close2);
+      
+      for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+        
+        const slotEndMinutes = minutes + selectedDuration;
+        let isAvailable = true;
+        let conflictReason = '';
+
+        // Verificar conflitos com agendamentos existentes
+        for (const appointment of relevantAppointments) {
+          const aptStartMinutes = timeToMinutes(appointment.appointment_time);
+          const aptEndMinutes = aptStartMinutes + appointment.duration;
+          
+          if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
+            isAvailable = false;
+            conflictReason = 'Horário Reservado';
+            break;
+          }
+        }
+
         if (slotEndMinutes > endMinutes) {
           isAvailable = false;
           conflictReason = 'Serviço ultrapassaria horário';

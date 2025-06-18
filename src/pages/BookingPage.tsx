@@ -90,54 +90,14 @@ export default function BookingPage() {
       }
 
       console.log('✅ Estabelecimento encontrado:', data);
+      setEstablishment(data);
       
-      // Converter formato dos horários de funcionamento
-      const convertedBusinessHours = Object.entries(data.business_hours || {}).reduce((acc, [day, hours]) => {
-        if (!hours) return acc;
-        
-        const { open, close, enabled } = hours as any;
-        return {
-          ...acc,
-          [day]: {
-            enabled: enabled || false,
-            open1: open || '09:00',
-            close1: close || '18:00',
-            open2: null,
-            close2: null
-          }
-        };
-      }, {});
-
-      // Combinar dados convertidos
-      const establishmentData = {
-        ...data,
-        business_hours: convertedBusinessHours
-      };
-
-      console.log('✅ Dados convertidos:', establishmentData);
-      setEstablishment(establishmentData);
-      setForceRender(prev => prev + 1); // Força re-renderização
-      
-      // Tentar novamente após um pequeno delay
-      setTimeout(() => {
-        console.log('🔄 Tentativa adicional de setEstablishment...');
-        setEstablishment(establishmentData);
-        setForceRender(prev => prev + 1);
-      }, 50);
-      
-      console.log('✅ setEstablishment chamado com sucesso');
-      
-      // Verificar se o estado foi atualizado
-      setTimeout(() => {
-        console.log('🔍 Verificando estado após 100ms...');
-        console.log('🏢 Estado atual do establishment:', establishment);
-      }, 100);
     } catch (error: any) {
       console.error('❌ Error fetching establishment:', error);
       console.error('❌ Error name:', error.name);
       console.error('❌ Error message:', error.message);
       console.error('❌ Error stack:', error.stack);
-      toast.error(`Estabelecimento com ID "${id}" não encontrado`);
+      toast.error(`Estabelecimento com código "${id}" não encontrado`);
     } finally {
       console.log('🏁 Finalizando busca, setIsLoading(false)');
       setIsLoading(false);
@@ -215,10 +175,13 @@ export default function BookingPage() {
   }
 
   if (isLoading) {
-    console.log('🔄 Estado: LOADING - Renderizando spinner');
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      <div className="min-h-screen bg-white">
+        <div className="container-custom py-8">
+          <div className="flex justify-center">
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -294,12 +257,14 @@ export default function BookingPage() {
   console.log('⏰ Horários para este dia:', businessHoursForDay);
 
   // Converter formato dos horários do banco de dados para o formato da interface
-  const convertBusinessHours = (hours: any) => {
-    if (!hours) return null;
+  const convertBusinessHours = (businessHours: any) => {
+    if (!businessHours) return null;
+    
+    const { open, close, enabled } = businessHours;
     return {
-      enabled: hours.enabled || false,
-      open1: hours.open || '09:00',
-      close1: hours.close || '18:00',
+      enabled: enabled || false,
+      open1: open || '09:00',
+      close1: close || '18:00',
       open2: null,
       close2: null
     };
@@ -379,10 +344,7 @@ export default function BookingPage() {
             <AppointmentForm
               establishment={{
                 ...establishment,
-                business_hours: Object.entries(establishment.business_hours).reduce((acc, [day, hours]) => ({
-                  ...acc,
-                  [day]: convertBusinessHours(hours)
-                }), {})
+                business_hours: establishment.business_hours
               }}
               onSubmit={handleSubmit}
               selectedDate={selectedDate}

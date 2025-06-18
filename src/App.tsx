@@ -36,8 +36,8 @@ function App() {
           }
         }}
       />
-      <SupabaseProvider>
-        <AuthProvider>
+    <SupabaseProvider>
+      <AuthProvider>
           <Router>
             <Routes>
               <Route path="/" element={<LandingPage />} />
@@ -92,8 +92,8 @@ function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Router>
-        </AuthProvider>
-      </SupabaseProvider>
+      </AuthProvider>
+    </SupabaseProvider>
     </div>
   );
 }

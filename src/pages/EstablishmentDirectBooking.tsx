@@ -204,7 +204,7 @@ const EstablishmentDirectBooking: React.FC = () => {
           setError('Estabelecimento não encontrado');
           return;
         }
-
+        
         // Garantir que os campos obrigatórios existam
         const establishment = {
           ...data,
