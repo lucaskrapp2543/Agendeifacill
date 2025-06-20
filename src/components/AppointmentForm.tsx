@@ -6,6 +6,8 @@ import { TimeSlotSelector } from './TimeSlotSelector';
 import { DatePicker } from './DatePicker';
 import { ServiceList } from './ServiceList';
 import { useAuth } from '../context/AuthContext';
+import { PixPaymentForm } from './PixPaymentForm';
+import { PixProofViewer } from './PixProofViewer';
 
 interface Service {
   id: string;
@@ -20,30 +22,46 @@ interface Professional {
 }
 
 interface Appointment {
+  id: string;
+  client_id: string;
+  establishment_id: string;
+  service: string;
+  professional: string;
   appointment_date: string;
   appointment_time: string;
+  status: string;
+  client_name: string;
+  price: number;
   duration: number;
-  status?: string;
-  professional?: string;
+  payment_method?: string;
+  pix_proof_url?: string;
+  pix_payment_status?: string;
+}
+
+interface Establishment {
+  owner_id: string;
+  business_hours: Record<string, { 
+    enabled: boolean;
+    open1: string;
+    close1: string;
+    open2: string;
+    close2: string;
+  }>;
+  services_with_prices: Service[];
+  professionals: Professional[];
 }
 
 interface AppointmentFormProps {
-  establishment: {
-    owner_id: string;
-    business_hours: Record<string, { 
-      enabled: boolean;
-      open1: string;
-      close1: string;
-      open2: string;
-      close2: string;
-    }>;
-    services_with_prices: Service[];
-    professionals: Professional[];
+  establishment: Establishment & {
+    pix_key?: string;
+    pix_key_type?: string;
   };
   onSubmit: (data: any) => Promise<void>;
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
   existingAppointments?: Appointment[];
+  pix_payment_status?: string;
+  pix_proof_url?: string;
 }
 
 export function AppointmentForm({ 
@@ -51,7 +69,9 @@ export function AppointmentForm({
   onSubmit, 
   selectedDate, 
   onSelectDate,
-  existingAppointments = []
+  existingAppointments = [],
+  pix_payment_status,
+  pix_proof_url
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
@@ -69,6 +89,9 @@ export function AppointmentForm({
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+
+  const [pixProofUrl, setPixProofUrl] = useState<string | null>(null);
+  const [pixPaymentMethod, setPixPaymentMethod] = useState<'pix_now' | 'pix_local' | null>(null);
 
   // Verificar se os dados essenciais existem
   if (!establishment) {
@@ -97,6 +120,15 @@ export function AppointmentForm({
     // NÃO fazer submit automático aqui!
   };
 
+  const handlePixComprovantUpload = (url: string) => {
+    setPixProofUrl(url);
+  };
+
+  const handlePixMethodSelect = (method: 'pix_now' | 'pix_local') => {
+    setPixPaymentMethod(method);
+    setSelectedPaymentMethod(method === 'pix_now' ? 'pix' : 'pagar_local');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -107,6 +139,8 @@ export function AppointmentForm({
       selectedProfessional: selectedProfessional?.name,
       selectedTime,
       selectedPaymentMethod,
+      pixPaymentMethod,
+      pixProofUrl,
       selectedDate: format(selectedDate, 'yyyy-MM-dd')
     });
 
@@ -136,6 +170,12 @@ export function AppointmentForm({
       return;
     }
 
+    // Validação específica para PIX
+    if (selectedPaymentMethod === 'pix' && pixPaymentMethod === 'pix_now' && !pixProofUrl) {
+      alert('Por favor, envie o comprovante do PIX');
+      return;
+    }
+
     setIsLoading(true);
     try {
       await onSubmit({
@@ -145,7 +185,9 @@ export function AppointmentForm({
         duration: selectedService.duration,
         price: selectedService.price,
         client_name: clientName,
-        payment_method: selectedPaymentMethod
+        payment_method: selectedPaymentMethod,
+        pix_payment_status: pixPaymentMethod === 'pix_now' ? 'enviado' : 'pendente',
+        pix_proof_url: pixProofUrl
       });
 
       // Só navega após sucesso
@@ -276,8 +318,7 @@ export function AppointmentForm({
               { value: 'pix', label: 'PIX', icon: '💸' },
               { value: 'credito', label: 'CRÉDITO', icon: '💳' },
               { value: 'debito', label: 'DÉBITO', icon: '💳' },
-              { value: 'dinheiro', label: 'DINHEIRO', icon: '💵' },
-              { value: 'pagar_local', label: 'PAGAR NO LOCAL', icon: '🏪' }
+              { value: 'dinheiro', label: 'DINHEIRO', icon: '💵' }
             ].map((method) => (
               <button
                 key={method.value}
@@ -298,6 +339,16 @@ export function AppointmentForm({
           </div>
         </div>
 
+        {/* PIX Payment Form */}
+        {selectedPaymentMethod === 'pix' && (
+          <PixPaymentForm
+            establishmentPixKey={establishment.pix_key}
+            establishmentPixType={establishment.pix_key_type}
+            onComprovantUpload={handlePixComprovantUpload}
+            onPaymentMethodSelect={handlePixMethodSelect}
+          />
+        )}
+
         {/* RESUMO DO AGENDAMENTO */}
         {selectedService && selectedProfessional && selectedPaymentMethod && selectedTime && (
           <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
@@ -307,11 +358,10 @@ export function AppointmentForm({
               <div><strong>Serviço:</strong> {selectedService?.name || ''} - R$ {selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}</div>
               <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
               <div><strong>Pagamento:</strong> {
-                selectedPaymentMethod === 'pix' ? 'PIX' :
+                selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
                 selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
                 selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
-                selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' :
-                selectedPaymentMethod === 'pagar_local' ? 'Pagar no Local' : selectedPaymentMethod
+                selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod
               }</div>
               <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
               <div><strong>Horário:</strong> {selectedTime}</div>
@@ -320,23 +370,54 @@ export function AppointmentForm({
           </div>
         )}
 
+        {/* Detalhes do Pagamento */}
+        {selectedPaymentMethod === 'pix' && pixPaymentMethod === 'pix_now' && pixProofUrl && (
+          <div className="mt-4">
+            <h4 className="text-md font-medium text-gray-300 mb-2">
+              Detalhes do Pagamento PIX
+            </h4>
+            <div className="p-4 bg-[#242628] rounded-lg border border-gray-700">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-400">Status do Pagamento:</span>
+                <span className="text-sm font-medium text-yellow-500">
+                  ⏳ Aguardando confirmação
+                </span>
+              </div>
+
+              <div className="mt-2">
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Comprovante
+                </label>
+                <div className="relative">
+                  <img
+                    src={pixProofUrl}
+                    alt="Comprovante PIX"
+                    className="w-full max-w-xs rounded-lg border border-gray-700"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <button
           type="submit"
-          disabled={isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod}
+          disabled={
+            isLoading || 
+            !selectedService || 
+            !selectedProfessional || 
+            !selectedTime || 
+            !clientName || 
+            !selectedPaymentMethod ||
+            (selectedPaymentMethod === 'pix' && pixPaymentMethod === 'pix_now' && !pixProofUrl)
+          }
           className={`w-full flex justify-center items-center px-6 py-3 rounded-lg text-lg font-medium transition-colors ${
             isLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !selectedPaymentMethod
               ? 'bg-gray-600 cursor-not-allowed text-gray-300'
               : 'btn-primary'
           }`}
         >
-          {isLoading ? (
-            <div className="flex items-center gap-2">
-              <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-              <span>Agendando...</span>
-            </div>
-          ) : (
-            'Confirmar Agendamento'
-          )}
+          {isLoading ? 'Agendando...' : 'Confirmar Agendamento'}
         </button>
       </form>
     </div>

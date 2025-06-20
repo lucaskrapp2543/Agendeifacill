@@ -8,6 +8,20 @@ import { ptBR } from 'date-fns/locale';
 import { BusinessHoursSelector } from '../components/BusinessHoursSelector';
 import { useToast } from '../components/ui/Toaster';
 
+interface Establishment {
+  id: string;
+  name: string;
+  description: string;
+  code: string;
+  owner_id: string;
+  business_hours: Record<string, BusinessHours>;
+  professionals: Professional[];
+  services_with_prices: Service[];
+  profile_image_url?: string;
+  pix_key_type?: string;
+  pix_key?: string;
+}
+
 const EstablishmentDirectBooking: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
@@ -293,14 +307,37 @@ const EstablishmentDirectBooking: React.FC = () => {
       return;
     }
     
-    if (!selectedService || !selectedProfessional || !selectedDate || !selectedTime || !clientName.trim()) {
+    if (!selectedService || !selectedProfessional || !selectedDate || !selectedTime || !clientName.trim() || !paymentMethod) {
       alert('Por favor, preencha todos os campos');
+      return;
+    }
+
+    if (paymentMethod === 'pix_now' && !pixProofFile) {
+      alert('Por favor, envie o comprovante do PIX');
       return;
     }
     
     setBookingLoading(true);
     
     try {
+      let pixProofUrl = '';
+      
+      if (paymentMethod === 'pix_now' && pixProofFile) {
+        // Upload do comprovante
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('pix_proofs')
+          .upload(`${Date.now()}_${pixProofFile.name}`, pixProofFile);
+
+        if (uploadError) throw uploadError;
+        
+        // Gerar URL pública
+        const { data: { publicUrl } } = supabase.storage
+          .from('pix_proofs')
+          .getPublicUrl(uploadData.path);
+          
+        pixProofUrl = publicUrl;
+      }
+
       const appointmentData = {
         client_id: user.id,
         establishment_id: establishment.id,
@@ -311,16 +348,17 @@ const EstablishmentDirectBooking: React.FC = () => {
         status: 'pending',
         client_name: clientName.trim(),
         price: selectedService.price,
-        duration: selectedService.duration
+        duration: selectedService.duration,
+        payment_method: paymentMethod === 'pix_now' ? 'pix' : 'pagar_local',
+        pix_proof_url: pixProofUrl,
+        pix_payment_status: paymentMethod === 'pix_now' ? 'enviado' : 'pendente'
       };
       
-      console.log('Criando agendamento:', appointmentData);
       const { data, error } = await createAppointment(appointmentData);
       
       if (error) throw error;
       
       alert('Agendamento realizado com sucesso!');
-      // Redirecionar para dashboard do cliente
       navigate('/dashboard/client');
       
     } catch (error: any) {
@@ -657,27 +695,114 @@ const EstablishmentDirectBooking: React.FC = () => {
                       <p><strong>Horário:</strong> {selectedTime}</p>
                       <p><strong>Duração:</strong> {selectedService.duration} minutos</p>
                     </div>
+
+                    {/* Opções de Pagamento PIX */}
+                    <div className="mt-6">
+                      <h4 className="text-md font-medium text-gray-900 mb-3">Forma de Pagamento</h4>
+                      <div className="space-y-3">
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentMethodChange('pix_now')}
+                          className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                            paymentMethod === 'pix_now'
+                              ? 'bg-green-50 border-green-500 text-green-700'
+                              : 'border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center">
+                            <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
+                              paymentMethod === 'pix_now'
+                                ? 'border-green-500 bg-green-500'
+                                : 'border-gray-400'
+                            }`} />
+                            <span>Pagar agora via PIX</span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentMethodChange('pix_local')}
+                          className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                            paymentMethod === 'pix_local'
+                              ? 'bg-orange-50 border-orange-500 text-orange-700'
+                              : 'border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center">
+                            <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
+                              paymentMethod === 'pix_local'
+                                ? 'border-orange-500 bg-orange-500'
+                                : 'border-gray-400'
+                            }`} />
+                            <span>Pagar no local</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Informações do PIX e Upload do Comprovante */}
+                    {showPixInfo && (
+                      <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                        {establishment?.pix_key ? (
+                          <>
+                            <h5 className="font-medium text-green-800 mb-2">Dados para Pagamento</h5>
+                            <p className="text-sm text-green-700 mb-4">
+                              <strong>Tipo de Chave:</strong> {establishment.pix_key_type}<br />
+                              <strong>Chave PIX:</strong> {establishment.pix_key}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={handleCopyPix}
+                              className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                            >
+                              Copiar Chave PIX
+                            </button>
+                            <div>
+                              <label className="block text-sm font-medium text-green-800 mb-2">
+                                Enviar Comprovante
+                              </label>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handlePixProofChange}
+                                className="block w-full text-sm text-green-700
+                                  file:mr-4 file:py-2 file:px-4
+                                  file:rounded-lg file:border-0
+                                  file:text-sm file:font-medium
+                                  file:bg-green-600 file:text-white
+                                  hover:file:bg-green-700
+                                  file:cursor-pointer cursor-pointer"
+                              />
+                              {pixProofPreview && (
+                                <div className="mt-2">
+                                  <img
+                                    src={pixProofPreview}
+                                    alt="Comprovante"
+                                    className="max-w-xs rounded-lg border border-green-200"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-red-600">
+                            Este estabelecimento ainda não cadastrou uma chave PIX para pagamento.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
                 <button
                   type="submit"
-                  disabled={!selectedTime || !selectedService || !selectedProfessional || !clientName || bookingLoading}
-                  className={`w-full mt-4 py-3 px-4 rounded-md font-medium transition-colors
-                    ${(!selectedTime || !selectedService || !selectedProfessional || !clientName || bookingLoading)
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
-                    }
-                  `}
+                  disabled={bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile)}
+                  className={`btn-primary w-full mt-6 ${
+                    (bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile))
+                    && 'opacity-50 cursor-not-allowed'
+                  }`}
                 >
-                  {bookingLoading ? (
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2"></div>
-                      Agendando...
-                    </div>
-                  ) : (
-                    'Confirmar Agendamento'
-                  )}
+                  {bookingLoading ? 'Agendando...' : 'Confirmar Agendamento'}
                 </button>
               </form>
             )}

@@ -1,21 +1,20 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Shield } from 'lucide-react';
-import { useToast } from '../components/ui/Toaster';
+import toast from 'react-hot-toast';
 
 const Suporte060622 = () => {
   const [codigo, setCodigo] = useState('');
   const [mostrarOpcoes, setMostrarOpcoes] = useState(false);
-  const { toast } = useToast();
 
   const handleValidarCodigo = (e: React.FormEvent) => {
     e.preventDefault();
     
     if (codigo === '254390') {
       setMostrarOpcoes(true);
-      toast('Código validado com sucesso!', 'success');
+      toast.success('Código validado com sucesso!');
     } else {
-      toast('Código inválido. Tente novamente.', 'error');
+      toast.error('Código inválido. Tente novamente.');
       setCodigo('');
     }
   };

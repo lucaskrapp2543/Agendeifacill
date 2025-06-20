@@ -4,21 +4,22 @@ import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth,
 import { ptBR } from 'date-fns/locale';
 import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import toast from 'react-hot-toast';
+import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
 import { getEstablishmentAppointments, createEstablishment, updateEstablishment, getEstablishmentPremiumSubscribers, removePremiumSubscriber } from '../lib/supabase';
 import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
 import { TimeSelector } from '../components/TimeSelector';
 import { AvailableTimesViewer } from '../components/AvailableTimesViewer';
+import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
 import { v4 as uuidv4 } from 'uuid';
 
 interface BusinessHours {
   enabled: boolean;
   open1: string;
   close1: string;
-  open2: string | null;
-  close2: string | null;
+  open2: string;
+  close2: string;
 }
 
 interface Professional {
@@ -48,9 +49,11 @@ interface Establishment {
   custom_photo_1_url?: string;
   custom_photo_2_url?: string;
   custom_photo_3_url?: string;
+  pix_key_type?: string;
+  pix_key?: string;
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'premium-clients' | 'available-times';
+type TabType = 'appointments' | 'services' | 'settings' | 'available-times';
 
 interface Appointment {
   id: string;
@@ -67,6 +70,19 @@ interface Appointment {
   duration: number;
   price: number;
   payment_method?: string;
+  pix_payment_status?: string;
+  pix_proof_url?: string;
+}
+
+interface PremiumSubscriber {
+  id: string;
+  display_name: string;
+  whatsapp: string;
+  created_at: string;
+  user_id: string;
+  is_winner?: boolean;
+  winner_position?: number;
+  last_draw_date?: string;
 }
 
 interface PremiumClient {
@@ -76,11 +92,15 @@ interface PremiumClient {
   client_name: string;
   client_phone: string;
   created_at: string;
+  is_winner?: boolean;
+  winner_position?: number;
+  last_draw_date?: string;
 }
 
 const EstablishmentDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   // Estados básicos
   const [isLoading, setIsLoading] = useState(true);
@@ -96,6 +116,8 @@ const EstablishmentDashboard = () => {
   const [establishmentDescription, setEstablishmentDescription] = useState('');
   const [establishmentCode, setEstablishmentCode] = useState('');
   const [affiliateLink, setAffiliateLink] = useState('');
+  const [pixKeyType, setPixKeyType] = useState<string>('');
+  const [pixKey, setPixKey] = useState<string>('');
   
   // Estados de imagens
   const [profileImage, setProfileImage] = useState<File | null>(null);
@@ -109,32 +131,18 @@ const EstablishmentDashboard = () => {
   
   // Estados de horários e profissionais
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
-    monday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-    tuesday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-    wednesday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-    thursday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-    friday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-    saturday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null },
-    sunday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null }
+    monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+    sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
   });
   
-  const [professionals, setProfessionals] = useState<Professional[]>([{
-    id: '1',
-    name: 'Profissional 1',
-    specialties: ['Corte', 'Barba']
-  }]);
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
   
-  const [servicesWithPrices, setServicesWithPrices] = useState<Service[]>([{
-    id: '1',
-    name: 'Corte',
-    price: 25,
-    duration: 30
-  }, {
-    id: '2',
-    name: 'Barba',
-    price: 15,
-    duration: 20
-  }]);
+  const [servicesWithPrices, setServicesWithPrices] = useState<Service[]>([]);
 
   // Estados de agendamentos
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -144,7 +152,7 @@ const EstablishmentDashboard = () => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('todos');
 
   // Estados premium
-  const [premiumSubscribers, setPremiumSubscribers] = useState<any[]>([]);
+  const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
   const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
 
@@ -197,7 +205,7 @@ const EstablishmentDashboard = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        toast.error('A imagem deve ter no máximo 5MB');
+        toast('A imagem deve ter no máximo 5MB', 'error');
         return;
       }
       setProfileImage(file);
@@ -209,7 +217,7 @@ const EstablishmentDashboard = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        toast.error('A imagem deve ter no máximo 5MB');
+        toast('A imagem deve ter no máximo 5MB', 'error');
         return;
       }
       
@@ -242,7 +250,7 @@ const EstablishmentDashboard = () => {
 
   const handleAddProfessional = () => {
     if (professionals.length >= 10) {
-      toast.error('Limite máximo de 10 profissionais atingido');
+      toast('Limite máximo de 10 profissionais atingido', 'warning');
       return;
     }
     const newProfessional = {
@@ -329,7 +337,9 @@ const EstablishmentDashboard = () => {
         profile_image: profileImage,
         custom_photo_1: customPhoto1,
         custom_photo_2: customPhoto2,
-        custom_photo_3: customPhoto3
+        custom_photo_3: customPhoto3,
+        pix_key_type: pixKeyType,
+        pix_key: pixKey,
       };
       
       console.log('Dados do estabelecimento a serem criados:', establishmentData);
@@ -400,7 +410,9 @@ const EstablishmentDashboard = () => {
         affiliate_link: affiliateLink.trim(),
         custom_photo_1: customPhoto1,
         custom_photo_2: customPhoto2,
-        custom_photo_3: customPhoto3
+        custom_photo_3: customPhoto3,
+        pix_key_type: pixKeyType,
+        pix_key: pixKey,
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -426,14 +438,19 @@ const EstablishmentDashboard = () => {
         .update({ status: 'cancelled' })
         .eq('id', appointmentId);
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      toast.success('Agendamento cancelado com sucesso');
-      fetchAppointments();
-      fetchMonthlyAppointments();
-    } catch (error: any) {
-      console.error('Error cancelling appointment:', error);
-      toast.error(error.message || 'Erro ao cancelar agendamento');
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments()
+      ]);
+
+      toast('Agendamento cancelado com sucesso', 'success');
+    } catch (error) {
+      console.error('Erro ao cancelar agendamento:', error);
+      toast('Erro ao cancelar agendamento', 'error');
     }
   };
 
@@ -444,49 +461,32 @@ const EstablishmentDashboard = () => {
         .update({ payment_method: paymentMethod })
         .eq('id', appointmentId);
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      setAppointments(prev => prev.map(appointment => 
-        appointment.id === appointmentId 
-          ? { ...appointment, payment_method: paymentMethod }
-          : appointment
-      ));
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments()
+      ]);
 
-      const paymentLabels: { [key: string]: string } = {
-        'pix': 'PIX',
-        'credito': 'Cartão de Crédito',
-        'debito': 'Cartão de Débito',
-        'dinheiro': 'Dinheiro',
-        'pendente': 'Pendente'
-      };
-
-      toast.success(`Forma de pagamento atualizada para ${paymentLabels[paymentMethod]}!`);
-    } catch (error: any) {
-      console.error('Erro ao atualizar forma de pagamento:', error);
-      toast.error('Erro ao atualizar forma de pagamento');
+      toast('Método de pagamento atualizado com sucesso', 'success');
+    } catch (error) {
+      console.error('Erro ao atualizar método de pagamento:', error);
+      toast('Erro ao atualizar método de pagamento', 'error');
     }
   };
 
   const fetchPremiumSubscribers = async () => {
-    if (!establishment) {
-      console.log('Estabelecimento não encontrado');
-      return;
-    }
+    if (!establishment) return;
     
     setIsLoadingSubscribers(true);
-    
     try {
-      const { data, error } = await getEstablishmentPremiumSubscribers(establishment.id);
-      
-      if (error) {
-        console.error('Erro ao buscar assinantes premium:', error);
-        throw error;
-      }
-      
-      setPremiumSubscribers(Array.isArray(data) ? data : []);
-    } catch (error: any) {
-      console.error('Error fetching premium subscribers:', error);
-      toast.error(error.message || 'Erro ao carregar assinantes premium');
+      const subscribers = await getEstablishmentPremiumSubscribers(establishment.id);
+      setPremiumSubscribers(subscribers);
+    } catch (error) {
+      console.error('Erro ao buscar assinantes premium:', error);
+      toast('Erro ao buscar assinantes premium', 'error');
     } finally {
       setIsLoadingSubscribers(false);
     }
@@ -495,119 +495,50 @@ const EstablishmentDashboard = () => {
   const handleDrawWinners = async () => {
     if (!establishment) return;
     
-    if (premiumSubscribers.length < 20) {
-      toast.error('É necessário ter pelo menos 20 assinantes premium para realizar o sorteio');
-      return;
-    }
-
     setIsDrawing(true);
-
     try {
-      // Resetar vencedores anteriores
-      const resetPromises = premiumSubscribers
-        .filter(sub => sub.is_winner)
-        .map(sub => supabase
-          .from('premium_subscriptions')
-          .update({
-            is_winner: false,
-            winner_position: null,
-            last_draw_date: null
-          })
-          .eq('id', sub.id)
-        );
-
-      await Promise.all(resetPromises);
-
-      // Aguardar um momento para garantir que os resets foram aplicados
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Verificar se os resets foram aplicados corretamente
-      const { data: resetSubscribers, error: resetError } = await getEstablishmentPremiumSubscribers(establishment.id);
+      // Filtra os assinantes que ainda não são vencedores
+      const eligibleSubscribers = premiumSubscribers.filter(sub => !sub.is_winner);
       
-      if (resetError) {
-        throw resetError;
+      if (eligibleSubscribers.length === 0) {
+        toast('Não há assinantes elegíveis para o sorteio', 'warning');
+        return;
       }
 
-      const resetWinners = resetSubscribers?.filter(sub => sub.is_winner);
-      if (resetWinners && resetWinners.length > 0) {
-        throw new Error('Erro ao resetar vencedores anteriores');
-      }
-
-      // Selecionar 2 vencedores aleatórios
-      const eligibleSubscribers = [...premiumSubscribers];
+      // Sorteia 3 vencedores aleatoriamente
       const winners = [];
+      const subscribersCopy = [...eligibleSubscribers];
       
-      for (let i = 0; i < 2; i++) {
-        const randomIndex = Math.floor(Math.random() * eligibleSubscribers.length);
-        const winner = eligibleSubscribers.splice(randomIndex, 1)[0];
-        winners.push({
-          ...winner,
-          is_winner: true,
-          winner_position: i + 1,
-          last_draw_date: new Date().toISOString()
-        });
+      for (let i = 0; i < 3 && subscribersCopy.length > 0; i++) {
+        const randomIndex = Math.floor(Math.random() * subscribersCopy.length);
+        const winner = subscribersCopy.splice(randomIndex, 1)[0];
+        winners.push({ ...winner, winner_position: i + 1 });
       }
 
-      // Atualizar vencedores um por um
+      // Atualiza os vencedores no banco de dados
       for (const winner of winners) {
-        const { error: updateError } = await supabase
-          .from('premium_subscriptions')
+        const { error } = await supabase
+          .from('premium_subscribers')
           .update({
-            is_winner: winner.is_winner,
+            is_winner: true,
             winner_position: winner.winner_position,
-            last_draw_date: winner.last_draw_date
+            last_draw_date: new Date().toISOString()
           })
           .eq('id', winner.id);
 
-        if (updateError) {
-          throw updateError;
+        if (error) {
+          console.error('Erro ao atualizar vencedor:', error);
+          throw error;
         }
-
-        // Aguardar um momento entre cada atualização
-        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Aguardar um momento para garantir que as atualizações foram aplicadas
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Verificar se os vencedores foram atualizados corretamente
-      const { data: updatedSubscribers, error: fetchError } = await getEstablishmentPremiumSubscribers(establishment.id);
+      // Atualiza a lista de assinantes
+      await fetchPremiumSubscribers();
       
-      if (fetchError) {
-        throw fetchError;
-      }
-
-      const updatedWinners = updatedSubscribers?.filter(sub => sub.is_winner);
-      console.log('Vencedores atualizados:', updatedWinners);
-
-      if (!updatedWinners || updatedWinners.length !== 2) {
-        throw new Error('Erro ao atualizar vencedores');
-      }
-
-      // Verificar se os vencedores têm as propriedades corretas
-      updatedWinners.forEach(winner => {
-        if (!winner.is_winner) {
-          throw new Error('Vencedor encontrado com is_winner = false');
-        }
-        if (!winner.winner_position) {
-          throw new Error('Vencedor encontrado sem winner_position');
-        }
-        if (!winner.last_draw_date) {
-          throw new Error('Vencedor encontrado sem last_draw_date');
-        }
-      });
-
-      // Verificar se os vencedores têm posições consecutivas
-      const positions = updatedWinners.map(winner => winner.winner_position).sort();
-      if (positions[0] !== 1 || positions[1] !== 2) {
-        throw new Error('Vencedores com posições incorretas');
-      }
-
-      setPremiumSubscribers(Array.isArray(updatedSubscribers) ? updatedSubscribers : []);
-      toast.success('Sorteio realizado com sucesso!');
-    } catch (error: any) {
+      toast('Sorteio realizado com sucesso!', 'success');
+    } catch (error) {
       console.error('Erro ao realizar sorteio:', error);
-      toast.error(error.message || 'Erro ao realizar sorteio');
+      toast('Erro ao realizar sorteio', 'error');
     } finally {
       setIsDrawing(false);
     }
@@ -615,163 +546,118 @@ const EstablishmentDashboard = () => {
 
   const fetchAppointments = async () => {
     if (!establishment) return;
-    
-    setIsLoading(true);
-    
+
     try {
-      const startOfSelectedDate = format(startOfDay(selectedDate), 'yyyy-MM-dd');
-      const endOfSelectedDate = format(endOfDay(selectedDate), 'yyyy-MM-dd');
-      
-      const { data, error } = await supabase
+      const startDate = startOfDay(selectedDate);
+      const endDate = endOfDay(selectedDate);
+
+      const { data: appointmentsData, error } = await supabase
         .from('appointments')
-        .select(`
-          id,
-          client_id,
-          client_name,
-          establishment_id,
-          service,
-          professional,
-          appointment_date,
-          appointment_time,
-          status,
-          created_at,
-          is_premium,
-          duration,
-          price,
-          payment_method
-        `)
+        .select('*')
         .eq('establishment_id', establishment.id)
-        .gte('appointment_date', startOfSelectedDate)
-        .lte('appointment_date', endOfSelectedDate)
+        .gte('appointment_date', startDate.toISOString())
+        .lte('appointment_date', endDate.toISOString())
+        .order('appointment_date', { ascending: true })
         .order('appointment_time', { ascending: true });
-      
-      if (error) throw error;
-      
-      setAppointments(data as Appointment[] || []);
-    } catch (error: any) {
-      console.error('Error fetching appointments:', error);
-      toast.error(error.message || 'Erro ao carregar agendamentos');
-    } finally {
-      setIsLoading(false);
+
+      if (error) {
+        throw error;
+      }
+
+      setAppointments(appointmentsData || []);
+    } catch (error) {
+      console.error('Erro ao buscar agendamentos:', error);
+      toast('Erro ao buscar agendamentos', 'error');
     }
   };
 
   const fetchMonthlyAppointments = async () => {
     if (!establishment) return;
-    
+
     try {
-      const startDate = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
-      const endDate = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
-      
-      const { data, error } = await supabase
+      const startDate = startOfMonth(selectedDate);
+      const endDate = endOfMonth(selectedDate);
+
+      const { data: appointmentsData, error } = await supabase
         .from('appointments')
-        .select(`
-          id,
-          client_id,
-          client_name,
-          establishment_id,
-          service,
-          professional,
-          appointment_date,
-          appointment_time,
-          status,
-          created_at,
-          is_premium,
-          duration,
-          price,
-          payment_method
-        `)
+        .select('*')
         .eq('establishment_id', establishment.id)
-        .gte('appointment_date', startDate)
-        .lte('appointment_date', endDate)
-        .order('appointment_date', { ascending: true });
-      
-      if (error) throw error;
-      
-      setMonthlyAppointments(data as Appointment[] || []);
-    } catch (error: any) {
-      console.error('Error fetching monthly appointments:', error);
-      toast.error(error.message || 'Erro ao carregar agendamentos mensais');
+        .gte('appointment_date', startDate.toISOString())
+        .lte('appointment_date', endDate.toISOString())
+        .order('appointment_date', { ascending: true })
+        .order('appointment_time', { ascending: true });
+
+      if (error) {
+        throw error;
+      }
+
+      setMonthlyAppointments(appointmentsData || []);
+    } catch (error) {
+      console.error('Erro ao buscar agendamentos mensais:', error);
+      toast('Erro ao buscar agendamentos mensais', 'error');
     }
   };
 
   useEffect(() => {
     const fetchData = async () => {
       if (!user) {
-        console.log('Não há usuário logado');
-        setIsEstablishmentLoading(false);
+        navigate('/login');
         return;
       }
-      
+
       try {
-        console.log('Iniciando busca de estabelecimento para usuário:', user.id);
-        setIsEstablishmentLoading(true);
-        
-        const { data: establishments, error } = await supabase
+        const { data: establishmentData, error: establishmentError } = await supabase
           .from('establishments')
           .select('*')
           .eq('owner_id', user.id)
           .single();
-        
-        if (error) {
-          console.error('Erro ao buscar estabelecimento:', error);
-          if (error.code === 'PGRST116') {
-            // Nenhum estabelecimento encontrado
-            console.log('Nenhum estabelecimento encontrado para o usuário');
-            setEstablishment(null);
-          } else {
-            throw error;
-          }
-        } else {
-          console.log('Estabelecimento encontrado:', establishments);
-        if (establishments) {
-          setEstablishment(establishments);
-          setEstablishmentName(establishments.name);
-          setEstablishmentDescription(establishments.description || '');
-          setEstablishmentCode(establishments.code);
-          setAffiliateLink(establishments.affiliate_link || '');
-            
-          // Migrar dados antigos para nova estrutura se necessário
-          const migratedBusinessHours = migrateBusinessHours(establishments.business_hours);
-          setBusinessHours(migratedBusinessHours);
-            
-            // Configurar profissionais e serviços
-            setProfessionals(establishments.professionals || [{
-              id: '1',
-              name: 'Profissional 1',
-              specialties: ['Corte', 'Barba']
-            }]);
-            
-            setServicesWithPrices(establishments.services_with_prices || [{
-              id: '1',
-              name: 'Corte',
-              price: 25,
-              duration: 30
-            }, {
-              id: '2',
-              name: 'Barba',
-              price: 15,
-              duration: 20
-            }]);
-          
-          // Carregar previews das fotos personalizadas existentes
-            if (establishments.profile_image_url) {
-              setProfileImagePreview(establishments.profile_image_url);
-            }
-          if (establishments.custom_photo_1_url) {
-            setCustomPhoto1Preview(establishments.custom_photo_1_url);
-          }
-          if (establishments.custom_photo_2_url) {
-            setCustomPhoto2Preview(establishments.custom_photo_2_url);
-          }
-          if (establishments.custom_photo_3_url) {
-            setCustomPhoto3Preview(establishments.custom_photo_3_url);
-            }
-          }
+
+        if (establishmentError) {
+          throw establishmentError;
         }
-      } catch (error: any) {
-        console.error('Erro ao carregar estabelecimento:', error);
-        toast.error(error.message || 'Erro ao carregar estabelecimento');
+
+        if (!establishmentData) {
+          setIsEstablishmentLoading(false);
+          return;
+        }
+
+        const establishment: Establishment = {
+          id: establishmentData.id,
+          name: establishmentData.name,
+          description: establishmentData.description,
+          code: establishmentData.code,
+          owner_id: establishmentData.owner_id,
+          business_hours: migrateBusinessHours(establishmentData.business_hours),
+          professionals: establishmentData.professionals || [],
+          services_with_prices: establishmentData.services_with_prices || [],
+          profile_image_url: establishmentData.profile_image_url,
+          affiliate_link: establishmentData.affiliate_link,
+          custom_photo_1_url: establishmentData.custom_photo_1_url,
+          custom_photo_2_url: establishmentData.custom_photo_2_url,
+          custom_photo_3_url: establishmentData.custom_photo_3_url,
+          pix_key_type: establishmentData.pix_key_type,
+          pix_key: establishmentData.pix_key
+        };
+
+        setEstablishment(establishment);
+        setEstablishmentName(establishment.name);
+        setEstablishmentDescription(establishment.description);
+        setEstablishmentCode(establishment.code);
+        setAffiliateLink(establishment.affiliate_link || '');
+        setPixKeyType(establishment.pix_key_type || '');
+        setPixKey(establishment.pix_key || '');
+        setBusinessHours(establishment.business_hours);
+        setProfessionals(establishment.professionals);
+        setServicesWithPrices(establishment.services_with_prices);
+
+        await Promise.all([
+          fetchAppointments(),
+          fetchMonthlyAppointments(),
+          fetchPremiumSubscribers()
+        ]);
+      } catch (error) {
+        console.error('Error fetching establishment:', error);
+        toast('Erro ao carregar estabelecimento', 'error');
       } finally {
         setIsEstablishmentLoading(false);
       }
@@ -793,27 +679,15 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate]);
 
-  const calculateDailyBalance = (appointments: any[]): number => {
+  const calculateDailyBalance = (appointments: Appointment[]): number => {
     return appointments
-      .filter(appointment => {
-        const isNotCancelled = appointment.status !== 'cancelled';
-        const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
-        const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
-        return isNotCancelled && isProfessionalMatch && isPaymentMethodMatch;
-      })
+      .filter(appointment => appointment.status !== 'cancelled')
       .reduce((total, appointment) => total + (appointment.price || 0), 0);
   };
 
-  const calculateMonthlyBalance = (appointments: any[]): number => {
+  const calculateMonthlyBalance = (appointments: Appointment[]): number => {
     return appointments
-      .filter(appointment => {
-        const appointmentDate = new Date(appointment.appointment_date);
-        const isInMonth = isSameMonth(appointmentDate, selectedDate);
-        const isNotCancelled = appointment.status !== 'cancelled';
-        const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
-        const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
-        return isInMonth && isNotCancelled && isProfessionalMatch && isPaymentMethodMatch;
-      })
+      .filter(appointment => appointment.status !== 'cancelled')
       .reduce((total, appointment) => total + (appointment.price || 0), 0);
   };
 
@@ -826,90 +700,127 @@ const EstablishmentDashboard = () => {
 
   // Função para obter o nome do profissional pelo ID
   const getProfessionalName = (professionalId: string): string => {
-    if (professionalId === 'all') return 'Todos os Profissionais';
-    const professional = establishment?.professionals.find(p => p.id === professionalId);
-    return professional?.name || professionalId;
+    const professional = professionals.find(p => p.id === professionalId);
+    return professional?.name || 'Profissional não encontrado';
   };
 
   const addPremiumDrawColumns = async () => {
     try {
-      const { error } = await supabase.rpc('add_column_if_not_exists', {
-        table_name: 'premium_subscriptions',
-        column_name: 'is_winner',
-        column_type: 'boolean',
-        default_value: 'false'
+      const { error } = await supabase.rpc('execute_sql', {
+        sql: `
+          ALTER TABLE premium_subscribers
+          ADD COLUMN IF NOT EXISTS is_winner boolean DEFAULT false,
+          ADD COLUMN IF NOT EXISTS winner_position integer,
+          ADD COLUMN IF NOT EXISTS last_draw_date timestamp with time zone;
+        `
       });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      await supabase.rpc('add_column_if_not_exists', {
-        table_name: 'premium_subscriptions',
-        column_name: 'winner_position',
-        column_type: 'smallint',
-        default_value: 'null'
-      });
-
-      await supabase.rpc('add_column_if_not_exists', {
-        table_name: 'premium_subscriptions',
-        column_name: 'last_draw_date',
-        column_type: 'timestamp with time zone',
-        default_value: 'null'
-      });
-    } catch (error: any) {
-      console.error('Error adding premium draw columns:', error);
+      toast('Colunas adicionadas com sucesso', 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar colunas:', error);
+      toast('Erro ao adicionar colunas', 'error');
     }
   };
 
   // Função para gerar o slug do estabelecimento
   const generateSlug = (name: string, code: string) => {
-    const nameSlug = name
+    const normalizedName = name
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[ӏ0-\u036f]/g, '') // Remove acentos
-      .replace(/[^a-z0-9]/g, '') // Remove caracteres especiais
-      .slice(0, 20); // Limita tamanho
-    return `${nameSlug}${code}`;
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    return `${normalizedName}-${code}`;
   };
 
-  const establishmentLink = establishment
-    ? `${window.location.origin}/booking/${establishment.code}`
-    : '';
-
   const copyLinkToClipboard = () => {
-    if (!establishmentLink) return;
-    navigator.clipboard.writeText(establishmentLink);
-    toast.success('Link copiado para a área de transferência!');
+    if (!establishment) return;
+
+    const link = `${window.location.origin}/booking/${establishment.code}`;
+
+    navigator.clipboard.writeText(link);
+    toast('Link copiado para a área de transferência', 'success');
   };
 
   // Função para migrar dados antigos de horários para nova estrutura
   const migrateBusinessHours = (oldBusinessHours: any): Record<string, BusinessHours> => {
     if (!oldBusinessHours) {
       return {
-        monday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-        tuesday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-        wednesday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-        thursday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-        friday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-        saturday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null },
-        sunday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null }
-          };
-        }
+        monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+        tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+        wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+        thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+        friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+        saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+        sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
+      };
+    }
 
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    const newBusinessHours: Record<string, BusinessHours> = {};
-
-    days.forEach(day => {
+    return days.reduce((acc, day) => {
       const dayHours = oldBusinessHours[day];
-      newBusinessHours[day] = {
+      acc[day] = {
         enabled: dayHours?.enabled ?? true,
         open1: dayHours?.open1 || '09:00',
-        close1: dayHours?.close1 || '18:00',
-        open2: dayHours?.open2 || null,
-        close2: dayHours?.close2 || null
-        };
-    });
-    
-    return newBusinessHours;
+        close1: dayHours?.close1 || '12:00',
+        open2: dayHours?.open2 || '13:30',
+        close2: dayHours?.close2 || '18:00'
+      };
+      return acc;
+    }, {} as Record<string, BusinessHours>);
+  };
+
+  const handlePixPaymentStatusChange = async (appointmentId: string, status: string) => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ pix_payment_status: status })
+        .eq('id', appointmentId);
+
+      if (error) {
+        throw error;
+      }
+
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments()
+      ]);
+
+      toast('Status do pagamento PIX atualizado com sucesso', 'success');
+    } catch (error) {
+      console.error('Erro ao atualizar status do pagamento PIX:', error);
+      toast('Erro ao atualizar status do pagamento PIX', 'error');
+    }
+  };
+
+  const handleSavePixSettings = async (pixKey: string, pixType: string) => {
+    if (!establishment) return;
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          pix_key: pixKey,
+          pix_key_type: pixType
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        throw error;
+      }
+
+      setPixKey(pixKey);
+      setPixKeyType(pixType);
+      toast('Configurações do PIX salvas com sucesso', 'success');
+    } catch (error) {
+      console.error('Erro ao salvar configurações do PIX:', error);
+      toast('Erro ao salvar configurações do PIX', 'error');
+    }
   };
 
   // Renderização condicional
@@ -1209,18 +1120,6 @@ const EstablishmentDashboard = () => {
                   </button>
 
                   <button
-                    onClick={() => setActiveTab('premium-clients')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                      activeTab === 'premium-clients'
-                        ? 'bg-primary text-white'
-                        : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    <Star className="h-5 w-5" />
-                    <span className="hidden sm:inline">Premium</span>
-                  </button>
-
-                  <button
                     onClick={() => setActiveTab('settings')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'settings'
@@ -1510,6 +1409,61 @@ const EstablishmentDashboard = () => {
                             )}
                           </div>
                         </div>
+
+                        {/* Detalhes do Pagamento PIX */}
+                        {appointment.payment_method === 'pix' && (
+                          <div className="mt-4 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm text-gray-400">Status do Pagamento:</span>
+                              <select
+                                value={appointment.pix_payment_status || 'pendente'}
+                                onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
+                                className={`text-xs px-3 py-2 border-2 rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary focus:border-secondary ${
+                                  appointment.pix_payment_status === 'confirmado' ? 'bg-green-100 border-green-300 text-green-800' :
+                                  appointment.pix_payment_status === 'enviado' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
+                                  appointment.pix_payment_status === 'rejeitado' ? 'bg-red-100 border-red-300 text-red-800' :
+                                  'bg-gray-100 border-gray-300 text-gray-800'
+                                }`}
+                              >
+                                <option value="pendente">⏳ Pendente</option>
+                                <option value="enviado">📤 Enviado</option>
+                                <option value="confirmado">✅ Confirmado</option>
+                                <option value="rejeitado">❌ Rejeitado</option>
+                              </select>
+                            </div>
+
+                            {appointment.pix_proof_url && (
+                              <div className="mt-2">
+                                <label className="block text-sm font-medium text-gray-400 mb-2">
+                                  Comprovante
+                                </label>
+                                <div className="relative">
+                                  <img
+                                    src={appointment.pix_proof_url}
+                                    alt="Comprovante PIX"
+                                    className="w-full max-w-xs rounded-lg border border-gray-700"
+                                  />
+                                  <a
+                                    href={appointment.pix_proof_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="absolute top-2 right-2 p-2 bg-black/50 rounded-full hover:bg-black/70 transition-colors"
+                                  >
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      className="h-5 w-5 text-white"
+                                      viewBox="0 0 20 20"
+                                      fill="currentColor"
+                                    >
+                                      <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
+                                      <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
+                                    </svg>
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1524,244 +1478,44 @@ const EstablishmentDashboard = () => {
             )}
 
           {activeTab === 'settings' && (
-              <form onSubmit={handleUpdateEstablishment} className="space-y-6">
-                <h2 className="text-2xl font-bold text-white">Editar Estabelecimento</h2>
-                {/* Informações Básicas */}
+            <div className="space-y-6">
+              {/* Informações Básicas */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-4">Informações Básicas</h3>
                 <div className="space-y-4">
-                  <h4 className="text-md font-medium text-secondary">Informações Básicas</h4>
                   <div>
-                    <label htmlFor="establishmentName" className="block text-sm font-medium text-gray-700 mb-1">
-                      Nome do estabelecimento
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      Nome do Estabelecimento
                     </label>
                     <input
-                      id="establishmentName"
                       type="text"
                       value={establishmentName}
                       onChange={(e) => setEstablishmentName(e.target.value)}
-                      required
-                      className="input-field"
-                      placeholder="Ex: Barbearia Silva"
+                      className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Nome do seu estabelecimento"
                     />
                   </div>
                   <div>
-                    <label htmlFor="establishmentDescription" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
                       Descrição
                     </label>
                     <textarea
-                      id="establishmentDescription"
                       value={establishmentDescription}
                       onChange={(e) => setEstablishmentDescription(e.target.value)}
-                      className="input-field"
+                      className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Descreva seu estabelecimento"
                       rows={3}
-                      placeholder="Descreva seu estabelecimento brevemente"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Foto do estabelecimento
-                    </label>
-                    <div className="flex items-center space-x-4">
-                      <div className="w-24 h-24 rounded-lg overflow-hidden bg-gray-100">
-                        {profileImagePreview ? (
-                          <img
-                            src={profileImagePreview}
-                            alt="Preview"
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <ImageIcon className="w-8 h-8 text-gray-400" />
-                          </div>
-                        )}
-                      </div>
-                      <label className="btn-outline cursor-pointer">
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png"
-                          className="hidden"
-                          onChange={handleImageChange}
-                        />
-                        Escolher imagem
-                      </label>
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">JPG ou PNG. Máximo 5MB.</p>
-                  </div>
-                  
-                  {/* Fotos Personalizadas para Carrossel */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      Fotos do seu trabalho (Carrossel)
-                    </label>
-                    <p className="text-sm text-gray-500 mb-4">
-                      Adicione até 3 fotos que serão exibidas para os clientes na página de agendamento. 
-                      Se não adicionar, serão usadas fotos padrão.
-                    </p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Foto 1 */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium text-gray-600">Foto 1</label>
-                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
-                          {customPhoto1Preview ? (
-                            <img
-                              src={customPhoto1Preview}
-                              alt="Foto personalizada 1"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <ImageIcon className="w-8 h-8 text-gray-400" />
-                            </div>
-                          )}
-                        </div>
-                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            className="hidden"
-                            onChange={(e) => handleCustomPhotoChange(1, e)}
-                          />
-                          {customPhoto1Preview ? 'Trocar foto' : 'Escolher foto'}
-                        </label>
-                      </div>
-                      
-                      {/* Foto 2 */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium text-gray-600">Foto 2</label>
-                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
-                          {customPhoto2Preview ? (
-                            <img
-                              src={customPhoto2Preview}
-                              alt="Foto personalizada 2"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <ImageIcon className="w-8 h-8 text-gray-400" />
-                            </div>
-                          )}
-                        </div>
-                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            className="hidden"
-                            onChange={(e) => handleCustomPhotoChange(2, e)}
-                          />
-                          {customPhoto2Preview ? 'Trocar foto' : 'Escolher foto'}
-                        </label>
-                      </div>
-                      
-                      {/* Foto 3 */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium text-gray-600">Foto 3</label>
-                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300">
-                          {customPhoto3Preview ? (
-                            <img
-                              src={customPhoto3Preview}
-                              alt="Foto personalizada 3"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <ImageIcon className="w-8 h-8 text-gray-400" />
-                            </div>
-                          )}
-                        </div>
-                        <label className="btn-outline cursor-pointer text-xs w-full text-center block">
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            className="hidden"
-                            onChange={(e) => handleCustomPhotoChange(3, e)}
-                          />
-                          {customPhoto3Preview ? 'Trocar foto' : 'Escolher foto'}
-                        </label>
-                      </div>
-                    </div>
-                    
-                    <p className="mt-2 text-xs text-gray-500">
-                      JPG ou PNG. Máximo 5MB por foto. Recomendado: 800x600px ou similar.
-                    </p>
-                  </div>
                 </div>
+              </div>
 
-                {/* Código do Estabelecimento */}
+              {/* Horário de Funcionamento */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-4">Horário de Funcionamento</h3>
                 <div className="space-y-4">
-                  <h4 className="text-md font-medium text-secondary">Código do Estabelecimento</h4>
-                  <div>
-                    <label htmlFor="establishmentCode" className="block text-sm font-medium text-gray-700 mb-1">
-                      Código do estabelecimento
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        id="establishmentCode"
-                        type="text"
-                        value={establishmentCode}
-                        onChange={(e) => setEstablishmentCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                        className="input-field w-32 font-mono text-center text-lg tracking-wider"
-                        placeholder="0000"
-                        maxLength={4}
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={generateRandomCode}
-                        className="btn-outline flex items-center gap-2"
-                      >
-                        <DollarSign className="w-4 h-4" />
-                        Gerar código
-                      </button>
-                      <button
-                        type="button"
-                        onClick={copyCodeToClipboard}
-                        className="btn-outline flex items-center gap-2"
-                      >
-                        {codeCopied ? (
-                          <>
-                            <Check className="w-4 h-4" />
-                            Copiado!
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4" />
-                            Copiar
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Este código é usado pelos clientes para encontrar seu estabelecimento.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Link Afiliado */}
-                <div className="space-y-4">
-                  <h4 className="text-md font-medium text-secondary">Seu Link Afiliado Aqui</h4>
-                  <div>
-                    <label htmlFor="affiliateLink" className="block text-sm font-medium text-gray-700 mb-1">
-                      Link do seu site, Instagram ou loja
-                    </label>
-                    <input
-                      id="affiliateLink"
-                      type="url"
-                      value={affiliateLink}
-                      onChange={(e) => setAffiliateLink(e.target.value)}
-                      className="input-field"
-                      placeholder="Ex: https://www.instagram.com/meuestablecimento ou https://minhaloja.com"
-                    />
-                    <p className="mt-1 text-sm text-gray-500">
-                      Este link aparecerá para os clientes como um botão "Ver link" nos favoritos.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Horário de Funcionamento */}
-                <div className="space-y-4">
-                  <h4 className="text-md font-medium text-secondary">Horário de Funcionamento</h4>
                   {Object.entries(businessHours).map(([day, hours]) => (
-                    <div key={day} className="bg-gray-50 p-4 rounded-lg space-y-3">
+                    <div key={day} className="bg-[#242628] p-4 rounded-lg space-y-3 border border-gray-700">
                       {/* Cabeçalho do dia com checkbox */}
                       <div className="flex items-center justify-between">
                         <label className="inline-flex items-center">
@@ -1769,9 +1523,9 @@ const EstablishmentDashboard = () => {
                             type="checkbox"
                             checked={hours.enabled}
                             onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
-                            className="form-checkbox h-4 w-4 text-secondary"
+                            className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-700 rounded"
                           />
-                          <span className="ml-2 font-medium text-gray-900">
+                          <span className="ml-2 font-medium text-white">
                             {day === 'monday' ? 'Segunda-feira' :
                              day === 'tuesday' ? 'Terça-feira' :
                              day === 'wednesday' ? 'Quarta-feira' :
@@ -1781,7 +1535,7 @@ const EstablishmentDashboard = () => {
                           </span>
                         </label>
                         {!hours.enabled && (
-                          <span className="text-sm text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                          <span className="text-sm text-gray-400 bg-[#1a1b1c] px-2 py-1 rounded">
                             Fechado
                           </span>
                         )}
@@ -1793,24 +1547,24 @@ const EstablishmentDashboard = () => {
                           {/* Período da manhã */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="space-y-2">
-                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
                                 Abertura
                               </label>
                               <TimeSelector
                                 value={hours.open1}
                                 onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
-                        disabled={!hours.enabled}
+                                disabled={!hours.enabled}
                                 className="w-full"
                               />
                             </div>
                             <div className="space-y-2">
-                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
                                 Fecha p/ Intervalo
                               </label>
                               <TimeSelector
                                 value={hours.close1}
                                 onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
-                        disabled={!hours.enabled}
+                                disabled={!hours.enabled}
                                 className="w-full"
                               />
                             </div>
@@ -1819,7 +1573,7 @@ const EstablishmentDashboard = () => {
                           {/* Período da tarde */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="space-y-2">
-                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
                                 Reabertura
                               </label>
                               <TimeSelector
@@ -1830,7 +1584,7 @@ const EstablishmentDashboard = () => {
                               />
                             </div>
                             <div className="space-y-2">
-                              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide">
+                              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
                                 Fechamento
                               </label>
                               <TimeSelector
@@ -1843,241 +1597,221 @@ const EstablishmentDashboard = () => {
                           </div>
                           
                           {/* Resumo visual dos horários */}
-                          <div className="mt-3 p-2 bg-blue-50 rounded text-sm text-blue-700">
-                            <span className="font-medium">Funcionamento:</span>{' '}
-                            {hours.enabled ? (
-                              <>
-                                {hours.open1} - {hours.close1}
-                                {hours.open2 && hours.close2 && (
-                                  <>
-                                    {' e '}
-                                    {hours.open2} - {hours.close2}
-                                  </>
-                                )}
-                              </>
-                            ) : (
-                              'Fechado'
-                            )}
+                          <div className="mt-3 p-2 bg-[#1a1b1c] rounded text-sm text-primary">
+                            <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} e {hours.open2} - {hours.close2}
                           </div>
                         </div>
                       )}
                     </div>
                   ))}
                 </div>
-                {/* Profissionais */}
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h4 className="text-md font-medium text-secondary">Profissionais</h4>
-                    <button
-                      type="button"
-                      onClick={handleAddProfessional}
-                      disabled={professionals.length >= 10}
-                      className="btn-outline flex items-center space-x-1"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Adicionar</span>
-                    </button>
-                  </div>
-                  <div className="space-y-4">
-                    {professionals.map((professional) => (
-                      <div key={professional.id} className="p-4 bg-gray-50 rounded-lg space-y-3">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <input
-                              type="text"
-                              value={professional.name}
-                              onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
-                              className="input-field"
-                              placeholder="Nome do profissional"
-                            />
-                          </div>
+              </div>
+
+              {/* Fotos Personalizadas */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-4">Fotos do Estabelecimento</h3>
+                <p className="text-sm text-gray-400 mb-6">
+                  Adicione até 3 fotos do seu estabelecimento que serão exibidas para os clientes
+                </p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  {/* Foto 1 */}
+                  <div>
+                    <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                      {customPhoto1Preview ? (
+                        <div className="relative h-full">
+                          <img
+                            src={customPhoto1Preview}
+                            alt="Foto 1"
+                            className="w-full h-full object-cover"
+                          />
                           <button
-                            type="button"
-                            onClick={() => handleRemoveProfessional(professional.id)}
-                            className="ml-2 text-error hover:text-error/80"
+                            onClick={() => {
+                              setCustomPhoto1(null);
+                              setCustomPhoto1Preview(null);
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="h-4 w-4 text-white" />
                           </button>
                         </div>
-                      </div>
-                    ))}
-                    {professionals.length === 0 && (
-                      <p className="text-gray-500 text-center py-4">
-                        Nenhum profissional cadastrado. Clique em "Adicionar" para começar.
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {/* Serviços e Preços */}
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h4 className="text-md font-medium text-secondary">Serviços e Preços</h4>
-                    <button
-                      type="button"
-                      onClick={handleAddService}
-                      className="btn-outline flex items-center space-x-1"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Adicionar</span>
-                    </button>
-                  </div>
-                  <div className="space-y-4">
-                    {servicesWithPrices.map((service) => (
-                      <div key={service.id} className="p-4 bg-gray-50 rounded-lg">
-                        <div className="flex flex-col sm:flex-row gap-4">
-                          <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Nome do serviço
-                            </label>
-                            <input
-                              type="text"
-                              value={service.name}
-                              onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
-                              placeholder="Nome do serviço"
-                              className="input-field w-full"
-                            />
-                          </div>
-                          <div className="w-full sm:w-32">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Preço
-                            </label>
-                            <input
-                              type="number"
-                              value={service.price}
-                              onChange={(e) => handleServiceChange(service.id, 'price', Number(e.target.value))}
-                              placeholder="Preço"
-                              className="input-field w-full"
-                            />
-                          </div>
-                          <div className="w-full sm:w-40">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Duração
-                            </label>
-                            <select
-                              value={service.duration}
-                              onChange={(e) => handleServiceChange(service.id, 'duration', Number(e.target.value))}
-                              className="input-field w-full"
-                            >
-                              {durationOptions.map(option => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex items-end justify-end sm:w-10">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveService(service.id)}
-                              className="text-error hover:text-error/80 mb-1"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {servicesWithPrices.length === 0 && (
-                      <p className="text-gray-500 text-center py-4">
-                        Nenhum serviço cadastrado. Clique em "Adicionar" para começar.
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <div className="pt-4">
-                  <button
-                    type="submit"
-                    disabled={isUpdating}
-                    className="btn-secondary w-full flex justify-center items-center"
-                  >
-                    {isUpdating ? (
-                      <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-                    ) : (
-                      'Salvar Alterações'
-                    )}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {activeTab === 'premium-clients' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                  <Star className="h-6 w-6 text-yellow-500" />
-                  Clientes Premium
-                </h2>
-                <p className="text-gray-400">
-                  Lista de clientes premium que se cadastraram em seu estabelecimento
-                </p>
-
-                {premiumSubscribers.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Star className="h-16 w-16 mx-auto mb-4 text-gray-400 opacity-30" />
-                    <p className="text-xl text-gray-400 mb-2">Nenhum cliente premium ainda</p>
-                    <p className="text-gray-500">
-                      Quando clientes se cadastrarem como premium em seu estabelecimento, eles aparecerão aqui.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {premiumSubscribers.map((client, index) => (
-                      <div key={client.id} className="p-6 rounded-lg bg-[#1a1b1c] border border-gray-800">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-full flex items-center justify-center">
-                              <Star className="h-6 w-6 text-white" />
-                            </div>
-                            <div>
-                              <h3 className="font-semibold text-white text-lg">
-                                {client.display_name}
-                              </h3>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Phone className="h-4 w-4 text-green-500" />
-                                <span className="text-green-500 font-medium">
-                                  {client.whatsapp}
-                                </span>
-                              </div>
-                              <p className="text-sm text-gray-400 mt-1">
-                                Cadastrado em {new Date(client.created_at).toLocaleDateString('pt-BR')}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn-primary flex items-center gap-2 text-sm"
-                            >
-                              <MessageSquare className="h-4 w-4" />
-                              WhatsApp
-                            </a>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Informações sobre o sistema premium */}
-                <div className="mt-8 p-6 rounded-lg bg-[#1a1b1c] border border-yellow-500/20">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 bg-yellow-500/10 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Star className="h-4 w-4 text-yellow-500" />
+                      ) : (
+                        <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                          <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                          <span className="text-sm text-gray-400">Foto 1</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleCustomPhotoChange(1, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
                     </div>
-                    <div>
-                      <h3 className="font-semibold text-white mb-2">Como funciona o sistema Premium?</h3>
-                      <ul className="text-sm text-gray-400 space-y-1">
-                        <li>• Clientes podem se cadastrar como premium em seu estabelecimento</li>
-                        <li>• Cada cliente pode estar cadastrado em apenas 1 estabelecimento por vez</li>
-                        <li>• Os dados ficam salvos aqui para você entrar em contato</li>
-                        <li>• Clientes premium podem participar de sorteios e promoções especiais</li>
-                      </ul>
+                  </div>
+
+                  {/* Foto 2 */}
+                  <div>
+                    <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                      {customPhoto2Preview ? (
+                        <div className="relative h-full">
+                          <img
+                            src={customPhoto2Preview}
+                            alt="Foto 2"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            onClick={() => {
+                              setCustomPhoto2(null);
+                              setCustomPhoto2Preview(null);
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4 text-white" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                          <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                          <span className="text-sm text-gray-400">Foto 2</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleCustomPhotoChange(2, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Foto 3 */}
+                  <div>
+                    <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                      {customPhoto3Preview ? (
+                        <div className="relative h-full">
+                          <img
+                            src={customPhoto3Preview}
+                            alt="Foto 3"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            onClick={() => {
+                              setCustomPhoto3(null);
+                              setCustomPhoto3Preview(null);
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4 text-white" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                          <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                          <span className="text-sm text-gray-400">Foto 3</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleCustomPhotoChange(3, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
-            )}
+
+              {/* Profissionais */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-4">Profissionais</h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-medium text-white">Profissionais</h3>
+                  <button
+                    type="button"
+                    onClick={handleAddProfessional}
+                    disabled={professionals.length >= 10}
+                    className="px-4 py-2 bg-[#242628] text-white rounded-lg hover:bg-[#2a2b2d] transition-colors flex items-center gap-2 border border-gray-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Adicionar</span>
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  {professionals.map((professional) => (
+                    <div key={professional.id} className="bg-[#242628] p-4 rounded-lg space-y-3 border border-gray-700">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            value={professional.name}
+                            onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
+                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="Nome do profissional"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveProfessional(professional.id)}
+                          className="ml-2 text-red-500 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {professionals.length === 0 && (
+                    <p className="text-gray-400 text-center py-4">
+                      Nenhum profissional cadastrado. Clique em "Adicionar" para começar.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Serviços */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-4">Serviços</h3>
+                <p className="text-sm text-gray-400 mb-6">
+                  Adicione os serviços oferecidos pelo seu estabelecimento
+                </p>
+                
+                <ServiceForm
+                  services={servicesWithPrices}
+                  onChange={setServicesWithPrices}
+                />
+              </div>
+
+              {/* Configurações do PIX */}
+              <EstablishmentPixSettings
+                establishment={establishment}
+                onSave={handleSavePixSettings}
+              />
+
+              {/* Botão de Salvar */}
+              <div className="flex justify-end">
+                <button
+                  onClick={handleUpdateEstablishment}
+                  disabled={isUpdating}
+                  className={`px-6 py-3 bg-primary text-white rounded-lg font-medium ${
+                    isUpdating ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary/80'
+                  } transition-colors flex items-center gap-2`}
+                >
+                  {isUpdating ? (
+                    <>
+                      <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white" />
+                      Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-5 w-5" />
+                      Salvar Alterações
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
 
             {/* Informações sobre o link do estabelecimento */}
             {establishment && (

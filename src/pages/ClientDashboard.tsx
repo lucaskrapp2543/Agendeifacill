@@ -20,6 +20,9 @@ type Appointment = {
   professional_name?: string;
   duration?: number;
   status: 'pending' | 'confirmed' | 'cancelled';
+  payment_method?: string;
+  pix_payment_status?: string;
+  pix_proof_url?: string;
 };
 
 const ClientDashboard = () => {
@@ -58,7 +61,7 @@ const ClientDashboard = () => {
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           setAppointments(sortedAppointments);
-          toast('⚠️ Usando dados locais', 'warning');
+          toast('⚠️ Usando dados locais');
         } else {
           setAppointments([]);
         }
@@ -76,10 +79,10 @@ const ClientDashboard = () => {
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setAppointments(sortedAppointments);
-        toast('⚠️ Usando dados locais', 'warning');
+        toast('⚠️ Usando dados locais');
       } else {
         setAppointments([]);
-        toast(error.message || 'Erro ao buscar agendamentos', 'error');
+        toast.error(error.message || 'Erro ao buscar agendamentos');
       }
     } finally {
       setIsLoading(false);
@@ -96,9 +99,9 @@ const ClientDashboard = () => {
       
       await fetchAppointments();
       
-      toast('Agendamento cancelado com sucesso!', 'success');
+      toast.success('Agendamento cancelado com sucesso!');
     } catch (error: any) {
-      toast(error.message || 'Erro ao cancelar agendamento', 'error');
+      toast.error(error.message || 'Erro ao cancelar agendamento');
     }
   };
 
@@ -107,7 +110,7 @@ const ClientDashboard = () => {
       await signOut();
       navigate('/');
     } catch (error: any) {
-      toast(error.message || 'Erro ao sair', 'error');
+      toast.error(error.message || 'Erro ao sair');
     }
   };
 
@@ -233,6 +236,65 @@ const ClientDashboard = () => {
                           </div>
                         )}
                       </div>
+
+                      {/* Detalhes do Pagamento PIX */}
+                      {appointment.payment_method === 'pix' && (
+                        <div className="mt-4 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm text-gray-400">Status do Pagamento:</span>
+                            <span className={`text-sm font-medium px-3 py-1 rounded-full ${
+                              appointment.pix_payment_status === 'confirmado' ? 'bg-green-900/20 text-green-500' :
+                              appointment.pix_payment_status === 'enviado' ? 'bg-yellow-900/20 text-yellow-500' :
+                              appointment.pix_payment_status === 'rejeitado' ? 'bg-red-900/20 text-red-500' :
+                              'bg-gray-900/20 text-gray-400'
+                            }`}>
+                              {appointment.pix_payment_status === 'confirmado' ? '✅ Confirmado' :
+                               appointment.pix_payment_status === 'enviado' ? '⏳ Em análise' :
+                               appointment.pix_payment_status === 'rejeitado' ? '❌ Rejeitado' :
+                               '⏳ Pendente'}
+                            </span>
+                          </div>
+
+                          {appointment.pix_proof_url && (
+                            <div className="mt-2">
+                              <label className="block text-sm font-medium text-gray-400 mb-2">
+                                Seu Comprovante
+                              </label>
+                              <div className="relative">
+                                <img
+                                  src={appointment.pix_proof_url}
+                                  alt="Comprovante PIX"
+                                  className="w-full max-w-xs rounded-lg border border-gray-700"
+                                />
+                                <a
+                                  href={appointment.pix_proof_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="absolute top-2 right-2 p-2 bg-black/50 rounded-full hover:bg-black/70 transition-colors"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    className="h-5 w-5 text-white"
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
+                                  >
+                                    <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
+                                    <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
+                                  </svg>
+                                </a>
+                              </div>
+                            </div>
+                          )}
+
+                          {appointment.pix_payment_status === 'rejeitado' && (
+                            <div className="mt-4 p-3 bg-red-900/20 rounded-lg border border-red-900/30">
+                              <p className="text-sm text-red-400">
+                                Seu pagamento foi rejeitado. Por favor, entre em contato com o estabelecimento para mais informações.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <button

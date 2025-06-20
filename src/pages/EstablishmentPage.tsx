@@ -1,19 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from '../components/ui/Toaster';
+import toast from 'react-hot-toast';
 import { getEstablishmentByCode, createAppointment } from '../lib/supabase';
 import { Calendar, Star, ArrowLeft, LogIn, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BusinessHoursSelector } from '../components/BusinessHoursSelector';
-import type { Establishment } from '../types/supabase';
+import type { Database } from '../types/supabase';
+
+interface BusinessHours {
+  enabled: boolean;
+  open1: string;
+  close1: string;
+  open2: string;
+  close2: string;
+}
+
+type Establishment = Database['public']['Tables']['establishments']['Row'] & {
+  services_with_prices: Array<{
+    name: string;
+    price: number;
+    duration: number;
+  }>;
+  professionals: string[];
+  business_hours: Record<string, BusinessHours>;
+};
 
 const EstablishmentPage = () => {
   const { establishmentCode } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { toast } = useToast();
 
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,14 +55,14 @@ const EstablishmentPage = () => {
       if (error) throw error;
       
       if (!data) {
-        toast('Estabelecimento não encontrado', 'error');
+        toast.error('Estabelecimento não encontrado');
         navigate('/');
         return;
       }
       
       setEstablishment(data);
     } catch (error: any) {
-      toast(error.message || 'Erro ao carregar estabelecimento', 'error');
+      toast.error(error.message || 'Erro ao carregar estabelecimento');
       navigate('/');
     } finally {
       setIsLoading(false);
@@ -54,42 +71,48 @@ const EstablishmentPage = () => {
 
   const handleBookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!user || !establishment) return;
-    
-    const selectedService = establishment.services_with_prices.find(s => s.name === service);
-    if (!selectedService) {
-      toast('Serviço não encontrado', 'error');
+    if (!service || !appointmentDate || !appointmentTime || !professional || !clientName) {
+      toast.error('Por favor, preencha todos os campos');
       return;
     }
 
     setIsBooking(true);
-
     try {
-      const { error } = await createAppointment({
+      const serviceDetails = establishment.services_with_prices.find(s => s.name === service);
+      if (!serviceDetails) {
+        toast.error('Serviço não encontrado');
+        return;
+      }
+
+      const appointmentData = {
         client_id: user.id,
-        client_name: clientName.trim(),
         establishment_id: establishment.id,
-        service,
-        professional,
+        service: service,
+        professional: professional,
         appointment_date: appointmentDate,
         appointment_time: appointmentTime,
         status: 'pending',
-        price: selectedService.price,
-        duration: selectedService.duration,
-        is_premium: false
-      });
-      
+        client_name: clientName,
+        price: serviceDetails.price,
+        duration: serviceDetails.duration
+      };
+
+      const { error } = await createAppointment(appointmentData);
       if (error) throw error;
-      
-      toast('Agendamento realizado com sucesso!', 'success');
+
+      toast.success('Agendamento realizado com sucesso!');
       navigate('/dashboard/client');
     } catch (error: any) {
       console.error('Error creating appointment:', error);
-      toast(error.message || 'Erro ao criar agendamento', 'error');
+      toast.error(error.message || 'Erro ao criar agendamento');
     } finally {
       setIsBooking(false);
     }
+  };
+
+  const handleServiceChange = (service: string) => {
+    setService(service);
   };
 
   if (isLoading) {
@@ -190,14 +213,14 @@ const EstablishmentPage = () => {
                 </label>
                 <select
                   value={service}
-                  onChange={(e) => setService(e.target.value)}
+                  onChange={(e) => handleServiceChange(e.target.value)}
                   className="input-field bg-[#242628] border-gray-800 text-white"
                   required
                 >
                   <option value="">Selecione um serviço</option>
-                  {establishment.services_with_prices.map(service => (
-                    <option key={service.id} value={service.name}>
-                      {service.name} - R$ {service.price ? service.price.toFixed(2).replace('.', ',') : '0,00'} ({service.duration || 0}min)
+                  {establishment.services_with_prices.map(serviceItem => (
+                    <option key={serviceItem.name} value={serviceItem.name}>
+                      {serviceItem.name} - R$ {serviceItem.price ? serviceItem.price.toFixed(2).replace('.', ',') : '0,00'} ({serviceItem.duration || 0}min)
                     </option>
                   ))}
                 </select>
@@ -229,7 +252,7 @@ const EstablishmentPage = () => {
                     className="input-field bg-[#242628] border-gray-800 text-white"
                     existingAppointments={existingAppointments}
                     selectedProfessional={professional}
-                    selectedServiceDuration={selectedService?.duration || 30}
+                    selectedServiceDuration={service ? establishment.services_with_prices.find(s => s.name === service)?.duration || 30 : 30}
                   />
                 </div>
               )}

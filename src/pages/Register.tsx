@@ -53,7 +53,7 @@ const Register = () => {
       }
 
       toast.success('Conta criada com sucesso! Você já pode fazer login.');
-      navigate('/login', { state: location.state });
+      navigate('/login', { state: { from: location.state?.from } });
     } catch (error: any) {
       toast.error(error.message || 'Erro ao criar conta');
     } finally {

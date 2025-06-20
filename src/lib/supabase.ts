@@ -644,19 +644,23 @@ export const getUserPremiumSubscriptions = async () => {
 };
 
 export const getEstablishmentPremiumSubscribers = async (establishmentId: string) => {
-  const { data, error } = await supabase
-    .from('premium_subscriptions')
-    .select(`
-      id,
-      display_name,
-      whatsapp,
-      created_at,
-      user_id
-    `)
-    .eq('establishment_id', establishmentId)
-    .order('created_at', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from('premium_subscribers')
+      .select('*')
+      .eq('establishment_id', establishmentId);
 
-  return { data, error };
+    // Se der erro 42P01 (relation does not exist) ou qualquer outro erro, retorna lista vazia
+    if (error) {
+      console.log('Info: Premium subscribers table not available');
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.log('Info: Error fetching premium subscribers');
+    return [];
+  }
 };
 
 export const getBusinesses = async () => {
