@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, DollarSign, Calendar } from 'lucide-react';
+import { Clock, DollarSign, Scissors } from 'lucide-react';
 
 interface Service {
   id: string;
@@ -29,7 +29,7 @@ export function ServiceList({ services, selectedService, onSelect }: ServiceList
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Calendar className={`h-5 w-5 ${selectedService?.id === service.id ? 'text-green-500' : 'text-gray-400'}`} />
+              <Scissors className={`h-5 w-5 ${selectedService?.id === service.id ? 'text-green-500' : 'text-gray-400'}`} />
               <span className={`font-medium ${selectedService?.id === service.id ? 'text-green-500' : 'text-gray-300'}`}>{service.name}</span>
             </div>
             <div className="flex items-center gap-4">

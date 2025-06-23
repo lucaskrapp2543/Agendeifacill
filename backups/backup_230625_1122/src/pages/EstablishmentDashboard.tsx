@@ -548,14 +548,16 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     try {
-      // Formatar a data para YYYY-MM-DD para garantir que pegue apenas o dia exato
-      const selectedDateFormatted = format(selectedDate, 'yyyy-MM-dd');
+      const startDate = startOfDay(selectedDate);
+      const endDate = endOfDay(selectedDate);
 
       const { data: appointmentsData, error } = await supabase
         .from('appointments')
         .select('*')
         .eq('establishment_id', establishment.id)
-        .eq('appointment_date', selectedDateFormatted) // Mudado para eq em vez de gte/lte
+        .gte('appointment_date', startDate.toISOString())
+        .lte('appointment_date', endDate.toISOString())
+        .order('appointment_date', { ascending: true })
         .order('appointment_time', { ascending: true });
 
       if (error) {
@@ -573,16 +575,15 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     try {
-      // Formatar as datas para YYYY-MM-DD para garantir consistência
-      const startDate = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
-      const endDate = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
+      const startDate = startOfMonth(selectedDate);
+      const endDate = endOfMonth(selectedDate);
 
       const { data: appointmentsData, error } = await supabase
         .from('appointments')
         .select('*')
         .eq('establishment_id', establishment.id)
-        .gte('appointment_date', startDate)
-        .lte('appointment_date', endDate)
+        .gte('appointment_date', startDate.toISOString())
+        .lte('appointment_date', endDate.toISOString())
         .order('appointment_date', { ascending: true })
         .order('appointment_time', { ascending: true });
 
@@ -1114,7 +1115,7 @@ const EstablishmentDashboard = () => {
                         : 'text-gray-400 hover:text-white'
                     }`}
                   >
-                    <Calendar className="h-5 w-5" />
+                    <Scissors className="h-5 w-5" />
                     <span className="hidden sm:inline">SEUS LINKS</span>
                   </button>
 

@@ -84,18 +84,6 @@ export function TimeSlotSelector({
         let isAvailable = true;
         let conflictReason = '';
 
-        // Verificar se o serviço ultrapassa a meia-noite
-        if (slotEndMinutes >= 24 * 60) {
-          isAvailable = false;
-          conflictReason = 'Serviço ultrapassaria meia-noite';
-          slots.push({
-            time: timeString,
-            isAvailable,
-            reason: conflictReason
-          });
-          continue;
-        }
-
         // Verificar conflitos com agendamentos existentes
         for (const appointment of relevantAppointments) {
           const aptStartMinutes = timeToMinutes(appointment.appointment_time);
@@ -136,18 +124,6 @@ export function TimeSlotSelector({
         const slotEndMinutes = minutes + selectedDuration;
         let isAvailable = true;
         let conflictReason = '';
-
-        // Verificar se o serviço ultrapassa a meia-noite
-        if (slotEndMinutes >= 24 * 60) {
-          isAvailable = false;
-          conflictReason = 'Serviço ultrapassaria meia-noite';
-          slots.push({
-            time: timeString,
-            isAvailable,
-            reason: conflictReason
-          });
-          continue;
-        }
 
         // Verificar conflitos com agendamentos existentes
         for (const appointment of relevantAppointments) {
