@@ -100,7 +100,7 @@ const LandingPage = () => {
               <Calendar className="h-8 w-8 text-blue-400" />
               <span className="ml-2 text-xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent">AgendeiFácil</span>
               <a 
-                href="https://wa.link/1jj7uf" 
+                href="https://wa.link/wtmlac" 
                 target="_blank" 
                 rel="noopener noreferrer" 
                 className="ml-4 hover:opacity-80 transition-opacity"
@@ -347,7 +347,7 @@ const LandingPage = () => {
                     </li>
                   </ul>
                   <a 
-                    href="https://pay.kiwify.com.br/ApygJMY"
+                    href="https://pay.kiwify.com.br/77necFv"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors"
@@ -464,7 +464,7 @@ const LandingPage = () => {
               <ArrowRight className="inline-block ml-2 h-5 w-5" />
             </a>
             <a 
-              href="https://wa.link/1jj7uf"
+              href="https://wa.link/wtmlac"
               target="_blank"
               rel="noopener noreferrer"
               className="border-2 border-white text-white px-8 py-4 rounded-lg text-lg font-semibold hover:bg-white hover:text-blue-600 transition-all duration-200"
@@ -517,7 +517,7 @@ const LandingPage = () => {
               <h3 className="text-lg font-semibold mb-4 text-white">Suporte</h3>
               <ul className="space-y-2 text-gray-400">
                 <li><Link to="/suporte060622" className="hover:text-white transition-colors">Central de Ajuda</Link></li>
-                <li><a href="https://wa.link/1jj7uf" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">WhatsApp</a></li>
+                <li><a href="https://wa.link/wtmlac" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">WhatsApp</a></li>
                 <li><Link to="/suporte060622" className="hover:text-white transition-colors">Tutoriais</Link></li>
                 <li><Link to="/suporte060622" className="hover:text-white transition-colors">Contato</Link></li>
               </ul>
