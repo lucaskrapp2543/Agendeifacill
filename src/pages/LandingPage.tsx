@@ -17,7 +17,9 @@ import {
   ArrowRight,
   Phone,
   Mail,
-  MapPin
+  MapPin,
+  MessageCircle,
+  Rocket
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { PromoBanner } from '../components/PromoBanner';
@@ -29,34 +31,34 @@ const LandingPage = () => {
 
   const features = [
     {
-      icon: Calendar,
+      icon: <Calendar className="w-6 h-6 text-white" />,
       title: "Agendamento Online 24/7",
       description: "Seus clientes podem agendar a qualquer hora, de qualquer lugar"
     },
     {
-      icon: Clock,
+      icon: <Clock className="w-6 h-6 text-white" />,
       title: "Tempo Real",
       description: "Atualizações instantâneas de horários disponíveis e ocupados"
     },
     {
-      icon: Users,
-      title: "Gestão de Clientes",
-      description: "Histórico completo, preferências e dados de contato organizados"
+      icon: <Users className="w-6 h-6 text-white" />,
+      title: "Múltiplos Profissionais",
+      description: "Gerencie toda sua equipe em uma única plataforma"
     },
     {
-      icon: Smartphone,
-      title: "100% Mobile",
-      description: "Interface otimizada para celular, tablet e desktop"
+      icon: <Scissors className="w-6 h-6 text-white" />,
+      title: "Serviços Ilimitados",
+      description: "Cadastre todos seus serviços com preços e durações"
     },
     {
-      icon: BarChart3,
-      title: "Relatórios Detalhados",
-      description: "Acompanhe faturamento, horários mais procurados e performance"
+      icon: <MessageCircle className="w-6 h-6 text-white" />,
+      title: "Lembretes Automáticos",
+      description: "Notificações por WhatsApp e SMS para seus clientes"
     },
     {
-      icon: CheckCircle,
+      icon: <CheckCircle className="w-6 h-6 text-white" />,
       title: "Confirmação Automática",
-      description: "SMS e WhatsApp automáticos para confirmar e lembrar agendamentos"
+      description: "Reduza faltas com confirmações automáticas"
     }
   ];
 
@@ -64,29 +66,51 @@ const LandingPage = () => {
     { icon: Scissors, name: "Barbearias", color: "bg-blue-500" },
     { icon: Sparkles, name: "Salões de Beleza", color: "bg-pink-500" },
     { icon: Car, name: "Lava Car", color: "bg-green-500" },
-    { icon: Coffee, name: "Restaurantes", color: "bg-orange-500" }
+    { icon: Coffee, name: "Restaurantes", color: "bg-orange-500" },
+    { icon: Calendar, name: "Outros", color: "bg-purple-500", description: "Tudo que precisa de agendamento e organização" }
   ];
 
   const testimonials = [
     {
-      name: "Carlos Silva",
-      business: "Barbearia do Carlos",
-      text: "Desde que comecei a usar o sistema, minha agenda nunca mais ficou bagunçada. Os clientes adoram poder agendar pelo celular!",
+      name: "João Silva",
+      business: "Barbearia Silva",
+      text: "O AgendeiFácil revolucionou meu negócio. Reduzi as faltas em 80% e aumentei minha clientela.",
       rating: 5
     },
     {
       name: "Maria Santos",
-      business: "Salão Glamour",
-      text: "Economizo 2 horas por dia que antes gastava organizando agendamentos. Agora foco no que realmente importa: meus clientes.",
+      business: "Studio Beauty",
+      text: "Sistema completo e fácil de usar. Meus clientes adoram a praticidade de agendar online.",
       rating: 5
     },
     {
-      name: "João Ferreira",
-      business: "AutoLave Express",
-      text: "O sistema de confirmação automática reduziu em 80% as faltas. Meu faturamento aumentou significativamente!",
+      name: "Pedro Costa",
+      business: "Salão Elite",
+      text: "Excelente suporte e sempre atualizando com novidades. Recomendo para todos os profissionais.",
       rating: 5
     }
   ];
+
+  const monthlyFeatures = [
+    "Agendamentos ilimitados",
+    "Gestão completa de clientes",
+    "Relatórios detalhados",
+    "Suporte por WhatsApp",
+    "Confirmação automática por SMS",
+    "Lucros diários e mensais",
+    "Profissionais ilimitados",
+    "Serviços ilimitados",
+    "Mensagem de lembrete para clientes",
+    "Página de agendamentos exclusiva sua e personalizável",
+    "Pagamentos adiantados se preferir"
+  ];
+
+  const scrollToPlans = () => {
+    const plansSection = document.getElementById('planos');
+    if (plansSection) {
+      plansSection.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -123,48 +147,48 @@ const LandingPage = () => {
                   className="w-6 h-6"
                 />
               </a>
-            </div>
+          </div>
 
             {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center space-x-8">
-              {user ? (
-                <Link 
-                  to={`/dashboard/${userRole}`} 
-                  className="btn-primary"
-                >
-                  Acessar Dashboard
-                </Link>
-              ) : (
+            {user ? (
+              <Link 
+                to={`/dashboard/${userRole}`} 
+                className="btn-primary"
+              >
+                Acessar Dashboard
+              </Link>
+            ) : (
                 <>
-                  <Link to="/suporte060622" className="btn-accent">
-                    SUPORTE
-                  </Link>
-                  <div className="relative group">
-                    <button className="btn-secondary">
-                      Cadastrar
-                    </button>
-                    <div className="absolute right-0 mt-2 w-60 bg-white rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-                      <div className="py-2">
-                        <a 
-                          href="https://pay.kiwify.com.br/ApygJMY" 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        >
-                          Cadastrar como estabelecimento
-                        </a>
-                        <Link 
-                          to="/register?role=client" 
-                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        >
-                          Cadastrar como cliente
-                        </Link>
-                      </div>
+                <Link to="/suporte060622" className="btn-accent">
+                  SUPORTE
+                </Link>
+                <div className="relative group">
+                  <button className="btn-secondary">
+                    Cadastrar
+                  </button>
+                  <div className="absolute right-0 mt-2 w-60 bg-white rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                    <div className="py-2">
+                      <a 
+                        href="https://pay.kiwify.com.br/ApygJMY" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Cadastrar como estabelecimento
+                      </a>
+                      <Link 
+                        to="/register?role=client" 
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Cadastrar como cliente
+                      </Link>
                     </div>
                   </div>
-                  <Link to="/login" className="btn-primary">
-                    Entrar
-                  </Link>
+                </div>
+                <Link to="/login" className="btn-primary">
+                  Entrar
+                </Link>
                 </>
               )}
             </nav>
@@ -197,11 +221,11 @@ const LandingPage = () => {
                   </Link>
                   <Link to="/register?role=client" className="block w-full text-left px-3 py-2 text-gray-300 hover:text-blue-400">
                     Cadastrar como cliente
-                  </Link>
-                  <a 
+                </Link>
+                <a 
                     href="https://pay.kiwify.com.br/ApygJMY" 
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  target="_blank"
+                  rel="noopener noreferrer"
                     className="block w-full text-left px-3 py-2 text-gray-300 hover:text-blue-400"
                   >
                     Cadastrar como estabelecimento
@@ -211,7 +235,7 @@ const LandingPage = () => {
                   </Link>
                 </>
               )}
-            </div>
+              </div>
           </div>
         )}
       </header>
@@ -220,259 +244,267 @@ const LandingPage = () => {
       <section className="pt-24 pb-16 bg-gradient-to-br from-gray-900 via-black to-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-4xl mx-auto">
-            <img 
-              src="/logoagendei.png"
-              alt="AgendeiFácil - Revolucione seu Agendamento em Tempo Real"
-              className="mx-auto mb-8 max-w-[300px] w-full"
-            />
-            <div className="bg-[#0a0a1f] rounded-full py-3 px-6 inline-flex items-center gap-2 mb-8 shadow-lg shadow-blue-500/20">
-              <svg className="w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 8V12L15 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" strokeWidth="2"/>
-              </svg>
-              <span className="text-blue-400 font-medium">Sistema #1 em Agendamentos no Brasil</span>
-            </div>
-            <div className="aspect-video w-full mb-8">
-              <iframe
-                className="w-full h-full rounded-lg shadow-lg"
-                src="https://www.youtube.com/embed/E_fY0Xo5cE8"
-                title="Vídeo de apresentação"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              ></iframe>
-            </div>
-            <img 
-              src="/QUAIS.png" 
-              alt="Seu agendamento em tempo real nunca foi tão fácil" 
-              className="mx-auto mb-6 max-w-[400px] w-full"
-            />
-
-            <PromoBanner />
-
-            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto mt-8">
-              {/* Plano Mensal */}
-              <div className="bg-[#1a1b1c] border-2 border-gray-700 rounded-2xl p-8 hover:border-blue-500 transition-all duration-300">
-                <div className="text-center">
-                  <h3 className="text-2xl font-bold text-white mb-2">Plano Mensal</h3>
-                  <div className="mb-6">
-                    <span className="text-4xl font-bold text-white">R$ 39</span>
-                    <span className="text-xl text-gray-300">,90/mês</span>
+            <div className="flex flex-col items-center space-y-4 pt-8">
+              <img
+                src="/logoagendei.png"
+                alt="AgendeiFácil Logo"
+                className="mx-auto max-w-[200px] w-full"
+              />
+              
+              {/* Nova seção de destaque */}
+              <div className="w-full max-w-3xl">
+                <div className="bg-gradient-to-r from-cyan-500 to-blue-800 rounded-2xl p-3 md:p-4">
+                  <div className="flex items-center justify-center gap-2 md:gap-3 whitespace-nowrap">
+                    <Rocket className="h-4 w-4 md:h-6 md:w-6 text-white flex-shrink-0" />
+                    <span className="text-sm md:text-xl text-white font-semibold">
+                      Líder em Tecnologia de Agendamentos
+                    </span>
                   </div>
-                  <ul className="space-y-4 mb-8 text-left">
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Agendamentos ilimitados</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Gestão completa de clientes</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Relatórios detalhados</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Suporte por WhatsApp</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Confirmação automática por SMS</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Lucros diários e mensais</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Profissionais ilimitados</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Serviços ilimitados</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
-                      <span className="text-gray-300">Mensagem de lembrete para clientes</span>
-                    </li>
-                  </ul>
-                  <a 
-                    href="https://pay.kiwify.com.br/ApygJMY"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                  >
-                    Começar Agora
-                  </a>
                 </div>
               </div>
 
-              {/* Plano Anual */}
-              <div className="bg-blue-600 border-2 border-blue-500 rounded-2xl p-8 hover:border-blue-400 transition-all duration-300 relative">
-                <div className="absolute -top-3 right-4 bg-yellow-400 text-black px-3 py-1 rounded-full text-sm font-medium">
-                  2 meses grátis
-                </div>
-                <div className="text-center">
-                  <h3 className="text-2xl font-bold text-white mb-2">Plano Anual</h3>
-                  <div className="mb-2">
-                    <span className="text-sm text-gray-200 line-through">R$ 478,80</span>
+              {/* Vídeo do YouTube */}
+              <div className="aspect-video w-full mb-6">
+                <iframe
+                  className="w-full h-full rounded-2xl"
+                  src="https://www.youtube.com/embed/E_fY0Xo5cE8"
+                  title="Vídeo de apresentação"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+
+              {/* Botão de ação */}
+              <div className="w-full flex justify-center mb-6">
+                <button
+                  onClick={() => {
+                    const plansSection = document.getElementById('planos');
+                    if (plansSection) {
+                      plansSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg"
+                >
+                  SER AGENDEI FÁCIL
+                </button>
+              </div>
+
+              {/* Imagem QUAIS */}
+              <div className="w-full mb-8">
+                <img 
+                  src="/QUAIS.png" 
+                  alt="Barbearia, Salões, Lava-car e outros estabelecimentos" 
+                  className="w-full rounded-2xl"
+                />
+              </div>
+
+              <div className="text-center max-w-3xl mx-auto mb-16">
+                <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white leading-tight mb-6">
+                  <span className="block sm:inline">Tudo que você precisa</span><br className="hidden sm:block" />
+                  <span className="block sm:inline">em um só lugar</span>
+                </h2>
+                <p className="text-lg md:text-xl bg-gradient-to-r from-yellow-400 via-orange-400 to-orange-500 text-transparent bg-clip-text font-semibold">
+                  Gerencie seu negócio com as<br />
+                  melhores ferramentas
+                </p>
+              </div>
+
+              {/* Cards de Funcionalidades */}
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
+                {features.map((feature, index) => (
+                  <div key={index} className="bg-[#1a1b1c] p-6 rounded-2xl border border-[#2e2f30] hover:border-blue-500 transition-all duration-300">
+                    <div className="flex items-start gap-4 mb-2">
+                      <div className="bg-blue-600 w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0">
+                        {feature.icon}
+                      </div>
+                      <h3 className="text-xl font-semibold pt-2">{feature.title}</h3>
+                    </div>
+                    <p className="text-gray-400 pl-16">
+                      {feature.description}
+                    </p>
                   </div>
-                  <div className="mb-6">
-                    <span className="text-4xl font-bold text-white">R$ 399</span>
-                    <span className="text-xl text-gray-200">/ano</span>
+                ))}
+              </div>
+
+              {/* Seção de Depoimentos */}
+              <div className="bg-white py-16 mb-20">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <h2 className="text-3xl md:text-4xl font-bold text-center mb-8 bg-gradient-to-r from-[#FF6B00] to-[#0099FF] bg-clip-text text-transparent">
+                    Histórias reais de quem transformou seu negócio com o AgendeiFácil
+                  </h2>
+                  <div className="grid md:grid-cols-3 gap-8">
+                    {testimonials.map((testimonial, index) => (
+                      <div key={index} className="bg-[#1a1b1c] p-6 rounded-xl border border-gray-700 hover:border-blue-500 transition-all duration-300">
+                        <div className="flex items-center mb-4">
+                          {[...Array(testimonial.rating)].map((_, i) => (
+                            <Star key={i} className="h-5 w-5 text-yellow-400" fill="currentColor" />
+                          ))}
+                        </div>
+                        <p className="text-gray-300 mb-4 italic">"{testimonial.text}"</p>
+                        <div>
+                          <p className="font-semibold text-white">{testimonial.name}</p>
+                          <p className="text-gray-400 text-sm">{testimonial.business}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="mb-6 bg-blue-700 rounded-lg py-2 px-4">
-                    <span className="text-gray-200">Economize R$ 79,80 por ano</span>
-                  </div>
-                  <ul className="space-y-4 mb-8 text-left">
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-white mr-3" />
-                      <span className="text-white">Tudo do plano mensal</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-white mr-3" />
-                      <span className="text-white">2 meses totalmente grátis</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-white mr-3" />
-                      <span className="text-white">Suporte prioritário</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-white mr-3" />
-                      <span className="text-white">Relatórios avançados</span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-white mr-3" />
-                      <span className="text-white">Área de clientes VIP</span>
-                    </li>
-                  </ul>
-                  <a 
-                    href="https://pay.kiwify.com.br/77necFv"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    Economizar Agora
-                  </a>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Features Section */}
-      <section className="py-20 bg-gray-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-              Tudo que você precisa em um só lugar
-            </h2>
-            <p className="text-xl text-gray-300 max-w-3xl mx-auto">
-              Funcionalidades pensadas especificamente para otimizar seu negócio e encantar seus clientes
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {features.map((feature, index) => (
-              <div key={index} className="bg-gray-800 p-8 rounded-xl border border-gray-700 hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-300 hover:border-blue-500 group">
-                <div className="bg-blue-900/50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 group-hover:bg-blue-600 transition-colors duration-300">
-                  <feature.icon className="h-6 w-6 text-blue-400 group-hover:text-white" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-3">{feature.title}</h3>
-                <p className="text-gray-300 leading-relaxed">{feature.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Business Types Section */}
-      <section className="py-20 bg-black">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-              Perfeito para seu tipo de negócio
-            </h2>
-            <p className="text-xl text-gray-300">
-              Já ajudamos centenas de estabelecimentos a organizarem suas agendas
-            </p>
-          </div>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {businessTypes.map((type, index) => (
-              <div key={index} className="bg-gray-800 p-8 rounded-xl text-center hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-300 transform hover:-translate-y-2 border border-gray-700 hover:border-blue-500">
-                <div className={`${type.color} w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4`}>
-                  <type.icon className="h-8 w-8 text-white" />
-                </div>
-                <h3 className="text-lg font-semibold text-white">{type.name}</h3>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials Section */}
-      <section className="py-20 bg-black">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-              O que nossos clientes dizem
-            </h2>
-            <p className="text-xl text-gray-300">
-              Histórias reais de quem transformou seu negócio com o AgendeFácil
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {testimonials.map((testimonial, index) => (
-              <div key={index} className="bg-gray-800 p-8 rounded-xl border border-gray-700 hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-300 hover:border-blue-500">
-                <div className="flex mb-4">
-                  {[...Array(testimonial.rating)].map((_, i) => (
-                    <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
+              {/* Seção Tipos de Negócio */}
+              <div className="mb-20">
+                <h2 className="text-4xl md:text-5xl font-bold text-center mb-4">
+                  Perfeito para seu tipo de negócio
+                </h2>
+                <p className="text-xl text-center mb-12 bg-gradient-to-r from-orange-500 to-yellow-500 bg-clip-text text-transparent font-semibold">
+                  Já ajudamos centenas de estabelecimentos a organizarem suas agendas
+                </p>
+                
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
+                  {businessTypes.map((type, index) => (
+                    <div key={index} className="bg-[#1a1b1c] p-6 rounded-2xl border border-[#2e2f30] hover:border-blue-500 transition-all duration-300 text-center">
+                      <div className={`${type.color} w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4`}>
+                        <type.icon className="h-8 w-8 text-white" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-white mb-2">{type.name}</h3>
+                      {type.description && (
+                        <p className="text-gray-400 text-sm">{type.description}</p>
+                      )}
+                    </div>
                   ))}
                 </div>
-                <p className="text-gray-300 mb-6 italic">"{testimonial.text}"</p>
-                <div>
-                  <p className="font-semibold text-white">{testimonial.name}</p>
-                  <p className="text-gray-400 text-sm">{testimonial.business}</p>
+              </div>
+
+              {/* Seção de Preços */}
+              <div id="planos" className="w-full py-8">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <h2 className="text-4xl md:text-5xl font-bold text-center mb-2">
+                    Investimento que
+                  </h2>
+                  <h2 className="text-4xl md:text-5xl font-bold text-center mb-4">
+                    <span className="bg-gradient-to-r from-orange-500 to-yellow-500 bg-clip-text text-transparent">
+                      Se Paga Sozinho
+                    </span>
+                  </h2>
+                  <p className="text-gray-300 text-base md:text-lg max-w-2xl mx-auto px-4">
+                    Planos transparentes com ROI comprovado. Sem taxas ocultas, sem surpresas desagradáveis.
+                  </p>
                 </div>
               </div>
-            ))}
+
+              <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto mt-8">
+                {/* Plano Mensal */}
+                <div className="bg-[#1a1b1c] border-2 border-gray-700 rounded-2xl p-8 hover:border-blue-500 transition-all duration-300">
+                  <div className="text-center">
+                    <h3 className="text-2xl font-bold text-white mb-2">Plano Mensal</h3>
+                    <div className="mb-6">
+                      <span className="text-4xl font-bold text-white">R$ 39</span>
+                      <span className="text-xl text-gray-300">,90/mês</span>
+                    </div>
+                    <ul className="space-y-4 mb-8 text-left">
+                      {monthlyFeatures.map((feature, index) => (
+                        <li key={index} className="flex items-center">
+                          <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                          <span className="text-gray-300">{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+            <a 
+              href="https://pay.kiwify.com.br/ApygJMY"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                      className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    >
+                      Começar Agora
+                    </a>
+                  </div>
+                </div>
+
+                {/* Plano Anual */}
+                <div className="bg-blue-600 border-2 border-blue-500 rounded-2xl p-8 hover:border-blue-400 transition-all duration-300 relative">
+                  <div className="absolute -top-3 right-4 bg-yellow-400 text-black px-3 py-1 rounded-full text-sm font-medium">
+                    2 meses grátis
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-2xl font-bold text-white mb-2">Plano Anual</h3>
+                    <div className="mb-2">
+                      <span className="text-sm text-gray-200 line-through">R$ 478,80</span>
+                    </div>
+                    <div className="mb-6">
+                      <span className="text-4xl font-bold text-white">R$ 399</span>
+                      <span className="text-xl text-gray-200">/ano</span>
+                    </div>
+                    <div className="mb-6 bg-blue-700 rounded-lg py-2 px-4">
+                      <span className="text-gray-200">Economize R$ 79,80 por ano</span>
+                    </div>
+                    <ul className="space-y-4 mb-8 text-left">
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-white mr-3" />
+                        <span className="text-white">Tudo do plano mensal</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-white mr-3" />
+                        <span className="text-white">2 meses totalmente grátis</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-white mr-3" />
+                        <span className="text-white">Suporte prioritário</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-white mr-3" />
+                        <span className="text-white">Relatórios avançados</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-white mr-3" />
+                        <span className="text-white">Área de clientes VIP</span>
+                      </li>
+                    </ul>
+                <a 
+                  href="https://pay.kiwify.com.br/77necFv"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                      className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                      Economizar Agora
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 bg-gradient-to-r from-blue-600 to-purple-600">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-6">
-            Pronto para revolucionar seu negócio?
-          </h2>
-          <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
-            Junte-se a centenas de estabelecimentos que já transformaram sua gestão de agendamentos.
-            Comece hoje mesmo e veja a diferença.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a 
-              href="https://pay.kiwify.com.br/ApygJMY"
-              target="_blank"
-              rel="noopener noreferrer" 
-              className="bg-white text-blue-600 px-8 py-4 rounded-lg text-lg font-semibold hover:bg-gray-100 transition-colors shadow-lg"
-            >
-              Começar Agora
-              <ArrowRight className="inline-block ml-2 h-5 w-5" />
-            </a>
-            <a 
-              href="https://wa.link/wtmlac"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="border-2 border-white text-white px-8 py-4 rounded-lg text-lg font-semibold hover:bg-white hover:text-blue-600 transition-all duration-200"
-            >
-              Falar com Especialista
-            </a>
+      <section className="py-20 bg-black">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
+              Comece agora mesmo
+            </h2>
+            <p className="text-xl text-gray-300 mb-8">
+              Transforme seu negócio com o AgendeiFácil
+            </p>
+            <div className="flex flex-col sm:flex-row justify-center gap-4">
+              <a
+                href="https://wa.link/wtmlac"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 md:py-4 md:text-lg md:px-10"
+              >
+                Falar com Consultor
+              </a>
+              <a
+                href="https://pay.kiwify.com.br/8gW8Hl8"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 md:py-4 md:text-lg md:px-10"
+              >
+                Começar Agora
+              </a>
+            </div>
           </div>
-        </div>
+              </div>
       </section>
 
       {/* Footer */}
@@ -511,7 +543,7 @@ const LandingPage = () => {
                 <li><a href="#" className="hover:text-white transition-colors">Demonstração</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Integrações</a></li>
               </ul>
-            </div>
+          </div>
 
             <div>
               <h3 className="text-lg font-semibold mb-4 text-white">Suporte</h3>
