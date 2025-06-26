@@ -389,17 +389,25 @@ const LandingPage = () => {
               Transforme seu negócio com o AgendeiFácil
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
-              <a
-                href="https://pay.kiwify.com.br/8gW8Hl8"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 md:py-4 md:text-lg md:px-10"
-              >
-                Começar Agora
-              </a>
+              <div className="flex flex-col gap-4">
+                <a
+                  href="https://pay.kiwify.com.br/8gW8Hl8"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 md:py-4 md:text-lg md:px-10"
+                >
+                  Começar Agora
+                </a>
+                <Link
+                  to="/testaragendeifacilfree"
+                  className="inline-flex items-center justify-center px-8 py-3 border-2 border-blue-500 text-base font-medium rounded-md text-white hover:bg-blue-500/10 md:py-4 md:text-lg md:px-10 transition-colors"
+                >
+                  TESTAR GRÁTIS
+                </Link>
+              </div>
             </div>
           </div>
-              </div>
+        </div>
       </section>
 
       {/* Footer */}

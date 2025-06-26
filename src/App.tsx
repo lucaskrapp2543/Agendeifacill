@@ -19,6 +19,9 @@ import { Success } from './pages/Success';
 import Suporte060622 from './pages/Suporte060622';
 import CadastroPremium060622 from './pages/CadastroPremium060622';
 import CadastroEstabelecimento060622 from './pages/CadastroEstabelecimento060622';
+import TestarGratis from './pages/TestarGratis';
+import VerTestesFree from './pages/VerTestesFree';
+import VerUsuariosGratis060622 from './pages/VerUsuariosGratis060622';
 
 // Protected Routes
 import ProtectedRoute from './components/ProtectedRoute';
@@ -44,6 +47,16 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/suporte060622" element={<Suporte060622 />} />
+              <Route path="/testaragendeifacilfree" element={<TestarGratis />} />
+              <Route path="/verusuariosgratis060622" element={<VerUsuariosGratis060622 />} />
+              <Route 
+                path="/ver-testes-free" 
+                element={
+                  <ProtectedRoute allowedRoles={['support']}>
+                    <VerTestesFree />
+                  </ProtectedRoute>
+                } 
+              />
               <Route path="/cadastropremium060622" element={<CadastroPremium060622 />} />
               <Route path="/cadastroestabelecimento060622" element={<CadastroEstabelecimento060622 />} />
               
