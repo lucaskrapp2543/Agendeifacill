@@ -390,14 +390,6 @@ const LandingPage = () => {
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               <a
-                href="https://wa.link/wtmlac"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 md:py-4 md:text-lg md:px-10"
-              >
-                Falar com Consultor
-              </a>
-              <a
                 href="https://pay.kiwify.com.br/8gW8Hl8"
                 target="_blank"
                 rel="noopener noreferrer"
