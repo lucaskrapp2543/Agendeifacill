@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {       
   Calendar,    
   Clock,       
@@ -21,12 +21,10 @@ import {
   MessageCircle,
   Rocket
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
 import { PromoBanner } from '../components/PromoBanner';
-import WhatsAppButton from '../components/WhatsAppButton';
 
 const LandingPage = () => {
-  const { user, userRole } = useAuth();
+  const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const features = [
@@ -43,7 +41,7 @@ const LandingPage = () => {
     {
       icon: <Users className="w-6 h-6 text-white" />,
       title: "Múltiplos Profissionais",
-      description: "Gerencie toda sua equipe em uma única plataforma"
+      description: "Gerencie toda sua equipe em uma única plataforma (sem pagar nada a mais)"
     },
     {
       icon: <Scissors className="w-6 h-6 text-white" />,
@@ -95,7 +93,6 @@ const LandingPage = () => {
     "Agendamentos ilimitados",
     "Gestão completa de clientes",
     "Relatórios detalhados",
-    "Suporte por WhatsApp",
     "Confirmação automática por SMS",
     "Lucros diários e mensais",
     "Profissionais ilimitados",
@@ -112,132 +109,38 @@ const LandingPage = () => {
     }
   };
 
+  const handleLogin = () => {
+    navigate('/login');
+  };
+
   return (
     <div className="min-h-screen bg-black text-white">
-      <WhatsAppButton />
-      
       {/* Header */}
       <header className="fixed top-0 w-full bg-black/95 backdrop-blur-sm border-b border-gray-800 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <Calendar className="h-8 w-8 text-blue-400" />
-              <span className="ml-2 text-xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent">AgendeiFácil</span>
-              <a 
-                href="https://wa.link/wtmlac" 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="ml-4 hover:opacity-80 transition-opacity"
-              >
-                <img 
-                  src="/wppicon.png" 
-                  alt="WhatsApp" 
-                  className="w-6 h-6"
-                />
-              </a>
-              <a 
-                href="https://www.instagram.com/agendeifacil.oficial/" 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="ml-3 hover:opacity-80 transition-opacity"
-              >
-                <img 
-                  src="/insta.png" 
-                  alt="Instagram" 
-                  className="w-6 h-6"
-                />
-              </a>
-          </div>
-
-            {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center space-x-8">
-            {user ? (
-              <Link 
-                to={`/dashboard/${userRole}`} 
-                className="btn-primary"
-              >
-                Acessar Dashboard
-              </Link>
-            ) : (
-                <>
-                <Link to="/suporte060622" className="btn-accent">
-                  SUPORTE
-                </Link>
-                <div className="relative group">
-                  <button className="btn-secondary">
-                    Cadastrar
-                  </button>
-                  <div className="absolute right-0 mt-2 w-60 bg-white rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-                    <div className="py-2">
-                      <a 
-                        href="https://pay.kiwify.com.br/ApygJMY" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Cadastrar como estabelecimento
-                      </a>
-                      <Link 
-                        to="/register?role=client" 
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Cadastrar como cliente
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-                <Link to="/login" className="btn-primary">
-                  Entrar
-                </Link>
-                </>
-              )}
-            </nav>
-
-            {/* Mobile menu button */}
+              <Calendar className="h-6 w-6 text-blue-500" />
+              <div className="flex items-center ml-6">
+                <span className="text-sm font-medium text-gray-300 mr-2">DÚVIDAS MANDE DIRECT</span>
+                <ArrowRight className="h-5 w-5 text-gray-300 mx-2" />
+                <a 
+                  href="https://www.instagram.com/agendeifacil.oficial/#" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                >
+                  <img src="/insta.png" alt="Instagram" className="h-7 w-7 hover:opacity-80 transition-opacity" />
+                </a>
+              </div>
+            </div>
             <button
-              className="md:hidden text-white"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              onClick={handleLogin}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
-              {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              Entrar
             </button>
           </div>
-        </div>
-
-        {/* Mobile Navigation */}
-        {isMenuOpen && (
-          <div className="md:hidden bg-black border-t border-gray-800">
-            <div className="px-4 py-2 space-y-2">
-              {user ? (
-                <Link 
-                  to={`/dashboard/${userRole}`} 
-                  className="block w-full text-left px-3 py-2 text-gray-300 hover:text-blue-400"
-                >
-                  Acessar Dashboard
-                </Link>
-              ) : (
-                <>
-                  <Link to="/suporte060622" className="block w-full text-left px-3 py-2 text-gray-300 hover:text-blue-400">
-                    SUPORTE
-                  </Link>
-                  <Link to="/register?role=client" className="block w-full text-left px-3 py-2 text-gray-300 hover:text-blue-400">
-                    Cadastrar como cliente
-                </Link>
-                <a 
-                    href="https://pay.kiwify.com.br/ApygJMY" 
-                  target="_blank"
-                  rel="noopener noreferrer"
-                    className="block w-full text-left px-3 py-2 text-gray-300 hover:text-blue-400"
-                  >
-                    Cadastrar como estabelecimento
-                  </a>
-                  <Link to="/login" className="block w-full text-left px-3 py-2 text-gray-300 hover:text-blue-400">
-                    Entrar
-                  </Link>
-                </>
-              )}
-              </div>
-          </div>
-        )}
+        </nav>
       </header>
 
       {/* Hero Section */}
@@ -508,9 +411,27 @@ const LandingPage = () => {
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-white py-16 border-t border-gray-800">
+      <footer className="bg-[#1a1b1c] py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div>
+              <h3 className="text-lg font-semibold text-white mb-4">Contato</h3>
+              <ul className="space-y-2">
+                <li>
+                  <a href="mailto:contato@agendeifacil.com" className="text-gray-400 hover:text-white transition-colors flex items-center gap-2">
+                    <Mail className="h-4 w-4" />
+                    Email
+                  </a>
+                </li>
+                <li>
+                  <a href="https://www.instagram.com/agendeifacil.oficial/#" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors flex items-center gap-2">
+                    <img src="/insta.png" alt="Instagram" className="h-4 w-4" />
+                    Instagram
+                  </a>
+                </li>
+              </ul>
+            </div>
+
             <div className="md:col-span-2">
               <div className="flex items-center mb-4">
                 <Calendar className="h-8 w-8 text-blue-400" />
@@ -520,10 +441,6 @@ const LandingPage = () => {
                 Sistema completo de agendamentos em tempo real para transformar a gestão do seu negócio.
               </p>
               <div className="space-y-4">
-                <div className="flex items-center">
-                  <Phone className="h-5 w-5 text-blue-400 mr-3" />
-                  <span className="text-gray-400">(48) 9 9126-5320</span>
-                </div>
                 <div className="flex items-center">
                   <Mail className="h-5 w-5 text-blue-400 mr-3" />
                   <span className="text-gray-400">contato@agendeifacil.com.br</span>
@@ -543,13 +460,12 @@ const LandingPage = () => {
                 <li><a href="#" className="hover:text-white transition-colors">Demonstração</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Integrações</a></li>
               </ul>
-          </div>
+            </div>
 
             <div>
               <h3 className="text-lg font-semibold mb-4 text-white">Suporte</h3>
               <ul className="space-y-2 text-gray-400">
                 <li><Link to="/suporte060622" className="hover:text-white transition-colors">Central de Ajuda</Link></li>
-                <li><a href="https://wa.link/wtmlac" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">WhatsApp</a></li>
                 <li><Link to="/suporte060622" className="hover:text-white transition-colors">Tutoriais</Link></li>
                 <li><Link to="/suporte060622" className="hover:text-white transition-colors">Contato</Link></li>
               </ul>
