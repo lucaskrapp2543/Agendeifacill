@@ -8,6 +8,7 @@ import { ServiceList } from './ServiceList';
 import { useAuth } from '../context/AuthContext';
 import { PixPaymentForm } from './PixPaymentForm';
 import { PixProofViewer } from './PixProofViewer';
+import { Phone } from 'lucide-react';
 
 interface Service {
   id: string;
@@ -83,6 +84,7 @@ export function AppointmentForm({
   console.log('  - business_hours:', establishment?.business_hours);
 
   const [clientName, setClientName] = useState('');
+  const [clientWhatsapp, setClientWhatsapp] = useState('');
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
@@ -135,6 +137,7 @@ export function AppointmentForm({
     console.log('🚀 Tentativa de submit do formulário');
     console.log('📋 Dados atuais:', {
       clientName,
+      clientWhatsapp,
       selectedService: selectedService?.name,
       selectedProfessional: selectedProfessional?.name,
       selectedTime,
@@ -176,18 +179,20 @@ export function AppointmentForm({
       return;
     }
 
+    const whatsappNumbers = clientWhatsapp.replace(/\D/g, '');
+
     setIsLoading(true);
     try {
       await onSubmit({
+        client_name: clientName,
+        client_whatsapp: whatsappNumbers,
         service: selectedService.name,
         professional: selectedProfessional.id,
+        appointment_date: format(selectedDate, 'yyyy-MM-dd'),
         appointment_time: selectedTime,
         duration: selectedService.duration,
         price: selectedService.price,
-        client_name: clientName,
-        payment_method: selectedPaymentMethod,
-        pix_payment_status: pixPaymentMethod === 'pix_now' ? 'enviado' : 'pendente',
-        pix_proof_url: pixProofUrl
+        payment_method: selectedPaymentMethod
       });
 
       // Só navega após sucesso
@@ -198,6 +203,18 @@ export function AppointmentForm({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const formatWhatsapp = (value: string) => {
+    const numbers = value.replace(/\D/g, '');
+    if (numbers.length <= 2) return numbers;
+    if (numbers.length <= 7) return `(${numbers.slice(0, 2)}) ${numbers.slice(2)}`;
+    return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7, 11)}`;
+  };
+
+  const handleWhatsappChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatWhatsapp(e.target.value);
+    setClientWhatsapp(formatted);
   };
 
   // Pegar o dia da semana em inglês (como está no banco de dados)
@@ -243,10 +260,27 @@ export function AppointmentForm({
           )}
         </div>
 
-        {/* 2. SERVIÇO */}
+        {/* 2. WHATSAPP */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+            <Phone className="w-4 h-4" />
+            WhatsApp
+          </label>
+          <input
+            type="tel"
+            value={clientWhatsapp}
+            onChange={handleWhatsappChange}
+            className="input-field"
+            placeholder="(00) 00000-0000"
+            required
+            maxLength={15}
+          />
+        </div>
+
+        {/* 3. SERVIÇO */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            2. Escolha o Serviço
+            3. Escolha o Serviço
           </label>
           <ServiceList
             services={establishment.services_with_prices}
@@ -255,10 +289,10 @@ export function AppointmentForm({
           />
         </div>
 
-        {/* 3. PROFISSIONAL */}
+        {/* 4. PROFISSIONAL */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            3. Escolha o Profissional
+            4. Escolha o Profissional
           </label>
           <select
             value={selectedProfessional?.id || ''}
@@ -278,10 +312,10 @@ export function AppointmentForm({
           </select>
         </div>
 
-        {/* 4. DATA */}
+        {/* 5. DATA */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            4. Escolha a Data
+            5. Escolha a Data
           </label>
           <DatePicker 
             selectedDate={selectedDate} 
@@ -290,11 +324,11 @@ export function AppointmentForm({
           />
         </div>
 
-        {/* 5. HORÁRIO */}
+        {/* 6. HORÁRIO */}
         {selectedService && (
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              5. Escolha o Horário
+              6. Escolha o Horário
             </label>
             <TimeSlotSelector
               selectedDate={selectedDate}
@@ -308,10 +342,10 @@ export function AppointmentForm({
           </div>
         )}
 
-        {/* 6. FORMA DE PAGAMENTO */}
+        {/* 7. FORMA DE PAGAMENTO */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            6. Escolha a Forma de Pagamento
+            7. Escolha a Forma de Pagamento
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
@@ -355,6 +389,7 @@ export function AppointmentForm({
             <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
             <div className="text-sm text-gray-300 space-y-1">
               <div><strong>Cliente:</strong> {clientName || 'Não informado'}</div>
+              <div><strong>WhatsApp:</strong> {clientWhatsapp || 'Não informado'}</div>
               <div><strong>Serviço:</strong> {selectedService?.name || ''} - R$ {selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}</div>
               <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
               <div><strong>Pagamento:</strong> {

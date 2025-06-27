@@ -13,6 +13,7 @@ import { TimeSelector } from '../components/TimeSelector';
 import { AvailableTimesViewer } from '../components/AvailableTimesViewer';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
 import { v4 as uuidv4 } from 'uuid';
+import LoyalCustomers from '../components/LoyalCustomers';
 
 interface BusinessHours {
   enabled: boolean;
@@ -59,6 +60,7 @@ interface Appointment {
   id: string;
   client_id: string;
   client_name: string;
+  client_whatsapp?: string;
   establishment_id: string;
   service: string;
   professional: string;
@@ -546,26 +548,47 @@ const EstablishmentDashboard = () => {
 
   const fetchAppointments = async () => {
     if (!establishment) return;
-
+    
+    setIsLoading(true);
+    
     try {
-      // Formatar a data para YYYY-MM-DD para garantir que pegue apenas o dia exato
-      const selectedDateFormatted = format(selectedDate, 'yyyy-MM-dd');
-
-      const { data: appointmentsData, error } = await supabase
+      const startOfSelectedDate = format(startOfDay(selectedDate), 'yyyy-MM-dd');
+      const endOfSelectedDate = format(endOfDay(selectedDate), 'yyyy-MM-dd');
+      
+      const { data, error } = await supabase
         .from('appointments')
-        .select('*')
+        .select(`
+          id,
+          client_id,
+          client_name,
+          client_whatsapp,
+          establishment_id,
+          service,
+          professional,
+          appointment_date,
+          appointment_time,
+          status,
+          created_at,
+          is_premium,
+          duration,
+          price,
+          payment_method,
+          pix_payment_status,
+          pix_proof_url
+        `)
         .eq('establishment_id', establishment.id)
-        .eq('appointment_date', selectedDateFormatted) // Mudado para eq em vez de gte/lte
+        .gte('appointment_date', startOfSelectedDate)
+        .lte('appointment_date', endOfSelectedDate)
         .order('appointment_time', { ascending: true });
-
-      if (error) {
-        throw error;
-      }
-
-      setAppointments(appointmentsData || []);
-    } catch (error) {
-      console.error('Erro ao buscar agendamentos:', error);
-      toast('Erro ao buscar agendamentos', 'error');
+      
+      if (error) throw error;
+      
+      setAppointments(data as Appointment[] || []);
+    } catch (error: any) {
+      console.error('Error fetching appointments:', error);
+      toast(error.message || 'Erro ao carregar agendamentos', 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1338,33 +1361,32 @@ const EstablishmentDashboard = () => {
                     {filteredAppointments.map(appointment => (
                       <div key={appointment.id} className="p-4 rounded-lg bg-[#242628] border border-gray-800">
                         <div className="flex items-center justify-between">
-                          <div>
+                          <div className="space-y-1">
                             <div className="flex items-center gap-2">
-                              <User className="h-5 w-5 text-gray-400" />
-                              <span className="text-white font-medium">
-                                {appointment.client_name}
-                              </span>
-                              <span className="text-sm text-gray-400">
-                                {appointment.is_premium ? '(Premium)' : '(Comum)'}
-                              </span>
+                              <User className="h-4 w-4 text-gray-400" />
+                              <span className="font-medium text-white">{appointment.client_name}</span>
                             </div>
-                            <div className="mt-2 text-sm text-gray-400">
-                              <div className="flex items-center gap-2">
-                                <Clock className="h-4 w-4" />
-                                <span>{appointment.appointment_time}</span>
-                              </div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Scissors className="h-4 w-4" />
-                                <span>
-                                  {appointment.service} - R$ {appointment.price ? appointment.price.toFixed(2).replace('.', ',') : '0,00'} ({formatDuration(appointment.duration || 0)})
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <User className="h-4 w-4" />
-                                <span>Profissional: {appointment.professional}</span>
-                              </div>
+                            {appointment.client_whatsapp && (
+                              <a 
+                                href={`https://wa.me/55${appointment.client_whatsapp}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 text-sm text-gray-400 hover:text-primary transition-colors"
+                              >
+                                <Phone className="h-4 w-4" />
+                                {appointment.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}
+                              </a>
+                            )}
+                            <div className="flex items-center gap-2 text-sm text-gray-400">
+                              <Scissors className="h-4 w-4" />
+                              {appointment.service}
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-400">
+                              <Clock className="h-4 w-4" />
+                              {appointment.appointment_time}
                             </div>
                           </div>
+                          
                           <div className="flex flex-col items-end gap-2">
                             {/* Dropdown de forma de pagamento */}
                             {appointment.status !== 'cancelled' && (
@@ -1786,6 +1808,9 @@ const EstablishmentDashboard = () => {
                 establishment={establishment}
                 onSave={handleSavePixSettings}
               />
+
+              {/* Sistema de Clientes Fiéis */}
+              <LoyalCustomers establishmentId={establishment.id} />
 
               {/* Botão de Salvar */}
               <div className="flex justify-end">

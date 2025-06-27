@@ -418,6 +418,7 @@ export const createAppointment = async (appointmentData: any) => {
         id,
         client_id,
         client_name,
+        client_whatsapp,
         establishment_id,
         service,
         professional,
@@ -427,7 +428,10 @@ export const createAppointment = async (appointmentData: any) => {
         created_at,
         is_premium,
         duration,
-        price
+        price,
+        payment_method,
+        pix_payment_status,
+        pix_proof_url
       `);
 
     console.log('✅ Agendamento criado - resultado:', data);
