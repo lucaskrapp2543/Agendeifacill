@@ -588,12 +588,6 @@ const LandingPage = () => {
             >
               Começar Agora
             </a>
-            <a 
-              href="/testar-gratis"
-              className="w-full sm:w-auto bg-transparent border-2 border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white font-bold py-4 px-8 rounded-xl text-lg transition-all duration-300"
-            >
-              TESTAR GRÁTIS
-            </a>
           </div>
         </div>
       </div>
