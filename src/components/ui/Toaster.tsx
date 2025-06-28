@@ -4,28 +4,30 @@ import { toast as hotToast } from 'react-hot-toast';
 export const Toaster = () => {
   return (
     <HotToaster
-      position="top-right"
+      position="bottom-right"
       toastOptions={{
-        duration: 3000,
+        duration: 5000,
         style: {
-          background: '#333',
+          background: 'rgba(0, 0, 0, 0.8)',
           color: '#fff',
-        },
-        success: {
-          duration: 3000,
-          style: {
-            background: '#22c55e',
-            color: '#fff',
-          },
-        },
-        error: {
-          duration: 4000,
-          style: {
-            background: '#ef4444',
-            color: '#fff',
-          },
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '8px',
+          padding: '12px 20px',
+          fontSize: '14px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
         },
       }}
+      gutter={8}
+      containerStyle={{
+        top: 40,
+        left: 40,
+        bottom: 40,
+        right: 40,
+      }}
+      containerClassName=""
+      reverseOrder={false}
+      limit={1}
     />
   );
 };

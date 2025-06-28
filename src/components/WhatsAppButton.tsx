@@ -1,16 +1,27 @@
 import React from 'react';
 
-export default function WhatsAppButton() {
+const WhatsAppButton = () => {
   return (
     <a
-      href="https://wa.link/wtmlac"
+      href="https://wa.link/efg2cj"
       target="_blank"
       rel="noopener noreferrer"
-      className="fixed bottom-4 right-4 z-50 bg-green-500 text-white p-3 rounded-full shadow-lg hover:bg-green-600 transition-colors"
+      className="fixed bottom-20 right-3 sm:bottom-6 sm:right-6 z-[9999] transform hover:scale-110 transition-transform duration-300 shadow-lg rounded-full block"
+      style={{ position: 'fixed' }}
+      aria-label="Contato WhatsApp"
     >
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-        <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.92 15.5C16.82 15.77 16.47 15.97 16.12 16.08C15.77 16.19 15.37 16.24 14.92 16.19C14.32 16.12 13.67 15.95 12.92 15.67C12.17 15.39 11.42 15.02 10.67 14.52C9.92 14.02 9.22 13.42 8.57 12.72C7.92 12.02 7.37 11.27 6.92 10.47C6.47 9.67 6.17 8.87 6.02 8.07C5.87 7.27 5.87 6.52 6.02 5.87C6.17 5.22 6.42 4.67 6.82 4.27C7.22 3.87 7.67 3.67 8.17 3.67C8.32 3.67 8.47 3.67 8.62 3.72C8.77 3.77 8.92 3.87 9.02 4.07L10.92 6.87C11.02 7.02 11.07 7.17 11.12 7.32C11.17 7.47 11.17 7.62 11.12 7.77C11.07 7.92 10.97 8.07 10.82 8.22L10.27 8.82C10.22 8.87 10.22 8.92 10.22 8.97C10.22 9.02 10.22 9.07 10.27 9.12C10.37 9.32 10.57 9.57 10.87 9.92C11.17 10.27 11.47 10.62 11.82 10.97C12.17 11.32 12.52 11.67 12.87 11.97C13.22 12.27 13.52 12.47 13.72 12.57C13.77 12.62 13.82 12.62 13.87 12.62C13.92 12.62 13.97 12.57 14.02 12.52L14.57 11.92C14.72 11.77 14.87 11.67 15.02 11.62C15.17 11.57 15.32 11.57 15.47 11.62C15.62 11.67 15.77 11.72 15.92 11.82L18.72 13.72C18.92 13.82 19.02 13.97 19.07 14.12C19.12 14.27 19.12 14.42 19.07 14.57L16.92 15.5Z"/>
-      </svg>
+      <div className="relative group">
+        <img 
+          src="/wppicon.png" 
+          alt="WhatsApp" 
+          className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14"
+        />
+        <span className="absolute -top-10 right-0 bg-black/80 backdrop-blur-sm text-white text-[10px] sm:text-xs py-1 px-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap pointer-events-none">
+          Fale Conosco
+        </span>
+      </div>
     </a>
   );
-} 
+};
+
+export default WhatsAppButton; 

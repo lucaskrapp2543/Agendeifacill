@@ -152,50 +152,51 @@ const LoyalCustomers: React.FC<LoyalCustomersProps> = ({ establishmentId }) => {
   };
 
   return (
-    <div className="bg-gray-900 rounded-lg p-6 mt-6">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-4">
+      {/* Cabeçalho */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-2 mb-4 bg-[#1a1b1c] p-3 rounded-lg">
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg transition-colors"
+          className="flex items-center gap-2 text-white bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded-lg w-full md:w-auto justify-center"
         >
-          <Star className="w-5 h-5" />
-          Clientes Fiel
+          <Star className="h-5 w-5" />
+          Clientes Fiéis
         </button>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePreviousMonth}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5 text-gray-400" />
-            </button>
-            
-            <span className="text-white font-medium">
-              {format(selectedMonth, 'MMMM yyyy', { locale: ptBR })}
-            </span>
-            
-            <button
-              onClick={handleNextMonth}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-            >
-              <ChevronRight className="w-5 h-5 text-gray-400" />
-            </button>
-          </div>
-
+        {/* Navegação entre meses */}
+        <div className="flex items-center justify-center gap-2 w-full md:w-auto">
           <button
-            onClick={handleDraw}
-            disabled={customers.length === 0}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              customers.length > 0
-                ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                : 'bg-gray-700 text-gray-400 cursor-not-allowed'
-            }`}
+            onClick={() => setSelectedMonth(subMonths(selectedMonth, 1))}
+            className="p-2 text-gray-400 hover:text-white transition-colors"
           >
-            <Shuffle className="w-5 h-5" />
-            Sortear
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          
+          <span className="text-white font-medium min-w-[100px] text-center">
+            {format(selectedMonth, 'MMMM yyyy', { locale: ptBR })}
+          </span>
+          
+          <button
+            onClick={() => setSelectedMonth(addMonths(selectedMonth, 1))}
+            className="p-2 text-gray-400 hover:text-white transition-colors"
+          >
+            <ChevronRight className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Botão de Sorteio */}
+        <button
+          onClick={handleDraw}
+          disabled={!customers.length}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg w-full md:w-auto justify-center ${
+            customers.length 
+              ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+              : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          <Shuffle className="h-5 w-5" />
+          Sortear
+        </button>
       </div>
 
       {/* Formulário de Cadastro */}

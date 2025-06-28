@@ -39,37 +39,38 @@ export function ServiceForm({ services, onChange }: ServiceFormProps) {
   return (
     <div className="space-y-4">
       {services.map((service, index) => (
-        <div key={service.id} className="flex items-center gap-4">
+        <div key={service.id} className="flex flex-col md:flex-row items-start md:items-center gap-4">
           <input
             type="text"
             value={service.name}
             onChange={(e) => handleServiceChange(index, 'name', e.target.value)}
             placeholder="Nome do serviço"
-            className="bg-[#242628] text-white border border-gray-800 rounded-lg px-3 py-2 flex-1"
+            className="bg-[#242628] text-white border border-gray-800 rounded-lg px-3 py-2 w-full md:flex-1"
           />
           <input
             type="number"
             value={service.price}
             onChange={(e) => handleServiceChange(index, 'price', e.target.value)}
             placeholder="Preço"
-            className="bg-[#242628] text-white border border-gray-800 rounded-lg px-3 py-2 w-32"
+            className="bg-[#242628] text-white border border-gray-800 rounded-lg px-3 py-2 w-full md:w-32"
           />
           <DurationSelector
             value={service.duration}
             onChange={(value) => handleServiceChange(index, 'duration', value)}
-            className="w-48"
+            className="w-full md:w-48"
           />
           <button
             onClick={() => handleRemoveService(index)}
-            className="p-2 text-gray-400 hover:text-white transition-colors"
+            className="p-2 text-gray-400 hover:text-white transition-colors w-full md:w-auto flex justify-center md:justify-start"
           >
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
       ))}
+      
       <button
         onClick={handleAddService}
-        className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-white transition-colors border border-gray-800 rounded-lg py-2"
+        className="flex items-center justify-center gap-2 text-gray-400 hover:text-white transition-colors w-full md:w-auto"
       >
         <Plus className="h-4 w-4" />
         Adicionar Serviço
