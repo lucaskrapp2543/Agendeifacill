@@ -282,14 +282,14 @@ const LandingPage = () => {
 
               {/* Vídeo do YouTube */}
               <div className="aspect-video w-full mb-6">
-              <iframe
+                <iframe
                   className="w-full h-full rounded-2xl"
-                  src="https://www.youtube.com/embed/6H9u6mxRkgI"
-                title="Vídeo de apresentação"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
+                  src="https://www.youtube.com/embed/IdtfdYwqy3M"
+                  title="Vídeo de apresentação"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
                 />
-            </div>
+              </div>
 
               {/* Botão de ação */}
               <div className="w-full flex justify-center mb-6">
