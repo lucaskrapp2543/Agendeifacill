@@ -1,3 +1,4 @@
+# Force deploy update - v1
 [build]
   publish = "dist"
   command = "npm run build"
@@ -17,3 +18,9 @@
   NPM_VERSION = "9.6.7"
 
 # Variáveis de ambiente serão definidas no painel do Netlify 
+
+[context.deploy-preview]
+  command = "npm run build"
+
+[context.branch-deploy]
+  command = "npm run build" 

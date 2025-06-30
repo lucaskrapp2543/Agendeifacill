@@ -30,6 +30,9 @@ export default defineConfig({
   },
   // Configuração para servir o index.html em todas as rotas
   build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: undefined,
