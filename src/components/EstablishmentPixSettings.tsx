@@ -1,21 +1,23 @@
 import { useState } from 'react';
 import { useToast } from './ui/Toaster';
+import { AlertTriangle } from 'lucide-react';
 
 interface EstablishmentPixSettingsProps {
-  initialPixKey?: string;
-  initialPixType?: string;
+  establishment: {
+    pix_key?: string;
+    pix_key_type?: string;
+  };
   onSave: (pixKey: string, pixType: string) => Promise<void>;
 }
 
 export const EstablishmentPixSettings = ({
-  initialPixKey = '',
-  initialPixType = 'telefone',
+  establishment,
   onSave
 }: EstablishmentPixSettingsProps) => {
-  const [pixKey, setPixKey] = useState(initialPixKey);
-  const [pixType, setPixType] = useState(initialPixType);
+  const [pixKey, setPixKey] = useState(establishment.pix_key || '');
+  const [pixType, setPixType] = useState(establishment.pix_key_type || 'telefone');
   const [isSaving, setIsSaving] = useState(false);
-  const toast = useToast();
+  const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,9 +40,16 @@ export const EstablishmentPixSettings = ({
   };
 
   return (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
-      <h2 className="text-xl font-medium text-gray-200 mb-6">Seu PIX para pagamento</h2>
+    <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+      <h3 className="text-lg font-medium text-white mb-4">Seu PIX para pagamento</h3>
       
+      <div className="flex items-start gap-2 p-4 bg-[#242628] rounded-lg mb-6 border border-yellow-600/50">
+        <AlertTriangle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+        <p className="text-sm text-gray-300">
+          Obrigatório preencher e salvar. Caso não queira botar seu PIX, coloque <span className="text-yellow-500 font-medium">naotenhopix</span> na chave e salve o PIX. Após isso, você conseguirá salvar as alterações normais como nomes entre outros.
+        </p>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-300">

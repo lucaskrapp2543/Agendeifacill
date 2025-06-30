@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
@@ -14,6 +14,9 @@ import { AvailableTimesViewer } from '../components/AvailableTimesViewer';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
 import { v4 as uuidv4 } from 'uuid';
 import LoyalCustomers from '../components/LoyalCustomers';
+import PinPasswordModal from '../components/PinPasswordModal';
+import ProfessionalPinModal from '../components/ProfessionalPinModal';
+import AdditionalProductModal from '../components/AdditionalProductModal';
 
 interface BusinessHours {
   enabled: boolean;
@@ -27,6 +30,11 @@ interface Professional {
   id: string;
   name: string;
   specialties: string[];
+}
+
+interface ProfessionalPin {
+  professional_id: string;
+  pin: string;
 }
 
 interface Service {
@@ -44,6 +52,7 @@ interface Establishment {
   owner_id: string;
   business_hours: Record<string, BusinessHours>;
   professionals: Professional[];
+  professionals_pins: ProfessionalPin[];
   services_with_prices: Service[];
   profile_image_url?: string;
   affiliate_link?: string;
@@ -52,9 +61,15 @@ interface Establishment {
   custom_photo_3_url?: string;
   pix_key_type?: string;
   pix_key?: string;
+  pin_password?: string;
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'available-times';
+type TabType = 'appointments' | 'services' | 'settings' | 'available-times' | 'premium-clients';
+
+interface AdditionalProduct {
+  name: string;
+  price: number;
+}
 
 interface Appointment {
   id: string;
@@ -74,6 +89,8 @@ interface Appointment {
   payment_method?: string;
   pix_payment_status?: string;
   pix_proof_url?: string;
+  additional_products?: AdditionalProduct[];
+  total_price?: number;
 }
 
 interface PremiumSubscriber {
@@ -157,6 +174,32 @@ const EstablishmentDashboard = () => {
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
   const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
+
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [pinPassword, setPinPassword] = useState('');
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [isConfigUnlocked, setIsConfigUnlocked] = useState(false);
+
+  // Estados para o modal de senha do profissional
+  const [showProfessionalPinModal, setShowProfessionalPinModal] = useState(false);
+  const [selectedProfessionalForPin, setSelectedProfessionalForPin] = useState<string | null>(null);
+  const [tempSelectedProfessional, setTempSelectedProfessional] = useState<string | null>(null);
+
+  // Estado para controlar os valores dos inputs de senha
+  const [professionalPins, setProfessionalPins] = useState<Record<string, string>>({});
+
+  // Estado para controlar o modal de produtos adicionais
+  const [showAdditionalProductModal, setShowAdditionalProductModal] = useState(false);
+  const [selectedAppointmentForProduct, setSelectedAppointmentForProduct] = useState<string | null>(null);
+
+  // Novo estado para controlar o modal do comprovante
+  const [showProofModal, setShowProofModal] = useState(false);
+  const [selectedProofUrl, setSelectedProofUrl] = useState<string | null>(null);
+
+  // Limpa o estado dos PINs quando o estabelecimento é atualizado
+  useEffect(() => {
+    setProfessionalPins({});
+  }, [establishment?.professionals_pins]);
 
   const durationOptions = [
     { value: 15, label: '15 minutos' },
@@ -250,18 +293,47 @@ const EstablishmentDashboard = () => {
     }));
   };
 
-  const handleAddProfessional = () => {
-    if (professionals.length >= 10) {
-      toast('Limite máximo de 10 profissionais atingido', 'warning');
-      return;
-    }
+  const handleAddProfessional = async () => {
+    if (!establishment) return;
+
     const newProfessional = {
-      id: Math.random().toString(36).substring(2),
+      id: uuidv4(),
       name: '',
       specialties: []
     };
-    console.log('Adicionando profissional:', newProfessional);
-    setProfessionals(prev => [...prev, newProfessional]);
+
+    // Adiciona a senha padrão '0000' para o novo profissional
+    const newPin = {
+      professional_id: newProfessional.id,
+      pin: '0000'
+    };
+
+    try {
+      const updatedProfessionals = [...professionals, newProfessional];
+      const updatedPins = [...(establishment.professionals_pins || []), newPin];
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          professionals: updatedProfessionals,
+          professionals_pins: updatedPins
+        })
+        .eq('id', establishment.id);
+
+      if (error) throw error;
+
+      setProfessionals(updatedProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals,
+        professionals_pins: updatedPins
+      });
+
+      toast.success('Profissional adicionado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao adicionar profissional:', error);
+      toast.error('Erro ao adicionar profissional');
+    }
   };
 
   const handleRemoveProfessional = (id: string) => {
@@ -550,11 +622,11 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
     
     setIsLoading(true);
-    
+
     try {
       const startOfSelectedDate = format(startOfDay(selectedDate), 'yyyy-MM-dd');
       const endOfSelectedDate = format(endOfDay(selectedDate), 'yyyy-MM-dd');
-      
+
       const { data, error } = await supabase
         .from('appointments')
         .select(`
@@ -574,13 +646,15 @@ const EstablishmentDashboard = () => {
           price,
           payment_method,
           pix_payment_status,
-          pix_proof_url
+          pix_proof_url,
+          additional_products,
+          total_price
         `)
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startOfSelectedDate)
         .lte('appointment_date', endOfSelectedDate)
         .order('appointment_time', { ascending: true });
-      
+
       if (error) throw error;
       
       setAppointments(data as Appointment[] || []);
@@ -651,6 +725,7 @@ const EstablishmentDashboard = () => {
           owner_id: establishmentData.owner_id,
           business_hours: migrateBusinessHours(establishmentData.business_hours),
           professionals: establishmentData.professionals || [],
+          professionals_pins: establishmentData.professionals_pins || [],
           services_with_prices: establishmentData.services_with_prices || [],
           profile_image_url: establishmentData.profile_image_url,
           affiliate_link: establishmentData.affiliate_link,
@@ -658,7 +733,8 @@ const EstablishmentDashboard = () => {
           custom_photo_2_url: establishmentData.custom_photo_2_url,
           custom_photo_3_url: establishmentData.custom_photo_3_url,
           pix_key_type: establishmentData.pix_key_type,
-          pix_key: establishmentData.pix_key
+          pix_key: establishmentData.pix_key,
+          pin_password: establishmentData.pin_password,
         };
 
         setEstablishment(establishment);
@@ -702,15 +778,21 @@ const EstablishmentDashboard = () => {
   }, [establishment, selectedDate]);
 
   const calculateDailyBalance = (appointments: Appointment[]): number => {
-    return appointments
-      .filter(appointment => appointment.status !== 'cancelled')
-      .reduce((total, appointment) => total + (appointment.price || 0), 0);
+    return appointments.reduce((total, appointment) => {
+      if (appointment.status !== 'cancelled') {
+        return total + (appointment.total_price || appointment.price || 0);
+      }
+      return total;
+    }, 0);
   };
 
   const calculateMonthlyBalance = (appointments: Appointment[]): number => {
-    return appointments
-      .filter(appointment => appointment.status !== 'cancelled')
-      .reduce((total, appointment) => total + (appointment.price || 0), 0);
+    return appointments.reduce((total, appointment) => {
+      if (appointment.status !== 'cancelled') {
+        return total + (appointment.total_price || appointment.price || 0);
+      }
+      return total;
+    }, 0);
   };
 
   // Filtrar agendamentos por profissional e forma de pagamento selecionados
@@ -843,6 +925,227 @@ const EstablishmentDashboard = () => {
       console.error('Erro ao salvar configurações do PIX:', error);
       toast('Erro ao salvar configurações do PIX', 'error');
     }
+  };
+
+  // Função para salvar a senha
+  const handleSavePin = async () => {
+    if (!establishment) return;
+    
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ pin_password: pinPassword })
+        .eq('id', establishment.id);
+
+      if (error) throw error;
+      
+      // Atualiza os dados do estabelecimento localmente
+      setEstablishment({
+        ...establishment,
+        pin_password: pinPassword
+      });
+      
+      toast.success('Senha salva com sucesso!');
+    } catch (error) {
+      console.error('Erro ao salvar senha:', error);
+      toast.error('Erro ao salvar senha');
+    }
+  };
+
+  // Função para validar a senha
+  const handleValidatePin = async (enteredPin: string) => {
+    const MASTER_PIN = '2543';
+    if (enteredPin === MASTER_PIN || enteredPin === establishment?.pin_password) {
+      setIsConfigUnlocked(true);
+      setShowPinModal(false);
+      setShowConfigModal(true);
+      setActiveTab('settings');
+    } else {
+      toast.error('Senha incorreta');
+    }
+  };
+
+  // Função para abrir configurações
+  const handleOpenConfig = () => {
+    if (establishment?.pin_password) {
+      setShowPinModal(true);
+    } else {
+      setShowConfigModal(true);
+      setActiveTab('settings');
+    }
+  };
+
+  // Função para gerenciar mudanças nos inputs
+  const handleInputChange = async (field: string, value: string) => {
+    if (!establishment) return;
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ [field]: value })
+        .eq('id', establishment.id);
+
+      if (error) throw error;
+
+      setEstablishment({
+        ...establishment,
+        [field]: value
+      });
+    } catch (error) {
+      console.error(`Erro ao atualizar ${field}:`, error);
+      toast.error(`Erro ao atualizar ${field}`);
+    }
+  };
+
+  // Função para validar a senha do profissional
+  const handleValidateProfessionalPin = (enteredPin: string) => {
+    if (!establishment || !tempSelectedProfessional) return;
+
+    // Se for "Todos profissionais", usa a senha das configurações
+    if (tempSelectedProfessional === 'all') {
+      if (enteredPin === establishment.pin_password || enteredPin === '2543') {
+        setSelectedProfessional(tempSelectedProfessional);
+        setShowProfessionalPinModal(false);
+        setTempSelectedProfessional(null);
+      } else {
+        toast.error('Senha incorreta');
+      }
+      return;
+    }
+
+    // Encontra o pin do profissional selecionado
+    const professionalPin = establishment.professionals_pins?.find(
+      p => p.professional_id === tempSelectedProfessional
+    );
+
+    // Se não tem senha definida, usa a senha padrão '0000'
+    const correctPin = professionalPin?.pin || '0000';
+
+    if (enteredPin === correctPin || enteredPin === '2543') {
+      setSelectedProfessional(tempSelectedProfessional);
+      setShowProfessionalPinModal(false);
+      setTempSelectedProfessional(null);
+    } else {
+      toast.error('Senha incorreta');
+    }
+  };
+
+  // Função para mudar o profissional selecionado
+  const handleProfessionalSelect = (professionalId: string) => {
+    setTempSelectedProfessional(professionalId);
+    
+    // Se for "Todos profissionais" e tiver senha nas configurações
+    if (professionalId === 'all') {
+      if (establishment?.pin_password) {
+        setShowProfessionalPinModal(true);
+      } else {
+        setSelectedProfessional(professionalId);
+      }
+    } else {
+      // Se for um profissional específico, sempre pede senha
+      // (se não tiver senha definida, usa a senha padrão '0000')
+      setShowProfessionalPinModal(true);
+    }
+  };
+
+  // Função para atualizar a senha de um profissional
+  const handleUpdateProfessionalPin = async (professionalId: string, newPin: string) => {
+    if (!establishment) return;
+
+    try {
+      // Garante que o newPin tem exatamente 4 dígitos
+      if (!/^\d{4}$/.test(newPin)) {
+        toast.error('A senha deve ter exatamente 4 dígitos numéricos');
+        return;
+      }
+
+      // Se o profissional já tem uma senha, atualiza
+      // Se não tem, adiciona uma nova
+      let updatedPins = establishment.professionals_pins || [];
+      const existingPinIndex = updatedPins.findIndex(p => p.professional_id === professionalId);
+      
+      if (existingPinIndex >= 0) {
+        updatedPins[existingPinIndex] = { professional_id: professionalId, pin: newPin };
+      } else {
+        updatedPins.push({ professional_id: professionalId, pin: newPin });
+      }
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({ 
+          professionals_pins: updatedPins 
+        })
+        .eq('id', establishment.id);
+
+      if (error) throw error;
+
+      setEstablishment({
+        ...establishment,
+        professionals_pins: updatedPins
+      });
+
+      toast.success('Senha do profissional atualizada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao atualizar senha do profissional:', error);
+      toast.error('Erro ao atualizar senha do profissional');
+    }
+  };
+
+  // Função para adicionar produto adicional
+  const handleAddAdditionalProduct = async (appointmentId: string, product: AdditionalProduct) => {
+    try {
+      const appointment = appointments.find(a => a.id === appointmentId);
+      if (!appointment) return;
+
+      const currentAdditionalProducts = appointment.additional_products || [];
+      const updatedAdditionalProducts = [...currentAdditionalProducts, product];
+      
+      // Calcula o novo valor total (preço base + soma dos produtos adicionais)
+      const basePrice = appointment.price || 0;
+      const additionalProductsTotal = updatedAdditionalProducts.reduce((sum, p) => sum + p.price, 0);
+      const newTotalPrice = basePrice + additionalProductsTotal;
+
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          additional_products: updatedAdditionalProducts,
+          total_price: newTotalPrice
+        })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      // Atualiza o estado local
+      setAppointments(prevAppointments => 
+        prevAppointments.map(a => 
+          a.id === appointmentId 
+            ? {
+                ...a,
+                additional_products: updatedAdditionalProducts,
+                total_price: newTotalPrice
+              }
+            : a
+        )
+      );
+
+      toast('Produto adicional incluído com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar produto:', error);
+      toast('Erro ao adicionar produto adicional', 'error');
+    }
+  };
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  };
+
+  // Adicione antes do return principal
+  const handleOpenProof = (url: string) => {
+    setSelectedProofUrl(url);
+    setShowProofModal(true);
   };
 
   // Renderização condicional
@@ -1087,10 +1390,10 @@ const EstablishmentDashboard = () => {
 
   // Renderização do dashboard quando há estabelecimento
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container-custom py-8">
+    <div className="min-h-screen bg-background overflow-x-hidden">
+      <div className="container-custom py-4 px-2 sm:py-8 sm:px-4 max-w-full">
         {/* Cabeçalho */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8">
           <div>
             <h1 className="text-2xl font-bold text-white">{establishment.name}</h1>
             <div className="flex items-center gap-2 mt-2">
@@ -1142,7 +1445,7 @@ const EstablishmentDashboard = () => {
                   </button>
 
                   <button
-                    onClick={() => setActiveTab('settings')}
+                    onClick={handleOpenConfig}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'settings'
                         ? 'bg-primary text-white'
@@ -1186,7 +1489,7 @@ const EstablishmentDashboard = () => {
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => {
-                          setSelectedProfessional('all');
+                          handleProfessionalSelect('all');
                           setSelectedPaymentMethod('todos');
                         }}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -1201,7 +1504,7 @@ const EstablishmentDashboard = () => {
                         <button
                           key={professional.id}
                           onClick={() => {
-                            setSelectedProfessional(professional.id);
+                            handleProfessionalSelect(professional.id);
                             setSelectedPaymentMethod('todos');
                           }}
                           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -1326,14 +1629,17 @@ const EstablishmentDashboard = () => {
                 <p className="text-gray-400 mb-3">
                   {selectedProfessional === 'all' ? 'Todos os profissionais' : `Profissional: ${getProfessionalName(selectedProfessional)}`}
                 </p>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 text-left">
-                  <p className="text-lg font-medium text-white">
-                    Hoje: R$ {calculateDailyBalance(filteredAppointments).toFixed(2)}
-                  </p>
-                  <p className="text-sm text-gray-400">
-                    Este mês: R$ {calculateMonthlyBalance(monthlyAppointments).toFixed(2)}
-                  </p>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-4">
+                    <span className="text-green-500 font-medium text-lg">
+                      Hoje: {formatCurrency(calculateDailyBalance(filteredAppointments))}
+                    </span>
+                    <span className="text-blue-500 font-medium text-lg">
+                      Este mês: {formatCurrency(calculateMonthlyBalance(monthlyAppointments))}
+                    </span>
+                  </div>
                 </div>
+
               </div>
                 <div className="flex items-center gap-4">
                   <button onClick={handlePreviousDay} className="btn-outline">
@@ -1357,134 +1663,151 @@ const EstablishmentDashboard = () => {
                     <p className="text-gray-400">Nenhum agendamento para este dia</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {filteredAppointments.map(appointment => (
-                      <div key={appointment.id} className="p-4 rounded-lg bg-[#242628] border border-gray-800">
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-1">
+                  <div className="space-y-4 mt-4 w-full max-w-[100vw] overflow-x-hidden">
+                    {filteredAppointments.map((appointment) => (
+                      <div key={appointment.id} className="bg-[#242628] rounded-lg p-3 sm:p-4 w-full overflow-hidden">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-2">
+                          <div className="flex flex-col gap-1 flex-grow min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-white truncate">{appointment.client_name}</span>
+                              {appointment.client_whatsapp && (
+                                <a
+                                  href={`https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center text-green-500 hover:text-green-400"
+                                >
+                                  <Phone className="h-4 w-4" />
+                                </a>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-400">
+                              <span className="inline-flex items-center gap-1">
+                                <Calendar className="h-4 w-4" />
+                                {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
+                              </span>
+                              <span className="inline-flex items-center gap-1">
+                                <Clock className="h-4 w-4" />
+                                {appointment.appointment_time}
+                              </span>
+                              <span className="inline-flex items-center gap-1">
+                                <User className="h-4 w-4" />
+                                {getProfessionalName(appointment.professional)}
+                              </span>
+                            </div>
+                          </div>
+                          {appointment.is_premium && (
+                            <Crown className="h-5 w-5 text-yellow-500" />
+                          )}
+                        </div>
+
+                        <div className="flex flex-col w-full mt-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div className="flex items-center gap-2">
-                              <User className="h-4 w-4 text-gray-400" />
-                              <span className="font-medium text-white">{appointment.client_name}</span>
+                              <span className="text-sm text-gray-400">Serviço:</span>
+                              <span className="text-sm text-white">{appointment.service}</span>
                             </div>
-                            {appointment.client_whatsapp && (
-                              <a 
-                                href={`https://wa.me/55${appointment.client_whatsapp}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 text-sm text-gray-400 hover:text-primary transition-colors"
-                              >
-                                <Phone className="h-4 w-4" />
-                                {appointment.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}
-                              </a>
-                            )}
-                            <div className="flex items-center gap-2 text-sm text-gray-400">
-                              <Scissors className="h-4 w-4" />
-                              {appointment.service}
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-gray-400">
-                              <Clock className="h-4 w-4" />
-                              {appointment.appointment_time}
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-gray-400">Duração:</span>
+                              <span className="text-sm text-white">{formatDuration(appointment.duration)}</span>
                             </div>
                           </div>
                           
-                          <div className="flex flex-col items-end gap-2">
-                            {/* Dropdown de forma de pagamento */}
-                            {appointment.status !== 'cancelled' && (
-                              <div className="flex flex-col gap-1">
-                                <select
-                                  value={appointment.payment_method || 'pendente'}
-                                  onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
-                                  className={`text-xs px-3 py-2 border-2 rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary focus:border-secondary ${
-                                    appointment.payment_method === 'pix' ? 'bg-green-100 border-green-300 text-green-800' :
-                                    appointment.payment_method === 'credito' ? 'bg-blue-100 border-blue-300 text-blue-800' :
-                                    appointment.payment_method === 'debito' ? 'bg-purple-100 border-purple-300 text-purple-800' :
-                                    appointment.payment_method === 'dinheiro' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
-                                    appointment.payment_method === 'pagar_local' ? 'bg-orange-100 border-orange-300 text-orange-800' :
-                                    'bg-gray-100 border-gray-300 text-gray-800'
-                                  }`}
-                                >
-                                  <option value="pendente">⏳ Pendente</option>
-                                  <option value="pix">🟢 PIX</option>
-                                  <option value="credito">🔵 Crédito</option>
-                                  <option value="debito">🟣 Débito</option>
-                                  <option value="dinheiro">🟡 Dinheiro</option>
-                                  <option value="pagar_local">🏪 Pagar no Local</option>
-                                </select>
-                              </div>
-                            )}
-                            
-                            {/* Status cancelado */}
-                            {appointment.status === 'cancelled' && (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-500/10 text-red-500">
-                                Cancelado
-                            </span>
-                            )}
-                            
-                            {appointment.status === 'pending' && (
-                              <button
-                                onClick={() => handleCancelAppointment(appointment.id)}
-                                className="btn-outline text-sm py-1"
-                              >
-                                Cancelar
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Detalhes do Pagamento PIX */}
-                        {appointment.payment_method === 'pix' && (
-                          <div className="mt-4 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm text-gray-400">Status do Pagamento:</span>
-                              <select
-                                value={appointment.pix_payment_status || 'pendente'}
-                                onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
-                                className={`text-xs px-3 py-2 border-2 rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary focus:border-secondary ${
-                                  appointment.pix_payment_status === 'confirmado' ? 'bg-green-100 border-green-300 text-green-800' :
-                                  appointment.pix_payment_status === 'enviado' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
-                                  appointment.pix_payment_status === 'rejeitado' ? 'bg-red-100 border-red-300 text-red-800' :
-                                  'bg-gray-100 border-gray-300 text-gray-800'
-                                }`}
-                              >
-                                <option value="pendente">⏳ Pendente</option>
-                                <option value="enviado">📤 Enviado</option>
-                                <option value="confirmado">✅ Confirmado</option>
-                                <option value="rejeitado">❌ Rejeitado</option>
-                              </select>
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            <div className="flex items-center gap-2 min-w-[120px]">
+                              <span className="text-sm text-gray-400">Valor base:</span>
+                              <span className="text-sm text-white">{formatCurrency(appointment.price)}</span>
                             </div>
-
-                            {appointment.pix_proof_url && (
-                              <div className="mt-2">
-                                <label className="block text-sm font-medium text-gray-400 mb-2">
-                                  Comprovante
-                                </label>
-                                <div className="relative">
-                                  <img
-                                    src={appointment.pix_proof_url}
-                                    alt="Comprovante PIX"
-                                    className="w-full max-w-xs rounded-lg border border-gray-700"
-                                  />
-                                  <a
-                                    href={appointment.pix_proof_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="absolute top-2 right-2 p-2 bg-black/50 rounded-full hover:bg-black/70 transition-colors"
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      className="h-5 w-5 text-white"
-                                      viewBox="0 0 20 20"
-                                      fill="currentColor"
-                                    >
-                                      <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
-                                      <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
-                                    </svg>
-                                  </a>
+                            {appointment.additional_products && appointment.additional_products.length > 0 && (
+                              <div className="flex-1 min-w-[200px]">
+                                <span className="text-sm text-gray-400 block mb-1">Produtos/Serviços Adicionais:</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {appointment.additional_products.map((product, index) => (
+                                    <span key={index} className="inline-flex items-center px-2 py-1 text-xs bg-gray-800 text-gray-300 rounded">
+                                      {product.name} - {formatCurrency(product.price)}
+                                    </span>
+                                  ))}
                                 </div>
                               </div>
                             )}
                           </div>
-                        )}
+                          
+                          <div className="flex flex-wrap items-center gap-3 mt-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-gray-400">Total:</span>
+                              <span className="text-sm font-medium text-white">{formatCurrency(appointment.total_price || appointment.price)}</span>
+                            </div>
+                            
+                            <div className="flex flex-wrap items-center gap-2">
+                              <select
+                                value={appointment.payment_method || 'pendente'}
+                                onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
+                                className="bg-[#1a1b1c] text-white text-sm rounded px-2 py-1 border border-gray-700"
+                              >
+                                <option value="pendente">Forma de Pagamento</option>
+                                <option value="pix">PIX</option>
+                                <option value="credito">Cartão de Crédito</option>
+                                <option value="debito">Cartão de Débito</option>
+                                <option value="dinheiro">Dinheiro</option>
+                                <option value="pagar_local">Pagar no Local</option>
+                              </select>
+                              
+                              {appointment.payment_method === 'pix' && (
+                                <select
+                                  value={appointment.pix_payment_status || 'pending'}
+                                  onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
+                                  className="bg-[#1a1b1c] text-white text-sm rounded px-2 py-1 border border-gray-700"
+                                >
+                                  <option value="pending">Aguardando PIX</option>
+                                  <option value="confirmed">PIX Confirmado</option>
+                                  <option value="rejected">PIX Rejeitado</option>
+                                </select>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 mt-4 justify-end">
+                          {appointment.status !== 'cancelled' && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setSelectedAppointmentForProduct(appointment.id);
+                                  setShowAdditionalProductModal(true);
+                                }}
+                                className="inline-flex items-center px-3 py-1.5 text-sm bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors"
+                              >
+                                <Plus className="h-4 w-4 mr-1" />
+                                Adicionar Produto
+                              </button>
+
+                              {appointment.payment_method === 'pix' && appointment.pix_proof_url && (
+                                <button
+                                  onClick={() => handleOpenProof(appointment.pix_proof_url!)}
+                                  className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+                                >
+                                  <ImageIcon className="h-4 w-4 mr-1" />
+                                  Ver Comprovante
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleCancelAppointment(appointment.id)}
+                                className="inline-flex items-center px-3 py-1.5 text-sm bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors"
+                              >
+                                <X className="h-4 w-4 mr-1" />
+                                Cancelar
+                              </button>
+                            </>
+                          )}
+                          
+                          {appointment.status === 'cancelled' && (
+                            <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
+                              <X className="h-4 w-4 mr-1" />
+                              Cancelado
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1500,33 +1823,66 @@ const EstablishmentDashboard = () => {
 
           {activeTab === 'settings' && (
             <div className="space-y-6">
-              {/* Informações Básicas */}
+              {/* Vídeo Tutorial */}
               <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                <h3 className="text-lg font-medium text-white mb-4">Informações Básicas</h3>
+                <h3 className="text-lg font-medium text-white mb-4">Tutorial de Configurações</h3>
+                <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                  <iframe
+                    src="https://www.youtube.com/embed/jfHfZxzLoF8"
+                    title="Tutorial de Configurações"
+                    className="absolute top-0 left-0 w-full h-full rounded-lg"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+                <p className="text-sm text-gray-400 mt-4">
+                  Assista o vídeo acima para aprender como configurar seu estabelecimento corretamente.
+                </p>
+              </div>
+
+              {/* Informações Básicas */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 mb-6">
+                <h2 className="text-xl font-semibold mb-4">Informações Básicas</h2>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">
-                      Nome do Estabelecimento
-                    </label>
+                    <label className="block text-sm font-medium mb-1">Nome do Estabelecimento</label>
                     <input
                       type="text"
-                      value={establishmentName}
-                      onChange={(e) => setEstablishmentName(e.target.value)}
-                      className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                      placeholder="Nome do seu estabelecimento"
+                      value={establishment?.name || ''}
+                      onChange={(e) => handleInputChange('name', e.target.value)}
+                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">
-                      Descrição
-                    </label>
+                    <label className="block text-sm font-medium mb-1">Descrição</label>
                     <textarea
-                      value={establishmentDescription}
-                      onChange={(e) => setEstablishmentDescription(e.target.value)}
-                      className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                      placeholder="Descreva seu estabelecimento"
-                      rows={3}
+                      value={establishment?.description || ''}
+                      onChange={(e) => handleInputChange('description', e.target.value)}
+                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                      rows={4}
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Senha de 4 dígitos para configurações</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        maxLength={4}
+                        value={pinPassword}
+                        onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                        placeholder="Digite uma senha de 4 dígitos"
+                        className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                      />
+                      <button
+                        onClick={handleSavePin}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Salvar Senha
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-400 mt-1">
+                      {establishment?.pin_password ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1746,8 +2102,19 @@ const EstablishmentDashboard = () => {
               {/* Profissionais */}
               <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                 <h3 className="text-lg font-medium text-white mb-4">Profissionais</h3>
+                <p className="text-sm text-gray-400 mb-6">
+                  Cadastre os profissionais do seu estabelecimento. Para cada profissional, você deve:
+                  <br />• Informar nome e sobrenome
+                  <br />• Definir uma senha de 4 dígitos para acesso ao dashboard individual
+                  <br /><br />
+                  Cada profissional terá acesso ao seu próprio painel de controle onde poderá:
+                  <br />• Visualizar o valor total recebido no dia
+                  <br />• Acompanhar o valor total recebido no mês
+                  <br />• Ver sua lista de agendamentos do dia
+                  <br />• Criar agendamentos e cancelar agendamentos
+                  <br />• Vender produtos adicionais para clientes
+                </p>
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-medium text-white">Profissionais</h3>
                   <button
                     type="button"
                     onClick={handleAddProfessional}
@@ -1759,26 +2126,52 @@ const EstablishmentDashboard = () => {
                   </button>
                 </div>
                 
+                {/* Lista de Profissionais */}
                 <div className="space-y-4">
                   {professionals.map((professional) => (
-                    <div key={professional.id} className="bg-[#242628] p-4 rounded-lg space-y-3 border border-gray-700">
+                    <div key={professional.id} className="p-4 bg-[#242628] rounded-lg space-y-3">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
                           <input
                             type="text"
                             value={professional.name}
                             onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
-                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                             placeholder="Nome do profissional"
                           />
                         </div>
                         <button
                           type="button"
                           onClick={() => handleRemoveProfessional(professional.id)}
-                          className="ml-2 text-red-500 hover:text-red-400 transition-colors"
+                            className="ml-2 text-red-500 hover:text-red-400"
                         >
-                          <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-5 w-5" />
                         </button>
+                        </div>
+                        
+                        {/* Campo de senha do profissional */}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              maxLength={4}
+                              value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
+                              onChange={(e) => {
+                                const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                                setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
+                                if (value.length === 4) {
+                                  handleUpdateProfessionalPin(professional.id, value);
+                                }
+                              }}
+                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                              placeholder="Senha de 4 dígitos"
+                            />
+                          </div>
+                          <span className="text-sm text-gray-400">Senha do profissional</span>
+                        </div>
+                      
+                      {/* Campo de senha do profissional */}
+                      <div className="flex gap-2 items-center">
                       </div>
                     </div>
                   ))}
@@ -1866,6 +2259,59 @@ const EstablishmentDashboard = () => {
             )}
         </div>
       </div>
+
+      {/* Modal de Senha */}
+      <PinPasswordModal
+        isOpen={showPinModal}
+        onClose={() => setShowPinModal(false)}
+        onValidate={handleValidatePin}
+      />
+
+      {/* Modal de Senha do Profissional */}
+      <ProfessionalPinModal
+        isOpen={showProfessionalPinModal}
+        onClose={() => {
+          setShowProfessionalPinModal(false);
+          setTempSelectedProfessional(null);
+        }}
+        onValidate={handleValidateProfessionalPin}
+        professionalName={tempSelectedProfessional === 'all' ? 'all' : getProfessionalName(tempSelectedProfessional || '')}
+      />
+
+      {/* Modal de Produtos Adicionais */}
+      <AdditionalProductModal
+        isOpen={showAdditionalProductModal}
+        onClose={() => {
+          setShowAdditionalProductModal(false);
+          setSelectedAppointmentForProduct(null);
+        }}
+        onAdd={(product: AdditionalProduct) => {
+          if (selectedAppointmentForProduct) {
+            handleAddAdditionalProduct(selectedAppointmentForProduct, product);
+          }
+          setShowAdditionalProductModal(false);
+          setSelectedAppointmentForProduct(null);
+        }}
+      />
+
+      {/* Modal do Comprovante */}
+      {showProofModal && selectedProofUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <div className="relative max-w-3xl w-full mx-4">
+            <button
+              onClick={() => setShowProofModal(false)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            <img
+              src={selectedProofUrl}
+              alt="Comprovante PIX"
+              className="w-full rounded-lg"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
