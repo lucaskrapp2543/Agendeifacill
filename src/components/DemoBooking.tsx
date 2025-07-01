@@ -162,23 +162,25 @@ const DemoBooking = () => {
               {demoServices.map((service) => (
                 <button
                   key={service.id}
-                  type="button"
-                  className={`w-full flex items-center justify-between p-4 rounded-lg ${
+                  className={`w-full p-4 rounded-lg text-left ${
                     selectedService === service.id
                       ? 'bg-blue-600'
                       : 'bg-[#2a2a2a] hover:bg-[#3a3a3a]'
                   }`}
                   onClick={() => setSelectedService(service.id)}
                 >
-                  <div className="flex items-center">
-                    <span>{service.name}</span>
-                  </div>
-                  <div className="flex items-center space-x-4 text-sm text-gray-400">
-                    <div className="flex items-center">
-                      <Clock className="w-4 h-4 mr-1" />
-                      <span>{service.duration}</span>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="text-lg">Serviço {service.id}</span>
+                      <div className="flex items-center gap-2 text-sm text-gray-400 mt-1">
+                        <Clock size={14} />
+                        <span>{service.duration}</span>
+                      </div>
                     </div>
-                    <span>{service.price}</span>
+                    <div className="text-right">
+                      <span className="text-sm text-gray-400">R$</span>
+                      <span className="text-lg ml-1">{service.price.replace('R$ ', '')}</span>
+                    </div>
                   </div>
                 </button>
               ))}
@@ -226,13 +228,13 @@ const DemoBooking = () => {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Horário</label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 {demoTimes.map((timeSlot) => (
                   <button
                     key={timeSlot.time}
                     type="button"
                     disabled={!timeSlot.isAvailable}
-                    className={`p-3 rounded-lg text-center ${
+                    className={`p-2 rounded-lg text-center ${
                       !timeSlot.isAvailable
                         ? 'bg-red-900/50 text-red-200 cursor-not-allowed'
                         : selectedTime === timeSlot.time
@@ -242,7 +244,7 @@ const DemoBooking = () => {
                     onClick={() => timeSlot.isAvailable && setSelectedTime(timeSlot.time)}
                   >
                     {timeSlot.time}
-                    <div className="text-xs mt-1">
+                    <div className="text-[10px] mt-1">
                       {timeSlot.isAvailable ? 'Disponível' : 'Reservado'}
                     </div>
                   </button>
