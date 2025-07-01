@@ -21,10 +21,13 @@ import {
   MapPin,
   MessageCircle,
   Rocket,
-  Eye
+  Eye,
+  DollarSign,
+  Lock
 } from 'lucide-react';
 import { PromoBanner } from '../components/PromoBanner';
 import WhatsAppButton from '../components/WhatsAppButton';
+import DemoBooking from '../components/DemoBooking';
 
 const notifications = [
   "AGORA : uma barbearia acabou de se tornar plano mensal",
@@ -94,6 +97,16 @@ const LandingPage = () => {
       icon: <Star className="w-6 h-6 text-white" fill="currentColor" />,
       title: "Sistema Premium para Clientes Fiéis",
       description: "Recompense seus clientes mais frequentes automaticamente"
+    },
+    {
+      icon: <DollarSign className="w-6 h-6 text-white" />,
+      title: "Dashboard Profissional",
+      description: "Administração completa de valores e vendas de cada profissional e produtos do seu estabelecimento"
+    },
+    {
+      icon: <Lock className="w-6 h-6 text-white" />,
+      title: "SEGURANÇA",
+      description: "Você pode criar senha para cada profissional, para que eles não tenham acesso ao dashboard de outros profissionais, somente você o dono e o seu funcionário"
     }
   ];
 
@@ -326,22 +339,41 @@ const LandingPage = () => {
                 </p>
               </div>
 
-              {/* Cards de Funcionalidades */}
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
-                {features.map((feature, index) => (
-                  <div key={index} className="bg-[#1a1b1c] p-6 rounded-2xl border border-[#2e2f30] hover:border-blue-500 transition-all duration-300">
-                    <div className="flex items-start gap-4 mb-2">
-                      <div className="bg-blue-600 w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0">
-                        {feature.icon}
+              {/* Features Section */}
+              <section className="py-16">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <h2 className="text-3xl font-bold text-center mb-12">
+                    Recursos Principais
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {features.map((feature, index) => (
+                      <div
+                        key={index}
+                        className="bg-gray-900 rounded-xl p-6 transform hover:scale-105 transition-transform duration-300"
+                      >
+                        <div className="bg-blue-500 rounded-full w-12 h-12 flex items-center justify-center mb-4">
+                          {feature.icon}
+                        </div>
+                        <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
+                        <p className="text-gray-400">{feature.description}</p>
                       </div>
-                      <h3 className="text-xl font-semibold pt-2">{feature.title}</h3>
-                    </div>
-                    <p className="text-gray-400 pl-16">
-                      {feature.description}
-                    </p>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              </section>
+
+              {/* Demo Booking Section */}
+              <section className="py-24 bg-[#111]">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <h2 className="text-3xl font-bold text-center mb-4">
+                    Experimente Como Funciona
+                  </h2>
+                  <p className="text-center text-gray-400 mb-12 max-w-2xl mx-auto">
+                    Faça uma simulação de agendamento e veja como é fácil e prático para seus clientes agendarem com você
+                  </p>
+                  <DemoBooking />
+                </div>
+              </section>
 
               {/* Seção de Depoimentos */}
               <div className="bg-white py-16 mb-20">
@@ -527,7 +559,7 @@ const LandingPage = () => {
               </div>
             </div>
           </div>
-              </div>
+        </div>
       </section>
 
       {/* CTA Section */}
