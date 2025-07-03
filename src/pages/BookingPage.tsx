@@ -10,6 +10,7 @@ import { PhotoCarousel } from '../components/PhotoCarousel';
 import { ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -186,7 +187,7 @@ export default function BookingPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-[#1a1b1c]">
         <div className="container-custom py-8">
           <div className="flex justify-center">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
@@ -197,56 +198,15 @@ export default function BookingPage() {
   }
 
   if (!establishment) {
-    console.log('❌ Estado: SEM ESTABELECIMENTO - Renderizando página de erro');
     return (
-      <div className="min-h-screen bg-white">
-        <header className="bg-white border-b border-gray-200">
-          <div className="container-custom py-4">
-            <div className="flex justify-between items-center">
-              <Link to="/" className="flex items-center gap-2">
-                <Calendar className="h-6 w-6 text-primary" />
-                <span className="text-xl font-bold text-gray-900">AgendaFácil</span>
-              </Link>
-            </div>
-          </div>
-        </header>
-
+      <div className="min-h-screen bg-[#1a1b1c]">
         <div className="container-custom py-8">
-          <div className="max-w-2xl mx-auto text-center">
-            <div className="bg-red-50 border border-red-200 rounded-lg p-8">
-              <h2 className="text-2xl font-semibold text-red-900 mb-4">
-                🔍 Estabelecimento não encontrado
-              </h2>
-              <p className="text-red-700 mb-6">
-                O código <strong>"{id}"</strong> não existe no sistema
-              </p>
-              
-              <div className="bg-white rounded-lg p-6 mb-6 text-left">
-                <h3 className="font-semibold text-gray-900 mb-3">💡 Possíveis soluções:</h3>
-                <ul className="space-y-2 text-gray-700">
-                  <li>• Verifique se o código foi digitado corretamente</li>
-                  <li>• O código deve ter exatamente 4 dígitos (ex: 2020, 1234)</li>
-                  <li>• Confirme com o estabelecimento qual é o código correto</li>
-                  <li>• O estabelecimento pode não ter sido configurado ainda</li>
-                </ul>
-              </div>
-
-              <div className="text-center">
-                <button
-                  onClick={() => navigate(-1)}
-                  className="btn-outline"
-                >
-                  Voltar
-                </button>
-              </div>
-
-              <div className="mt-8 text-sm text-gray-600">
-                <p>Tem um estabelecimento?</p>
-                <Link to="/dashboard" className="text-primary hover:underline">
-                  Acesse o dashboard para configurar
-                </Link>
-              </div>
-            </div>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold mb-4 text-white">Estabelecimento não encontrado</h1>
+            <p className="text-gray-400 mb-4">O estabelecimento que você procura não existe ou foi removido.</p>
+            <Link to="/" className="text-primary hover:underline">
+              Voltar para a página inicial
+            </Link>
           </div>
         </div>
       </div>
@@ -296,17 +256,17 @@ export default function BookingPage() {
   } : null;
 
   return (
-    <div className="min-h-screen bg-white">
-      <header className="bg-white border-b border-gray-200">
+    <div className="min-h-screen bg-[#1a1b1c]">
+      <header className="bg-[#1a1b1c] border-b border-gray-800">
         <div className="container-custom py-4">
           <div className="flex justify-between items-center">
             <Link to="/" className="flex items-center gap-2">
               <Calendar className="h-6 w-6 text-primary" />
-              <span className="text-xl font-bold text-gray-900">AgendaFácil</span>
+              <span className="text-xl font-bold text-white">AgendaFácil</span>
             </Link>
             {user ? (
               <div className="flex items-center gap-4">
-                <span className="text-gray-600">{user.email}</span>
+                <span className="text-gray-400">{user.email}</span>
                 <button onClick={handleLogout} className="btn-outline">
                   Sair
                 </button>
@@ -330,15 +290,15 @@ export default function BookingPage() {
           <div className="flex items-center gap-4 mb-8">
             <button
               onClick={() => navigate(-1)}
-              className="text-gray-600 hover:text-gray-900 transition-colors"
+              className="text-gray-400 hover:text-gray-300 transition-colors"
             >
               <ChevronLeft className="h-6 w-6" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">
+              <h1 className="text-2xl font-bold text-white">
                 {establishment?.name || 'Nome não disponível'}
               </h1>
-              <p className="text-gray-600">
+              <p className="text-gray-400">
                 {establishment?.description || establishment?.address || 'Descrição não disponível'}
               </p>
             </div>

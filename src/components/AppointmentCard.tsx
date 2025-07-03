@@ -15,6 +15,7 @@ interface AppointmentCardProps {
     pix_proof_url?: string;
     pix_payment_status?: string;
     price: number;
+    client_whatsapp?: string;
   };
   onCancel?: () => void;
   showCancelButton?: boolean;
@@ -31,7 +32,19 @@ export const AppointmentCard = ({
     <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 space-y-4">
       <div className="flex justify-between items-start">
         <div>
-          <h3 className="font-medium text-gray-200">{appointment.client_name}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-medium text-gray-200">{appointment.client_name}</h3>
+            {appointment.client_whatsapp && (
+              <a 
+                href={`https://wa.me/${appointment.client_whatsapp}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:opacity-80 transition-opacity"
+              >
+                <img src="/wppicon.png" alt="WhatsApp" className="w-5 h-5" />
+              </a>
+            )}
+          </div>
           <p className="text-sm text-gray-400">{appointment.service}</p>
         </div>
         <div className={`px-2 py-1 rounded text-sm ${

@@ -46,7 +46,7 @@ export const EstablishmentPixSettings = ({
       <div className="flex items-start gap-2 p-4 bg-[#242628] rounded-lg mb-6 border border-yellow-600/50">
         <AlertTriangle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
         <p className="text-sm text-gray-300">
-          Obrigatório preencher e salvar. Caso não queira botar seu PIX, coloque <span className="text-yellow-500 font-medium">naotenhopix</span> na chave e salve o PIX. Após isso, você conseguirá salvar as alterações normais como nomes entre outros.
+          Você deve cadastrar uma chave PIX ou digitar <span className="text-yellow-500 font-medium">naotenhopix</span> e salvar para prosseguir. Esta é uma etapa obrigatória para configurar seu estabelecimento.
         </p>
       </div>
 
@@ -82,7 +82,7 @@ export const EstablishmentPixSettings = ({
             required
           />
           <p className="text-sm text-gray-400">
-            Esta chave será usada para receber pagamentos via PIX dos seus clientes.
+            Esta chave será usada para receber pagamentos via PIX dos seus clientes. Caso não queira botar seu PIX, digite "naotenhopix" e clique em salvar.
           </p>
         </div>
 

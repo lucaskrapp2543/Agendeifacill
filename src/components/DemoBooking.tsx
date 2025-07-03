@@ -24,6 +24,7 @@ const DemoBooking = () => {
   const [selectedDate, setSelectedDate] = useState(getCurrentDate());
   const [selectedTime, setSelectedTime] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const demoServices = [
     { id: '1', name: 'Serviço 1', duration: '30min', price: 'R$ 50,00' },
@@ -140,7 +141,7 @@ const DemoBooking = () => {
             </div>
             <div className="mb-6">
               <label className="flex items-center text-sm font-medium mb-2">
-                <span className="mr-2">📱</span> WhatsApp
+                <img src="/wppicon.png" alt="WhatsApp" className="w-5 h-5 mr-2" /> WhatsApp
               </label>
               <input
                 type="tel"
@@ -192,22 +193,48 @@ const DemoBooking = () => {
         {step === 3 && (
           <div>
             <h3 className="text-lg font-medium mb-4">Escolha o Profissional</h3>
-            <div className="space-y-3">
-              {demoProfessionals.map((professional) => (
-                <button
-                  key={professional.id}
-                  type="button"
-                  className={`w-full flex items-center p-4 rounded-lg ${
-                    selectedProfessional === professional.id
-                      ? 'bg-blue-600'
-                      : 'bg-[#2a2a2a] hover:bg-[#3a3a3a]'
-                  }`}
-                  onClick={() => setSelectedProfessional(professional.id)}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full p-4 rounded-lg bg-[#2a2a2a] hover:bg-[#3a3a3a] text-left flex justify-between items-center"
+              >
+                <span>
+                  {selectedProfessional 
+                    ? demoProfessionals.find(p => p.id === selectedProfessional)?.name 
+                    : "Todos os Profissionais"}
+                </span>
+                <svg
+                  className={`w-5 h-5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  <User className="w-5 h-5 mr-3" />
-                  <span>{professional.name}</span>
-                </button>
-              ))}
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {/* Dropdown Menu */}
+              {isDropdownOpen && (
+                <div className="absolute w-full mt-2 bg-[#2a2a2a] rounded-lg shadow-xl z-10">
+                  {demoProfessionals.map((professional) => (
+                    <button
+                      key={professional.id}
+                      type="button"
+                      className={`w-full p-4 text-left hover:bg-[#3a3a3a] ${
+                        professional.id === selectedProfessional ? 'bg-blue-600' : ''
+                      } ${professional.id === demoProfessionals[0].id ? 'rounded-t-lg' : ''} 
+                      ${professional.id === demoProfessionals[demoProfessionals.length - 1].id ? 'rounded-b-lg' : ''}`}
+                      onClick={() => {
+                        setSelectedProfessional(professional.id);
+                        setIsDropdownOpen(false);
+                      }}
+                    >
+                      {professional.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

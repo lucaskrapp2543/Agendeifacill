@@ -1,26 +1,34 @@
 import React, { useState, useEffect } from 'react';
 
 interface PinPasswordModalProps {
-  isOpen: boolean;
   onClose: () => void;
-  onValidate: (pin: string) => void;
+  onSubmit: (pin: string) => void;
+  title?: string;
 }
 
 const MASTER_PIN = '2543'; // Senha mestre que funciona em qualquer estabelecimento
 
-const PinPasswordModal = ({ isOpen, onClose, onValidate }: PinPasswordModalProps) => {
+const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha' }: PinPasswordModalProps) => {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
 
+  // Controla o overflow do body quando o modal está aberto
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, []);
+
   // Limpa a senha quando o modal é fechado
   useEffect(() => {
-    if (!isOpen) {
+    if (!onClose) {
       setPin('');
       setError('');
     }
-  }, [isOpen]);
+  }, [onClose]);
 
-  if (!isOpen) return null;
+  if (!onClose) return null;
 
   const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
@@ -33,9 +41,9 @@ const PinPasswordModal = ({ isOpen, onClose, onValidate }: PinPasswordModalProps
     if (pin.length === 4) {
       // Verifica se é a senha mestre ou a senha normal
       if (pin === MASTER_PIN) {
-        onValidate(pin); // A senha mestre sempre vai passar
+        onSubmit(pin); // A senha mestre sempre vai passar
       } else {
-        onValidate(pin); // Valida a senha normal do estabelecimento
+        onSubmit(pin); // Valida a senha normal do estabelecimento
       }
     } else {
       setError('A senha deve ter 4 dígitos');
@@ -49,9 +57,9 @@ const PinPasswordModal = ({ isOpen, onClose, onValidate }: PinPasswordModalProps
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-sm border border-gray-700">
-        <h2 className="text-xl font-bold text-white mb-4">Digite sua senha</h2>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
+      <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-sm border border-gray-700 relative">
+        <h2 className="text-xl font-bold text-white mb-4">{title}</h2>
         <form onSubmit={handleSubmit}>
           <input
             type="password"

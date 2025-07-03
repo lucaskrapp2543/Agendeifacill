@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth } from 'date-fns';
+import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
@@ -17,6 +17,7 @@ import LoyalCustomers from '../components/LoyalCustomers';
 import PinPasswordModal from '../components/PinPasswordModal';
 import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import AdditionalProductModal from '../components/AdditionalProductModal';
+import { FinancialDashboard } from '../components/FinancialDashboard';
 
 interface BusinessHours {
   enabled: boolean;
@@ -62,9 +63,10 @@ interface Establishment {
   pix_key_type?: string;
   pix_key?: string;
   pin_password?: string;
+  logo_url?: string;
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'available-times' | 'premium-clients';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard';
 
 interface AdditionalProduct {
   name: string;
@@ -129,6 +131,16 @@ const EstablishmentDashboard = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isPaymentDropdownOpen, setIsPaymentDropdownOpen] = useState(false);
+  const [selectedProfessional, setSelectedProfessional] = useState('all');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('todos');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const paymentDropdownRef = useRef<HTMLDivElement>(null);
   
   // Estados do formulário
   const [establishmentName, setEstablishmentName] = useState('');
@@ -163,13 +175,6 @@ const EstablishmentDashboard = () => {
   
   const [servicesWithPrices, setServicesWithPrices] = useState<Service[]>([]);
 
-  // Estados de agendamentos
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [selectedProfessional, setSelectedProfessional] = useState<string>('all');
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('todos');
-
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
   const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
@@ -195,6 +200,10 @@ const EstablishmentDashboard = () => {
   // Novo estado para controlar o modal do comprovante
   const [showProofModal, setShowProofModal] = useState(false);
   const [selectedProofUrl, setSelectedProofUrl] = useState<string | null>(null);
+
+  const [isSettingsUnlocked, setIsSettingsUnlocked] = useState(false);
+  const [isDashboardUnlocked, setIsDashboardUnlocked] = useState(false);
+  const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
 
   // Limpa o estado dos PINs quando o estabelecimento é atualizado
   useEffect(() => {
@@ -414,6 +423,7 @@ const EstablishmentDashboard = () => {
         custom_photo_3: customPhoto3,
         pix_key_type: pixKeyType,
         pix_key: pixKey,
+        pin_password: null // Garantindo que a senha começa como nula
       };
       
       console.log('Dados do estabelecimento a serem criados:', establishmentData);
@@ -666,93 +676,84 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const fetchMonthlyAppointments = async () => {
+  const fetchMonthlyAppointments = async (month: Date = new Date()) => {
     if (!establishment) return;
 
     try {
-      // Formatar as datas para YYYY-MM-DD para garantir consistência
-      const startDate = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
-      const endDate = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
+      const start = startOfMonth(subMonths(month, 11)); // 11 meses atrás
+      const end = endOfMonth(month); // Mês atual
 
-      const { data: appointmentsData, error } = await supabase
+      const { data: appointments, error } = await supabase
         .from('appointments')
         .select('*')
         .eq('establishment_id', establishment.id)
-        .gte('appointment_date', startDate)
-        .lte('appointment_date', endDate)
-        .order('appointment_date', { ascending: true })
-        .order('appointment_time', { ascending: true });
+        .gte('appointment_date', start.toISOString())
+        .lte('appointment_date', end.toISOString())
+        .neq('status', 'cancelled')
+        .order('appointment_date', { ascending: true });
 
       if (error) {
-        throw error;
+        console.error('Erro ao buscar agendamentos:', error);
+        return;
       }
 
-      setMonthlyAppointments(appointmentsData || []);
+      setMonthlyAppointments(appointments || []);
     } catch (error) {
-      console.error('Erro ao buscar agendamentos mensais:', error);
-      toast('Erro ao buscar agendamentos mensais', 'error');
+      console.error('Erro ao buscar agendamentos:', error);
     }
   };
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!user) {
-        navigate('/login');
-        return;
-      }
-
       try {
-        const { data: establishmentData, error: establishmentError } = await supabase
+        setIsEstablishmentLoading(true);
+        const { data: establishmentData, error } = await supabase
           .from('establishments')
-          .select('*')
-          .eq('owner_id', user.id)
+          .select(`
+            *,
+            professionals:professionals,
+            services_with_prices:services_with_prices
+          `)
+          .eq('owner_id', user?.id)
           .single();
 
-        if (establishmentError) {
-          throw establishmentError;
+        if (error) throw error;
+
+        if (establishmentData) {
+          setEstablishment(establishmentData);
+          setEstablishmentName(establishmentData.name || '');
+          setEstablishmentDescription(establishmentData.description || '');
+          setEstablishmentCode(establishmentData.code || '');
+          setAffiliateLink(establishmentData.affiliate_link || '');
+          setPixKeyType(establishmentData.pix_key_type || '');
+          setPixKey(establishmentData.pix_key || '');
+          setPinPassword(establishmentData.pin_password || '');
+          
+          // Carrega os profissionais e serviços
+          setProfessionals(establishmentData.professionals || []);
+          setServicesWithPrices(establishmentData.services_with_prices || []);
+          setBusinessHours(establishmentData.business_hours || {
+            monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+            tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+            wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+            thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+            friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+            saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+            sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
+          });
+          
+          // Carrega as URLs das fotos personalizadas para pré-visualização
+          if (establishmentData.custom_photo_1_url) {
+            setCustomPhoto1Preview(establishmentData.custom_photo_1_url);
+          }
+          if (establishmentData.custom_photo_2_url) {
+            setCustomPhoto2Preview(establishmentData.custom_photo_2_url);
+          }
+          if (establishmentData.custom_photo_3_url) {
+            setCustomPhoto3Preview(establishmentData.custom_photo_3_url);
+          }
+          setProfileImagePreview(establishmentData.profile_image_url || null);
         }
-
-        if (!establishmentData) {
-          setIsEstablishmentLoading(false);
-          return;
-        }
-
-        const establishment: Establishment = {
-          id: establishmentData.id,
-          name: establishmentData.name,
-          description: establishmentData.description,
-          code: establishmentData.code,
-          owner_id: establishmentData.owner_id,
-          business_hours: migrateBusinessHours(establishmentData.business_hours),
-          professionals: establishmentData.professionals || [],
-          professionals_pins: establishmentData.professionals_pins || [],
-          services_with_prices: establishmentData.services_with_prices || [],
-          profile_image_url: establishmentData.profile_image_url,
-          affiliate_link: establishmentData.affiliate_link,
-          custom_photo_1_url: establishmentData.custom_photo_1_url,
-          custom_photo_2_url: establishmentData.custom_photo_2_url,
-          custom_photo_3_url: establishmentData.custom_photo_3_url,
-          pix_key_type: establishmentData.pix_key_type,
-          pix_key: establishmentData.pix_key,
-          pin_password: establishmentData.pin_password,
-        };
-
-        setEstablishment(establishment);
-        setEstablishmentName(establishment.name);
-        setEstablishmentDescription(establishment.description);
-        setEstablishmentCode(establishment.code);
-        setAffiliateLink(establishment.affiliate_link || '');
-        setPixKeyType(establishment.pix_key_type || '');
-        setPixKey(establishment.pix_key || '');
-        setBusinessHours(establishment.business_hours);
-        setProfessionals(establishment.professionals);
-        setServicesWithPrices(establishment.services_with_prices);
-
-        await Promise.all([
-          fetchAppointments(),
-          fetchMonthlyAppointments(),
-          fetchPremiumSubscribers()
-        ]);
       } catch (error) {
         console.error('Error fetching establishment:', error);
         toast('Erro ao carregar estabelecimento', 'error');
@@ -765,7 +766,7 @@ const EstablishmentDashboard = () => {
   }, [user]);
 
   useEffect(() => {
-    if (establishment && activeTab === 'premium-clients') {
+    if (establishment && activeTab === 'financial-dashboard') {
       fetchPremiumSubscribers();
     }
   }, [establishment, activeTab]);
@@ -773,9 +774,9 @@ const EstablishmentDashboard = () => {
   useEffect(() => {
     if (establishment) {
       fetchAppointments();
-      fetchMonthlyAppointments();
+      fetchMonthlyAppointments(selectedMonth);
     }
-  }, [establishment, selectedDate]);
+  }, [establishment, selectedDate, selectedMonth]);
 
   const calculateDailyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
@@ -932,9 +933,10 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
     
     try {
+      // Se o pinPassword estiver vazio, isso removerá a proteção por senha
       const { error } = await supabase
         .from('establishments')
-        .update({ pin_password: pinPassword })
+        .update({ pin_password: pinPassword || null })
         .eq('id', establishment.id);
 
       if (error) throw error;
@@ -942,10 +944,10 @@ const EstablishmentDashboard = () => {
       // Atualiza os dados do estabelecimento localmente
       setEstablishment({
         ...establishment,
-        pin_password: pinPassword
+        pin_password: pinPassword || null
       });
       
-      toast.success('Senha salva com sucesso!');
+      toast.success(pinPassword ? 'Senha salva com sucesso!' : 'Proteção por senha removida com sucesso!');
     } catch (error) {
       console.error('Erro ao salvar senha:', error);
       toast.error('Erro ao salvar senha');
@@ -954,12 +956,13 @@ const EstablishmentDashboard = () => {
 
   // Função para validar a senha
   const handleValidatePin = async (enteredPin: string) => {
-    const MASTER_PIN = '2543';
-    if (enteredPin === MASTER_PIN || enteredPin === establishment?.pin_password) {
-      setIsConfigUnlocked(true);
+    if (!establishment?.pin_password || establishment.pin_password.length === 0) {
+      // Se não tem senha configurada, libera o acesso
+      setIsSettingsUnlocked(true);
       setShowPinModal(false);
-      setShowConfigModal(true);
-      setActiveTab('settings');
+    } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
+      setIsSettingsUnlocked(true);
+      setShowPinModal(false);
     } else {
       toast.error('Senha incorreta');
     }
@@ -967,7 +970,7 @@ const EstablishmentDashboard = () => {
 
   // Função para abrir configurações
   const handleOpenConfig = () => {
-    if (establishment?.pin_password) {
+    if (establishment?.pin_password && establishment.pin_password.length > 0) {
       setShowPinModal(true);
     } else {
       setShowConfigModal(true);
@@ -1003,7 +1006,12 @@ const EstablishmentDashboard = () => {
 
     // Se for "Todos profissionais", usa a senha das configurações
     if (tempSelectedProfessional === 'all') {
-      if (enteredPin === establishment.pin_password || enteredPin === '2543') {
+      if (!establishment.pin_password || establishment.pin_password.length === 0) {
+        // Se não tem senha configurada, libera o acesso
+        setSelectedProfessional(tempSelectedProfessional);
+        setShowProfessionalPinModal(false);
+        setTempSelectedProfessional(null);
+      } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
         setSelectedProfessional(tempSelectedProfessional);
         setShowProfessionalPinModal(false);
         setTempSelectedProfessional(null);
@@ -1018,10 +1026,15 @@ const EstablishmentDashboard = () => {
       p => p.professional_id === tempSelectedProfessional
     );
 
-    // Se não tem senha definida, usa a senha padrão '0000'
-    const correctPin = professionalPin?.pin || '0000';
+    // Se não tem senha configurada ou a senha está vazia, libera o acesso
+    if (!professionalPin?.pin || professionalPin.pin.length === 0) {
+      setSelectedProfessional(tempSelectedProfessional);
+      setShowProfessionalPinModal(false);
+      setTempSelectedProfessional(null);
+      return;
+    }
 
-    if (enteredPin === correctPin || enteredPin === '2543') {
+    if (enteredPin === professionalPin.pin || enteredPin === '2543') {
       setSelectedProfessional(tempSelectedProfessional);
       setShowProfessionalPinModal(false);
       setTempSelectedProfessional(null);
@@ -1034,17 +1047,24 @@ const EstablishmentDashboard = () => {
   const handleProfessionalSelect = (professionalId: string) => {
     setTempSelectedProfessional(professionalId);
     
-    // Se for "Todos profissionais" e tiver senha nas configurações
+    // Se for "Todos profissionais", só pede senha se tiver configurada
     if (professionalId === 'all') {
-      if (establishment?.pin_password) {
+      if (establishment?.pin_password && establishment.pin_password.length > 0) {
         setShowProfessionalPinModal(true);
       } else {
         setSelectedProfessional(professionalId);
       }
     } else {
-      // Se for um profissional específico, sempre pede senha
-      // (se não tiver senha definida, usa a senha padrão '0000')
-      setShowProfessionalPinModal(true);
+      // Se for um profissional específico, verifica se tem senha configurada
+      const professionalPin = establishment?.professionals_pins?.find(
+        p => p.professional_id === professionalId
+      );
+
+      if (professionalPin?.pin && professionalPin.pin.length > 0) {
+        setShowProfessionalPinModal(true);
+      } else {
+        setSelectedProfessional(professionalId);
+      }
     }
   };
 
@@ -1146,6 +1166,179 @@ const EstablishmentDashboard = () => {
   const handleOpenProof = (url: string) => {
     setSelectedProofUrl(url);
     setShowProofModal(true);
+  };
+
+  // Efeito para fechar os dropdowns quando clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+      if (paymentDropdownRef.current && !paymentDropdownRef.current.contains(event.target as Node)) {
+        setIsPaymentDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Função para obter o ícone e nome do método de pagamento
+  const getPaymentMethodInfo = (method: string) => {
+    switch (method) {
+      case 'todos':
+        return { icon: '💳', name: 'Todos os tipos' };
+      case 'pendente':
+        return { icon: '⏳', name: 'Pendente' };
+      case 'pix':
+        return { icon: '🟢', name: 'PIX' };
+      case 'credito':
+        return { icon: '🔵', name: 'Crédito' };
+      case 'debito':
+        return { icon: '🟣', name: 'Débito' };
+      case 'dinheiro':
+        return { icon: '🟡', name: 'Dinheiro' };
+      case 'pagar_local':
+        return { icon: '🏪', name: 'Pagar no Local' };
+      default:
+        return { icon: '💳', name: 'Todos os tipos' };
+    }
+  };
+
+  const handleValidateDashboardPin = async (enteredPin: string) => {
+    if (!establishment?.pin_password || establishment.pin_password.length === 0) {
+      // Se não tem senha configurada, libera o acesso
+      setIsDashboardUnlocked(true);
+      setShowDashboardPinModal(false);
+    } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
+      setIsDashboardUnlocked(true);
+      setShowDashboardPinModal(false);
+    } else {
+      toast('Senha incorreta', 'error');
+    }
+  };
+
+  // Função para atualizar o mês selecionado
+  const handleMonthChange = async (newMonth: Date) => {
+    setSelectedMonth(newMonth);
+    await fetchMonthlyAppointments(newMonth);
+  };
+
+  // Função para fechar o modal de senha e voltar para agendamentos
+  const handleClosePinModal = () => {
+    setShowPinModal(false);
+    setActiveTab('appointments');
+  };
+
+  // Função para fechar o modal de senha do dashboard e voltar para agendamentos
+  const handleCloseDashboardPinModal = () => {
+    setShowDashboardPinModal(false);
+    setActiveTab('appointments');
+  };
+
+  const createBucketIfNotExists = async () => {
+    try {
+      // Primeiro verifica se o bucket já existe
+      const { data: buckets } = await supabase.storage.listBuckets();
+      const bucketExists = buckets?.some(bucket => bucket.name === 'establishment-photos');
+      
+      if (!bucketExists) {
+        // Se não existe, cria o bucket
+        const { data, error } = await supabase.storage.createBucket('establishment-photos', {
+          public: true,
+          allowedMimeTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+          fileSizeLimit: 1024 * 1024 * 2 // 2MB
+        });
+
+        if (error) throw error;
+        console.log('Bucket criado com sucesso:', data);
+      }
+    } catch (error) {
+      console.error('Erro ao criar bucket:', error);
+      throw error;
+    }
+  };
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!establishment || !e.target.files?.[0]) return;
+
+    try {
+      const file = e.target.files[0];
+      const fileExt = file.name.split('.').pop();
+      const fileName = `logo-${Date.now()}.${fileExt}`;
+
+      // Upload do arquivo para o storage
+      const { error: uploadError, data } = await supabase.storage
+        .from('establishment-photos')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Obtém a URL pública do arquivo
+      const { data: { publicUrl } } = supabase.storage
+        .from('establishment-photos')
+        .getPublicUrl(fileName);
+
+      // Atualiza o estabelecimento com a nova URL da logo
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ logo_url: publicUrl })
+        .eq('id', establishment.id);
+
+      if (updateError) throw updateError;
+
+      // Atualiza o estado local
+      setEstablishment({
+        ...establishment,
+        logo_url: publicUrl
+      });
+
+      toast.success('Logo atualizada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao fazer upload da logo:', error);
+      toast.error('Erro ao fazer upload da logo');
+    }
+  };
+
+  // Função para remover a logo
+  const handleRemoveLogo = async () => {
+    if (!establishment || !establishment.logo_url) return;
+
+    try {
+      // Remove o arquivo do storage
+      const fileName = establishment.logo_url.split('/').pop();
+      if (fileName) {
+        const { error: deleteError } = await supabase.storage
+          .from('establishment-photos')
+          .remove([`${establishment.id}/${fileName}`]);
+
+        if (deleteError) throw deleteError;
+      }
+
+      // Atualiza o estabelecimento removendo a URL da logo
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ logo_url: null })
+        .eq('id', establishment.id);
+
+      if (updateError) throw updateError;
+
+      // Atualiza o estado local
+      setEstablishment({
+        ...establishment,
+        logo_url: null
+      });
+
+      toast.success('Logo removida com sucesso!');
+    } catch (error) {
+      console.error('Erro ao remover logo:', error);
+      toast.error('Erro ao remover logo');
+    }
   };
 
   // Renderização condicional
@@ -1445,7 +1638,33 @@ const EstablishmentDashboard = () => {
                   </button>
 
                   <button
-                    onClick={handleOpenConfig}
+                    onClick={() => {
+                      if (establishment?.pin_password && establishment.pin_password.length > 0 && !isDashboardUnlocked) {
+                        setShowDashboardPinModal(true);
+                      } else {
+                        setIsDashboardUnlocked(true);
+                      }
+                      setActiveTab('financial-dashboard');
+                    }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                      activeTab === 'financial-dashboard'
+                        ? 'bg-primary text-white'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <BarChart3 className="h-5 w-5" />
+                    <span className="hidden sm:inline">Dashboard</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (establishment?.pin_password && establishment.pin_password.length > 0 && !isSettingsUnlocked) {
+                        setShowPinModal(true);
+                      } else {
+                        setIsSettingsUnlocked(true);
+                      }
+                      setActiveTab('settings');
+                    }}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'settings'
                         ? 'bg-primary text-white'
@@ -1453,12 +1672,12 @@ const EstablishmentDashboard = () => {
                     }`}
                   >
                     <Settings className="h-5 w-5" />
-                    <span className="hidden sm:inline">Config.</span>
+                    <span className="hidden sm:inline">Config</span>
                   </button>
 
                   <button
                     onClick={signOut}
-                    className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white transition-colors rounded-lg"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-400 hover:text-white transition-colors"
                   >
                     <LogOut className="h-5 w-5" />
                     <span className="hidden sm:inline">Sair</span>
@@ -1468,14 +1687,6 @@ const EstablishmentDashboard = () => {
 
         {/* Conteúdo Principal */}
         <div className="space-y-6">
-          {/* Tab de Horários Disponíveis */}
-          {activeTab === 'available-times' && establishment && (
-            <AvailableTimesViewer
-              establishment={establishment}
-              existingAppointments={appointments}
-            />
-          )}
-
           {/* Outros tabs existentes */}
             {activeTab === 'appointments' && (
               <>
@@ -1484,38 +1695,59 @@ const EstablishmentDashboard = () => {
                   <div className="mb-6 bg-[#1a1b1c] rounded-lg p-4 border border-gray-800">
                     <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
                       <User className="h-5 w-5 text-primary" />
-                      Filtrar por Profissional
+                      Escolha o profissional
                     </h3>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="relative" ref={dropdownRef}>
                       <button
-                        onClick={() => {
-                          handleProfessionalSelect('all');
-                          setSelectedPaymentMethod('todos');
-                        }}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          selectedProfessional === 'all'
-                            ? 'bg-primary text-white'
-                            : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                        }`}
+                        onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                        className="w-full p-4 rounded-lg bg-[#242628] hover:bg-[#2a2b2d] text-left flex justify-between items-center border border-gray-700"
                       >
-                        👥 Todos os Profissionais
-                      </button>
-                      {establishment.professionals.map((professional) => (
-                        <button
-                          key={professional.id}
-                          onClick={() => {
-                            handleProfessionalSelect(professional.id);
-                            setSelectedPaymentMethod('todos');
-                          }}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            selectedProfessional === professional.id
-                              ? 'bg-primary text-white'
-                              : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                          }`}
+                        <span className="flex items-center gap-2">
+                          {selectedProfessional === 'all' ? '👥' : '👤'} 
+                          {getProfessionalName(selectedProfessional)}
+                        </span>
+                        <svg
+                          className={`w-5 h-5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          👤 {professional.name}
-                        </button>
-                      ))}
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      
+                      {/* Dropdown Menu */}
+                      {isDropdownOpen && (
+                        <div className="absolute w-full mt-2 bg-[#242628] rounded-lg shadow-xl z-10 border border-gray-700">
+                          <button
+                            onClick={() => {
+                              handleProfessionalSelect('all');
+                              setSelectedPaymentMethod('todos');
+                              setIsDropdownOpen(false);
+                            }}
+                            className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                              selectedProfessional === 'all' ? 'bg-primary text-white' : 'text-gray-300'
+                            } rounded-t-lg`}
+                          >
+                            👥 Todos os Profissionais
+                          </button>
+                          {establishment.professionals.map((professional, index) => (
+                            <button
+                              key={professional.id}
+                              onClick={() => {
+                                handleProfessionalSelect(professional.id);
+                                setSelectedPaymentMethod('todos');
+                                setIsDropdownOpen(false);
+                              }}
+                              className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                                selectedProfessional === professional.id ? 'bg-primary text-white' : 'text-gray-300'
+                              } ${index === establishment.professionals.length - 1 ? 'rounded-b-lg' : ''}`}
+                            >
+                              👤 {professional.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="mt-3 flex items-center justify-between text-sm">
                       <p className="text-gray-400">
@@ -1534,88 +1766,112 @@ const EstablishmentDashboard = () => {
                     <CreditCard className="h-5 w-5 text-primary" />
                     Filtrar por Forma de Pagamento
                   </h3>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="relative" ref={paymentDropdownRef}>
                     <button
-                      onClick={() => setSelectedPaymentMethod('todos')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'todos'
-                          ? 'bg-primary text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
+                      onClick={() => setIsPaymentDropdownOpen(!isPaymentDropdownOpen)}
+                      className="w-full p-4 rounded-lg bg-[#242628] hover:bg-[#2a2b2d] text-left flex justify-between items-center border border-gray-700"
                     >
-                      💳 Todos
+                      <span className="flex items-center gap-2">
+                        {getPaymentMethodInfo(selectedPaymentMethod).icon} 
+                        {getPaymentMethodInfo(selectedPaymentMethod).name}
+                      </span>
+                      <svg
+                        className={`w-5 h-5 transition-transform ${isPaymentDropdownOpen ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('pendente')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'pendente'
-                          ? 'bg-gray-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      ⏳ Pendente
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('pix')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'pix'
-                          ? 'bg-green-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🟢 PIX
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('credito')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'credito'
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🔵 Crédito
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('debito')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'debito'
-                          ? 'bg-purple-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🟣 Débito
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('dinheiro')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'dinheiro'
-                          ? 'bg-yellow-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🟡 Dinheiro
-                    </button>
-                    <button
-                      onClick={() => setSelectedPaymentMethod('pagar_local')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPaymentMethod === 'pagar_local'
-                          ? 'bg-orange-500 text-white'
-                          : 'bg-[#242628] text-gray-300 hover:bg-[#2a2b2d] border border-gray-700'
-                      }`}
-                    >
-                      🏪 Pagar no Local
-                    </button>
+                    
+                    {/* Dropdown Menu */}
+                    {isPaymentDropdownOpen && (
+                      <div className="absolute w-full mt-2 bg-[#242628] rounded-lg shadow-xl z-10 border border-gray-700">
+                        <button
+                          onClick={() => {
+                            setSelectedPaymentMethod('todos');
+                            setIsPaymentDropdownOpen(false);
+                          }}
+                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                            selectedPaymentMethod === 'todos' ? 'bg-primary text-white' : 'text-gray-300'
+                          } rounded-t-lg`}
+                        >
+                          💳 Todos os tipos
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedPaymentMethod('pendente');
+                            setIsPaymentDropdownOpen(false);
+                          }}
+                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                            selectedPaymentMethod === 'pendente' ? 'bg-gray-500 text-white' : 'text-gray-300'
+                          }`}
+                        >
+                          ⏳ Pendente
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedPaymentMethod('pix');
+                            setIsPaymentDropdownOpen(false);
+                          }}
+                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                            selectedPaymentMethod === 'pix' ? 'bg-green-500 text-white' : 'text-gray-300'
+                          }`}
+                        >
+                          🟢 PIX
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedPaymentMethod('credito');
+                            setIsPaymentDropdownOpen(false);
+                          }}
+                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                            selectedPaymentMethod === 'credito' ? 'bg-blue-500 text-white' : 'text-gray-300'
+                          }`}
+                        >
+                          🔵 Crédito
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedPaymentMethod('debito');
+                            setIsPaymentDropdownOpen(false);
+                          }}
+                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                            selectedPaymentMethod === 'debito' ? 'bg-purple-500 text-white' : 'text-gray-300'
+                          }`}
+                        >
+                          🟣 Débito
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedPaymentMethod('dinheiro');
+                            setIsPaymentDropdownOpen(false);
+                          }}
+                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                            selectedPaymentMethod === 'dinheiro' ? 'bg-yellow-500 text-white' : 'text-gray-300'
+                          }`}
+                        >
+                          🟡 Dinheiro
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedPaymentMethod('pagar_local');
+                            setIsPaymentDropdownOpen(false);
+                          }}
+                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
+                            selectedPaymentMethod === 'pagar_local' ? 'bg-orange-500 text-white' : 'text-gray-300'
+                          } rounded-b-lg`}
+                        >
+                          🏪 Pagar no Local
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="mt-3 flex items-center justify-between text-sm">
                     <p className="text-gray-400">
                       Filtro de pagamento: <span className="text-primary font-medium">
-                        {selectedPaymentMethod === 'todos' ? 'Todos os tipos' :
-                         selectedPaymentMethod === 'pendente' ? 'Pendente' :
-                         selectedPaymentMethod === 'pix' ? 'PIX' :
-                         selectedPaymentMethod === 'credito' ? 'Crédito' :
-                         selectedPaymentMethod === 'debito' ? 'Débito' :
-                         selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' :
-                         selectedPaymentMethod === 'pagar_local' ? 'Pagar no Local' : 'Todos'}
+                        {getPaymentMethodInfo(selectedPaymentMethod).name}
                       </span>
                     </p>
                     <p className="text-gray-400">
@@ -1677,7 +1933,7 @@ const EstablishmentDashboard = () => {
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center text-green-500 hover:text-green-400"
                                 >
-                                  <Phone className="h-4 w-4" />
+                                  <img src="/wppicon.png" alt="WhatsApp" className="h-4 w-4" />
                                 </a>
                               )}
                             </div>
@@ -1853,6 +2109,55 @@ const EstablishmentDashboard = () => {
                       className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
                     />
                   </div>
+
+                  {/* Logo do Estabelecimento */}
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Logo do Estabelecimento</label>
+                    <div className="flex items-center gap-4">
+                      <div className="relative w-24 h-24">
+                        <div className="w-24 h-24 rounded-full overflow-hidden bg-[#242628] border-2 border-dashed border-gray-700">
+                          {establishment?.logo_url ? (
+                            <div className="relative h-full">
+                              <img
+                                src={establishment.logo_url}
+                                alt="Logo"
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                onClick={() => handleRemoveLogo()}
+                                className="absolute top-1 right-1 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                              >
+                                <Trash2 className="h-3 w-3 text-white" />
+                              </button>
+                            </div>
+                          ) : (
+                            <img
+                              src="/logoagendamento.png"
+                              alt="Logo padrão"
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                        </div>
+                        <label className="absolute bottom-0 right-0 p-1 bg-primary rounded-full cursor-pointer hover:bg-primary/80 transition-colors">
+                          <Plus className="h-4 w-4 text-white" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleLogoChange}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-gray-400">
+                          Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos.
+                          <br />
+                          Recomendamos uma imagem quadrada de pelo menos 200x200 pixels.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium mb-1">Descrição</label>
                     <textarea
@@ -1863,7 +2168,13 @@ const EstablishmentDashboard = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Senha de 4 dígitos para configurações</label>
+                    <div className="flex items-center gap-2 mb-1">
+                      <label className="block text-sm font-medium">Senha de 4 dígitos para configurações</label>
+                      <span className="text-sm text-yellow-500 flex items-center gap-1">
+                        <AlertTriangle className="h-4 w-4" />
+                        A senha colocada aqui servirá para abrir o dashboard e também para ver todos os profissionais na página Agend.
+                      </span>
+                    </div>
                     <div className="flex gap-2">
                       <input
                         type="password"
@@ -1987,9 +2298,14 @@ const EstablishmentDashboard = () => {
               {/* Fotos Personalizadas */}
               <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                 <h3 className="text-lg font-medium text-white mb-4">Fotos do Estabelecimento</h3>
-                <p className="text-sm text-gray-400 mb-6">
+                <p className="text-sm text-gray-400 mb-2">
                   Adicione até 3 fotos do seu estabelecimento que serão exibidas para os clientes
                 </p>
+                <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4 mb-6">
+                  <p className="text-yellow-500 text-sm">
+                    ⚠️ Caso a imagem não aparecer, ou ficar mal otimizada é porque o tamanho da sua imagem está errado. Envie para nós no whatsapp, que iremos ajustar para você ⚠️
+                  </p>
+                </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   {/* Foto 1 */}
@@ -2114,6 +2430,29 @@ const EstablishmentDashboard = () => {
                   <br />• Criar agendamentos e cancelar agendamentos
                   <br />• Vender produtos adicionais para clientes
                 </p>
+
+                {/* Lista de Profissionais Cadastrados */}
+                {professionals.length > 0 && (
+                  <div className="mb-4 border-b border-gray-800 pb-4">
+                    <h4 className="text-md font-semibold text-gray-300 mb-3">Profissionais Cadastrados:</h4>
+                    <div className="space-y-2">
+                      {professionals.map((professional) => (
+                        <div key={professional.id} className="flex items-center justify-between bg-[#242628] p-3 rounded-lg">
+                          <span className="text-gray-300">{professional.name}</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleUpdateProfessionalPin(professional.id, '')}
+                              className="text-xs px-2 py-1 bg-green-600/20 text-green-500 rounded"
+                            >
+                              Alterar Senha
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center mb-4">
                   <button
                     type="button"
@@ -2125,8 +2464,8 @@ const EstablishmentDashboard = () => {
                     <span>Adicionar</span>
                   </button>
                 </div>
-                
-                {/* Lista de Profissionais */}
+
+                {/* Resto do código original dos profissionais */}
                 <div className="space-y-4">
                   {professionals.map((professional) => (
                     <div key={professional.id} className="p-4 bg-[#242628] rounded-lg space-y-3">
@@ -2136,42 +2475,38 @@ const EstablishmentDashboard = () => {
                             type="text"
                             value={professional.name}
                             onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
-                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                             placeholder="Nome do profissional"
                           />
                         </div>
                         <button
                           type="button"
                           onClick={() => handleRemoveProfessional(professional.id)}
-                            className="ml-2 text-red-500 hover:text-red-400"
+                          className="ml-2 text-red-500 hover:text-red-400"
                         >
-                            <Trash2 className="h-5 w-5" />
+                          <Trash2 className="h-5 w-5" />
                         </button>
-                        </div>
-                        
-                        {/* Campo de senha do profissional */}
-                        <div className="flex gap-2 items-center">
-                          <div className="flex-1">
-                            <input
-                              type="text"
-                              maxLength={4}
-                              value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
-                              onChange={(e) => {
-                                const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-                                setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
-                                if (value.length === 4) {
-                                  handleUpdateProfessionalPin(professional.id, value);
-                                }
-                              }}
-                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                              placeholder="Senha de 4 dígitos"
-                            />
-                          </div>
-                          <span className="text-sm text-gray-400">Senha do profissional</span>
-                        </div>
+                      </div>
                       
                       {/* Campo de senha do profissional */}
                       <div className="flex gap-2 items-center">
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            maxLength={4}
+                            value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
+                            onChange={(e) => {
+                              const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                              setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
+                              if (value.length === 4) {
+                                handleUpdateProfessionalPin(professional.id, value);
+                              }
+                            }}
+                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                            placeholder="Senha de 4 dígitos"
+                          />
+                        </div>
+                        <span className="text-sm text-gray-400">Senha do profissional</span>
                       </div>
                     </div>
                   ))}
@@ -2189,7 +2524,25 @@ const EstablishmentDashboard = () => {
                 <p className="text-sm text-gray-400 mb-6">
                   Adicione os serviços oferecidos pelo seu estabelecimento
                 </p>
-                
+
+                {/* Lista de Serviços Cadastrados */}
+                {servicesWithPrices.length > 0 && (
+                  <div className="mb-4 border-b border-gray-800 pb-4">
+                    <h4 className="text-md font-semibold text-gray-300 mb-3">Serviços Cadastrados:</h4>
+                    <div className="space-y-2">
+                      {servicesWithPrices.map((service) => (
+                        <div key={service.id} className="flex items-center justify-between bg-[#242628] p-3 rounded-lg">
+                          <span className="text-gray-300">{service.name}</span>
+                          <div className="flex items-center gap-4">
+                            <span className="text-gray-400">{service.duration}min</span>
+                            <span className="text-gray-300">R$ {service.price.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <ServiceForm
                   services={servicesWithPrices}
                   onChange={setServicesWithPrices}
@@ -2257,15 +2610,49 @@ const EstablishmentDashboard = () => {
                 </p>
               </div>
             )}
+
+            {activeTab === 'financial-dashboard' && isDashboardUnlocked && (
+              <div className="space-y-6">
+                <FinancialDashboard
+                  appointments={monthlyAppointments}
+                  professionals={professionals}
+                  selectedMonth={selectedMonth}
+                  onMonthChange={handleMonthChange}
+                />
+              </div>
+            )}
+
+            {activeTab === 'financial-dashboard' && !isDashboardUnlocked && (
+              <div className="flex items-center justify-center h-64">
+                <p className="text-gray-400">Digite a senha para acessar o Dashboard Financeiro</p>
+              </div>
+            )}
         </div>
       </div>
 
-      {/* Modal de Senha */}
-      <PinPasswordModal
-        isOpen={showPinModal}
-        onClose={() => setShowPinModal(false)}
-        onValidate={handleValidatePin}
-      />
+      {showPinModal && (
+        <PinPasswordModal
+          onClose={handleClosePinModal}
+          onSubmit={handleValidatePin}
+          title="Digite a senha para acessar as configurações"
+        />
+      )}
+      
+      {showDashboardPinModal && (
+        <PinPasswordModal
+          onClose={handleCloseDashboardPinModal}
+          onSubmit={handleValidateDashboardPin}
+          title="Digite a senha para acessar o dashboard"
+        />
+      )}
+
+      {showConfigModal && (
+        <PinPasswordModal
+          onClose={() => setShowConfigModal(false)}
+          onSubmit={handleSavePin}
+          title="Configure uma senha para seu estabelecimento"
+        />
+      )}
 
       {/* Modal de Senha do Profissional */}
       <ProfessionalPinModal

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { toast, Toast } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 import {       
   Calendar,    
   Clock,       
@@ -16,6 +16,7 @@ import {
   Sparkles,
   Coffee,
   ArrowRight,
+  ArrowDown,
   Phone,
   Mail,
   MapPin,
@@ -28,13 +29,7 @@ import {
 import { PromoBanner } from '../components/PromoBanner';
 import WhatsAppButton from '../components/WhatsAppButton';
 import DemoBooking from '../components/DemoBooking';
-
-const notifications = [
-  "AGORA : uma barbearia acabou de se tornar plano mensal",
-  "AGORA : uma lavação-car acabou de se tornar plano mensal",
-  "AGORA : um salão acabou de se tornar plano Anual",
-  "AGORA : uma barbearia acabou de se tornar plano Anual"
-];
+import { PromoNotifications } from '../components/PromoNotifications';
 
 const pulseKeyframes = `
   @keyframes pulse-scale {
@@ -58,9 +53,7 @@ const pulseKeyframes = `
 const LandingPage = () => {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [currentNotificationIndex, setCurrentNotificationIndex] = useState(0);
   const [onlineUsers, setOnlineUsers] = useState(0);
-  const [currentToast, setCurrentToast] = useState<string | null>(null);
 
   const features = [
     {
@@ -127,7 +120,7 @@ const LandingPage = () => {
     },
     {
       name: "Maria Santos",
-      business: "Studio Beauty",
+      business: "Lava-car Santos",
       text: "Sistema completo e fácil de usar. Meus clientes adoram a praticidade de agendar online.",
       rating: 5
     },
@@ -163,64 +156,6 @@ const LandingPage = () => {
     navigate('/login');
   };
 
-  // Função para mostrar a notificação
-  const showNotification = (message: string) => {
-    return new Promise<void>((resolve) => {
-      // Remove todas as notificações existentes
-      toast.dismiss();
-      
-      // Mostra a nova notificação
-      const toastId = toast(message, {
-        duration: 5000,
-        style: {
-          background: 'rgba(0, 0, 0, 0.8)',
-          color: '#fff',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '8px',
-          padding: '12px 20px',
-          fontSize: '14px',
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-        },
-      });
-
-      // Resolve a promise após 5 segundos
-      setTimeout(() => {
-        toast.dismiss(toastId);
-        resolve();
-      }, 5000);
-    });
-  };
-
-  // Efeito para mostrar as notificações
-  useEffect(() => {
-    let currentIndex = 0;
-    let timeoutId: NodeJS.Timeout;
-    
-    // Função para mostrar a próxima notificação
-    const showNextNotification = async () => {
-      // Mostra a notificação atual e espera ela terminar (5 segundos)
-      await showNotification(notifications[currentIndex]);
-      
-      // Atualiza o índice para a próxima notificação
-      currentIndex = (currentIndex + 1) % notifications.length;
-      
-      // Agenda a próxima notificação após 45 segundos
-      timeoutId = setTimeout(showNextNotification, 45000);
-    };
-
-    // Inicia o ciclo após 2 segundos
-    const initialTimeout = setTimeout(() => {
-      showNextNotification();
-    }, 2000);
-
-    return () => {
-      clearTimeout(initialTimeout);
-      clearTimeout(timeoutId);
-      toast.dismiss();
-    };
-  }, []);
-
   // Função para gerar número aleatório entre 3 e 43
   const getRandomUsers = () => Math.floor(Math.random() * (43 - 3 + 1)) + 3;
 
@@ -243,6 +178,7 @@ const LandingPage = () => {
   return (
     <div className="min-h-screen bg-black text-white">
       <WhatsAppButton />
+      <PromoNotifications />
       {/* Header */}
       <header className="fixed top-0 w-full bg-black/95 backdrop-blur-sm border-b border-gray-800 z-50">
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -293,11 +229,18 @@ const LandingPage = () => {
                 </div>
               </div>
 
+              {/* Texto indicativo para o vídeo */}
+              <div className="flex items-center justify-center gap-2 my-4 text-xl font-semibold text-white">
+                <ArrowDown className="w-6 h-6 animate-bounce" />
+                ASSISTA E VEJA COMO FUNCIONA TUDO
+                <ArrowDown className="w-6 h-6 animate-bounce" />
+              </div>
+
               {/* Vídeo do YouTube */}
               <div className="aspect-video w-full mb-6">
                 <iframe
                   className="w-full h-full rounded-2xl"
-                  src="https://www.youtube.com/embed/IdtfdYwqy3M"
+                  src="https://www.youtube.com/embed/5WbaPbT3TEM"
                   title="Vídeo de apresentação"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
