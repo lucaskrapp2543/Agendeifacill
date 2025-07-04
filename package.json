@@ -11,6 +11,7 @@
     "ponto-x": "scripts\\restore-point.bat"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.4",
     "@supabase/supabase-js": "^2.39.8",
     "@types/uuid": "^10.0.0",
     "chart.js": "^4.5.0",
