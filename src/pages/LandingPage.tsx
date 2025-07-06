@@ -54,6 +54,18 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(0);
+  // Removendo o estado do carrossel que não será mais usado
+  // const [currentSlide, setCurrentSlide] = useState(0);
+
+  // Removendo o array de slides que não será mais usado
+  // const slides = [ ... ];
+
+  // Removendo as funções do carrossel que não serão mais usadas
+  // const nextSlide = () => { ... };
+  // const prevSlide = () => { ... };
+
+  // Removendo o useEffect do carrossel que não será mais usado
+  // useEffect(() => { ... }, []);
 
   const features = [
     {
@@ -102,6 +114,18 @@ const LandingPage = () => {
       description: "Você pode criar senha para cada profissional, para que eles não tenham acesso ao dashboard de outros profissionais, somente você o dono e o seu funcionário"
     }
   ];
+
+  // Removendo a seção "Experimente Como Funciona"
+  // const howItWorksSteps = [
+  //   {
+  //     image: "/1.svg",
+  //     caption: "Você envia o link para seu cliente, ou deixa fixo no instagram"
+  //   },
+  //   {
+  //     image: "/2.svg",
+  //     caption: "Em poucos cliques, o cliente escolhe o serviço, seleciona o profissional, e define a data e o horário para o atendimento."
+  //   }
+  // ];
 
   const businessTypes = [
     { icon: Scissors, name: "Barbearias", color: "bg-blue-500" },
@@ -174,6 +198,12 @@ const LandingPage = () => {
       document.head.removeChild(styleSheet);
     };
   }, []);
+
+  // Removendo o useEffect do carrossel que não será mais usado
+  // useEffect(() => {
+  //   const timer = setInterval(nextSlide, 5000); // Auto-advance every 5 seconds
+  //   return () => clearInterval(timer);
+  // }, []);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -263,11 +293,20 @@ const LandingPage = () => {
               </div>
 
               {/* Imagem QUAIS */}
-              <div className="w-full mb-8">
+              <div className="w-full mb-16">
                 <img 
                   src="/QUAIS.png" 
-                  alt="Barbearia, Salões, Lava-car e outros estabelecimentos" 
-                  className="w-full rounded-2xl"
+                  alt="QUAIS" 
+                  className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
+                />
+              </div>
+
+              {/* Imagem Celulares */}
+              <div className="w-full mb-16">
+                <img 
+                  src="/testecel.svg" 
+                  alt="Versão Celular" 
+                  className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
                 />
               </div>
 
@@ -302,6 +341,19 @@ const LandingPage = () => {
                       </div>
                     ))}
                   </div>
+
+                  {/* Imagem Envia */}
+                  <div className="w-full mt-16">
+                    {/* Legenda */}
+                    <p className="text-center text-xl text-white mb-6">
+                      Envie seu link agendeifacil, ou coloque na bio do instagram
+                    </p>
+                    <img 
+                      src="/envia.svg" 
+                      alt="Envia" 
+                      className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
+                    />
+                  </div>
                 </div>
               </section>
 
@@ -315,7 +367,7 @@ const LandingPage = () => {
                     Faça uma simulação de agendamento e veja como é fácil e prático para seus clientes agendarem com você
                   </p>
                   <DemoBooking />
-                </div>
+              </div>
               </section>
 
               {/* Seção de Depoimentos */}
@@ -502,7 +554,7 @@ const LandingPage = () => {
               </div>
             </div>
           </div>
-        </div>
+              </div>
       </section>
 
       {/* CTA Section */}

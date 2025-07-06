@@ -4,7 +4,7 @@ import { ptBR } from 'date-fns/locale';
 
 interface DatePickerProps {
   selectedDate: Date;
-  onSelectDate: (date: Date) => void;
+  onChange: (date: Date) => void;
   businessHours: Record<string, { 
     enabled: boolean;
     open1: string;
@@ -24,7 +24,7 @@ const weekDayMap: Record<string, string> = {
   'sábado': 'saturday'
 };
 
-export function DatePicker({ selectedDate, onSelectDate, businessHours }: DatePickerProps) {
+export function DatePicker({ selectedDate, onChange, businessHours }: DatePickerProps) {
   const today = startOfDay(new Date());
   const maxDate = addMonths(today, 6); // Permitir agendamento até 6 meses no futuro
 
@@ -41,7 +41,7 @@ export function DatePicker({ selectedDate, onSelectDate, businessHours }: DatePi
       
       // Verificar se o dia está habilitado
       if (isDayEnabled(newDate)) {
-        onSelectDate(newDate);
+        onChange(newDate);
       } else {
         // Mostrar aviso se o dia está fechado
         alert('O estabelecimento está fechado neste dia. Por favor, escolha outro dia.');
@@ -60,20 +60,20 @@ export function DatePicker({ selectedDate, onSelectDate, businessHours }: DatePi
         onChange={handleDateChange}
         min={format(today, 'yyyy-MM-dd')}
         max={format(maxDate, 'yyyy-MM-dd')}
-        className="input-field text-lg"
+        className="w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary bg-white text-gray-900 text-lg"
         required
       />
       
       {/* Informação sobre o dia selecionado */}
-      <div className="text-sm text-gray-300 bg-gray-800/50 p-3 rounded-lg">
+      <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg border border-gray-200">
         <div className="flex items-center justify-between">
           <span className="font-medium">
             📅 {format(selectedDate, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
           </span>
           <span className={`px-2 py-1 rounded text-xs font-medium ${
             isDayEnabled(selectedDate) 
-              ? 'bg-green-500/20 text-green-500' 
-              : 'bg-red-600/20 text-red-400'
+              ? 'bg-green-100 text-green-700' 
+              : 'bg-red-100 text-red-700'
           }`}>
             {isDayEnabled(selectedDate) ? '✅ Aberto' : '❌ Fechado'}
           </span>
@@ -81,7 +81,7 @@ export function DatePicker({ selectedDate, onSelectDate, businessHours }: DatePi
       </div>
 
       {/* Dica para o usuário */}
-      <div className="text-xs text-gray-400 text-center">
+      <div className="text-xs text-gray-500 text-center">
         💡 Você pode agendar até {format(maxDate, 'dd/MM/yyyy')}
       </div>
     </div>

@@ -187,7 +187,7 @@ export default function BookingPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#1a1b1c]">
+      <div className="min-h-screen bg-white">
         <div className="container-custom py-8">
           <div className="flex justify-center">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
@@ -199,11 +199,11 @@ export default function BookingPage() {
 
   if (!establishment) {
     return (
-      <div className="min-h-screen bg-[#1a1b1c]">
+      <div className="min-h-screen bg-white">
         <div className="container-custom py-8">
           <div className="text-center">
-            <h1 className="text-2xl font-bold mb-4 text-white">Estabelecimento não encontrado</h1>
-            <p className="text-gray-400 mb-4">O estabelecimento que você procura não existe ou foi removido.</p>
+            <h1 className="text-2xl font-bold mb-4 text-gray-900">Estabelecimento não encontrado</h1>
+            <p className="text-gray-600 mb-4">O estabelecimento que você procura não existe ou foi removido.</p>
             <Link to="/" className="text-primary hover:underline">
               Voltar para a página inicial
             </Link>
@@ -256,74 +256,57 @@ export default function BookingPage() {
   } : null;
 
   return (
-    <div className="min-h-screen bg-[#1a1b1c]">
-      <header className="bg-[#1a1b1c] border-b border-gray-800">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <Link to="/" className="flex items-center gap-2">
-              <Calendar className="h-6 w-6 text-primary" />
-              <span className="text-xl font-bold text-white">AgendaFácil</span>
+    <div className="min-h-screen bg-white">
+      <div className="container-custom py-8">
+        <div className="flex flex-col space-y-6">
+          {/* Cabeçalho */}
+          <div className="flex items-center justify-between">
+            <Link to="/" className="flex items-center gap-2 text-gray-700 hover:text-gray-900">
+              <ChevronLeft className="w-5 h-5" />
+              <span>Voltar</span>
             </Link>
-            {user ? (
-              <div className="flex items-center gap-4">
-                <span className="text-gray-400">{user.email}</span>
-                <button onClick={handleLogout} className="btn-outline">
-                  Sair
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-4">
-                <Link to="/login" className="btn-outline">
-                  Entrar
-                </Link>
-                <Link to="/register" className="btn-primary">
-                  Criar conta
-                </Link>
-              </div>
+            {user && (
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 text-gray-700 hover:text-gray-900"
+              >
+                <LogOut className="w-5 h-5" />
+                <span>Sair</span>
+              </button>
             )}
-          </div>
-        </div>
-      </header>
-
-      <main className="container-custom py-8">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-center gap-4 mb-8">
-            <button
-              onClick={() => navigate(-1)}
-              className="text-gray-400 hover:text-gray-300 transition-colors"
-            >
-              <ChevronLeft className="h-6 w-6" />
-            </button>
-            <div>
-              <h1 className="text-2xl font-bold text-white">
-                {establishment?.name || 'Nome não disponível'}
-              </h1>
-              <p className="text-gray-400">
-                {establishment?.description || establishment?.address || 'Descrição não disponível'}
-              </p>
-            </div>
           </div>
 
           {/* Carrossel de Fotos */}
-          <PhotoCarousel establishment={establishment} />
-
-          <div className="card">
-            <h2 className="text-lg font-semibold mb-6 text-white">
-              Agendar Horário
-            </h2>
-            <AppointmentForm
-              establishment={{
-                ...establishment,
-                business_hours: establishment.business_hours
-              }}
-              onSubmit={handleSubmit}
-              selectedDate={selectedDate}
-              onSelectDate={setSelectedDate}
-              existingAppointments={existingAppointments}
+          <div className="rounded-lg overflow-hidden">
+            <PhotoCarousel 
+              photos={[
+                establishment.custom_photo_1_url || '/barbeiro ft 1.png',
+                establishment.custom_photo_2_url || '/barbeiro ft 2.png',
+                establishment.custom_photo_3_url || '/barbeiro ft 3.png'
+              ]}
+              logoUrl={establishment.logo_url}
+              establishmentName={establishment.name}
             />
           </div>
+
+          {/* Informações do Estabelecimento */}
+          <div className="text-center space-y-2">
+            <h1 className="text-2xl font-bold text-gray-900">{establishment.name}</h1>
+            {establishment.description && (
+              <p className="text-gray-600">{establishment.description}</p>
+            )}
+          </div>
+
+          {/* Formulário de Agendamento */}
+          <AppointmentForm
+            establishment={establishment}
+            onSubmit={handleSubmit}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            existingAppointments={existingAppointments}
+          />
         </div>
-      </main>
+      </div>
     </div>
   );
 } 

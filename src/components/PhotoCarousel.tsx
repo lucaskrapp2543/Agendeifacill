@@ -2,24 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface PhotoCarouselProps {
-  establishment: {
-    custom_photo_1_url?: string;
-    custom_photo_2_url?: string;
-    custom_photo_3_url?: string;
-    logo_url?: string;
-    name: string;
-  };
+  photos: string[];
+  logoUrl?: string;
+  establishmentName?: string;
 }
 
-export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({ establishment }) => {
+export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({ photos, logoUrl, establishmentName }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-
-  // Define as fotos - usa personalizadas se disponíveis, senão usa padrão
-  const photos = [
-    establishment.custom_photo_1_url || '/barbeiro ft 1.png',
-    establishment.custom_photo_2_url || '/barbeiro ft 2.png',
-    establishment.custom_photo_3_url || '/barbeiro ft 3.png'
-  ];
 
   // Auto-play a cada 5 segundos
   useEffect(() => {
@@ -46,12 +35,12 @@ export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({ establishment }) =
 
   return (
     <div className="relative">
-      <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-800">
+      <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100">
         {/* Imagem atual */}
         <div className="relative w-full h-full">
           <img
             src={photos[currentIndex]}
-            alt={`${establishment.name} - Foto ${currentIndex + 1}`}
+            alt={`Foto ${currentIndex + 1}`}
             className="w-full h-full object-cover transition-opacity duration-500"
             onError={(e) => {
               // Se a imagem falhar, usa a foto padrão correspondente
@@ -109,9 +98,9 @@ export const PhotoCarousel: React.FC<PhotoCarouselProps> = ({ establishment }) =
       <div className="flex justify-center">
         <div className="relative -mt-16 md:-mt-20 mb-4 md:mb-8">
           <img
-            src={establishment.logo_url || '/logoagendamento.png'}
-            alt={`Logo ${establishment.name}`}
-            className="w-24 h-24 md:w-32 md:h-32 rounded-full border-4 border-[#1a1b1c] shadow-lg object-cover bg-gray-800"
+            src={logoUrl || '/logoagendamento.png'}
+            alt={`Logo ${establishmentName || 'do estabelecimento'}`}
+            className="w-24 h-24 md:w-32 md:h-32 rounded-full border-4 border-white shadow-lg object-cover bg-white"
             onError={(e) => {
               const target = e.target as HTMLImageElement;
               target.src = '/logoagendamento.png';

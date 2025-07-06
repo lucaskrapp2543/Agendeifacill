@@ -49,7 +49,7 @@ const DemoBooking = () => {
 
   const paymentMethods = [
     { id: 'pix', name: 'PIX', icon: '💸' },
-    { id: 'cash', name: 'Dinheiro', icon: '💵' },
+    { id: 'cash', name: 'Pagar no local', icon: '💵' },
     { id: 'card', name: 'Cartão', icon: '💳' },
   ];
 
@@ -57,7 +57,7 @@ const DemoBooking = () => {
     if (step < 5) {
       setStep(step + 1);
     } else {
-      alert('Esse foi um agendamento simulado. Obrigado!');
+      alert('✨ Demonstração concluída com sucesso! ✨\n\nAgora você já sabe como seus clientes irão agendar com você.\nCrie sua conta e comece a receber agendamentos hoje mesmo! 🚀');
       setStep(1);
       setName('');
       setWhatsapp('');
@@ -84,7 +84,7 @@ const DemoBooking = () => {
       case 3:
         return selectedProfessional;
       case 4:
-        return selectedDate && selectedTime;
+        return selectedTime !== '';
       case 5:
         return paymentMethod;
       default:
@@ -93,14 +93,22 @@ const DemoBooking = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto bg-[#1a1a1a] rounded-xl shadow-xl p-6">
+    <div className="max-w-md mx-auto bg-white rounded-xl shadow-xl p-6">
       {/* Imagem de exemplo */}
-      <div className="mb-6">
+      <div className="relative mb-6">
         <img 
           src="/ftexemploagendamento.png" 
           alt="Exemplo de Agendamento" 
           className="w-full rounded-lg shadow-lg"
         />
+        {/* Logo sobreposta */}
+        <div className="absolute top-[85%] left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+          <img 
+            src="/sualogoaqui.png" 
+            alt="Logo do Estabelecimento" 
+            className="w-24 h-24 rounded-full object-cover border-2 border-white"
+          />
+        </div>
       </div>
 
       {/* Barra de Progresso */}
@@ -112,8 +120,8 @@ const DemoBooking = () => {
               step === number
                 ? 'bg-blue-600 text-white'
                 : step > number
-                ? 'bg-blue-900 text-blue-200'
-                : 'bg-[#2a2a2a] text-gray-400'
+                ? 'bg-blue-200 text-blue-600'
+                : 'bg-gray-200 text-gray-600'
             }`}
           >
             {number}
@@ -122,31 +130,31 @@ const DemoBooking = () => {
       </div>
 
       {/* Título */}
-      <h2 className="text-2xl font-bold text-center mb-6">Agendar Horário</h2>
+      <h2 className="text-2xl font-bold text-center mb-6 text-gray-800">Agendar Horário</h2>
 
       <form className="p-6" onSubmit={(e) => e.preventDefault()}>
         {/* Etapa 1: Dados do Cliente */}
         {step === 1 && (
           <div>
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Nome do Cliente</label>
+              <label className="block text-sm font-medium mb-2 text-gray-700">Nome do Cliente</label>
               <input
                 type="text"
                 placeholder="Digite seu nome"
-                className="w-full p-3 bg-[#2a2a2a] rounded-lg text-white placeholder-gray-400"
+                className="w-full p-3 bg-gray-100 rounded-lg text-gray-800 placeholder-gray-500 border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
               />
             </div>
             <div className="mb-6">
-              <label className="flex items-center text-sm font-medium mb-2">
+              <label className="flex items-center text-sm font-medium mb-2 text-gray-700">
                 <img src="/wppicon.png" alt="WhatsApp" className="w-5 h-5 mr-2" /> WhatsApp
               </label>
               <input
                 type="tel"
                 placeholder="(00) 00000-0000"
-                className="w-full p-3 bg-[#2a2a2a] rounded-lg text-white placeholder-gray-400"
+                className="w-full p-3 bg-gray-100 rounded-lg text-gray-800 placeholder-gray-500 border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 value={whatsapp}
                 onChange={(e) => setWhatsapp(e.target.value)}
                 required
@@ -158,28 +166,28 @@ const DemoBooking = () => {
         {/* Etapa 2: Escolha do Serviço */}
         {step === 2 && (
           <div>
-            <h3 className="text-lg font-medium mb-4">Escolha o Serviço</h3>
+            <h3 className="text-lg font-medium mb-4 text-gray-800">Escolha o Serviço</h3>
             <div className="space-y-3">
               {demoServices.map((service) => (
                 <button
                   key={service.id}
                   className={`w-full p-4 rounded-lg text-left ${
                     selectedService === service.id
-                      ? 'bg-blue-600'
-                      : 'bg-[#2a2a2a] hover:bg-[#3a3a3a]'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
                   }`}
                   onClick={() => setSelectedService(service.id)}
                 >
                   <div className="flex justify-between items-center">
                     <div>
                       <span className="text-lg">Serviço {service.id}</span>
-                      <div className="flex items-center gap-2 text-sm text-gray-400 mt-1">
+                      <div className="flex items-center gap-2 text-sm mt-1">
                         <Clock size={14} />
                         <span>{service.duration}</span>
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-sm text-gray-400">R$</span>
+                      <span className="text-sm">R$</span>
                       <span className="text-lg ml-1">{service.price.replace('R$ ', '')}</span>
                     </div>
                   </div>
@@ -192,87 +200,60 @@ const DemoBooking = () => {
         {/* Etapa 3: Escolha do Profissional */}
         {step === 3 && (
           <div>
-            <h3 className="text-lg font-medium mb-4">Escolha o Profissional</h3>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="w-full p-4 rounded-lg bg-[#2a2a2a] hover:bg-[#3a3a3a] text-left flex justify-between items-center"
-              >
-                <span>
-                  {selectedProfessional 
-                    ? demoProfessionals.find(p => p.id === selectedProfessional)?.name 
-                    : "Todos os Profissionais"}
-                </span>
-                <svg
-                  className={`w-5 h-5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+            <h3 className="text-lg font-medium mb-4 text-gray-800">Escolha o Profissional</h3>
+            <div className="space-y-3">
+              {demoProfessionals.map((professional) => (
+                <button
+                  key={professional.id}
+                  className={`w-full p-4 rounded-lg text-left ${
+                    selectedProfessional === professional.id
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
+                  }`}
+                  onClick={() => setSelectedProfessional(professional.id)}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              
-              {/* Dropdown Menu */}
-              {isDropdownOpen && (
-                <div className="absolute w-full mt-2 bg-[#2a2a2a] rounded-lg shadow-xl z-10">
-                  {demoProfessionals.map((professional) => (
-                    <button
-                      key={professional.id}
-                      type="button"
-                      className={`w-full p-4 text-left hover:bg-[#3a3a3a] ${
-                        professional.id === selectedProfessional ? 'bg-blue-600' : ''
-                      } ${professional.id === demoProfessionals[0].id ? 'rounded-t-lg' : ''} 
-                      ${professional.id === demoProfessionals[demoProfessionals.length - 1].id ? 'rounded-b-lg' : ''}`}
-                      onClick={() => {
-                        setSelectedProfessional(professional.id);
-                        setIsDropdownOpen(false);
-                      }}
-                    >
-                      {professional.name}
-                    </button>
-                  ))}
-                </div>
-              )}
+                  <div className="flex items-center">
+                    <User className="mr-3" />
+                    <span className="text-lg">{professional.name}</span>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         )}
 
-        {/* Etapa 4: Data e Hora */}
+        {/* Etapa 4: Escolha da Data e Hora */}
         {step === 4 && (
           <div>
-            <h3 className="text-lg font-medium mb-4">Escolha a Data e Horário</h3>
+            <h3 className="text-lg font-medium mb-4 text-gray-800">Escolha a Data e Hora</h3>
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Data</label>
+              <label className="block text-sm font-medium mb-2 text-gray-700">Data</label>
               <input
                 type="date"
-                className="w-full p-3 bg-[#2a2a2a] rounded-lg text-white"
-                value={selectedDate}
-                min={getCurrentDate()}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-full p-3 bg-gray-100 rounded-lg text-gray-800 border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                value={getCurrentDate()}
+                readOnly
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Horário</label>
-              <div className="grid grid-cols-3 gap-2">
-                {demoTimes.map((timeSlot) => (
+              <label className="block text-sm font-medium mb-2 text-gray-700">Horário</label>
+              <div className="grid grid-cols-2 gap-3">
+                {demoTimes.map((slot) => (
                   <button
-                    key={timeSlot.time}
-                    type="button"
-                    disabled={!timeSlot.isAvailable}
-                    className={`p-2 rounded-lg text-center ${
-                      !timeSlot.isAvailable
-                        ? 'bg-red-900/50 text-red-200 cursor-not-allowed'
-                        : selectedTime === timeSlot.time
+                    key={slot.time}
+                    className={`p-3 rounded-lg text-center ${
+                      !slot.isAvailable
+                        ? 'bg-red-600 text-white cursor-not-allowed'
+                        : selectedTime === slot.time
                         ? 'bg-green-600 text-white'
-                        : 'bg-green-900/50 hover:bg-green-800/50 text-green-200'
+                        : 'bg-green-600 hover:bg-green-700 text-white'
                     }`}
-                    onClick={() => timeSlot.isAvailable && setSelectedTime(timeSlot.time)}
+                    onClick={() => slot.isAvailable && setSelectedTime(slot.time)}
+                    disabled={!slot.isAvailable}
                   >
-                    {timeSlot.time}
-                    <div className="text-[10px] mt-1">
-                      {timeSlot.isAvailable ? 'Disponível' : 'Reservado'}
+                    <div className="text-lg mb-1">{slot.time}</div>
+                    <div className="text-sm">
+                      {slot.isAvailable ? 'Disponível' : 'Reservado'}
                     </div>
                   </button>
                 ))}
@@ -284,21 +265,22 @@ const DemoBooking = () => {
         {/* Etapa 5: Forma de Pagamento */}
         {step === 5 && (
           <div>
-            <h3 className="text-lg font-medium mb-4">Forma de Pagamento</h3>
+            <h3 className="text-lg font-medium mb-4 text-gray-800">Forma de Pagamento</h3>
             <div className="space-y-3">
               {paymentMethods.map((method) => (
                 <button
                   key={method.id}
-                  type="button"
-                  className={`w-full flex items-center p-4 rounded-lg ${
+                  className={`w-full p-4 rounded-lg text-left ${
                     paymentMethod === method.id
-                      ? 'bg-blue-600'
-                      : 'bg-[#2a2a2a] hover:bg-[#3a3a3a]'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
                   }`}
                   onClick={() => setPaymentMethod(method.id)}
                 >
-                  <span className="mr-3">{method.icon}</span>
-                  <span>{method.name}</span>
+                  <div className="flex items-center">
+                    <span className="text-2xl mr-3">{method.icon}</span>
+                    <span className="text-lg">{method.name}</span>
+                  </div>
                 </button>
               ))}
             </div>
@@ -307,22 +289,24 @@ const DemoBooking = () => {
 
         {/* Botões de Navegação */}
         <div className="flex justify-between mt-8">
+          {step > 1 && (
+            <button
+              onClick={handleBack}
+              className="px-6 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200"
+            >
+              Voltar
+            </button>
+          )}
           <button
-            type="button"
-            onClick={handleBack}
-            className={`px-6 py-3 rounded-lg ${
-              step === 1 ? 'invisible' : 'bg-gray-700 hover:bg-gray-600'
-            }`}
-          >
-            Voltar
-          </button>
-          <button
-            type="button"
             onClick={handleNext}
             disabled={!isStepValid()}
-            className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`px-6 py-2 rounded-lg ml-auto font-medium ${
+              isStepValid()
+                ? 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
           >
-            {step === 5 ? 'Finalizar Simulação' : 'Próximo'}
+            {step === 5 ? 'Concluir' : 'Próximo'}
           </button>
         </div>
       </form>

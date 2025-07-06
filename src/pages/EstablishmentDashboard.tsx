@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase } from '../lib/supabase';
@@ -944,7 +944,7 @@ const EstablishmentDashboard = () => {
       // Atualiza os dados do estabelecimento localmente
       setEstablishment({
         ...establishment,
-        pin_password: pinPassword || null
+        pin_password: pinPassword || undefined
       });
       
       toast.success(pinPassword ? 'Senha salva com sucesso!' : 'Proteção por senha removida com sucesso!');
@@ -1061,7 +1061,7 @@ const EstablishmentDashboard = () => {
       );
 
       if (professionalPin?.pin && professionalPin.pin.length > 0) {
-        setShowProfessionalPinModal(true);
+      setShowProfessionalPinModal(true);
       } else {
         setSelectedProfessional(professionalId);
       }
@@ -1331,7 +1331,7 @@ const EstablishmentDashboard = () => {
       // Atualiza o estado local
       setEstablishment({
         ...establishment,
-        logo_url: null
+        logo_url: undefined
       });
 
       toast.success('Logo removida com sucesso!');
@@ -1371,16 +1371,16 @@ const EstablishmentDashboard = () => {
   // Se não há estabelecimento, mostra formulário de criação
   if (!establishment) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-white">
         <div className="container-custom py-8">
           <div className="max-w-2xl mx-auto">
-            <h2 className="text-2xl font-bold text-white mb-4">Criar Novo Estabelecimento</h2>
-            <p className="text-gray-400 mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Criar Novo Estabelecimento</h2>
+            <p className="text-gray-700 mb-8">
               Você ainda não tem um estabelecimento cadastrado. Preencha o formulário abaixo para criar seu primeiro estabelecimento.
               </p>
             <form onSubmit={handleCreateEstablishment} className="space-y-6">
                 <div>
-                <label htmlFor="name" className="block text-sm font-medium text-white mb-2">
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
                   Nome do Estabelecimento
                   </label>
                   <input
@@ -1388,28 +1388,28 @@ const EstablishmentDashboard = () => {
                   id="name"
                     value={establishmentName}
                     onChange={(e) => setEstablishmentName(e.target.value)}
-                  className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="Ex: Barbearia do João"
                     required
                   />
                 </div>
 
                 <div>
-                <label htmlFor="description" className="block text-sm font-medium text-white mb-2">
+                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
                   Descrição
                   </label>
                 <textarea
                   id="description"
                   value={establishmentDescription}
                   onChange={(e) => setEstablishmentDescription(e.target.value)}
-                  className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="Descreva seu estabelecimento..."
                   rows={4}
                 />
               </div>
 
               <div>
-                <label htmlFor="code" className="block text-sm font-medium text-white mb-2">
+                <label htmlFor="code" className="block text-sm font-medium text-gray-700 mb-2">
                   Código do Estabelecimento
                 </label>
                 <div className="flex gap-2">
@@ -1418,7 +1418,7 @@ const EstablishmentDashboard = () => {
                     id="code"
                       value={establishmentCode}
                     onChange={(e) => setEstablishmentCode(e.target.value)}
-                    className="flex-1 px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="flex-1 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="Ex: 1234"
                       maxLength={4}
                       required
@@ -1426,18 +1426,18 @@ const EstablishmentDashboard = () => {
                     <button
                       type="button"
                       onClick={generateRandomCode}
-                    className="px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white hover:bg-[#242628] transition-colors"
+                    className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                     >
                     Gerar Código
                     </button>
                   </div>
-                <p className="mt-1 text-sm text-gray-400">
+                <p className="mt-1 text-sm text-gray-600">
                   Este código será usado para acessar a página do seu estabelecimento
                   </p>
                 </div>
                 
                 <div>
-                <label htmlFor="profile_image" className="block text-sm font-medium text-white mb-2">
+                <label htmlFor="profile_image" className="block text-sm font-medium text-gray-700 mb-2">
                   Logo/Imagem do Estabelecimento
                   </label>
                 <div className="flex items-center gap-4">
@@ -1449,7 +1449,7 @@ const EstablishmentDashboard = () => {
                         />
                       )}
                   <label className="flex-1 cursor-pointer">
-                    <div className="px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white hover:bg-[#242628] transition-colors text-center">
+                    <div className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors text-center">
                       <ImageIcon className="h-5 w-5 inline-block mr-2" />
                       {profileImage ? 'Trocar Imagem' : 'Escolher Imagem'}
                     </div>
@@ -1465,7 +1465,7 @@ const EstablishmentDashboard = () => {
               </div>
 
               <div>
-                <h3 className="text-lg font-medium text-white mb-4">Profissionais</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Profissionais</h3>
               <div className="space-y-4">
                   {professionals.map((professional, index) => (
                     <div key={professional.id} className="flex gap-4 items-start">
@@ -1474,7 +1474,7 @@ const EstablishmentDashboard = () => {
                             type="text"
                             value={professional.name}
                             onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                          className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
                           placeholder={`Nome do Profissional ${index + 1}`}
                           />
                         </div>
@@ -1490,7 +1490,7 @@ const EstablishmentDashboard = () => {
                   <button
                     type="button"
                     onClick={handleAddProfessional}
-                    className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white hover:bg-[#242628] transition-colors"
+                    className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     <Plus className="h-5 w-5 inline-block mr-2" />
                     Adicionar Profissional
@@ -1499,7 +1499,7 @@ const EstablishmentDashboard = () => {
                 </div>
                 
               <div>
-                <h3 className="text-lg font-medium text-white mb-4">Serviços</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Serviços</h3>
                 <div className="space-y-4">
                   {servicesWithPrices.map((service, index) => (
                     <div key={service.id} className="flex gap-4 items-start">
@@ -1508,7 +1508,7 @@ const EstablishmentDashboard = () => {
                             type="text"
                             value={service.name}
                             onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                          className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
                           placeholder={`Nome do Serviço ${index + 1}`}
                         />
                         <div className="flex gap-2">
@@ -1517,7 +1517,7 @@ const EstablishmentDashboard = () => {
                             type="number"
                             value={service.price}
                               onChange={(e) => handleServiceChange(service.id, 'price', parseFloat(e.target.value))}
-                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                              className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
                             placeholder="Preço"
                               min="0"
                               step="0.01"
@@ -1583,19 +1583,19 @@ const EstablishmentDashboard = () => {
 
   // Renderização do dashboard quando há estabelecimento
   return (
-    <div className="min-h-screen bg-background overflow-x-hidden">
+    <div className="min-h-screen bg-white overflow-x-hidden">
       <div className="container-custom py-4 px-2 sm:py-8 sm:px-4 max-w-full">
         {/* Cabeçalho */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-white">{establishment.name}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{establishment.name}</h1>
             <div className="flex items-center gap-2 mt-2">
-              <span className="text-gray-400">Código:</span>
+              <span className="text-gray-700">Código:</span>
               <div className="flex items-center gap-2">
-                <span className="text-white font-medium">{establishment.code}</span>
+                <span className="text-gray-900 font-medium">{establishment.code}</span>
                 <button
                   onClick={copyCodeToClipboard}
-                  className="text-gray-400 hover:text-white transition-colors"
+                  className="text-gray-600 hover:text-gray-900 transition-colors"
                   title="Copiar código"
                 >
                   {codeCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -1609,8 +1609,8 @@ const EstablishmentDashboard = () => {
                     onClick={() => setActiveTab('appointments')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'appointments'
-                        ? 'bg-primary text-white'
-                        : 'text-gray-400 hover:text-white'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Calendar className="h-5 w-5" />
@@ -1629,8 +1629,8 @@ const EstablishmentDashboard = () => {
                     onClick={() => setActiveTab('services')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'services'
-                        ? 'bg-primary text-white'
-                        : 'text-gray-400 hover:text-white'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Calendar className="h-5 w-5" />
@@ -1648,8 +1648,8 @@ const EstablishmentDashboard = () => {
                     }}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'financial-dashboard'
-                        ? 'bg-primary text-white'
-                        : 'text-gray-400 hover:text-white'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <BarChart3 className="h-5 w-5" />
@@ -1667,8 +1667,8 @@ const EstablishmentDashboard = () => {
                     }}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       activeTab === 'settings'
-                        ? 'bg-primary text-white'
-                        : 'text-gray-400 hover:text-white'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Settings className="h-5 w-5" />
@@ -1677,7 +1677,7 @@ const EstablishmentDashboard = () => {
 
                   <button
                     onClick={signOut}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-400 hover:text-white transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
                   >
                     <LogOut className="h-5 w-5" />
                     <span className="hidden sm:inline">Sair</span>
@@ -1692,22 +1692,22 @@ const EstablishmentDashboard = () => {
               <>
                 {/* Seleção de Profissionais */}
                 {establishment?.professionals && establishment.professionals.length > 0 && (
-                  <div className="mb-6 bg-[#1a1b1c] rounded-lg p-4 border border-gray-800">
-                    <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                  <div className="mb-6 bg-white rounded-lg p-4 border border-gray-200">
+                    <h3 className="text-lg font-medium text-gray-900 mb-3 flex items-center gap-2">
                       <User className="h-5 w-5 text-primary" />
                       Escolha o profissional
                     </h3>
                     <div className="relative" ref={dropdownRef}>
                       <button
                         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                        className="w-full p-4 rounded-lg bg-[#242628] hover:bg-[#2a2b2d] text-left flex justify-between items-center border border-gray-700"
+                        className="w-full p-4 rounded-lg bg-white hover:bg-gray-50 text-left flex justify-between items-center border border-gray-300"
                       >
-                        <span className="flex items-center gap-2">
+                        <span className="flex items-center gap-2 text-gray-700">
                           {selectedProfessional === 'all' ? '👥' : '👤'} 
                           {getProfessionalName(selectedProfessional)}
                         </span>
                         <svg
-                          className={`w-5 h-5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
+                          className={`w-5 h-5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''} text-gray-500`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -1718,42 +1718,42 @@ const EstablishmentDashboard = () => {
                       
                       {/* Dropdown Menu */}
                       {isDropdownOpen && (
-                        <div className="absolute w-full mt-2 bg-[#242628] rounded-lg shadow-xl z-10 border border-gray-700">
-                          <button
-                            onClick={() => {
-                              handleProfessionalSelect('all');
-                              setSelectedPaymentMethod('todos');
+                        <div className="absolute w-full mt-2 bg-white rounded-lg shadow-xl z-10 border border-gray-200">
+                      <button
+                        onClick={() => {
+                          handleProfessionalSelect('all');
+                          setSelectedPaymentMethod('todos');
                               setIsDropdownOpen(false);
                             }}
-                            className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                              selectedProfessional === 'all' ? 'bg-primary text-white' : 'text-gray-300'
+                            className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                              selectedProfessional === 'all' ? 'bg-primary text-white' : 'text-gray-700'
                             } rounded-t-lg`}
-                          >
-                            👥 Todos os Profissionais
-                          </button>
+                      >
+                        👥 Todos os Profissionais
+                      </button>
                           {establishment.professionals.map((professional, index) => (
-                            <button
-                              key={professional.id}
-                              onClick={() => {
-                                handleProfessionalSelect(professional.id);
-                                setSelectedPaymentMethod('todos');
+                        <button
+                          key={professional.id}
+                          onClick={() => {
+                            handleProfessionalSelect(professional.id);
+                            setSelectedPaymentMethod('todos');
                                 setIsDropdownOpen(false);
                               }}
-                              className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                                selectedProfessional === professional.id ? 'bg-primary text-white' : 'text-gray-300'
+                              className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                                selectedProfessional === professional.id ? 'bg-primary text-white' : 'text-gray-700'
                               } ${index === establishment.professionals.length - 1 ? 'rounded-b-lg' : ''}`}
-                            >
-                              👤 {professional.name}
-                            </button>
-                          ))}
+                        >
+                          👤 {professional.name}
+                        </button>
+                      ))}
                         </div>
                       )}
                     </div>
                     <div className="mt-3 flex items-center justify-between text-sm">
-                      <p className="text-gray-400">
+                      <p className="text-gray-700">
                         Filtro ativo: <span className="text-primary font-medium">{getProfessionalName(selectedProfessional)}</span>
                       </p>
-                      <p className="text-gray-400">
+                      <p className="text-gray-700">
                         {selectedProfessional === 'all' ? filteredAppointments.length : filteredAppointments.length} agendamentos encontrados
                       </p>
                     </div>
@@ -1761,22 +1761,22 @@ const EstablishmentDashboard = () => {
                 )}
 
                 {/* Filtros por Forma de Pagamento */}
-                <div className="mb-6 bg-[#1a1b1c] rounded-lg p-4 border border-gray-800">
-                  <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                <div className="mb-6 bg-white rounded-lg p-4 border border-gray-200">
+                  <h3 className="text-lg font-medium text-gray-900 mb-3 flex items-center gap-2">
                     <CreditCard className="h-5 w-5 text-primary" />
                     Filtrar por Forma de Pagamento
                   </h3>
                   <div className="relative" ref={paymentDropdownRef}>
                     <button
                       onClick={() => setIsPaymentDropdownOpen(!isPaymentDropdownOpen)}
-                      className="w-full p-4 rounded-lg bg-[#242628] hover:bg-[#2a2b2d] text-left flex justify-between items-center border border-gray-700"
+                      className="w-full p-4 rounded-lg bg-white hover:bg-gray-50 text-left flex justify-between items-center border border-gray-300"
                     >
-                      <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-2 text-gray-700">
                         {getPaymentMethodInfo(selectedPaymentMethod).icon} 
                         {getPaymentMethodInfo(selectedPaymentMethod).name}
                       </span>
                       <svg
-                        className={`w-5 h-5 transition-transform ${isPaymentDropdownOpen ? 'rotate-180' : ''}`}
+                        className={`w-5 h-5 transition-transform ${isPaymentDropdownOpen ? 'rotate-180' : ''} text-gray-500`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -1787,14 +1787,14 @@ const EstablishmentDashboard = () => {
                     
                     {/* Dropdown Menu */}
                     {isPaymentDropdownOpen && (
-                      <div className="absolute w-full mt-2 bg-[#242628] rounded-lg shadow-xl z-10 border border-gray-700">
-                        <button
+                      <div className="absolute w-full mt-2 bg-white rounded-lg shadow-xl z-10 border border-gray-200">
+                    <button
                           onClick={() => {
                             setSelectedPaymentMethod('todos');
                             setIsPaymentDropdownOpen(false);
                           }}
-                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                            selectedPaymentMethod === 'todos' ? 'bg-primary text-white' : 'text-gray-300'
+                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                            selectedPaymentMethod === 'todos' ? 'bg-primary text-white' : 'text-gray-700'
                           } rounded-t-lg`}
                         >
                           💳 Todos os tipos
@@ -1804,94 +1804,94 @@ const EstablishmentDashboard = () => {
                             setSelectedPaymentMethod('pendente');
                             setIsPaymentDropdownOpen(false);
                           }}
-                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                            selectedPaymentMethod === 'pendente' ? 'bg-gray-500 text-white' : 'text-gray-300'
-                          }`}
-                        >
-                          ⏳ Pendente
-                        </button>
-                        <button
+                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                            selectedPaymentMethod === 'pendente' ? 'bg-gray-500 text-white' : 'text-gray-700'
+                      }`}
+                    >
+                      ⏳ Pendente
+                    </button>
+                    <button
                           onClick={() => {
                             setSelectedPaymentMethod('pix');
                             setIsPaymentDropdownOpen(false);
                           }}
-                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                            selectedPaymentMethod === 'pix' ? 'bg-green-500 text-white' : 'text-gray-300'
-                          }`}
-                        >
-                          🟢 PIX
-                        </button>
-                        <button
+                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                            selectedPaymentMethod === 'pix' ? 'bg-green-500 text-white' : 'text-gray-700'
+                      }`}
+                    >
+                      🟢 PIX
+                    </button>
+                    <button
                           onClick={() => {
                             setSelectedPaymentMethod('credito');
                             setIsPaymentDropdownOpen(false);
                           }}
-                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                            selectedPaymentMethod === 'credito' ? 'bg-blue-500 text-white' : 'text-gray-300'
-                          }`}
-                        >
-                          🔵 Crédito
-                        </button>
-                        <button
+                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                            selectedPaymentMethod === 'credito' ? 'bg-blue-500 text-white' : 'text-gray-700'
+                      }`}
+                    >
+                      🔵 Crédito
+                    </button>
+                    <button
                           onClick={() => {
                             setSelectedPaymentMethod('debito');
                             setIsPaymentDropdownOpen(false);
                           }}
-                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                            selectedPaymentMethod === 'debito' ? 'bg-purple-500 text-white' : 'text-gray-300'
-                          }`}
-                        >
-                          🟣 Débito
-                        </button>
-                        <button
+                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                            selectedPaymentMethod === 'debito' ? 'bg-purple-500 text-white' : 'text-gray-700'
+                      }`}
+                    >
+                      🟣 Débito
+                    </button>
+                    <button
                           onClick={() => {
                             setSelectedPaymentMethod('dinheiro');
                             setIsPaymentDropdownOpen(false);
                           }}
-                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                            selectedPaymentMethod === 'dinheiro' ? 'bg-yellow-500 text-white' : 'text-gray-300'
-                          }`}
-                        >
-                          🟡 Dinheiro
-                        </button>
-                        <button
+                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                            selectedPaymentMethod === 'dinheiro' ? 'bg-yellow-500 text-white' : 'text-gray-700'
+                      }`}
+                    >
+                      🟡 Dinheiro
+                    </button>
+                    <button
                           onClick={() => {
                             setSelectedPaymentMethod('pagar_local');
                             setIsPaymentDropdownOpen(false);
                           }}
-                          className={`w-full p-4 text-left hover:bg-[#2a2b2d] flex items-center gap-2 ${
-                            selectedPaymentMethod === 'pagar_local' ? 'bg-orange-500 text-white' : 'text-gray-300'
+                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
+                            selectedPaymentMethod === 'pagar_local' ? 'bg-orange-500 text-white' : 'text-gray-700'
                           } rounded-b-lg`}
-                        >
-                          🏪 Pagar no Local
-                        </button>
+                    >
+                      🏪 Pagar no Local
+                    </button>
                       </div>
                     )}
                   </div>
                   <div className="mt-3 flex items-center justify-between text-sm">
-                    <p className="text-gray-400">
+                    <p className="text-gray-700">
                       Filtro de pagamento: <span className="text-primary font-medium">
                         {getPaymentMethodInfo(selectedPaymentMethod).name}
                       </span>
                     </p>
-                    <p className="text-gray-400">
+                    <p className="text-gray-700">
                       {filteredAppointments.length} agendamentos encontrados
                     </p>
                   </div>
                 </div>
 
               <div className="mb-4">
-                <h2 className="text-2xl font-bold text-white mb-2">Agendamentos do Dia</h2>
-                <p className="text-gray-400 mb-3">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Agendamentos do Dia</h2>
+                <p className="text-gray-700 mb-3">
                   {selectedProfessional === 'all' ? 'Todos os profissionais' : `Profissional: ${getProfessionalName(selectedProfessional)}`}
                 </p>
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-4">
-                    <span className="text-green-500 font-medium text-lg">
-                      Hoje: {formatCurrency(calculateDailyBalance(filteredAppointments))}
+                    <span className="text-gray-700 font-medium text-lg">
+                      Hoje: <span className="text-green-500">{formatCurrency(calculateDailyBalance(filteredAppointments))}</span>
                     </span>
-                    <span className="text-blue-500 font-medium text-lg">
-                      Este mês: {formatCurrency(calculateMonthlyBalance(monthlyAppointments))}
+                    <span className="text-gray-700 font-medium text-lg">
+                      Este mês: <span className="text-blue-500">{formatCurrency(calculateMonthlyBalance(monthlyAppointments))}</span>
                     </span>
                   </div>
                 </div>
@@ -1905,7 +1905,7 @@ const EstablishmentDashboard = () => {
                     type="date"
                     value={format(selectedDate, 'yyyy-MM-dd')}
                     onChange={handleDateChange}
-                    className="input-field bg-[#242628] border-gray-800 text-white"
+                    className="input-field bg-white border-gray-200 text-gray-900 focus:border-green-500 focus:ring-1 focus:ring-green-500"
                   />
                   <button onClick={handleNextDay} className="btn-outline">
                     <ChevronRight className="h-4 w-4" />
@@ -1921,7 +1921,9 @@ const EstablishmentDashboard = () => {
                 ) : (
                   <div className="space-y-4 mt-4 w-full max-w-[100vw] overflow-x-hidden">
                     {filteredAppointments.map((appointment) => (
-                      <div key={appointment.id} className="bg-[#242628] rounded-lg p-3 sm:p-4 w-full overflow-hidden">
+                      <div key={appointment.id} className={`${
+                        appointment.status === 'cancelled' ? 'bg-red-800/90' : 'bg-green-600'
+                      } rounded-lg p-3 sm:p-4 w-full overflow-hidden`}>
                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-2">
                           <div className="flex flex-col gap-1 flex-grow min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -1931,13 +1933,13 @@ const EstablishmentDashboard = () => {
                                   href={`https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center text-green-500 hover:text-green-400"
+                                  className="inline-flex items-center text-white hover:text-white/80"
                                 >
                                   <img src="/wppicon.png" alt="WhatsApp" className="h-4 w-4" />
                                 </a>
                               )}
                             </div>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-400">
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/90">
                               <span className="inline-flex items-center gap-1">
                                 <Calendar className="h-4 w-4" />
                                 {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
@@ -1953,33 +1955,33 @@ const EstablishmentDashboard = () => {
                             </div>
                           </div>
                           {appointment.is_premium && (
-                            <Crown className="h-5 w-5 text-yellow-500" />
+                            <Crown className="h-5 w-5 text-yellow-300" />
                           )}
                         </div>
 
                         <div className="flex flex-col w-full mt-3">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm text-gray-400">Serviço:</span>
+                              <span className="text-sm text-white/80">Serviço:</span>
                               <span className="text-sm text-white">{appointment.service}</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-sm text-gray-400">Duração:</span>
+                              <span className="text-sm text-white/80">Duração:</span>
                               <span className="text-sm text-white">{formatDuration(appointment.duration)}</span>
                             </div>
                           </div>
                           
                           <div className="flex flex-wrap gap-2 mt-3">
                             <div className="flex items-center gap-2 min-w-[120px]">
-                              <span className="text-sm text-gray-400">Valor base:</span>
+                              <span className="text-sm text-white/80">Valor base:</span>
                               <span className="text-sm text-white">{formatCurrency(appointment.price)}</span>
                             </div>
                             {appointment.additional_products && appointment.additional_products.length > 0 && (
                               <div className="flex-1 min-w-[200px]">
-                                <span className="text-sm text-gray-400 block mb-1">Produtos/Serviços Adicionais:</span>
+                                <span className="text-sm text-white/80 block mb-1">Produtos/Serviços Adicionais:</span>
                                 <div className="flex flex-wrap gap-2">
                                   {appointment.additional_products.map((product, index) => (
-                                    <span key={index} className="inline-flex items-center px-2 py-1 text-xs bg-gray-800 text-gray-300 rounded">
+                                    <span key={index} className="inline-flex items-center px-2 py-1 text-xs bg-white/10 text-white rounded">
                                       {product.name} - {formatCurrency(product.price)}
                                     </span>
                                   ))}
@@ -1990,7 +1992,7 @@ const EstablishmentDashboard = () => {
                           
                           <div className="flex flex-wrap items-center gap-3 mt-3">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm text-gray-400">Total:</span>
+                              <span className="text-sm text-white/80">Total:</span>
                               <span className="text-sm font-medium text-white">{formatCurrency(appointment.total_price || appointment.price)}</span>
                             </div>
                             
@@ -1998,25 +2000,25 @@ const EstablishmentDashboard = () => {
                               <select
                                 value={appointment.payment_method || 'pendente'}
                                 onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
-                                className="bg-[#1a1b1c] text-white text-sm rounded px-2 py-1 border border-gray-700"
+                                className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
                               >
-                                <option value="pendente">Forma de Pagamento</option>
-                                <option value="pix">PIX</option>
-                                <option value="credito">Cartão de Crédito</option>
-                                <option value="debito">Cartão de Débito</option>
-                                <option value="dinheiro">Dinheiro</option>
-                                <option value="pagar_local">Pagar no Local</option>
+                                <option value="pendente" className="bg-green-700 text-white">Forma de Pagamento</option>
+                                <option value="pix" className="bg-green-700 text-white">PIX</option>
+                                <option value="credito" className="bg-green-700 text-white">Cartão de Crédito</option>
+                                <option value="debito" className="bg-green-700 text-white">Cartão de Débito</option>
+                                <option value="dinheiro" className="bg-green-700 text-white">Dinheiro</option>
+                                <option value="pagar_local" className="bg-green-700 text-white">Pagar no Local</option>
                               </select>
                               
                               {appointment.payment_method === 'pix' && (
                                 <select
                                   value={appointment.pix_payment_status || 'pending'}
                                   onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
-                                  className="bg-[#1a1b1c] text-white text-sm rounded px-2 py-1 border border-gray-700"
+                                  className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
                                 >
-                                  <option value="pending">Aguardando PIX</option>
-                                  <option value="confirmed">PIX Confirmado</option>
-                                  <option value="rejected">PIX Rejeitado</option>
+                                  <option value="pending" className="bg-green-700 text-white">Aguardando PIX</option>
+                                  <option value="confirmed" className="bg-green-700 text-white">PIX Confirmado</option>
+                                  <option value="rejected" className="bg-green-700 text-white">PIX Rejeitado</option>
                                 </select>
                               )}
                             </div>
@@ -2031,7 +2033,7 @@ const EstablishmentDashboard = () => {
                                   setSelectedAppointmentForProduct(appointment.id);
                                   setShowAdditionalProductModal(true);
                                 }}
-                                className="inline-flex items-center px-3 py-1.5 text-sm bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors"
+                                className="inline-flex items-center px-3 py-1.5 text-sm bg-white/20 text-white rounded hover:bg-white/30 transition-colors"
                               >
                                 <Plus className="h-4 w-4 mr-1" />
                                 Adicionar Produto
@@ -2464,7 +2466,7 @@ const EstablishmentDashboard = () => {
                     <span>Adicionar</span>
                   </button>
                 </div>
-
+                
                 {/* Resto do código original dos profissionais */}
                 <div className="space-y-4">
                   {professionals.map((professional) => (
@@ -2475,38 +2477,38 @@ const EstablishmentDashboard = () => {
                             type="text"
                             value={professional.name}
                             onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
-                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                             placeholder="Nome do profissional"
                           />
                         </div>
                         <button
                           type="button"
                           onClick={() => handleRemoveProfessional(professional.id)}
-                          className="ml-2 text-red-500 hover:text-red-400"
+                            className="ml-2 text-red-500 hover:text-red-400"
                         >
-                          <Trash2 className="h-5 w-5" />
+                            <Trash2 className="h-5 w-5" />
                         </button>
-                      </div>
-                      
-                      {/* Campo de senha do profissional */}
-                      <div className="flex gap-2 items-center">
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            maxLength={4}
-                            value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
-                            onChange={(e) => {
-                              const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-                              setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
-                              if (value.length === 4) {
-                                handleUpdateProfessionalPin(professional.id, value);
-                              }
-                            }}
-                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                            placeholder="Senha de 4 dígitos"
-                          />
                         </div>
-                        <span className="text-sm text-gray-400">Senha do profissional</span>
+                        
+                        {/* Campo de senha do profissional */}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              maxLength={4}
+                              value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
+                              onChange={(e) => {
+                                const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                                setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
+                                if (value.length === 4) {
+                                  handleUpdateProfessionalPin(professional.id, value);
+                                }
+                              }}
+                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                              placeholder="Senha de 4 dígitos"
+                            />
+                          </div>
+                          <span className="text-sm text-gray-400">Senha do profissional</span>
                       </div>
                     </div>
                   ))}
@@ -2542,7 +2544,7 @@ const EstablishmentDashboard = () => {
                     </div>
                   </div>
                 )}
-
+                
                 <ServiceForm
                   services={servicesWithPrices}
                   onChange={setServicesWithPrices}
@@ -2631,7 +2633,7 @@ const EstablishmentDashboard = () => {
       </div>
 
       {showPinModal && (
-        <PinPasswordModal
+      <PinPasswordModal
           onClose={handleClosePinModal}
           onSubmit={handleValidatePin}
           title="Digite a senha para acessar as configurações"

@@ -1,6 +1,13 @@
 import React from 'react';
 import { format } from 'date-fns';
 
+interface Service {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+}
+
 interface Appointment {
   appointment_date: string;
   appointment_time: string;
@@ -17,11 +24,10 @@ interface TimeSlot {
 
 interface TimeSlotSelectorProps {
   selectedDate: Date;
-  selectedDuration: number;
+  selectedService?: Service;
   existingAppointments: Appointment[];
-  selectedProfessional: string;
-  onSelectTime: (time: string) => void;
   selectedTime?: string;
+  onTimeSelect: (time: string) => void;
   businessHours: {
     enabled: boolean;
     open1: string;
@@ -33,11 +39,10 @@ interface TimeSlotSelectorProps {
 
 export function TimeSlotSelector({
   selectedDate,
-  selectedDuration,
+  selectedService,
   existingAppointments,
-  selectedProfessional,
-  onSelectTime,
   selectedTime,
+  onTimeSelect,
   businessHours
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
@@ -53,14 +58,13 @@ export function TimeSlotSelector({
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
     
     // Se não houver horários de funcionamento ou não estiver habilitado, retornar array vazio
-    if (!businessHours || !businessHours.enabled) {
+    if (!businessHours || !businessHours.enabled || !selectedService) {
       return slots;
     }
 
-    // Filtrar agendamentos para o dia e profissional específicos
+    // Filtrar agendamentos para o dia específico
     const relevantAppointments = existingAppointments.filter(apt => 
       apt.appointment_date === selectedDateString &&
-      apt.professional === selectedProfessional &&
       apt.status !== 'cancelled'
     );
 
@@ -80,7 +84,7 @@ export function TimeSlotSelector({
         const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
         
         // Verificar se há conflito
-        const slotEndMinutes = minutes + selectedDuration;
+        const slotEndMinutes = minutes + (selectedService?.duration || 30);
         let isAvailable = true;
         let conflictReason = '';
 
@@ -133,7 +137,7 @@ export function TimeSlotSelector({
         const mins = minutes % 60;
         const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
         
-        const slotEndMinutes = minutes + selectedDuration;
+        const slotEndMinutes = minutes + (selectedService?.duration || 30);
         let isAvailable = true;
         let conflictReason = '';
 
@@ -191,30 +195,33 @@ export function TimeSlotSelector({
     <div className="grid grid-cols-4 gap-2">
       {timeSlots.map(({ time, isAvailable, reason }) => {
         const isSelected = selectedTime === time;
+        const isReserved = reason === 'Horário Reservado';
+        const isUltrapassedTime = reason === 'Serviço ultrapassaria horário';
+        const isDisabled = !isAvailable || isReserved || isUltrapassedTime;
+
         return (
           <button
             key={time}
-            onClick={() => {
-              if (isAvailable) {
-                onSelectTime(time);
-              }
-            }}
-            disabled={!isAvailable}
+            onClick={() => !isDisabled && onTimeSelect(time)}
+            disabled={isDisabled}
             className={`
-              p-3 rounded-lg border text-sm font-medium transition-all duration-200
-              ${!isAvailable 
-                ? 'bg-red-600/20 border-red-600/20 text-red-400 cursor-not-allowed' 
-                : isSelected
-                  ? 'bg-green-500/20 border-green-500 text-green-500'
-                  : 'bg-green-500/10 border-green-500/20 text-green-500 hover:border-green-500 hover:bg-green-500/20'
+              px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
+              ${isSelected 
+                ? 'bg-primary text-white shadow-lg scale-105' 
+                : isDisabled
+                  ? 'bg-red-600 text-white cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-700 hover:scale-105'
               }
+              ${isReserved ? 'bg-red-600 text-white cursor-not-allowed' : ''}
             `}
-            type="button"
           >
-            <div className="text-center">
-              <div className={!isAvailable ? 'line-through' : ''}>{time}</div>
-              {!isAvailable && (
-                <div className="text-xs mt-1 text-red-400">{reason}</div>
+            <div className="flex flex-col items-center">
+              <span>{time}</span>
+              {isReserved && (
+                <span className="text-xs mt-1 text-white">Horário Reservado</span>
+              )}
+              {isUltrapassedTime && (
+                <span className="text-xs mt-1 text-white">Serviço ultrapassaria horário</span>
               )}
             </div>
           </button>

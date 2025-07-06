@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { format, startOfMonth, endOfMonth, parseISO, subMonths, addMonths, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 
 declare const Chart: any;
 
@@ -48,6 +48,15 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
   const [serviceStats, setServiceStats] = useState<any[]>([]);
   const [dailyRevenue, setDailyRevenue] = useState<any[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<any[]>([]);
+  
+  // Estado para controlar quais seções estão expandidas
+  const [expandedSections, setExpandedSections] = useState({
+    summary: true,
+    professional: false,
+    products: false,
+    daily: false,
+    monthly: false
+  });
 
   const professionalChartRef = useRef<HTMLCanvasElement>(null);
   const productsChartRef = useRef<HTMLCanvasElement>(null);
@@ -84,7 +93,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
   }, [appointments, selectedMonth]);
 
   useEffect(() => {
-    if (professionalChartRef.current && professionalStats.length > 0) {
+    if (professionalChartRef.current && professionalStats.length > 0 && expandedSections.professional) {
       const ctx = professionalChartRef.current.getContext('2d');
       if (ctx) {
         // Limpa o gráfico anterior
@@ -144,10 +153,10 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         });
       }
     }
-  }, [professionalStats]);
+  }, [professionalStats, expandedSections.professional]);
 
   useEffect(() => {
-    if (productsChartRef.current && additionalProductStats.length > 0) {
+    if (productsChartRef.current && additionalProductStats.length > 0 && expandedSections.products) {
       const ctx = productsChartRef.current.getContext('2d');
       if (ctx) {
         // Limpa o gráfico anterior
@@ -191,10 +200,10 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         });
       }
     }
-  }, [additionalProductStats]);
+  }, [additionalProductStats, expandedSections.products]);
 
   useEffect(() => {
-    if (dailyChartRef.current && dailyRevenue.length > 0) {
+    if (dailyChartRef.current && dailyRevenue.length > 0 && expandedSections.daily) {
       const ctx = dailyChartRef.current.getContext('2d');
       if (ctx) {
         // Limpa o gráfico anterior
@@ -204,13 +213,15 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         }
 
         new Chart(ctx, {
-          type: 'bar',
+          type: 'line',
           data: {
             labels: dailyRevenue.map(day => day.date),
             datasets: [{
-              label: 'Receita Diária',
+              label: 'Receita',
               data: dailyRevenue.map(day => day.revenue),
+              borderColor: COLORS[0],
               backgroundColor: COLORS[0],
+              tension: 0.4
             }]
           },
           options: {
@@ -218,9 +229,14 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
             maintainAspectRatio: false,
             plugins: {
               legend: {
-                position: 'top',
-                labels: {
-                  color: '#fff'
+                display: false
+              },
+              tooltip: {
+                callbacks: {
+                  label: (context: any) => {
+                    const value = context.raw;
+                    return formatCurrency(value);
+                  }
                 }
               }
             },
@@ -247,10 +263,10 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         });
       }
     }
-  }, [dailyRevenue]);
+  }, [dailyRevenue, expandedSections.daily]);
 
   useEffect(() => {
-    if (monthlyChartRef.current && monthlyRevenue.length > 0) {
+    if (monthlyChartRef.current && monthlyRevenue.length > 0 && expandedSections.monthly) {
       const ctx = monthlyChartRef.current.getContext('2d');
       if (ctx) {
         // Limpa o gráfico anterior
@@ -264,7 +280,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
           data: {
             labels: monthlyRevenue.map(month => month.label),
             datasets: [{
-              label: 'Receita Mensal',
+              label: 'Receita',
               data: monthlyRevenue.map(month => month.revenue),
               backgroundColor: COLORS[0],
             }]
@@ -274,9 +290,14 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
             maintainAspectRatio: false,
             plugins: {
               legend: {
-                position: 'top',
-                labels: {
-                  color: '#fff'
+                display: false
+              },
+              tooltip: {
+                callbacks: {
+                  label: (context: any) => {
+                    const value = context.raw;
+                    return formatCurrency(value);
+                  }
                 }
               }
             },
@@ -303,7 +324,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         });
       }
     }
-  }, [monthlyRevenue]);
+  }, [monthlyRevenue, expandedSections.monthly]);
 
   const calculateStats = () => {
     const startDate = startOfMonth(selectedMonth);
@@ -435,6 +456,13 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
     }).format(value);
   };
 
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
+
   return (
     <div className="space-y-6">
       {/* Cabeçalho com navegação do mês */}
@@ -460,44 +488,94 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
 
       {/* Resumo do mês */}
       <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-        <h3 className="text-lg font-medium text-white mb-4">Resumo do Mês</h3>
-        <div className="text-3xl font-bold text-white">
-          {formatCurrency(totalRevenue)}
+        <div 
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => toggleSection('summary')}
+        >
+          <h3 className="text-lg font-medium text-white">Resumo do Mês</h3>
+          <button className="text-gray-400 hover:text-white transition-colors">
+            {expandedSections.summary ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+          </button>
         </div>
+        {expandedSections.summary && (
+          <div className="mt-4 text-3xl font-bold text-white">
+            {formatCurrency(totalRevenue)}
+          </div>
+        )}
       </div>
 
       {/* Gráfico de receita por profissional */}
       <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-        <h3 className="text-lg font-medium text-white mb-4">Receita por Profissional</h3>
-        <div className="h-[300px]">
-          <canvas ref={professionalChartRef} />
+        <div 
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => toggleSection('professional')}
+        >
+          <h3 className="text-lg font-medium text-white">Receita por Profissional (Clique para ver)</h3>
+          <button className="text-gray-400 hover:text-white transition-colors">
+            {expandedSections.professional ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+          </button>
         </div>
+        {expandedSections.professional && (
+          <div className="mt-4 h-[300px]">
+            <canvas ref={professionalChartRef} />
+          </div>
+        )}
       </div>
 
       {/* Gráfico de produtos adicionais */}
       {additionalProductStats.length > 0 && (
         <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-          <h3 className="text-lg font-medium text-white mb-4">Produtos Adicionais</h3>
-          <div className="h-[300px]">
-            <canvas ref={productsChartRef} />
+          <div 
+            className="flex items-center justify-between cursor-pointer"
+            onClick={() => toggleSection('products')}
+          >
+            <h3 className="text-lg font-medium text-white">Produtos Adicionais (Clique para ver)</h3>
+            <button className="text-gray-400 hover:text-white transition-colors">
+              {expandedSections.products ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+            </button>
           </div>
+          {expandedSections.products && (
+            <div className="mt-4 h-[300px]">
+              <canvas ref={productsChartRef} />
+            </div>
+          )}
         </div>
       )}
 
       {/* Gráfico de receita diária */}
       <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-        <h3 className="text-lg font-medium text-white mb-4">Receita Diária</h3>
-        <div className="h-[300px]">
-          <canvas ref={dailyChartRef} />
+        <div 
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => toggleSection('daily')}
+        >
+          <h3 className="text-lg font-medium text-white">Receita Diária (Clique para ver)</h3>
+          <button className="text-gray-400 hover:text-white transition-colors">
+            {expandedSections.daily ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+          </button>
         </div>
+        {expandedSections.daily && (
+          <div className="mt-4 h-[300px]">
+            <canvas ref={dailyChartRef} />
+          </div>
+        )}
       </div>
 
       {/* Gráfico de receita mensal */}
       <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-        <h3 className="text-lg font-medium text-white mb-4">Receita Mensal</h3>
-        <div className="h-[300px]">
-          <canvas ref={monthlyChartRef} />
+        <div 
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => toggleSection('monthly')}
+        >
+          <h3 className="text-lg font-medium text-white">Receita Mensal (Clique para ver)</h3>
+          <button className="text-gray-400 hover:text-white transition-colors">
+            {expandedSections.monthly ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+          </button>
         </div>
+        {expandedSections.monthly && (
+          <div className="mt-4 h-[300px]">
+            <canvas ref={monthlyChartRef} />
+          </div>
+        )}
       </div>
     </div>
   );

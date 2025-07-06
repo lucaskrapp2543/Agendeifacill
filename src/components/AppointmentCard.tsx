@@ -29,7 +29,9 @@ export const AppointmentCard = ({
   const formattedDate = format(new Date(appointment.appointment_date), 'dd/MM/yyyy', { locale: ptBR });
   
   return (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 space-y-4">
+    <div className={`${
+      appointment.status === 'cancelled' ? 'bg-red-800/90' : 'bg-green-800/90'
+    } border border-gray-700 rounded-lg p-4 space-y-4`}>
       <div className="flex justify-between items-start">
         <div>
           <div className="flex items-center gap-2">
