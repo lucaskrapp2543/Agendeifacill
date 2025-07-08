@@ -264,7 +264,7 @@ export function AppointmentForm({
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             <div className="flex items-center gap-2">
-              <Phone className="w-4 h-4" />
+            <Phone className="w-4 h-4" />
               <span>2. WhatsApp</span>
             </div>
           </label>
@@ -319,8 +319,8 @@ export function AppointmentForm({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             5. Escolha a Data
           </label>
-          <DatePicker
-            selectedDate={selectedDate}
+          <DatePicker 
+            selectedDate={selectedDate} 
             onChange={onSelectDate}
             businessHours={establishment.business_hours}
           />
@@ -345,10 +345,10 @@ export function AppointmentForm({
 
         {/* 7. FORMA DE PAGAMENTO */}
         {selectedService && (
-          <div>
+        <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               7. Forma de Pagamento
-            </label>
+          </label>
             {establishment.pix_key ? (
               <PixPaymentForm
                 establishment={establishment}
@@ -361,7 +361,7 @@ export function AppointmentForm({
             ) : (
               <div className="text-gray-700">
                 Pagamento somente no local
-              </div>
+                </div>
             )}
           </div>
         )}

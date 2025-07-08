@@ -24,12 +24,14 @@ import {
   Rocket,
   Eye,
   DollarSign,
-  Lock
+  Lock,
+  ThumbsUp
 } from 'lucide-react';
 import { PromoBanner } from '../components/PromoBanner';
 import WhatsAppButton from '../components/WhatsAppButton';
 import DemoBooking from '../components/DemoBooking';
 import { PromoNotifications } from '../components/PromoNotifications';
+import FinanceCarousel from '../components/FinanceCarousel';
 
 const pulseKeyframes = `
   @keyframes pulse-scale {
@@ -278,7 +280,7 @@ const LandingPage = () => {
               </div>
 
               {/* Botão de ação */}
-              <div className="w-full flex justify-center mb-6">
+              <div className="w-full flex justify-center mb-16">
                 <button
                   onClick={() => {
                     const plansSection = document.getElementById('planos');
@@ -292,23 +294,116 @@ const LandingPage = () => {
                 </button>
               </div>
 
-              {/* Imagem QUAIS */}
-              <div className="w-full mb-16">
+              {/* Seção de Benefícios */}
+              <section className="py-16">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <p className="text-center text-blue-500 font-semibold mb-4">BENEFÍCIOS</p>
+                  <div className="text-center mb-16">
+                    <h2 className="text-4xl md:text-6xl font-bold">
+                      Mais <span className="text-blue-500">organização</span>, menos <span className="text-blue-500">preocupações</span>
+                    </h2>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-16">
+                    {/* Reduza Atrasos */}
+                    <div className="flex items-start gap-6">
+                      <div className="bg-blue-100 p-4 rounded-lg">
+                        <Clock className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-semibold mb-2">Reduza Atrasos</h3>
+                        <p className="text-gray-300">Clientes recebem lembretes via Whatsapp, evitando esquecimentos.</p>
+                      </div>
+                    </div>
+
+                    {/* Agenda Sempre Disponível */}
+                    <div className="flex items-start gap-6">
+                      <div className="bg-blue-100 p-4 rounded-lg">
+                        <Calendar className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-semibold mb-2">Agenda Sempre Disponível</h3>
+                        <p className="text-gray-300">Seus clientes podem agendar 24h por dia, sem precisar entrar em contato com você.</p>
+                      </div>
+                    </div>
+
+                    {/* Facilidade de Gestão */}
+                    <div className="flex items-start gap-6">
+                      <div className="bg-blue-100 p-4 rounded-lg">
+                        <Users className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-semibold mb-2">Facilidade de Gestão</h3>
+                        <p className="text-gray-300">Controle agendamentos, clientes, profissionais e faturamento, tudo em um só lugar.</p>
+                      </div>
+                    </div>
+
+                    {/* Clientes Satisfeitos */}
+                    <div className="flex items-start gap-6">
+                      <div className="bg-blue-100 p-4 rounded-lg">
+                        <ThumbsUp className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-semibold mb-2">Clientes Satisfeitos</h3>
+                        <p className="text-gray-300">Proporcione um atendimento automático, organizado, ágil e eficiente, garantindo mais satisfação e fidelização.</p>
+                      </div>
+                    </div>
+
+                    {/* Sistema de Clientes Fiel */}
+                    <div className="flex items-start gap-6">
+                      <div className="bg-blue-100 p-4 rounded-lg">
+                        <Star className="w-8 h-8 text-blue-500" fill="currentColor" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-semibold mb-2">Sistema de Clientes Fiel</h3>
+                        <p className="text-gray-300">Você terá o sistema mais inovador de repescagem de clientes já visto. Redobre até 10x seu faturamento.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Imagens de exemplo do celular */}
+              <div className="w-full mt-8 mb-24">
+                {/* Legenda */}
+                <p className="text-center text-xl text-white mb-6">
+                  Envie seu link agendeifacil, ou coloque na bio do instagram
+                </p>
                 <img 
-                  src="/QUAIS.png" 
-                  alt="QUAIS" 
+                  src="/envia.svg" 
+                  alt="Envia" 
                   className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
                 />
               </div>
 
               {/* Imagem Celulares */}
               <div className="w-full mb-16">
+                {/* Nova legenda */}
+                <p className="text-center text-xl text-white mb-8">
+                  Seu cliente irá para uma página editável única e exclusiva sua
+                </p>
                 <img 
                   src="/testecel.svg" 
                   alt="Versão Celular" 
                   className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
                 />
               </div>
+
+              {/* Demo Booking Section */}
+              <section className="py-24">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <h2 className="text-3xl font-bold text-center mb-4">
+                    Experimente Como Funciona
+                  </h2>
+                  <p className="text-center text-gray-400 mb-12 max-w-2xl mx-auto">
+                    Faça uma simulação de agendamento e veja como é fácil e prático para seus clientes agendarem com você
+                  </p>
+                  <DemoBooking />
+                </div>
+              </section>
+
+              {/* Seção de Benefícios */}
+              {/* Seção de Benefícios */}
 
               <div className="text-center max-w-3xl mx-auto mb-16">
                 <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white leading-tight mb-6">
@@ -327,14 +422,15 @@ const LandingPage = () => {
                   <h2 className="text-3xl font-bold text-center mb-12">
                     Recursos Principais
                   </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    {features.map((feature, index) => (
+                  {/* Features Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-12">
+                {features.map((feature, index) => (
                       <div
                         key={index}
-                        className="bg-gray-900 rounded-xl p-6 transform hover:scale-105 transition-transform duration-300"
+                        className="bg-[#111] p-6 rounded-xl hover:bg-[#222] transition-colors"
                       >
-                        <div className="bg-blue-500 rounded-full w-12 h-12 flex items-center justify-center mb-4">
-                          {feature.icon}
+                        <div className="bg-blue-600 w-12 h-12 rounded-full flex items-center justify-center mb-4">
+                        {feature.icon}
                         </div>
                         <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
                         <p className="text-gray-400">{feature.description}</p>
@@ -342,36 +438,17 @@ const LandingPage = () => {
                     ))}
                   </div>
 
-                  {/* Imagem Envia */}
-                  <div className="w-full mt-16">
-                    {/* Legenda */}
-                    <p className="text-center text-xl text-white mb-6">
-                      Envie seu link agendeifacil, ou coloque na bio do instagram
-                    </p>
-                    <img 
-                      src="/envia.svg" 
-                      alt="Envia" 
-                      className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
-                    />
+                  {/* Seção do Carrossel e Link */}
+                  <div className="mt-16">
+                    <div className="max-w-3xl mx-auto mb-8">
+                      <FinanceCarousel />
+                    </div>
                   </div>
-                </div>
-              </section>
-
-              {/* Demo Booking Section */}
-              <section className="py-24 bg-[#111]">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                  <h2 className="text-3xl font-bold text-center mb-4">
-                    Experimente Como Funciona
-                  </h2>
-                  <p className="text-center text-gray-400 mb-12 max-w-2xl mx-auto">
-                    Faça uma simulação de agendamento e veja como é fácil e prático para seus clientes agendarem com você
-                  </p>
-                  <DemoBooking />
               </div>
               </section>
 
               {/* Seção de Depoimentos */}
-              <div className="bg-white py-16 mb-20">
+              <div className="py-16 mb-20">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                   <h2 className="text-3xl md:text-4xl font-bold text-center mb-8 bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
                     Histórias reais de quem transformou seu negócio com o AgendeiFácil
@@ -586,6 +663,24 @@ const LandingPage = () => {
               </div>
               </div>
             </div>
+          </div>
+        </section>
+
+      {/* Seção Como Funciona */}
+      <section className="py-16 bg-black text-white">
+        <div className="container mx-auto px-4">
+          <h2 className="text-3xl md:text-4xl font-bold text-center mb-12">
+            Experimente Como Funciona
+          </h2>
+          
+          {/* Carrossel Financeiro */}
+          <FinanceCarousel />
+          
+          <p className="text-center text-lg mb-8">
+            Envie seu link agendeifacil, ou coloque na bio do instagram
+          </p>
+
+          {/* Resto da seção */}
           </div>
         </section>
 
