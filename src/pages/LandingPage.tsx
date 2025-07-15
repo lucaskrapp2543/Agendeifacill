@@ -25,7 +25,8 @@ import {
   Eye,
   DollarSign,
   Lock,
-  ThumbsUp
+  ThumbsUp,
+  Pencil
 } from 'lucide-react';
 import { PromoBanner } from '../components/PromoBanner';
 import WhatsAppButton from '../components/WhatsAppButton';
@@ -207,6 +208,9 @@ const LandingPage = () => {
   //   return () => clearInterval(timer);
   // }, []);
 
+  // Adicione o estado para controlar o popup no início do componente LandingPage
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+
   return (
     <div className="min-h-screen bg-black text-white">
       <WhatsAppButton />
@@ -298,65 +302,76 @@ const LandingPage = () => {
               <section className="py-16">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                   <p className="text-center text-blue-500 font-semibold mb-4">BENEFÍCIOS</p>
-                  <div className="text-center mb-16">
-                    <h2 className="text-4xl md:text-6xl font-bold">
-                      Mais <span className="text-blue-500">organização</span>, menos <span className="text-blue-500">preocupações</span>
+                  <div className="text-center mb-8">
+                    <h2 className="text-base md:text-xl font-bold leading-snug">
+                      Mais <span className="text-blue-500 font-semibold">organização</span>,<br/>
+                      menos <span className="text-blue-500 font-semibold">preocupações</span>
                     </h2>
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-16">
                     {/* Reduza Atrasos */}
-                    <div className="flex items-start gap-6">
-                      <div className="bg-blue-100 p-4 rounded-lg">
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
                         <Clock className="w-8 h-8 text-blue-500" />
                       </div>
-                      <div>
+                      <div className="text-center sm:text-left">
                         <h3 className="text-xl font-semibold mb-2">Reduza Atrasos</h3>
                         <p className="text-gray-300">Clientes recebem lembretes via Whatsapp, evitando esquecimentos.</p>
                       </div>
                     </div>
 
                     {/* Agenda Sempre Disponível */}
-                    <div className="flex items-start gap-6">
-                      <div className="bg-blue-100 p-4 rounded-lg">
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
                         <Calendar className="w-8 h-8 text-blue-500" />
                       </div>
-                      <div>
+                      <div className="text-center sm:text-left">
                         <h3 className="text-xl font-semibold mb-2">Agenda Sempre Disponível</h3>
                         <p className="text-gray-300">Seus clientes podem agendar 24h por dia, sem precisar entrar em contato com você.</p>
                       </div>
                     </div>
 
                     {/* Facilidade de Gestão */}
-                    <div className="flex items-start gap-6">
-                      <div className="bg-blue-100 p-4 rounded-lg">
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
                         <Users className="w-8 h-8 text-blue-500" />
                       </div>
-                      <div>
+                      <div className="text-center sm:text-left">
                         <h3 className="text-xl font-semibold mb-2">Facilidade de Gestão</h3>
                         <p className="text-gray-300">Controle agendamentos, clientes, profissionais e faturamento, tudo em um só lugar.</p>
                       </div>
                     </div>
 
                     {/* Clientes Satisfeitos */}
-                    <div className="flex items-start gap-6">
-                      <div className="bg-blue-100 p-4 rounded-lg">
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
                         <ThumbsUp className="w-8 h-8 text-blue-500" />
                       </div>
-                      <div>
+                      <div className="text-center sm:text-left">
                         <h3 className="text-xl font-semibold mb-2">Clientes Satisfeitos</h3>
                         <p className="text-gray-300">Proporcione um atendimento automático, organizado, ágil e eficiente, garantindo mais satisfação e fidelização.</p>
                       </div>
                     </div>
 
                     {/* Sistema de Clientes Fiel */}
-                    <div className="flex items-start gap-6">
-                      <div className="bg-blue-100 p-4 rounded-lg">
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
                         <Star className="w-8 h-8 text-blue-500" fill="currentColor" />
                       </div>
-                      <div>
+                      <div className="text-center sm:text-left">
                         <h3 className="text-xl font-semibold mb-2">Sistema de Clientes Fiel</h3>
                         <p className="text-gray-300">Você terá o sistema mais inovador de repescagem de clientes já visto. Redobre até 10x seu faturamento.</p>
+                      </div>
+                    </div>
+                    {/* Página personalizada */}
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
+                        <Pencil className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <h3 className="text-xl font-semibold mb-2">Página personalizada</h3>
+                        <p className="text-gray-300">tenha uma página exclusiva sua e personalizada por você com fotos, nomes, serviços, suas redes, localização e etc...</p>
                       </div>
                     </div>
                   </div>
@@ -465,6 +480,14 @@ const LandingPage = () => {
                         <div>
                           <p className="font-semibold text-white">{testimonial.name}</p>
                           <p className="text-gray-400 text-sm">{testimonial.business}</p>
+                        </div>
+                        <div className="flex justify-center mt-4">
+                          <button
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200"
+                            onClick={() => setShowFeedbackModal(true)}
+                          >
+                            Deixar meu feedback
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -791,6 +814,20 @@ const LandingPage = () => {
           </div>
         </div>
       </footer>
+      {showFeedbackModal && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="bg-[#18191a] rounded-xl p-6 shadow-lg relative w-80 max-w-full text-center border border-blue-500/40">
+      <button
+        className="absolute top-2 right-2 text-gray-400 hover:text-white text-xl font-bold"
+        onClick={() => setShowFeedbackModal(false)}
+        aria-label="Fechar"
+      >
+        ×
+      </button>
+      <p className="text-white text-lg font-semibold mb-2">Você precisa estar logado para fazer seu feedback.</p>
+    </div>
+  </div>
+)}
     </div>
   );
 };

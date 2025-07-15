@@ -124,3 +124,17 @@ body {
   color: white !important;
   opacity: 1 !important;
 }
+
+@keyframes benefit-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(51, 136, 255, 0.15);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 24px 8px rgba(51, 136, 255, 0.25);
+    transform: scale(1.025);
+  }
+}
+.animate-benefit-pulse {
+  animation: benefit-pulse 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
