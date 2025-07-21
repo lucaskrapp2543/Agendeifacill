@@ -31,25 +31,23 @@ export interface Database {
           owner_id: string;
           business_hours: Record<string, {
             enabled: boolean;
-            open: string;
-            close: string;
+            open1: string;
+            close1: string;
+            open2: string | null;
+            close2: string | null;
           }>;
-          services_with_prices: Array<{
-            id: string;
-            name: string;
-            price: number;
-            duration: number;
-          }>;
-          professionals: Array<{
-            id: string;
-            name: string;
-            specialties: string[];
-          }>;
+          services_with_prices: Array<Service>;
+          professionals: Array<Professional>;
           profile_image_url?: string;
           affiliate_link?: string;
           custom_photo_1_url?: string;
           custom_photo_2_url?: string;
           custom_photo_3_url?: string;
+          pix_key_type?: string;
+          pix_key?: string;
+          review_link?: string;
+          social_media_link?: string;
+          pix_payment_link?: string;
         }
       },
       premium_subscribers: {
@@ -77,5 +75,28 @@ export interface Database {
       }
     }
   }
+}
+
+export type Establishment = Database['public']['Tables']['establishments']['Row'];
+
+export interface Professional {
+  id: string;
+  name: string;
+  specialties: string[];
+}
+
+export interface Service {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+}
+
+export interface BusinessHours {
+  enabled: boolean;
+  open1: string;
+  close1: string;
+  open2: string | null;
+  close2: string | null;
 }
 

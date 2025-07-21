@@ -7,20 +7,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BusinessHoursSelector } from '../components/BusinessHoursSelector';
 import { useToast } from '../components/ui/Toaster';
-
-interface Establishment {
-  id: string;
-  name: string;
-  description: string;
-  code: string;
-  owner_id: string;
-  business_hours: Record<string, BusinessHours>;
-  professionals: Professional[];
-  services_with_prices: Service[];
-  profile_image_url?: string;
-  pix_key_type?: string;
-  pix_key?: string;
-}
+import type { Establishment, BusinessHours, Professional, Service } from '../types/supabase';
 
 const EstablishmentDirectBooking: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -42,6 +29,12 @@ const EstablishmentDirectBooking: React.FC = () => {
   const [clientName, setClientName] = useState('');
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('pagar_local'); // Estado para a forma de pagamento
+  const [pixProofFile, setPixProofFile] = useState<File | null>(null); // Estado para o arquivo de comprovante PIX
+  const [pixProofPreview, setPixProofPreview] = useState<string | null>(null); // Pré-visualização do comprovante
+  const [showPixInfo, setShowPixInfo] = useState(false); // Mostrar informações do PIX
+  // Novo estado para controlar a visibilidade do formulário de agendamento
+  const [showBookingForm, setShowBookingForm] = useState(false);
 
   // Estados de autenticação
   const [showAuth, setShowAuth] = useState(false);
@@ -141,6 +134,9 @@ const EstablishmentDirectBooking: React.FC = () => {
           custom_photo_1_url,
           custom_photo_2_url,
           custom_photo_3_url,
+          review_link,
+          social_media_link,
+          pix_payment_link,
           created_at,
           updated_at
         `)
@@ -208,39 +204,41 @@ const EstablishmentDirectBooking: React.FC = () => {
         
         const { data, error } = await loadEstablishmentDirect(code);
         
+        const establishmentDataFetched: Establishment | null = data as Establishment | null; // Forçar tipagem
+
         if (error) {
           console.error('❌ Erro detalhado:', error);
           setError('Estabelecimento não encontrado');
           return;
         }
         
-        if (!data) {
+        if (!establishmentDataFetched) {
           setError('Estabelecimento não encontrado');
           return;
         }
         
-        // Garantir que os campos obrigatórios existam
-        const establishment = {
-          ...data,
-          name: data.name || 'Estabelecimento',
-          description: data.description || 'Descrição não disponível',
-          business_hours: data.business_hours || {
+        // Garantir que os campos obrigatórios existam e aplicar valores padrão
+        const establishmentData: Establishment = {
+          ...establishmentDataFetched, // Usar o objeto com tipagem forçada
+          name: establishmentDataFetched.name || 'Estabelecimento',
+          description: establishmentDataFetched.description || 'Descrição não disponível',
+          business_hours: establishmentDataFetched.business_hours || {
             monday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
             tuesday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
             wednesday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
             thursday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
             friday: { enabled: true, open1: '09:00', close1: '18:00', open2: null, close2: null },
-            saturday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null },
-            sunday: { enabled: false, open1: '09:00', close1: '18:00', open2: null, close2: null }
+            saturday: { enabled: false, open1: '09:00', close1: '12:00', open2: null, close2: null },
+            sunday: { enabled: false, open1: '09:00', close1: '12:00', open2: null, close2: null }
           },
-          professionals: data.professionals || [
+          professionals: establishmentDataFetched.professionals || [
             {
               id: '1',
               name: 'Profissional 1',
               specialties: ['Corte', 'Barba']
             }
           ],
-          services_with_prices: data.services_with_prices || [
+          services_with_prices: establishmentDataFetched.services_with_prices || [
             {
               id: '1',
               name: 'Corte',
@@ -253,10 +251,21 @@ const EstablishmentDirectBooking: React.FC = () => {
               price: 15.00,
               duration: 20
             }
-          ]
+          ],
+          pix_key_type: establishmentDataFetched.pix_key_type || undefined,
+          pix_key: establishmentDataFetched.pix_key || undefined,
+          review_link: establishmentDataFetched.review_link || undefined,
+          social_media_link: establishmentDataFetched.social_media_link || undefined,
+          pix_payment_link: establishmentDataFetched.pix_payment_link || undefined,
+          // Certifique-se de que todos os campos obrigatórios da interface Establishment estão presentes
+          id: establishmentDataFetched.id,
+          code: establishmentDataFetched.code,
+          owner_id: establishmentDataFetched.owner_id,
+          created_at: establishmentDataFetched.created_at,
+          updated_at: establishmentDataFetched.updated_at,
         };
         
-        setEstablishment(establishment);
+        setEstablishment(establishmentData);
         setLoading(false);
       } catch (error) {
         console.error('❌ Erro ao carregar estabelecimento:', error);
@@ -277,6 +286,29 @@ const EstablishmentDirectBooking: React.FC = () => {
       setExistingAppointments([]);
     }
   }, [establishment, selectedDate, selectedProfessional]);
+
+  // Handle PIX info visibility
+  const handlePaymentMethodChange = (method: string) => {
+    setPaymentMethod(method);
+    setShowPixInfo(method === 'pix_now');
+  };
+
+  // Handle PIX proof file change
+  const handlePixProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPixProofFile(file);
+      setPixProofPreview(URL.createObjectURL(file));
+    }
+  };
+
+  // Handle PIX key copy
+  const handleCopyPix = () => {
+    if (establishment?.pix_key) {
+      navigator.clipboard.writeText(establishment.pix_key);
+      toast.success('Chave PIX copiada!');
+    }
+  };
 
   // Handle autenticação
   const handleAuth = async (e: React.FormEvent) => {
@@ -433,6 +465,42 @@ const EstablishmentDirectBooking: React.FC = () => {
               <h1 className="text-2xl font-bold text-gray-900">{establishment?.name || 'Estabelecimento'}</h1>
               <p className="text-gray-600">{establishment?.description || 'Descrição não disponível'}</p>
               <p className="text-sm text-gray-500">Código: {extractCodeFromSlug(slug || '')}</p>
+
+              {/* Botões de Ação Principal (visíveis antes de agendar) */}
+              {!showBookingForm && (
+                <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <button
+                    onClick={() => setShowBookingForm(true)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200"
+                  >
+                    AGENDAR
+                  </button>
+                  <a
+                    href={establishment?.review_link || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center justify-center text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.review_link ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}`}
+                  >
+                    AVALIE A GENTE
+                  </a>
+                  <a
+                    href={establishment?.social_media_link || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center justify-center text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.social_media_link ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}`}
+                  >
+                    NOSSAS REDES
+                  </a>
+                  <a
+                    href={establishment?.pix_payment_link || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center justify-center text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.pix_payment_link ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}`}
+                  >
+                    PAGAR PIX
+                  </a>
+                </div>
+              )}
             </div>
           </div>
           
@@ -581,230 +649,264 @@ const EstablishmentDirectBooking: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleBooking} className="space-y-4">
-                {/* Nome do Cliente */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nome do Cliente
-                  </label>
-                  <input
-                    type="text"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
-                    style={{ backgroundColor: '#ffffff', color: '#111827' }}
-                    placeholder="Digite seu nome completo"
-                    required
-                  />
-                </div>
-
-                {/* Serviço */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Serviço
-                  </label>
-                  <div className="grid grid-cols-1 gap-2">
-                    {establishment?.services_with_prices?.map((service: any) => {
-                      if (!service || typeof service !== 'object') return null;
-                      const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
-                      const isSelected = selectedService?.id === service.id;
-                      
-                      return (
-                        <button
-                          key={service.id}
-                          type="button"
-                          onClick={() => setSelectedService(service)}
-                          className={`w-full p-4 rounded-lg ${
-                            isSelected ? 'bg-[#242628] text-white' : 'bg-gray-50 text-gray-900'
-                          }`}
-                        >
-                          <div className="flex flex-col items-start gap-1">
-                            <span className="text-base font-medium">{service.name}</span>
-                            <span className="text-sm opacity-80">R$ {formattedPrice}</span>
-                            <span className="text-sm opacity-80">{service.duration}min</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Profissional */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Profissional
-                  </label>
-                  <select
-                    value={selectedProfessional}
-                    onChange={(e) => setSelectedProfessional(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
-                    style={{ backgroundColor: '#ffffff', color: '#111827' }}
-                    required
-                  >
-                    <option value="">Selecione um profissional</option>
-                    {establishment?.professionals?.map((prof: any) => (
-                      <option key={prof.id} value={prof.id}>{prof.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Data */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Data
-                  </label>
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    min={format(new Date(), 'yyyy-MM-dd')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
-                    style={{ backgroundColor: '#ffffff', color: '#111827' }}
-                    required
-                  />
-                </div>
-
-                {/* Horário com BusinessHoursSelector */}
-                {selectedDate && selectedService && (
+              // Exibe o formulário de agendamento apenas se showBookingForm for true
+              showBookingForm && (
+                <form onSubmit={handleBooking} className="space-y-4">
+                  {/* Conteúdo do formulário de agendamento (mantido o mesmo) */}
+                  {/* Nome do Cliente */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Horário
+                      Nome do Cliente
                     </label>
-                    <BusinessHoursSelector
-                      value={selectedTime}
-                      onChange={setSelectedTime}
-                      selectedDate={new Date(selectedDate + 'T00:00:00')}
-                      businessHours={establishment?.business_hours || {}}
-                      existingAppointments={existingAppointments}
-                      selectedProfessional={selectedProfessional}
-                      selectedServiceDuration={selectedService?.duration || 30}
+                    <input
+                      type="text"
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
+                      style={{ backgroundColor: '#ffffff', color: '#111827' }}
+                      placeholder="Digite seu nome completo"
+                      required
                     />
                   </div>
-                )}
 
-                {/* Resumo do Agendamento */}
-                {selectedTime && selectedService && selectedProfessional && clientName && (
-                  <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h3 className="text-lg font-medium text-gray-900 mb-3">Resumo do Agendamento</h3>
-                    <div className="space-y-2 text-sm text-gray-600">
-                      <p><strong>Cliente:</strong> {clientName}</p>
-                      <p><strong>Serviço:</strong> {selectedService.name}</p>
-                      <p><strong>Valor:</strong> R$ {selectedService.price.toFixed(2).replace('.', ',')}</p>
-                      <p><strong>Profissional:</strong> {establishment?.professionals?.find((p: any) => p.id === selectedProfessional)?.name}</p>
-                      <p><strong>Data:</strong> {new Date(selectedDate).toLocaleDateString('pt-BR')}</p>
-                      <p><strong>Horário:</strong> {selectedTime}</p>
-                      <p><strong>Duração:</strong> {selectedService.duration} minutos</p>
-                    </div>
-
-                    {/* Opções de Pagamento PIX */}
-                    <div className="mt-6">
-                      <h4 className="text-md font-medium text-gray-900 mb-3">Forma de Pagamento</h4>
-                      <div className="space-y-3">
-                        <button
-                          type="button"
-                          onClick={() => handlePaymentMethodChange('pix_now')}
-                          className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                            paymentMethod === 'pix_now'
-                              ? 'bg-green-50 border-green-500 text-green-700'
-                              : 'border-gray-300 hover:bg-gray-50'
-                          }`}
-                        >
-                          <div className="flex items-center">
-                            <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
-                              paymentMethod === 'pix_now'
-                                ? 'border-green-500 bg-green-500'
-                                : 'border-gray-400'
-                            }`} />
-                            <span>Pagar agora via PIX</span>
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handlePaymentMethodChange('pix_local')}
-                          className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                            paymentMethod === 'pix_local'
-                              ? 'bg-orange-50 border-orange-500 text-orange-700'
-                              : 'border-gray-300 hover:bg-gray-50'
-                          }`}
-                        >
-                          <div className="flex items-center">
-                            <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
-                              paymentMethod === 'pix_local'
-                                ? 'border-orange-500 bg-orange-500'
-                                : 'border-gray-400'
-                            }`} />
-                            <span>Pagar no local</span>
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Informações do PIX e Upload do Comprovante */}
-                    {showPixInfo && (
-                      <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
-                        {establishment?.pix_key ? (
-                          <>
-                            <h5 className="font-medium text-green-800 mb-2">Dados para Pagamento</h5>
-                            <p className="text-sm text-green-700 mb-4">
-                              <strong>Tipo de Chave:</strong> {establishment.pix_key_type}<br />
-                              <strong>Chave PIX:</strong> {establishment.pix_key}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={handleCopyPix}
-                              className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                            >
-                              Copiar Chave PIX
-                            </button>
-                            <div>
-                              <label className="block text-sm font-medium text-green-800 mb-2">
-                                Enviar Comprovante
-                              </label>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handlePixProofChange}
-                                className="block w-full text-sm text-green-700
-                                  file:mr-4 file:py-2 file:px-4
-                                  file:rounded-lg file:border-0
-                                  file:text-sm file:font-medium
-                                  file:bg-green-600 file:text-white
-                                  hover:file:bg-green-700
-                                  file:cursor-pointer cursor-pointer"
-                              />
-                              {pixProofPreview && (
-                                <div className="mt-2">
-                                  <img
-                                    src={pixProofPreview}
-                                    alt="Comprovante"
-                                    className="max-w-xs rounded-lg border border-green-200"
-                                  />
-                                </div>
-                              )}
+                  {/* Serviço */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Serviço
+                    </label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {establishment?.services_with_prices?.map((service: any) => {
+                        if (!service || typeof service !== 'object') return null;
+                        const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
+                        const isSelected = selectedService?.id === service.id;
+                        
+                        return (
+                          <button
+                            key={service.id}
+                            type="button"
+                            onClick={() => setSelectedService(service)}
+                            className={`w-full p-4 rounded-lg ${
+                              isSelected ? 'bg-[#242628] text-white' : 'bg-gray-50 text-gray-900'
+                            }`}
+                          >
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="text-base font-medium">{service.name}</span>
+                              <span className="text-sm opacity-80">R$ {formattedPrice}</span>
+                              <span className="text-sm opacity-80">{service.duration}min</span>
                             </div>
-                          </>
-                        ) : (
-                          <p className="text-sm text-red-600">
-                            Este estabelecimento ainda não cadastrou uma chave PIX para pagamento.
-                          </p>
-                        )}
-                      </div>
-                    )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
 
-                <button
-                  type="submit"
-                  disabled={bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile)}
-                  className={`btn-primary w-full mt-6 ${
-                    (bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile))
-                    && 'opacity-50 cursor-not-allowed'
-                  }`}
+                  {/* Profissional */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Profissional
+                    </label>
+                    <select
+                      value={selectedProfessional}
+                      onChange={(e) => setSelectedProfessional(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
+                      style={{ backgroundColor: '#ffffff', color: '#111827' }}
+                      required
+                    >
+                      <option value="">Selecione um profissional</option>
+                      {establishment?.professionals?.map((prof: any) => (
+                        <option key={prof.id} value={prof.id}>{prof.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Data */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Data
+                    </label>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      min={format(new Date(), 'yyyy-MM-dd')}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
+                      style={{ backgroundColor: '#ffffff', color: '#111827' }}
+                      required
+                    />
+                  </div>
+
+                  {/* Horário com BusinessHoursSelector */}
+                  {selectedDate && selectedService && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Horário
+                      </label>
+                      <BusinessHoursSelector
+                        value={selectedTime}
+                        onChange={setSelectedTime}
+                        selectedDate={new Date(selectedDate + 'T00:00:00')}
+                        businessHours={establishment?.business_hours || {}}
+                        existingAppointments={existingAppointments}
+                        selectedProfessional={selectedProfessional}
+                        selectedServiceDuration={selectedService?.duration || 30}
+                      />
+                    </div>
+                  )}
+
+                  {/* Resumo do Agendamento */}
+                  {selectedTime && selectedService && selectedProfessional && clientName && (
+                    <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <h3 className="text-lg font-medium text-gray-900 mb-3">Resumo do Agendamento</h3>
+                      <div className="space-y-2 text-sm text-gray-600">
+                        <p><strong>Cliente:</strong> {clientName}</p>
+                        <p><strong>Serviço:</strong> {selectedService.name}</p>
+                        <p><strong>Valor:</strong> R$ {selectedService.price.toFixed(2).replace('.', ',')}</p>
+                        <p><strong>Profissional:</strong> {establishment?.professionals?.find((p: any) => p.id === selectedProfessional)?.name}</p>
+                        <p><strong>Data:</strong> {new Date(selectedDate).toLocaleDateString('pt-BR')}</p>
+                        <p><strong>Horário:</strong> {selectedTime}</p>
+                        <p><strong>Duração:</strong> {selectedService.duration} minutos</p>
+                      </div>
+
+                      {/* Opções de Pagamento PIX */}
+                      <div className="mt-6">
+                        <h4 className="text-md font-medium text-gray-900 mb-3">Forma de Pagamento</h4>
+                        <div className="space-y-3">
+                          <button
+                            type="button"
+                            onClick={() => handlePaymentMethodChange('pix_now')}
+                            className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                              paymentMethod === 'pix_now'
+                                ? 'bg-green-50 border-green-500 text-green-700'
+                                : 'border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex items-center">
+                              <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
+                                paymentMethod === 'pix_now'
+                                  ? 'border-green-500 bg-green-500'
+                                  : 'border-gray-400'
+                              }`} />
+                              <span>Pagar agora via PIX</span>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handlePaymentMethodChange('pix_local')}
+                            className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                              paymentMethod === 'pix_local'
+                                ? 'bg-orange-50 border-orange-500 text-orange-700'
+                                : 'border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex items-center">
+                              <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
+                                paymentMethod === 'pix_local'
+                                  ? 'border-orange-500 bg-orange-500'
+                                  : 'border-gray-400'
+                              }`} />
+                              <span>Pagar no local</span>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Informações do PIX e Upload do Comprovante */}
+                      {showPixInfo && (
+                        <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                          {establishment?.pix_key ? (
+                            <>
+                              <h5 className="font-medium text-green-800 mb-2">Dados para Pagamento</h5>
+                              <p className="text-sm text-green-700 mb-4">
+                                <strong>Tipo de Chave:</strong> {establishment.pix_key_type}<br />
+                                <strong>Chave PIX:</strong> {establishment.pix_key}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={handleCopyPix}
+                                className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                              >
+                                Copiar Chave PIX
+                              </button>
+                              <div>
+                                <label className="block text-sm font-medium text-green-800 mb-2">
+                                  Enviar Comprovante
+                                </label>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handlePixProofChange}
+                                  className="block w-full text-sm text-green-700
+                                    file:mr-4 file:py-2 file:px-4
+                                    file:rounded-lg file:border-0
+                                    file:text-sm file:font-medium
+                                    file:bg-green-600 file:text-white
+                                    hover:file:bg-green-700
+                                    file:cursor-pointer cursor-pointer"
+                                />
+                                {pixProofPreview && (
+                                  <div className="mt-2">
+                                    <img
+                                      src={pixProofPreview}
+                                      alt="Comprovante"
+                                      className="max-w-xs rounded-lg border border-green-200"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-sm text-red-600">
+                              Este estabelecimento ainda não cadastrou uma chave PIX para pagamento.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile)}
+                    className={`btn-primary w-full mt-6 ${
+                      (bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile))
+                      && 'opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    {bookingLoading ? 'Agendando...' : 'Confirmar Agendamento'}
+                  </button>
+                </form>
+              )
+            )}
+
+            {/* Botões de Ação Secundária (visíveis quando o formulário está visível) */}
+            {showBookingForm && (
+              <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <a
+                  href={establishment?.review_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center justify-center text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.review_link ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}`}
                 >
-                  {bookingLoading ? 'Agendando...' : 'Confirmar Agendamento'}
-                </button>
-              </form>
+                  AVALIE A GENTE
+                </a>
+                <a
+                  href={establishment?.social_media_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center justify-center text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.social_media_link ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}`}
+                >
+                  NOSSAS REDES
+                </a>
+                <a
+                  href={establishment?.pix_payment_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center justify-center text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.pix_payment_link ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}`}
+                >
+                  PAGAR PIX
+                </a>
+              </div>
             )}
           </div>
         </div>

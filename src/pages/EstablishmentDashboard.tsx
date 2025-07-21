@@ -64,6 +64,9 @@ interface Establishment {
   pix_key?: string;
   pin_password?: string;
   logo_url?: string;
+  review_link?: string;       // Nova coluna
+  social_media_link?: string; // Nova coluna
+  pix_payment_link?: string;  // Nova coluna
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard';
@@ -149,6 +152,10 @@ const EstablishmentDashboard = () => {
   const [affiliateLink, setAffiliateLink] = useState('');
   const [pixKeyType, setPixKeyType] = useState<string>('');
   const [pixKey, setPixKey] = useState<string>('');
+  // Novos estados para os links
+  const [reviewLink, setReviewLink] = useState('');
+  const [socialMediaLink, setSocialMediaLink] = useState('');
+  const [pixPaymentLink, setPixPaymentLink] = useState('');
   
   // Estados de imagens
   const [profileImage, setProfileImage] = useState<File | null>(null);
@@ -423,7 +430,10 @@ const EstablishmentDashboard = () => {
         custom_photo_3: customPhoto3,
         pix_key_type: pixKeyType,
         pix_key: pixKey,
-        pin_password: null // Garantindo que a senha começa como nula
+        pin_password: null, // Garantindo que a senha começa como nula
+        review_link: reviewLink.trim(),       // Salva o link de avaliação
+        social_media_link: socialMediaLink.trim(), // Salva o link de redes sociais
+        pix_payment_link: pixPaymentLink.trim(),   // Salva o link de pagamento PIX
       };
       
       console.log('Dados do estabelecimento a serem criados:', establishmentData);
@@ -497,6 +507,9 @@ const EstablishmentDashboard = () => {
         custom_photo_3: customPhoto3,
         pix_key_type: pixKeyType,
         pix_key: pixKey,
+        review_link: reviewLink.trim(),       // Atualiza o link de avaliação
+        social_media_link: socialMediaLink.trim(), // Atualiza o link de redes sociais
+        pix_payment_link: pixPaymentLink.trim(),   // Atualiza o link de pagamento PIX
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -728,6 +741,10 @@ const EstablishmentDashboard = () => {
           setPixKeyType(establishmentData.pix_key_type || '');
           setPixKey(establishmentData.pix_key || '');
           setPinPassword(establishmentData.pin_password || '');
+          // Carrega os novos links
+          setReviewLink(establishmentData.review_link || '');
+          setSocialMediaLink(establishmentData.social_media_link || '');
+          setPixPaymentLink(establishmentData.pix_payment_link || '');
           
           // Carrega os profissionais e serviços
           setProfessionals(establishmentData.professionals || []);
@@ -2559,6 +2576,43 @@ const EstablishmentDashboard = () => {
 
               {/* Sistema de Clientes Fiéis */}
               <LoyalCustomers establishmentId={establishment.id} />
+
+              {/* Links Personalizados */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-4">Links Personalizados</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-400">Link para Avaliar (Google, etc.)</label>
+                    <input
+                      type="url"
+                      value={reviewLink}
+                      onChange={(e) => setReviewLink(e.target.value)}
+                      placeholder="Ex: https://g.page/sua-empresa/review"
+                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-400">Link das Redes Sociais</label>
+                    <input
+                      type="url"
+                      value={socialMediaLink}
+                      onChange={(e) => setSocialMediaLink(e.target.value)}
+                      placeholder="Ex: https://instagram.com/seuperfil"
+                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-400">Link para Pagamento PIX</label>
+                    <input
+                      type="url"
+                      value={pixPaymentLink}
+                      onChange={(e) => setPixPaymentLink(e.target.value)}
+                      placeholder="Ex: https://picpay.me/seuchavepix"
+                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                    />
+                  </div>
+                </div>
+              </div>
 
               {/* Botão de Salvar */}
               <div className="flex justify-end">
