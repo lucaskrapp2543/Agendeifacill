@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -11,6 +11,7 @@ import { ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
 import { LogOut } from 'lucide-react';
+import { PlusCircle } from 'lucide-react'; // Importar o ícone PlusCircle
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -22,6 +23,9 @@ export default function BookingPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
   const [forceRender, setForceRender] = useState(0); // Força re-renderização
+  const [showBookingForm, setShowBookingForm] = useState(false); // Novo estado para controlar a visibilidade do formulário
+
+  const bookingFormRef = useRef<HTMLDivElement>(null); // Ref para o formulário de agendamento
 
   useEffect(() => {
     fetchEstablishment();
@@ -32,6 +36,13 @@ export default function BookingPage() {
       fetchExistingAppointments();
     }
   }, [establishment, selectedDate]);
+
+  // Efeito para rolar até o formulário quando ele se torna visível
+  useEffect(() => {
+    if (showBookingForm && bookingFormRef.current) {
+      bookingFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [showBookingForm]);
 
   // Debug: Monitorar mudanças no estado establishment
   useEffect(() => {
@@ -73,7 +84,13 @@ export default function BookingPage() {
       console.log('🎯 Buscando especificamente pelo código:', id);
       const { data, error } = await supabase
         .from('establishments')
-        .select('*')
+        .select(`
+          *,
+          pix_payment_link,
+          review_link,
+          social_media_link,
+          pix_key
+        `)
         .eq('code', id)
         .single();
 
@@ -158,6 +175,7 @@ export default function BookingPage() {
       
       // Atualizar lista de agendamentos após sucesso
       await fetchExistingAppointments();
+      setShowBookingForm(false); // Esconder formulário após agendamento
       
       // Se for o estabelecimento, redirecionar para o dashboard do estabelecimento
       if (isEstablishmentOwner) {
@@ -176,6 +194,7 @@ export default function BookingPage() {
   console.log('  - establishment:', establishment);
   console.log('  - establishment existe?', !!establishment);
   console.log('  - forceRender:', forceRender);
+  console.log('  - showBookingForm:', showBookingForm);
 
   // SOLUÇÃO ALTERNATIVA: Se temos dados mas establishment é null, tentar buscar novamente
   if (!isLoading && !establishment && id) {
@@ -295,16 +314,83 @@ export default function BookingPage() {
             {establishment.description && (
               <p className="text-gray-600">{establishment.description}</p>
             )}
+
+            {/* Botões de Ação Principal */}
+            <div className="mt-6 flex flex-col space-y-4">
+              <button
+                onClick={() => setShowBookingForm(true)}
+                className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 flex items-center justify-center gap-2"
+              >
+                AGENDAR
+                <img src="/calendario.png" alt="Calendário" className="h-5 w-5" />
+              </button>
+              <a
+                href={establishment.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment.review_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'}`}
+              >
+                AVALIE A GENTE
+                <img src="/google.png" alt="Google" className="h-5 w-5" />
+              </a>
+              <a
+                href={establishment.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment.social_media_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'}`}
+              >
+                INSTAGRAM
+                <img src="/INST.png" alt="Instagram" className="h-5 w-5" />
+              </a>
+              <button
+                onClick={() => {
+                  console.log('Clicou em PAGAR PIX');
+                  console.log('Valor de establishment.pix_key:', establishment.pix_key);
+                  if (establishment.pix_key) {
+                    navigator.clipboard.writeText(establishment.pix_key);
+                    toast.success('Chave PIX copiada com sucesso!');
+                  } else {
+                    toast.error('Chave PIX não disponível.');
+                  }
+                }}
+                disabled={!establishment.pix_key} // Desabilita o botão se a chave PIX não estiver disponível
+                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${
+                  establishment.pix_key ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                }`}
+              >
+                PAGAR PIX
+                <img src="/PIX.png" alt="PIX" className="h-5 w-5" />
+              </button>
+              <a
+                href={establishment.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${
+                  establishment.location_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                }`}
+              >
+                COMO CHEGAR
+                <img src="/LOCAL.png" alt="Localização" className="h-5 w-5" />
+              </a>
+            </div>
           </div>
 
           {/* Formulário de Agendamento */}
-          <AppointmentForm
-            establishment={establishment}
-            onSubmit={handleSubmit}
-            selectedDate={selectedDate}
-            onSelectDate={setSelectedDate}
-            existingAppointments={existingAppointments}
-          />
+          {showBookingForm && (
+            <div 
+              ref={bookingFormRef} // Adiciona a ref ao div do formulário
+              className="bg-white rounded-lg shadow-md p-6 text-gray-900"
+            >
+              <h2 className="text-xl font-bold mb-4">Fazer Agendamento</h2>
+              <AppointmentForm
+                establishment={establishment}
+                onSubmit={handleSubmit}
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                existingAppointments={existingAppointments}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

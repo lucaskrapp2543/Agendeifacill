@@ -12,12 +12,27 @@ import {
   removeFavoriteEstablishment,
   checkIfEstablishmentIsFavorite 
 } from '../lib/supabase';
-import { Calendar, Clock, Scissors, LogOut, Star, User, Plus, Trash2, Heart, Search, X, Crown } from 'lucide-react';
+import { Calendar, Clock, Scissors, LogOut, Star, User, Plus, Trash2, Heart, Search, X, Crown, PlusCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '../lib/supabase';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
-import type { Appointment, Establishment } from '../types/supabase';
+import type { Establishment } from '../types/supabase';
+
+interface Appointment {
+  id: string;
+  created_at: string;
+  establishment_id: string;
+  service: string;
+  professional: string;
+  appointment_date: string;
+  appointment_time: string;
+  status: 'pending' | 'confirmed' | 'cancelled';
+  client_id: string;
+  client_name: string;
+  price: number;
+  establishments: Establishment | null | undefined; // Definindo explicitamente o tipo establishments
+}
 
 type TabType = 'appointments' | 'book' | 'favorites' | 'premium';
 
@@ -61,6 +76,7 @@ const PremiumDashboard = () => {
   const [isBooking, setIsBooking] = useState(false);
   const [professional, setProfessional] = useState('');
   const [existingAppointmentsForSlots, setExistingAppointmentsForSlots] = useState<any[]>([]);
+  const [isBookingFlowStarted, setIsBookingFlowStarted] = useState(false); // Novo estado
   
   // Estados para favoritos
   const [favoriteEstablishments, setFavoriteEstablishments] = useState<FavoriteEstablishment[]>([]);
@@ -79,6 +95,15 @@ const PremiumDashboard = () => {
     loadFavoriteEstablishments();
     checkPremiumStatus();
   }, [user]);
+
+  useEffect(() => {
+    // Reset booking flow when changing tabs away from 'book'
+    if (activeTab !== 'book') {
+      setIsBookingFlowStarted(false);
+      setEstablishment(null); // Also reset establishment when leaving book tab
+      setEstablishmentCode('');
+    }
+  }, [activeTab]);
 
   // DESABILITADO TEMPORARIAMENTE - estava causando problema de voltar após remoção
   // useEffect(() => {
@@ -123,7 +148,7 @@ const PremiumDashboard = () => {
       
       setAppointments(data || []);
     } catch (error: any) {
-      toast.error(error.message || 'Erro ao buscar agendamentos');
+      toast(error.message || 'Erro ao buscar agendamentos');
     } finally {
       setIsLoading(false);
     }
@@ -156,7 +181,7 @@ const PremiumDashboard = () => {
       );
       
       if (existing) {
-        toast.warning('Este estabelecimento já está nos seus favoritos');
+        toast('Este estabelecimento já está nos seus favoritos');
         return;
       }
       
@@ -175,7 +200,7 @@ const PremiumDashboard = () => {
       toast.success('Estabelecimento adicionado aos favoritos!');
       
     } catch (error: any) {
-      toast.error('Erro ao adicionar aos favoritos');
+      toast('Erro ao adicionar aos favoritos');
     } finally {
       setIsAddingFavorite(false);
     }
@@ -192,6 +217,7 @@ const PremiumDashboard = () => {
     setEstablishmentCode(favorite.establishment_code);
     fetchExistingAppointments(favorite.establishment_id, appointmentDate, professional);
     setActiveTab('book');
+    setIsBookingFlowStarted(true); // Iniciar fluxo de agendamento ao selecionar favorito
     toast.success(`Estabelecimento selecionado: ${favorite.establishment_name}`);
   };
 
@@ -219,7 +245,7 @@ const PremiumDashboard = () => {
       
     } catch (error: any) {
       console.error('❌ Erro ao buscar agendamentos:', error);
-      toast.error(error.message || 'Erro ao buscar agendamentos existentes');
+      toast(error.message || 'Erro ao buscar agendamentos existentes');
       setExistingAppointmentsForSlots([]);
     }
   };
@@ -234,7 +260,7 @@ const PremiumDashboard = () => {
   const handleSearchEstablishment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!establishmentCode.trim()) {
-      toast.warning('Por favor, informe o código do estabelecimento');
+      toast('Por favor, informe o código do estabelecimento');
       return;
     }
     
@@ -248,7 +274,7 @@ const PremiumDashboard = () => {
       }
       
       if (!data) {
-        toast.error('Estabelecimento não encontrado');
+        toast('Estabelecimento não encontrado');
         return;
       }
       
@@ -269,7 +295,7 @@ const PremiumDashboard = () => {
       navigate(`/${slug}`);
       
     } catch (error: any) {
-      toast.error(error.message || 'Erro ao buscar estabelecimento');
+      toast(error.message || 'Erro ao buscar estabelecimento');
     } finally {
       setIsSearching(false);
     }
@@ -279,7 +305,7 @@ const PremiumDashboard = () => {
     e.preventDefault();
     if (!user || !establishment) return;
     if (!appointmentTime || !selectedService || !professional || !appointmentDate || !clientName) {
-      toast.warning('Preencha todos os campos para agendar');
+      toast('Preencha todos os campos para agendar');
       return;
     }
     
@@ -368,6 +394,7 @@ const PremiumDashboard = () => {
       setAppointmentTime('');
       setClientName('');
       setActiveTab('appointments');
+      setIsBookingFlowStarted(false); // Resetar fluxo de agendamento
     } catch (error: any) {
       toast.error(error.message || 'Erro ao criar agendamento');
     } finally {
@@ -403,7 +430,7 @@ const PremiumDashboard = () => {
   const handleSearchPremiumEstablishment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!premiumEstablishmentCode.trim()) {
-      toast.warning('Por favor, informe o código do estabelecimento');
+      toast('Por favor, informe o código do estabelecimento');
       return;
     }
 
@@ -418,7 +445,7 @@ const PremiumDashboard = () => {
       }
       
       if (!data) {
-        toast.error('Estabelecimento não encontrado. Verifique o código.');
+        toast('Estabelecimento não encontrado. Verifique o código.');
         return;
       }
       
@@ -426,7 +453,7 @@ const PremiumDashboard = () => {
       toast.success(`Estabelecimento encontrado: ${data.name}`);
       
     } catch (error: any) {
-      toast.error(error.message || 'Erro ao buscar estabelecimento');
+      toast(error.message || 'Erro ao buscar estabelecimento');
     } finally {
       setIsPremiumSearching(false);
     }
@@ -436,7 +463,7 @@ const PremiumDashboard = () => {
     e.preventDefault();
     
     if (!user || !premiumEstablishment || !clientName.trim() || !clientPhone.trim()) {
-      toast.warning('Por favor, preencha todos os campos');
+      toast('Por favor, preencha todos os campos');
       return;
     }
 
@@ -476,7 +503,7 @@ const PremiumDashboard = () => {
       if (existing) {
         const establishmentName = existing.establishments?.name || premiumEstablishment.name;
         console.log('⚠️ JÁ EXISTE PREMIUM:', establishmentName);
-        toast.warning(`Você já é premium em ${establishmentName}!`);
+        toast(`Você já é premium em ${establishmentName}!`);
         return;
       }
 
@@ -514,7 +541,7 @@ const PremiumDashboard = () => {
       
     } catch (error: any) {
       console.error('❌ ERRO AO ATIVAR PREMIUM:', error);
-      toast.error(error.message || 'Erro ao ativar premium');
+      toast(error.message || 'Erro ao ativar premium');
     } finally {
       setIsActivatingPremium(false);
     }
@@ -548,7 +575,7 @@ const PremiumDashboard = () => {
 
   const handleRemovePremium = async () => {
     if (!currentPremiumStatus) {
-      toast.warning('Nenhum premium ativo para remover');
+      toast('Nenhum premium ativo para remover');
       return;
     }
     
@@ -557,7 +584,7 @@ const PremiumDashboard = () => {
     if (!confirm(`🚨 CONFIRMAÇÃO DE REMOÇÃO\n\nTem certeza que deseja remover seu premium do estabelecimento "${establishmentName}"?\n\n⚠️ Esta ação:\n- Remove você da lista de clientes premium\n- Não pode ser desfeita\n- É permanente\n\nDeseja continuar?`)) return;
     
     try {
-      console.log('��️ INICIANDO REMOÇÃO DE PREMIUM:');
+      console.log('️ INICIANDO REMOÇÃO DE PREMIUM:');
       console.log('  - ID do registro:', currentPremiumStatus.id);
       console.log('  - User ID:', user?.id);
       console.log('  - Establishment ID:', currentPremiumStatus.establishment_id);
@@ -589,10 +616,6 @@ const PremiumDashboard = () => {
         console.log('🔍 RESULTADO DA DELEÇÃO (por ID):');
         console.log('  - Erro:', deleteError2);
         console.log('  - Dados deletados:', deleteData2);
-        
-        if (deleteError2) {
-          throw deleteError2;
-        }
         
         if (!deleteData2 || deleteData2.length === 0) {
           throw new Error('Nenhum registro foi deletado. Possível problema de permissão RLS.');
@@ -669,7 +692,7 @@ const PremiumDashboard = () => {
       console.log('  - Erro:', deleteTestError);
       console.log('  - Resultado:', deleteTestData);
       
-      toast.info('Teste de permissões concluído - veja o console');
+      toast('Teste de permissões concluído - veja o console');
       
     } catch (error) {
       console.error('❌ ERRO NO TESTE:', error);
@@ -841,14 +864,36 @@ const PremiumDashboard = () => {
                               Cancelar
                             </button>
                           )}
-                          
-                          {appointment.establishments?.affiliate_link && (
-                            <button
-                              onClick={() => window.open(appointment.establishments.affiliate_link, '_blank')}
-                              className="btn-primary text-sm py-1 order-1 md:order-2"
-                            >
-                              Ver link
-                            </button>
+
+                          {appointment.establishments && (
+                            <>
+                              {appointment.establishments.pix_payment_link && (
+                                <button
+                                  onClick={() => window.open(appointment.establishments.pix_payment_link, '_blank')}
+                                  className="btn-primary text-sm py-1 order-1 md:order-2"
+                                >
+                                  Pagar com Pix
+                                </button>
+                              )}
+
+                              {appointment.establishments.review_link && (
+                                <button
+                                  onClick={() => window.open(appointment.establishments.review_link, '_blank')}
+                                  className="btn-secondary text-sm py-1 order-3 md:order-3"
+                                >
+                                  Avalie no Google
+                                </button>
+                              )}
+                              
+                              {appointment.establishments.affiliate_link && (
+                                <button
+                                  onClick={() => window.open(appointment.establishments.affiliate_link, '_blank')}
+                                  className="btn-outline text-sm py-1 order-4 md:order-4"
+                                >
+                                  Ver link
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -872,203 +917,216 @@ const PremiumDashboard = () => {
             <div>
               <h2 className="text-lg font-semibold mb-4 text-white">Novo Agendamento</h2>
               
-              {!establishment ? (
-                <div>
-                  <form onSubmit={handleSearchEstablishment} className="mb-6">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={establishmentCode}
-                        onChange={(e) => setEstablishmentCode(e.target.value)}
-                        placeholder="Digite o código do estabelecimento"
-                        className="input-field flex-1"
-                      />
-                      <button
-                        type="submit"
-                        disabled={isSearching}
-                        className="btn-primary px-4 py-2 flex items-center gap-2"
-                      >
-                        {isSearching ? (
-                          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-                        ) : (
-                          <Search className="w-4 h-4" />
-                        )}
-                        <span className="hidden md:inline">Buscar</span>
-                      </button>
-                    </div>
-                  </form>
-
-                  {favoriteEstablishments.length > 0 && (
-                    <div>
-                      <h3 className="text-md font-medium mb-3 text-gray-300">Seus Favoritos</h3>
-                      <div className="grid gap-3 mb-6">
-                        {favoriteEstablishments.map((favorite) => (
-                          <div
-                            key={favorite.id}
-                            className="bg-[#242628] rounded-lg p-3 border border-gray-800 cursor-pointer hover:border-primary/50 transition-colors"
-                            onClick={() => handleSelectFavoriteEstablishment(favorite)}
-                          >
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <h4 className="font-medium text-white text-sm">
-                                  {favorite.establishment_name}
-                                </h4>
-                                <p className="text-gray-400 text-xs">
-                                  Código: {favorite.establishment_code}
-                                </p>
-                              </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRemoveFromFavorites(favorite.id);
-                                }}
-                                className="text-gray-400 hover:text-red-400 transition-colors p-1"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+              {!isBookingFlowStarted ? (
+                <div className="text-center py-8">
+                  <PlusCircle className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
+                  <p className="text-gray-400">Clique para iniciar um novo agendamento</p>
+                  <button
+                    onClick={() => setIsBookingFlowStarted(true)}
+                    className="mt-4 btn-primary font-medium"
+                  >
+                    Iniciar Novo Agendamento
+                  </button>
                 </div>
               ) : (
-                <div>
-                  <div className="bg-[#242628] rounded-lg p-4 border border-gray-800 mb-6">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-medium text-white">{establishment.name}</h3>
-                        <p className="text-gray-400 text-sm">{establishment.address}</p>
-                        <p className="text-gray-400 text-sm">Código: {establishment.code}</p>
+                <>
+                  {!establishment ? (
+                    <div>
+                      <form onSubmit={handleSearchEstablishment} className="mb-6">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={establishmentCode}
+                            onChange={(e) => setEstablishmentCode(e.target.value)}
+                            placeholder="Digite o código do estabelecimento"
+                            className="input-field flex-1"
+                          />
+                          <button
+                            type="submit"
+                            disabled={isSearching}
+                            className="btn-primary px-4 py-2 flex items-center gap-2"
+                          >
+                            {isSearching ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                            ) : (
+                              <Search className="w-4 h-4" />
+                            )}
+                            <span className="hidden md:inline">Buscar</span>
+                          </button>
+                        </div>
+                      </form>
+
+                      {favoriteEstablishments.length > 0 && (
+                        <div>
+                          <h3 className="text-md font-medium mb-3 text-gray-300">Seus Favoritos</h3>
+                          <div className="grid gap-3 mb-6">
+                            {favoriteEstablishments.map((favorite) => (
+                              <div
+                                key={favorite.id}
+                                className="bg-[#242628] rounded-lg p-3 border border-gray-800 cursor-pointer hover:border-primary/50 transition-colors"
+                                onClick={() => handleSelectFavoriteEstablishment(favorite)}
+                              >
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <h4 className="font-medium text-white text-sm">
+                                      {favorite.establishment_name}
+                                    </h4>
+                                    <p className="text-gray-400 text-xs">
+                                      Código: {favorite.establishment_code}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveFromFavorites(favorite.id);
+                                    }}
+                                    className="text-gray-400 hover:text-red-400 transition-colors p-1"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="bg-[#242628] rounded-lg p-4 border border-gray-800 mb-6">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="font-medium text-white">{establishment.name}</h3>
+                            <p className="text-gray-400 text-sm">Código: {establishment.code}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleAddToFavorites}
+                              disabled={isAddingFavorite || favoriteEstablishments.some(fav => fav.establishment_id === establishment.id)}
+                              className="btn-outline text-sm px-3 py-1 flex items-center gap-1"
+                            >
+                              <Heart className="w-4 h-4" />
+                              {favoriteEstablishments.some(fav => fav.establishment_id === establishment.id) ? 'Favoritado' : 'Favoritar'}
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleAddToFavorites}
-                          disabled={isAddingFavorite || favoriteEstablishments.some(fav => fav.establishment_id === establishment.id)}
-                          className="btn-outline text-sm px-3 py-1 flex items-center gap-1"
-                        >
-                          <Heart className="w-4 h-4" />
-                          {favoriteEstablishments.some(fav => fav.establishment_id === establishment.id) ? 'Favoritado' : 'Favoritar'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
 
-                  <form onSubmit={handleBookAppointment} className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-1">
-                        Seu Nome Completo
-                      </label>
-                      <input
-                        type="text"
-                        value={clientName}
-                        onChange={(e) => setClientName(e.target.value)}
-                        placeholder="Digite seu nome completo"
-                        className="input-field"
-                        required
-                      />
-                    </div>
+                      <form onSubmit={handleBookAppointment} className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Seu Nome Completo
+                          </label>
+                          <input
+                            type="text"
+                            value={clientName}
+                            onChange={(e) => setClientName(e.target.value)}
+                            placeholder="Digite seu nome completo"
+                            className="input-field"
+                            required
+                          />
+                        </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-1">
-                        Serviço
-                      </label>
-                      <select
-                        value={selectedService?.name || ''}
-                        onChange={(e) => {
-                          const service = establishment.services_with_prices.find(s => s.name === e.target.value);
-                          setSelectedService(service || null);
-                        }}
-                        className="input-field"
-                        required
-                      >
-                        <option value="">Selecione um serviço</option>
-                        {establishment.services_with_prices.map((service) => (
-                          <option key={service.name} value={service.name}>
-                            {service.name} - R$ {service.price} ({service.duration}min)
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Serviço
+                          </label>
+                          <select
+                            value={selectedService?.name || ''}
+                            onChange={(e) => {
+                              const service = establishment.services_with_prices.find(s => s.name === e.target.value);
+                              setSelectedService(service || null);
+                            }}
+                            className="input-field"
+                            required
+                          >
+                            <option value="">Selecione um serviço</option>
+                            {establishment.services_with_prices.map((service) => (
+                              <option key={service.name} value={service.name}>
+                                {service.name} - R$ {service.price} ({service.duration}min)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-1">
-                        Profissional
-                      </label>
-                      <select
-                        value={professional}
-                        onChange={(e) => setProfessional(e.target.value)}
-                        className="input-field"
-                        required
-                      >
-                        <option value="">Selecione um profissional</option>
-                        {establishment.professionals.map((prof) => (
-                          <option key={prof.id} value={prof.name}>
-                            {prof.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Profissional
+                          </label>
+                          <select
+                            value={professional}
+                            onChange={(e) => setProfessional(e.target.value)}
+                            className="input-field"
+                            required
+                          >
+                            <option value="">Selecione um profissional</option>
+                            {establishment.professionals.map((prof) => (
+                              <option key={prof.id} value={prof.name}>
+                                {prof.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-1">
-                        Data
-                      </label>
-                      <input
-                        type="date"
-                        value={appointmentDate}
-                        onChange={(e) => {
-                          setAppointmentDate(e.target.value);
-                          setAppointmentTime(''); // Reset time when date changes
-                        }}
-                        min={new Date().toISOString().split('T')[0]}
-                        className="input-field"
-                        required
-                      />
-                    </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Data
+                          </label>
+                          <input
+                            type="date"
+                            value={appointmentDate}
+                            onChange={(e) => {
+                              setAppointmentDate(e.target.value);
+                              setAppointmentTime(''); // Reset time when date changes
+                            }}
+                            min={new Date().toISOString().split('T')[0]}
+                            className="input-field"
+                            required
+                          />
+                        </div>
 
-                    {appointmentDate && professional && selectedService && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          Horário Disponível
-                        </label>
-                        <TimeSlotSelector
-                          selectedDate={new Date(appointmentDate + 'T00:00:00')}
-                          selectedDuration={selectedService.duration}
-                          existingAppointments={existingAppointmentsForSlots}
-                          selectedProfessional={professional}
-                          onSelectTime={setAppointmentTimeWithDebug}
-                          selectedTime={appointmentTime}
-                          businessHours={{
-                            open: '08:00',
-                            close: '18:00'
-                          }}
-                        />
-                      </div>
-                    )}
+                        {appointmentDate && professional && selectedService && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">
+                              Horário Disponível
+                            </label>
+                            <TimeSlotSelector
+                              selectedDate={new Date(appointmentDate + 'T00:00:00')}
+                              selectedService={selectedService}
+                              existingAppointments={existingAppointmentsForSlots}
+                              onTimeSelect={setAppointmentTimeWithDebug}
+                              selectedTime={appointmentTime}
+                              businessHours={establishment.business_hours[new Date(appointmentDate).getDay().toString()] || {
+                                enabled: false, open1: '08:00', close1: '18:00', open2: null, close2: null
+                              }}
+                            />
+                          </div>
+                        )}
 
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEstablishment(null);
-                          setEstablishmentCode('');
-                        }}
-                        className="btn-outline"
-                      >
-                        Voltar
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isBooking}
-                        className={`btn-primary flex-1 ${isBooking && 'opacity-50 cursor-not-allowed'}`}
-                      >
-                        {isBooking ? 'Agendando...' : 'Confirmar Agendamento Premium'}
-                      </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEstablishment(null);
+                              setEstablishmentCode('');
+                              setIsBookingFlowStarted(false); // Voltar para o botão inicial
+                            }}
+                            className="btn-outline"
+                          >
+                            Voltar
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isBooking}
+                            className={`btn-primary flex-1 ${isBooking && 'opacity-50 cursor-not-allowed'}`}
+                          >
+                            {isBooking ? 'Agendando...' : 'Confirmar Agendamento Premium'}
+                          </button>
+                        </div>
+                      </form>
                     </div>
-                  </form>
-                </div>
+                  )}
+                </>
               )}
             </div>
           ) : activeTab === 'favorites' ? (

@@ -48,6 +48,7 @@ export interface Database {
           review_link?: string;
           social_media_link?: string;
           pix_payment_link?: string;
+          location_link?: string; // Nova coluna para o link do local
         }
       },
       premium_subscribers: {

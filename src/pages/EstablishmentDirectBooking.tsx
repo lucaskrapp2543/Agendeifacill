@@ -545,7 +545,7 @@ const EstablishmentDirectBooking: React.FC = () => {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-8" style={{ backgroundColor: '#ffffff' }}>
+      <div className="max-w-4xl mx-auto px-4 py-8" style={{ backgroundColor: '#ffffff', color: '#111827' }}>
         <div className="grid md:grid-cols-2 gap-8">
           {/* Informações do Estabelecimento */}
           <div className="bg-white rounded-lg shadow-md p-6 text-gray-900" style={{ backgroundColor: '#ffffff', color: '#111827' }}>

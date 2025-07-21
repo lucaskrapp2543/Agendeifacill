@@ -67,6 +67,7 @@ interface Establishment {
   review_link?: string;       // Nova coluna
   social_media_link?: string; // Nova coluna
   pix_payment_link?: string;  // Nova coluna
+  location_link?: string; // Novo estado para o link do local
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard';
@@ -156,6 +157,19 @@ const EstablishmentDashboard = () => {
   const [reviewLink, setReviewLink] = useState('');
   const [socialMediaLink, setSocialMediaLink] = useState('');
   const [pixPaymentLink, setPixPaymentLink] = useState('');
+  const [locationLink, setLocationLink] = useState(''); // Novo estado para o link do local
+  
+  // Efeito para preencher automaticamente o pixPaymentLink
+  useEffect(() => {
+    if (pixKey && pixKey.toLowerCase() !== 'naotenhopix') {
+      // Aqui você pode definir a lógica para gerar o link. 
+      // Exemplo: Usando um domínio fixo e a chave PIX.
+      // Adapte 'seusite.com.br' para o domínio real do seu aplicativo.
+      setPixPaymentLink(`https://agendafacil.com.br/pix/${pixKey}`);
+    } else if (pixKey.toLowerCase() === 'naotenhopix') {
+      setPixPaymentLink(''); // Limpa se for 'naotenhopix'
+    }
+  }, [pixKey]);
   
   // Estados de imagens
   const [profileImage, setProfileImage] = useState<File | null>(null);
@@ -434,6 +448,7 @@ const EstablishmentDashboard = () => {
         review_link: reviewLink.trim(),       // Salva o link de avaliação
         social_media_link: socialMediaLink.trim(), // Salva o link de redes sociais
         pix_payment_link: pixPaymentLink.trim(),   // Salva o link de pagamento PIX
+        location_link: locationLink.trim(), // Salva o link do local
       };
       
       console.log('Dados do estabelecimento a serem criados:', establishmentData);
@@ -510,6 +525,7 @@ const EstablishmentDashboard = () => {
         review_link: reviewLink.trim(),       // Atualiza o link de avaliação
         social_media_link: socialMediaLink.trim(), // Atualiza o link de redes sociais
         pix_payment_link: pixPaymentLink.trim(),   // Atualiza o link de pagamento PIX
+        location_link: locationLink.trim(), // Atualiza o link do local
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -745,6 +761,7 @@ const EstablishmentDashboard = () => {
           setReviewLink(establishmentData.review_link || '');
           setSocialMediaLink(establishmentData.social_media_link || '');
           setPixPaymentLink(establishmentData.pix_payment_link || '');
+          setLocationLink(establishmentData.location_link || ''); // Carrega o link do local
           
           // Carrega os profissionais e serviços
           setProfessionals(establishmentData.professionals || []);
@@ -2607,7 +2624,17 @@ const EstablishmentDashboard = () => {
                       type="url"
                       value={pixPaymentLink}
                       onChange={(e) => setPixPaymentLink(e.target.value)}
-                      placeholder="Ex: https://picpay.me/seuchavepix"
+                      placeholder="Será preenchido automaticamente com sua chave PIX, ou digite um link personalizado"
+                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-400">Link para Local</label>
+                    <input
+                      type="url"
+                      value={locationLink}
+                      onChange={(e) => setLocationLink(e.target.value)}
+                      placeholder="Ex: https://maps.google.com"
                       className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
                     />
                   </div>
