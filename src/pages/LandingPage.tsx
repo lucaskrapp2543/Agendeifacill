@@ -402,6 +402,34 @@ const LandingPage = () => {
                   alt="Versão Celular" 
                   className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
                 />
+                {/* Legenda e imagem nova */}
+                <div className="mt-8">
+                  <p className="text-center text-xl text-white mb-6">
+                    e você irá ver tudo em tempo real, 100% atualizado e automático
+                  </p>
+                  <img
+                    src="/agendeifacilpordentro.png"
+                    alt="AgendeiFácil por dentro"
+                    className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300 rounded-xl shadow-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Seção do Carrossel Financeiro */}
+              <div className="mt-16">
+                <h2 className="text-lg md:text-xl font-semibold text-center mb-10 text-gray-400">
+                  TENHA UM CONTROLE FINANCEIRO COMPLETO DE
+                </h2>
+                <div className="text-center text-xs text-gray-600 mb-8">
+                  <ul className="list-disc list-inside inline-block">
+                    <li>TODOS OS PROFISSIONAIS</li>
+                    <li>CADA PROFISSIONAL</li>
+                    <li>CADA PRODUTO EXTRA VENDIDO</li>
+                  </ul>
+                </div>
+                <div className="max-w-3xl mx-auto mb-8">
+                  <FinanceCarousel />
+                </div>
               </div>
 
               {/* Demo Booking Section */}
@@ -453,12 +481,8 @@ const LandingPage = () => {
                     ))}
                   </div>
 
-                  {/* Seção do Carrossel e Link */}
-                  <div className="mt-16">
-                    <div className="max-w-3xl mx-auto mb-8">
-                      <FinanceCarousel />
-                    </div>
-                  </div>
+                  {/* Seção do Carrossel e Link - REMOVIDA DAQUI */}
+                  
               </div>
               </section>
 
