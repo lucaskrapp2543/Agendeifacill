@@ -8,7 +8,7 @@ type AuthContextType = {
   user: User | null;
   userRole: UserRole;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ user: User | null; session: Session | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -92,6 +92,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (data.session) {
         localStorage.setItem('supabase.auth.token', JSON.stringify(data.session));
       }
+      return { user: data.user, session: data.session }; // Retorna o user e a session
     } catch (error) {
       throw error;
     }

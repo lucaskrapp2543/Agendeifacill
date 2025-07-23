@@ -18,9 +18,17 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      await signIn(email, password);
-      const returnUrl = location.state?.returnUrl || '/';
-      navigate(returnUrl);
+      const { user } = await signIn(email, password);
+      
+      // Se houver uma returnUrl no state, redireciona para ela. Caso contrário, para o dashboard do usuário.
+      const returnUrl = location.state?.returnUrl;
+      if (returnUrl) {
+        navigate(returnUrl);
+      } else if (user?.user_metadata?.role) {
+        navigate(`/dashboard/${user.user_metadata.role}`);
+      } else {
+        navigate('/'); // Redireciona para a home page como fallback
+      }
       toast.success('Login realizado com sucesso!');
     } catch (error: any) {
       console.error('Erro ao fazer login:', error);
