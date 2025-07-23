@@ -8,6 +8,7 @@ type AuthContextType = {
   user: User | null;
   userRole: UserRole;
   isLoading: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -75,6 +76,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
+  const signIn = async (email: string, password: string) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      setUser(data.user);
+      setSession(data.session);
+      setUserRole(data.user?.user_metadata?.role as UserRole || null);
+
+      if (data.session) {
+        localStorage.setItem('supabase.auth.token', JSON.stringify(data.session));
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
@@ -88,7 +110,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const value = useMemo(
-    () => ({ user, userRole, isLoading, signOut }),
+    () => ({ user, userRole, isLoading, signIn, signOut }),
     [user, userRole, isLoading]
   );
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
@@ -11,21 +11,22 @@ import { ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
 import { LogOut } from 'lucide-react';
-import { PlusCircle } from 'lucide-react'; // Importar o ícone PlusCircle
+import { PlusCircle } from 'lucide-react';
 
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, signOut } = useAuth();
   
   const [establishment, setEstablishment] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
-  const [forceRender, setForceRender] = useState(0); // Força re-renderização
-  const [showBookingForm, setShowBookingForm] = useState(false); // Novo estado para controlar a visibilidade do formulário
+  const [forceRender, setForceRender] = useState(0);
+  const [showBookingForm, setShowBookingForm] = useState(false);
 
-  const bookingFormRef = useRef<HTMLDivElement>(null); // Ref para o formulário de agendamento
+  const bookingFormRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchEstablishment();
@@ -189,6 +190,17 @@ export default function BookingPage() {
     }
   };
 
+  const handleAgendarClick = () => {
+    if (!user) {
+      // Salvar a URL atual para redirecionamento após o login
+      const returnUrl = location.pathname;
+      navigate('/login', { state: { returnUrl } });
+      return;
+    }
+    
+    setShowBookingForm(true);
+  };
+
   console.log('🔍 RENDER - Estados atuais:');
   console.log('  - isLoading:', isLoading);
   console.log('  - establishment:', establishment);
@@ -276,7 +288,7 @@ export default function BookingPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="container-custom py-8">
+      <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex flex-col space-y-6">
           {/* Cabeçalho */}
           <div className="flex items-center justify-between">
@@ -299,122 +311,191 @@ export default function BookingPage() {
           <div className="rounded-lg overflow-hidden">
             <PhotoCarousel 
               photos={[
-                establishment.custom_photo_1_url || '/barbeiro ft 1.png',
-                establishment.custom_photo_2_url || '/barbeiro ft 2.png',
-                establishment.custom_photo_3_url || '/barbeiro ft 3.png'
+                establishment?.custom_photo_1_url || '/barbeiro ft 1.png',
+                establishment?.custom_photo_2_url || '/barbeiro ft 2.png',
+                establishment?.custom_photo_3_url || '/barbeiro ft 3.png'
               ]}
-              logoUrl={establishment.logo_url}
-              establishmentName={establishment.name}
+              logoUrl={establishment?.logo_url}
+              establishmentName={establishment?.name}
             />
           </div>
 
           {/* Informações do Estabelecimento */}
           <div className="text-center space-y-2">
-            <h1 className="text-2xl font-bold text-gray-900">{establishment.name}</h1>
-            {establishment.description && (
+            <h1 className="text-2xl font-bold text-gray-900">{establishment?.name}</h1>
+            {establishment?.description && (
               <p className="text-gray-600">{establishment.description}</p>
             )}
 
             {/* Botões de Ação Principal */}
             <div className="mt-6 flex flex-col space-y-4">
               <button
-                onClick={() => setShowBookingForm(true)}
+                onClick={handleAgendarClick}
                 className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 flex items-center justify-center gap-2"
               >
                 AGENDAR
                 <img src="/calendario.png" alt="Calendário" className="h-5 w-5" />
               </button>
               <a
-                href={establishment.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
+                href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment.review_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'}`}
+                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.review_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'}`}
               >
                 AVALIE A GENTE
                 <img src="/google.png" alt="Google" className="h-5 w-5" />
               </a>
               <a
-                href={establishment.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
+                href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment.social_media_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'}`}
+                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.social_media_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'}`}
               >
                 INSTAGRAM
                 <img src="/INST.png" alt="Instagram" className="h-5 w-5" />
               </a>
               <button
                 onClick={() => {
-                  console.log('Clicou em PAGAR PIX');
-                  console.log('Valor de establishment.pix_key:', establishment.pix_key);
-                  if (establishment.pix_key) {
+                  if (establishment?.pix_key) {
                     navigator.clipboard.writeText(establishment.pix_key);
                     toast.success('Chave PIX copiada com sucesso!');
                   } else {
                     toast.error('Chave PIX não disponível.');
                   }
                 }}
-                disabled={!establishment.pix_key} // Desabilita o botão se a chave PIX não estiver disponível
+                disabled={!establishment?.pix_key}
                 className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${
-                  establishment.pix_key ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                  establishment?.pix_key ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
                 }`}
               >
                 PAGAR PIX
                 <img src="/PIX.png" alt="PIX" className="h-5 w-5" />
               </button>
               <a
-                href={establishment.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
+                href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${
-                  establishment.location_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                  establishment?.location_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
                 }`}
               >
                 COMO CHEGAR
                 <img src="/LOCAL.png" alt="Localização" className="h-5 w-5" />
               </a>
-            </div>
 
-            {/* Seção de Comodidades */}
-            <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
-              <p className="text-sm text-gray-400 mb-4">
-                Clique no item para obter informações
-              </p>
-              <div className="grid grid-cols-3 gap-4">
-                {/* Wi-fi */}
-                <div
-                  onClick={() => {
-                    if (!establishment.has_wifi) return;
-                    if (establishment.wifi_password) {
-                      navigator.clipboard.writeText(establishment.wifi_password);
-                      toast.success('Senha de Wi-Fi copiada!');
-                    } else {
-                      toast.error('Senha de Wi-Fi não disponível.');
+              {/* Seção de Comodidades */}
+              <div className="mt-8 mb-6 bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-2">Comodidades</h3>
+                <p className="text-sm text-gray-400 mb-4">
+                  Clique no item para obter informações
+                </p>
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                  {/* Wi-fi */}
+                  <div 
+                    onClick={() => {
+                      if (establishment?.wifi_password) {
+                        navigator.clipboard.writeText(establishment.wifi_password);
+                        toast.success('Senha do Wi-Fi copiada!');
+                      }
+                    }}
+                    className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-pointer
+                      ${establishment?.has_wifi ? 'bg-[#242628] text-gray-300 hover:bg-[#2a2c2e]' : 'bg-[#242628] text-gray-500 opacity-50 cursor-not-allowed'}`
                     }
-                  }}
-                  className={`flex flex-col items-center justify-center p-4 rounded-lg transition-colors duration-200 ${
-                    establishment.has_wifi ? 'cursor-pointer bg-[#242628] text-gray-300 hover:bg-[#303234]' : 'cursor-not-allowed bg-[#242628] text-gray-500 opacity-50'
-                  }`}
-                >
-                  <img src="/wifi.png" alt="Wi-fi" className="h-8 w-8 mb-2" />
-                  <span className={`text-sm font-medium ${!establishment.has_wifi ? 'line-through' : ''}`}>Wi-fi</span>
-                </div>
+                    title={establishment?.has_wifi && establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : establishment?.has_wifi ? "Wi-Fi disponível" : "Wi-Fi indisponível"}
+                  >
+                    <img src="/wifi.png" alt="Wi-fi" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
+                    <span className={`text-xs sm:text-sm font-medium ${!establishment?.has_wifi ? 'line-through' : ''}`}>Wi-fi</span>
+                  </div>
 
-                {/* Estacionamento */}
-                <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-colors duration-200 cursor-default
-                  ${establishment.has_parking ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
-                }>
-                  <img src="/car.png" alt="Estacionamento" className="h-8 w-8 mb-2" />
-                  <span className={`text-sm font-medium ${!establishment.has_parking ? 'line-through' : ''}`}>Estacionamento</span>
-                </div>
+                  {/* Estacionamento */}
+                  <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-default
+                    ${establishment?.has_parking ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
+                  }>
+                    <img src="/car.png" alt="Estacionamento" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
+                    <span className={`text-xs sm:text-sm font-medium text-center ${!establishment?.has_parking ? 'line-through' : ''}`}>Estacion.</span>
+                  </div>
 
-                {/* Acessibilidade */}
-                <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-colors duration-200 cursor-default
-                  ${establishment.has_accessibility ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
-                }>
-                  <img src="/wheelchair.png" alt="Acessibilidade" className="h-8 w-8 mb-2" />
-                  <span className={`text-sm font-medium ${!establishment.has_accessibility ? 'line-through' : ''}`}>Acessibilidade</span>
+                  {/* Acessibilidade */}
+                  <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-default
+                    ${establishment?.has_accessibility ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
+                  }>
+                    <img src="/wheelchair.png" alt="Acessibilidade" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
+                    <span className={`text-xs sm:text-sm font-medium text-center ${!establishment?.has_accessibility ? 'line-through' : ''}`}>Acessib.</span>
+                  </div>
                 </div>
+              </div>
+
+              {/* Botão de WhatsApp */}
+              <a
+                href={establishment?.whatsapp ? `https://wa.me/${establishment.whatsapp}` : '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${
+                  establishment?.whatsapp ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                }`}
+              >
+                ENTRAR EM CONTATO
+                <img src="/wppicon.png" alt="WhatsApp" className="h-5 w-5" />
+              </a>
+
+              {/* Seção de Horário de Atendimento */}
+              <div className="mt-8 mb-6 bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-2">Horário de atendimento</h3>
+                {establishment?.business_hours && (
+                  <div className="space-y-2 sm:space-y-3">
+                    {[
+                      { dia: 'Segunda-Feira', key: 'monday' },
+                      { dia: 'Terça-Feira', key: 'tuesday' },
+                      { dia: 'Quarta-Feira', key: 'wednesday' },
+                      { dia: 'Quinta-Feira', key: 'thursday' },
+                      { dia: 'Sexta-Feira', key: 'friday' },
+                      { dia: 'Sábado', key: 'saturday' },
+                      { dia: 'Domingo', key: 'sunday' }
+                    ].map(({ dia, key }) => {
+                      const hoje = new Date().getDay();
+                      const diaDaSemana = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                      const isHoje = diaDaSemana[hoje] === key;
+                      const horarios = establishment.business_hours[key];
+
+                      if (!horarios?.enabled) return null;
+
+                      const formatHorario = (horarios: any) => {
+                        if (!horarios?.open1) return 'Fechado';
+                        
+                        let horario = `${horarios.open1} - `;
+                        
+                        if (horarios.open2 && horarios.close2) {
+                          horario += `${horarios.close1} e ${horarios.open2} - ${horarios.close2}`;
+                        } else {
+                          horario += horarios.close1;
+                        }
+                        
+                        return horario;
+                      };
+
+                      return (
+                        <div 
+                          key={dia} 
+                          className={`flex justify-between items-center p-2 sm:p-3 rounded-lg ${
+                            isHoje ? 'bg-[#242628] border border-gray-700' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs sm:text-sm text-gray-300">{dia.replace('-Feira', '')}</span>
+                            {isHoje && (
+                              <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 bg-emerald-500/20 text-emerald-400 rounded-full">
+                                Hoje
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs sm:text-sm text-gray-400 text-right">
+                            {formatHorario(horarios)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -422,7 +503,7 @@ export default function BookingPage() {
           {/* Formulário de Agendamento */}
           {showBookingForm && (
             <div 
-              ref={bookingFormRef} // Adiciona a ref ao div do formulário
+              ref={bookingFormRef}
               className="bg-white rounded-lg shadow-md p-6 text-gray-900"
             >
               <h2 className="text-xl font-bold mb-4">Fazer Agendamento</h2>

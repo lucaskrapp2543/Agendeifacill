@@ -72,6 +72,7 @@ interface Establishment {
   has_parking?: boolean; // Novo estado para Estacionamento
   has_accessibility?: boolean; // Novo estado para Acessibilidade
   wifi_password?: string; // Senha do Wi-Fi
+  whatsapp?: string; // Novo campo para WhatsApp
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard';
@@ -461,6 +462,7 @@ const EstablishmentDashboard = () => {
         has_parking: hasParking, // Salva a comodidade Estacionamento
         has_accessibility: hasAccessibility, // Salva a comodidade Acessibilidade
         wifi_password: wifiPassword.trim(), // Salva a senha do Wi-Fi
+        whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
       };
       
       console.log('Dados do estabelecimento a serem criados:', establishmentData);
@@ -542,6 +544,7 @@ const EstablishmentDashboard = () => {
         has_parking: hasParking, // Atualiza a comodidade Estacionamento
         has_accessibility: hasAccessibility, // Atualiza a comodidade Acessibilidade
         wifi_password: wifiPassword.trim(), // Atualiza a senha do Wi-Fi
+        whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -2707,6 +2710,47 @@ const EstablishmentDashboard = () => {
                       placeholder="Ex: https://maps.google.com"
                       className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
                     />
+                  </div>
+                </div>
+              </div>
+
+              {/* Configurações de Wi-Fi */}
+              <div className="mb-6">
+                <h3 className="text-lg font-medium text-white mb-4">Configurações de Wi-Fi</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Senha do Wi-Fi
+                    </label>
+                    <input
+                      type="text"
+                      value={wifiPassword}
+                      onChange={(e) => setWifiPassword(e.target.value)}
+                      placeholder="Digite a senha do Wi-Fi"
+                      className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Configurações de WhatsApp */}
+              <div className="mb-6">
+                <h3 className="text-lg font-medium text-white mb-4">Configurações de WhatsApp</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Seu número de WhatsApp
+                    </label>
+                    <input
+                      type="text"
+                      value={establishment?.whatsapp || ''}
+                      onChange={(e) => handleInputChange('whatsapp', e.target.value)}
+                      placeholder="Ex: 5511999999999 (apenas números)"
+                      className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <p className="text-sm text-gray-500 mt-1">
+                      Digite apenas números, incluindo código do país (55) e DDD
+                    </p>
                   </div>
                 </div>
               </div>

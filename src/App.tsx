@@ -90,11 +90,7 @@ function App() {
 
               <Route 
                 path="/booking/:id" 
-                element={
-                  <ProtectedRoute allowedRoles={['client', 'premium', 'establishment']}>
-                    <BookingPage />
-                  </ProtectedRoute>
-                } 
+                element={<BookingPage />}
               />
               
               <Route path="/success" element={<Success />} />

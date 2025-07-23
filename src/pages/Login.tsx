@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { signIn } from '../lib/supabase';
 import { ArrowLeft } from 'lucide-react';
 
 const Login = () => {
@@ -11,31 +11,19 @@ const Login = () => {
   
   const navigate = useNavigate();
   const location = useLocation();
+  const { signIn } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      const { data, error } = await signIn(email, password);
-      
-      if (error) {
-        throw error;
-      }
-
-      if (data && data.user) {
-        const userRole = data.user.user_metadata?.role;
-        if (userRole) {
-          toast.success('Login realizado com sucesso!');
-          
-          // Verificar se há uma página anterior para redirecionar
-          const from = (location.state as any)?.from?.pathname || `/dashboard/${userRole}`;
-          navigate(from, { replace: true });
-        } else {
-          toast.error('Erro: tipo de conta não identificado.');
-        }
-      }
+      await signIn(email, password);
+      const returnUrl = location.state?.returnUrl || '/';
+      navigate(returnUrl);
+      toast.success('Login realizado com sucesso!');
     } catch (error: any) {
+      console.error('Erro ao fazer login:', error);
       toast.error(error.message || 'Erro ao fazer login');
     } finally {
       setIsLoading(false);
@@ -45,7 +33,7 @@ const Login = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#101112] px-4">
       <div className="card max-w-md w-full">
-        <Link to="/" className="inline-flex items-center text-gray-600 hover:text-primary mb-6">
+        <Link to="/" className="inline-flex items-center text-gray-400 hover:text-primary mb-6">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Voltar para a página inicial
         </Link>
@@ -66,7 +54,7 @@ const Login = () => {
         
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-400 mb-1">
               Email
             </label>
             <input
@@ -81,7 +69,7 @@ const Login = () => {
           </div>
           
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-400 mb-1">
               Senha
             </label>
             <input
@@ -97,8 +85,8 @@ const Login = () => {
 
           <div className="text-center">
             <Link 
-              to="/register?role=client" 
-              state={{ from: location.state?.from }} 
+              to="/register" 
+              state={{ returnUrl: location.state?.returnUrl }} 
               className="text-primary hover:underline font-medium"
             >
               Criar conta
