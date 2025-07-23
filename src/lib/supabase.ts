@@ -225,7 +225,11 @@ export const createEstablishment = async (establishmentData: any) => {
     affiliate_link: establishmentData.affiliate_link || null,
     custom_photo_1_url: customPhoto1Url,
     custom_photo_2_url: customPhoto2Url,
-    custom_photo_3_url: customPhoto3Url
+    custom_photo_3_url: customPhoto3Url,
+    has_wifi: establishmentData.has_wifi ?? false,
+    has_parking: establishmentData.has_parking ?? false,
+    has_accessibility: establishmentData.has_accessibility ?? false,
+    wifi_password: establishmentData.wifi_password || null
   };
 
   console.log('Dados a serem criados:', dataToInsert);
@@ -258,6 +262,7 @@ export const getEstablishmentByCode = async (code: string) => {
       services_with_prices,
       professionals,
       business_hours,
+      wifi_password,
       profile_image_url,
       affiliate_link,
       custom_photo_1_url,

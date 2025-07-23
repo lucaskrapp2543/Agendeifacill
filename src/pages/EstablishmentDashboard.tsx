@@ -68,6 +68,10 @@ interface Establishment {
   social_media_link?: string; // Nova coluna
   pix_payment_link?: string;  // Nova coluna
   location_link?: string; // Novo estado para o link do local
+  has_wifi?: boolean; // Novo estado para Wi-fi
+  has_parking?: boolean; // Novo estado para Estacionamento
+  has_accessibility?: boolean; // Novo estado para Acessibilidade
+  wifi_password?: string; // Senha do Wi-Fi
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard';
@@ -158,6 +162,10 @@ const EstablishmentDashboard = () => {
   const [socialMediaLink, setSocialMediaLink] = useState('');
   const [pixPaymentLink, setPixPaymentLink] = useState('');
   const [locationLink, setLocationLink] = useState(''); // Novo estado para o link do local
+  const [hasWifi, setHasWifi] = useState(false); // Novo estado para Wi-fi
+  const [hasParking, setHasParking] = useState(false); // Novo estado para Estacionamento
+  const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
+  const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
   
   // Efeito para preencher automaticamente o pixPaymentLink
   useEffect(() => {
@@ -449,6 +457,10 @@ const EstablishmentDashboard = () => {
         social_media_link: socialMediaLink.trim(), // Salva o link de redes sociais
         pix_payment_link: pixPaymentLink.trim(),   // Salva o link de pagamento PIX
         location_link: locationLink.trim(), // Salva o link do local
+        has_wifi: hasWifi, // Salva a comodidade Wi-fi
+        has_parking: hasParking, // Salva a comodidade Estacionamento
+        has_accessibility: hasAccessibility, // Salva a comodidade Acessibilidade
+        wifi_password: wifiPassword.trim(), // Salva a senha do Wi-Fi
       };
       
       console.log('Dados do estabelecimento a serem criados:', establishmentData);
@@ -526,6 +538,10 @@ const EstablishmentDashboard = () => {
         social_media_link: socialMediaLink.trim(), // Atualiza o link de redes sociais
         pix_payment_link: pixPaymentLink.trim(),   // Atualiza o link de pagamento PIX
         location_link: locationLink.trim(), // Atualiza o link do local
+        has_wifi: hasWifi, // Atualiza a comodidade Wi-fi
+        has_parking: hasParking, // Atualiza a comodidade Estacionamento
+        has_accessibility: hasAccessibility, // Atualiza a comodidade Acessibilidade
+        wifi_password: wifiPassword.trim(), // Atualiza a senha do Wi-Fi
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -762,6 +778,11 @@ const EstablishmentDashboard = () => {
           setSocialMediaLink(establishmentData.social_media_link || '');
           setPixPaymentLink(establishmentData.pix_payment_link || '');
           setLocationLink(establishmentData.location_link || ''); // Carrega o link do local
+          // Carrega as comodidades
+          setHasWifi(establishmentData.has_wifi ?? false); // Usa ?? false para garantir um booleano
+          setHasParking(establishmentData.has_parking ?? false);
+          setHasAccessibility(establishmentData.has_accessibility ?? false);
+          setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
           
           // Carrega os profissionais e serviços
           setProfessionals(establishmentData.professionals || []);
@@ -2231,6 +2252,55 @@ const EstablishmentDashboard = () => {
                       {establishment?.pin_password ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
                     </p>
                   </div>
+                </div>
+              </div>
+
+              {/* Seção de Comodidades */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                <h3 className="text-lg font-medium text-white mb-4">Comodidades</h3>
+                <p className="text-sm text-gray-400 mb-4">
+                  Selecione as comodidades disponíveis no seu estabelecimento:
+                </p>
+                <div className="space-y-4">
+                  {/* Wi-fi + Senha */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 space-y-2 sm:space-y-0">
+                    <label className="inline-flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={hasWifi}
+                        onChange={(e) => setHasWifi(e.target.checked)}
+                        className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                      />
+                      <span className="text-white">Wi-fi</span>
+                    </label>
+                    {hasWifi && (
+                      <input
+                        type="text"
+                        placeholder="Senha do Wi-Fi"
+                        value={wifiPassword}
+                        onChange={(e) => setWifiPassword(e.target.value)}
+                        className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    )}
+                  </div>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={hasParking}
+                      onChange={(e) => setHasParking(e.target.checked)}
+                      className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                    />
+                    <span className="text-white">Estacionamento</span>
+                  </label>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={hasAccessibility}
+                      onChange={(e) => setHasAccessibility(e.target.checked)}
+                      className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                    />
+                    <span className="text-white">Acessibilidade</span>
+                  </label>
                 </div>
               </div>
 

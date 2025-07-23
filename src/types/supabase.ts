@@ -49,6 +49,10 @@ export interface Database {
           social_media_link?: string;
           pix_payment_link?: string;
           location_link?: string; // Nova coluna para o link do local
+          has_wifi?: boolean; // Nova coluna para comodidade Wi-fi
+          has_parking?: boolean; // Nova coluna para comodidade Estacionamento
+          has_accessibility?: boolean; // Nova coluna para comodidade Acessibilidade
+          wifi_password?: string; // Senha do Wi-Fi disponibilizada pelo estabelecimento
         }
       },
       premium_subscribers: {

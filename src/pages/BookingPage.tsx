@@ -373,6 +373,50 @@ export default function BookingPage() {
                 <img src="/LOCAL.png" alt="Localização" className="h-5 w-5" />
               </a>
             </div>
+
+            {/* Seção de Comodidades */}
+            <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                Clique no item para obter informações
+              </p>
+              <div className="grid grid-cols-3 gap-4">
+                {/* Wi-fi */}
+                <div
+                  onClick={() => {
+                    if (!establishment.has_wifi) return;
+                    if (establishment.wifi_password) {
+                      navigator.clipboard.writeText(establishment.wifi_password);
+                      toast.success('Senha de Wi-Fi copiada!');
+                    } else {
+                      toast.error('Senha de Wi-Fi não disponível.');
+                    }
+                  }}
+                  className={`flex flex-col items-center justify-center p-4 rounded-lg transition-colors duration-200 ${
+                    establishment.has_wifi ? 'cursor-pointer bg-[#242628] text-gray-300 hover:bg-[#303234]' : 'cursor-not-allowed bg-[#242628] text-gray-500 opacity-50'
+                  }`}
+                >
+                  <img src="/wifi.png" alt="Wi-fi" className="h-8 w-8 mb-2" />
+                  <span className={`text-sm font-medium ${!establishment.has_wifi ? 'line-through' : ''}`}>Wi-fi</span>
+                </div>
+
+                {/* Estacionamento */}
+                <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-colors duration-200 cursor-default
+                  ${establishment.has_parking ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
+                }>
+                  <img src="/car.png" alt="Estacionamento" className="h-8 w-8 mb-2" />
+                  <span className={`text-sm font-medium ${!establishment.has_parking ? 'line-through' : ''}`}>Estacionamento</span>
+                </div>
+
+                {/* Acessibilidade */}
+                <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-colors duration-200 cursor-default
+                  ${establishment.has_accessibility ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
+                }>
+                  <img src="/wheelchair.png" alt="Acessibilidade" className="h-8 w-8 mb-2" />
+                  <span className={`text-sm font-medium ${!establishment.has_accessibility ? 'line-through' : ''}`}>Acessibilidade</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Formulário de Agendamento */}
