@@ -276,7 +276,7 @@ const LandingPage = () => {
               <div className="aspect-video w-full mb-6">
                 <iframe
                   className="w-full h-full rounded-2xl"
-                  src="https://www.youtube.com/embed/5WbaPbT3TEM"
+                  src="https://www.youtube.com/embed/LQJe5Zo2-WI"
                   title="Vídeo de apresentação"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
