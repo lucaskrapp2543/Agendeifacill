@@ -237,6 +237,12 @@ export function AppointmentForm({
   // Converter os horários do estabelecimento para o formato correto
   const businessHours = establishment.business_hours?.[dayOfWeek] || defaultBusinessHours;
 
+  // Seção 6. HORÁRIO
+  // Filtrar agendamentos existentes com base no profissional selecionado
+  const filteredExistingAppointments = selectedProfessional
+    ? existingAppointments.filter(app => app.professional === selectedProfessional.id)
+    : []; // Se nenhum profissional for selecionado, não há agendamentos a bloquear
+
   return (
     <div className="space-y-6">
       <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg shadow-sm">
@@ -335,7 +341,7 @@ export function AppointmentForm({
             <TimeSlotSelector
               selectedDate={selectedDate}
               selectedService={selectedService}
-              existingAppointments={existingAppointments}
+              existingAppointments={filteredExistingAppointments} // Passar agendamentos filtrados
               selectedTime={selectedTime}
               onTimeSelect={setSelectedTime}
               businessHours={businessHours}

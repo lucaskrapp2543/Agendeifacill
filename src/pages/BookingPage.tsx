@@ -25,6 +25,7 @@ export default function BookingPage() {
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
   const [forceRender, setForceRender] = useState(0);
   const [showBookingForm, setShowBookingForm] = useState(false);
+  const [selectedProfessional, setSelectedProfessional] = useState<string | null>(null);
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
@@ -513,6 +514,7 @@ export default function BookingPage() {
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
                 existingAppointments={existingAppointments}
+                // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
               />
             </div>
           )}
