@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
 import { LogOut } from 'lucide-react';
 import { PlusCircle } from 'lucide-react';
+import { Phone } from 'lucide-react'; // Certifique-se de que Phone está importado
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -26,6 +27,7 @@ export default function BookingPage() {
   const [forceRender, setForceRender] = useState(0);
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [selectedProfessional, setSelectedProfessional] = useState<string | null>(null);
+  const [showDemoSuccessModal, setShowDemoSuccessModal] = useState(false); // Novo estado para o modal de demonstração
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
@@ -91,7 +93,8 @@ export default function BookingPage() {
           pix_payment_link,
           review_link,
           social_media_link,
-          pix_key
+          pix_key,
+          whatsapp
         `)
         .eq('code', id)
         .single();
@@ -154,16 +157,27 @@ export default function BookingPage() {
   };
 
   const handleSubmit = async (appointmentData: any) => {
-    if (!user || !establishment) return;
+    if (!user && id !== '3814') return; // Se não for demonstração, exige usuário
+    if (!establishment) return;
 
     try {
-      // Verificar se o usuário é o próprio estabelecimento
-      const isEstablishmentOwner = user.id === establishment.owner_id;
-      
+      if (id === '3814') {
+        // Lógica para agendamento demonstrativo
+        toast.success('Atenção! Este foi um agendamento demonstrativo, parabéns! Clique abaixo e volte ao menu iniciar.', {
+          duration: 6000 // Aumenta a duração para a mensagem completa
+        });
+        setShowBookingForm(false); // Esconder formulário após agendamento demonstrativo
+        setShowDemoSuccessModal(true); // Exibir modal de sucesso de demonstração
+        return; // Sair da função para não salvar no banco
+      }
+
+      // Lógica para agendamentos reais (se não for ID 3814)
+      const isEstablishmentOwner = user?.id === establishment.owner_id;
+
       const { error } = await supabase
         .from('appointments')
         .insert([{
-          client_id: user.id,
+          client_id: user?.id, // Corrigido para user?.id
           establishment_id: establishment.id,
           appointment_date: format(selectedDate, 'yyyy-MM-dd'),
           // TODO: Adicionar is_establishment_booking quando a coluna for criada no banco
@@ -188,10 +202,17 @@ export default function BookingPage() {
     } catch (error: any) {
       console.error('Error creating appointment:', error);
       toast.error(error.message || 'Erro ao criar agendamento');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleAgendarClick = () => {
+    if (id === '3814') {
+      setShowBookingForm(true);
+      return;
+    }
+
     if (!user) {
       // Salvar a URL atual para redirecionamento após o login
       const returnUrl = location.pathname;
@@ -400,8 +421,7 @@ export default function BookingPage() {
                       }
                     }}
                     className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-pointer
-                      ${establishment?.has_wifi ? 'bg-[#242628] text-gray-300 hover:bg-[#2a2c2e]' : 'bg-[#242628] text-gray-500 opacity-50 cursor-not-allowed'}`
-                    }
+                      ${establishment?.has_wifi ? 'bg-[#242628] text-gray-300 hover:bg-[#2a2c2e]' : 'bg-[#242628] text-gray-500 opacity-50 cursor-not-allowed'}`}
                     title={establishment?.has_wifi && establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : establishment?.has_wifi ? "Wi-Fi disponível" : "Wi-Fi indisponível"}
                   >
                     <img src="/wifi.png" alt="Wi-fi" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
@@ -410,16 +430,16 @@ export default function BookingPage() {
 
                   {/* Estacionamento */}
                   <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-default
-                    ${establishment?.has_parking ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
-                  }>
+                    ${establishment?.has_parking ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`}
+                  >
                     <img src="/car.png" alt="Estacionamento" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
                     <span className={`text-xs sm:text-sm font-medium text-center ${!establishment?.has_parking ? 'line-through' : ''}`}>Estacion.</span>
                   </div>
 
                   {/* Acessibilidade */}
                   <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-default
-                    ${establishment?.has_accessibility ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
-                  }>
+                    ${establishment?.has_accessibility ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`}
+                  >
                     <img src="/wheelchair.png" alt="Acessibilidade" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
                     <span className={`text-xs sm:text-sm font-medium text-center ${!establishment?.has_accessibility ? 'line-through' : ''}`}>Acessib.</span>
                   </div>
@@ -516,6 +536,23 @@ export default function BookingPage() {
                 existingAppointments={existingAppointments}
                 // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
               />
+            </div>
+          )}
+
+          {showDemoSuccessModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+              <div className="bg-gray-800 rounded-lg p-6 shadow-lg text-center max-w-sm mx-auto border border-blue-500">
+                <h2 className="text-2xl font-bold text-white mb-4">Atenção!</h2>
+                <p className="text-gray-300 mb-6">
+                  Este foi um agendamento demonstrativo, parabéns! Clique abaixo e volte ao menu iniciar.
+                </p>
+                <button
+                  onClick={() => navigate('/')}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md w-full transition-colors"
+                >
+                  Finaliza
+                </button>
+              </div>
             </div>
           )}
         </div>

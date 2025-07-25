@@ -195,8 +195,7 @@ export function AppointmentForm({
         payment_method: selectedPaymentMethod
       });
 
-      // Só navega após sucesso
-      navigate('/success');
+      // Só navega após sucesso (REMOVIDO: navigate('/success');)
     } catch (error) {
       console.error('❌ Erro ao agendar:', error);
       alert('Erro ao realizar agendamento. Tente novamente.');
