@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import {       
-  Calendar,    
-  Clock,       
-  Users,       
-  Smartphone,  
-  BarChart3,   
-  CheckCircle, 
-  Star,        
-  Menu,        
+import {
+  Calendar,
+  Clock,
+  Users,
+  Smartphone,
+  BarChart3,
+  CheckCircle,
+  Star,
+  Menu,
   X,
-  Scissors,    
+  Scissors,
   Car,
   Sparkles,
   Coffee,
@@ -40,12 +40,12 @@ const pulseKeyframes = `
       transform: scale(1);
       box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.7);
     }
-    
+
     70% {
       transform: scale(1.05);
       box-shadow: 0 0 0 10px rgba(6, 182, 212, 0);
     }
-    
+
     100% {
       transform: scale(1);
       box-shadow: 0 0 0 0 rgba(6, 182, 212, 0);
@@ -57,18 +57,6 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(0);
-  // Removendo o estado do carrossel que não será mais usado
-  // const [currentSlide, setCurrentSlide] = useState(0);
-
-  // Removendo o array de slides que não será mais usado
-  // const slides = [ ... ];
-
-  // Removendo as funções do carrossel que não serão mais usadas
-  // const nextSlide = () => { ... };
-  // const prevSlide = () => { ... };
-
-  // Removendo o useEffect do carrossel que não será mais usado
-  // useEffect(() => { ... }, []);
 
   const features = [
     {
@@ -117,18 +105,6 @@ const LandingPage = () => {
       description: "Você pode criar senha para cada profissional, para que eles não tenham acesso ao dashboard de outros profissionais, somente você o dono e o seu funcionário"
     }
   ];
-
-  // Removendo a seção "Experimente Como Funciona"
-  // const howItWorksSteps = [
-  //   {
-  //     image: "/1.svg",
-  //     caption: "Você envia o link para seu cliente, ou deixa fixo no instagram"
-  //   },
-  //   {
-  //     image: "/2.svg",
-  //     caption: "Em poucos cliques, o cliente escolhe o serviço, seleciona o profissional, e define a data e o horário para o atendimento."
-  //   }
-  // ];
 
   const businessTypes = [
     { icon: Scissors, name: "Barbearias", color: "bg-blue-500" },
@@ -202,12 +178,6 @@ const LandingPage = () => {
     };
   }, []);
 
-  // Removendo o useEffect do carrossel que não será mais usado
-  // useEffect(() => {
-  //   const timer = setInterval(nextSlide, 5000); // Auto-advance every 5 seconds
-  //   return () => clearInterval(timer);
-  // }, []);
-
   // Adicione o estado para controlar o popup no início do componente LandingPage
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
@@ -222,10 +192,10 @@ const LandingPage = () => {
             <div className="flex items-center">
               <Calendar className="h-6 w-6 text-blue-500" />
               <div className="flex items-center ml-6">
-          <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <Eye className="h-5 w-5 text-gray-300" />
                   <span className="text-sm font-medium text-gray-300">Pessoas no site:</span>
-              <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                     <span className="text-sm font-medium text-gray-300">{onlineUsers}</span>
                   </div>
@@ -247,12 +217,12 @@ const LandingPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-4xl mx-auto">
             <div className="flex flex-col items-center space-y-4 pt-8">
-            <img 
-              src="/logoagendei.png" 
+              <img
+                src="/logoagendei.png"
                 alt="AgendeiFácil Logo"
                 className="mx-auto max-w-[200px] w-full"
               />
-              
+
               {/* Nova seção de destaque */}
               <div className="w-full max-w-3xl">
                 <div className="bg-gradient-to-r from-cyan-500 to-blue-800 rounded-2xl p-3 md:p-4 animate-pulse-custom">
@@ -384,10 +354,10 @@ const LandingPage = () => {
                 <p className="text-center text-xl text-white mb-6">
                   Envie seu link agendeifacil, ou coloque na bio do instagram
                 </p>
-                <img 
-                  src="/envia.svg" 
-                  alt="Envia" 
-                  className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
+                <img
+                  src="/envia.svg"
+                  alt="Envia"
+                  className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300"
                 />
               </div>
 
@@ -397,10 +367,10 @@ const LandingPage = () => {
                 <p className="text-center text-xl text-white mb-8">
                   Seu cliente irá para uma página editável única e exclusiva sua
                 </p>
-                <img 
-                  src="/testecel.svg" 
-                  alt="Versão Celular" 
-                  className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300" 
+                <img
+                  src="/testecel.svg"
+                  alt="Versão Celular"
+                  className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300"
                 />
                 {/* Legenda e imagem nova */}
                 <div className="mt-8">
@@ -415,38 +385,41 @@ const LandingPage = () => {
                 </div>
               </div>
 
-              {/* Seção do Carrossel Financeiro */}
-              <div className="mt-16">
-                <h2 className="text-lg md:text-xl font-semibold text-center mb-10 text-gray-400">
-                  TENHA UM CONTROLE FINANCEIRO COMPLETO DE
-                </h2>
-                <div className="text-center text-xs text-gray-600 mb-8">
-                  <ul className="list-disc list-inside inline-block">
-                    <li>TODOS OS PROFISSIONAIS</li>
-                    <li>CADA PROFISSIONAL</li>
-                    <li>CADA PRODUTO EXTRA VENDIDO</li>
-                  </ul>
-                </div>
-                <div className="max-w-3xl mx-auto mb-8">
-                  <FinanceCarousel />
-                </div>
+              {/* Imagem finan1.png no lugar do carrossel */}
+              <div className="w-full max-w-3xl mx-auto mb-8">
+                <img
+                  src="/finan1.png"
+                  alt="Finanças 1"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+
+              {/* Imagem finan2.png abaixo de finan1.png */}
+              <div className="w-full max-w-3xl mx-auto mb-8">
+                <img
+                  src="/finan2.png"
+                  alt="Finanças 2"
+                  className="w-full h-full object-contain"
+                />
               </div>
 
               {/* Demo Booking Section */}
               <section className="py-24">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                  <h2 className="text-3xl font-bold text-center mb-4">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                  <h2 className="text-3xl font-bold text-white mb-4">
                     Experimente Como Funciona
                   </h2>
                   <p className="text-center text-gray-400 mb-12 max-w-2xl mx-auto">
-                    Faça uma simulação de agendamento e veja como é fácil e prático para seus clientes agendarem com você
+                    Clique no botão abaixo para simular um agendamento e ver como é fácil e prático para seus clientes agendarem com você!
                   </p>
-                  <DemoBooking />
+                  <Link
+                    to="/booking/3814" // Link para a página de demonstração
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block"
+                  >
+                    CLIQUE AQUI E FAÇA A DEMONSTRAÇÃO
+                  </Link>
                 </div>
               </section>
-
-              {/* Seção de Benefícios */}
-              {/* Seção de Benefícios */}
 
               <div className="text-center max-w-3xl mx-auto mb-16">
                 <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white leading-tight mb-6">
@@ -467,23 +440,20 @@ const LandingPage = () => {
                   </h2>
                   {/* Features Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-12">
-                {features.map((feature, index) => (
+                    {features.map((feature, index) => (
                       <div
                         key={index}
                         className="bg-[#111] p-6 rounded-xl hover:bg-[#222] transition-colors"
                       >
                         <div className="bg-blue-600 w-12 h-12 rounded-full flex items-center justify-center mb-4">
-                        {feature.icon}
+                          {feature.icon}
                         </div>
                         <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
                         <p className="text-gray-400">{feature.description}</p>
                       </div>
                     ))}
                   </div>
-
-                  {/* Seção do Carrossel e Link - REMOVIDA DAQUI */}
-                  
-              </div>
+                </div>
               </section>
 
               {/* Seção de Depoimentos */}
@@ -527,7 +497,7 @@ const LandingPage = () => {
                 <p className="text-xl text-center mb-12 bg-gradient-to-r from-orange-500 to-yellow-500 bg-clip-text text-transparent font-semibold">
                   Já ajudamos centenas de estabelecimentos a organizarem suas agendas
                 </p>
-                
+
                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
                   {businessTypes.map((type, index) => (
                     <div key={index} className="bg-[#1a1b1c] p-6 rounded-2xl border border-[#2e2f30] hover:border-blue-500 transition-all duration-300 text-center">
@@ -615,16 +585,16 @@ const LandingPage = () => {
                         <span className="text-gray-300">Pagamentos adiantados se preferir</span>
                       </li>
                     </ul>
-                    <a 
+                    <a
                       href="https://pay.kiwify.com.br/5qMOyfX"
-                target="_blank"
-                rel="noopener noreferrer"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
                     >
                       Começar Agora
-              </a>
-            </div>
-          </div>
+                    </a>
+                  </div>
+                </div>
 
                 {/* Plano Anual */}
                 <div className="bg-blue-600 border-2 border-blue-500 rounded-2xl p-8 hover:border-blue-400 transition-all duration-300 relative">
@@ -665,7 +635,7 @@ const LandingPage = () => {
                         <span className="text-white">Área de clientes VIP</span>
                       </li>
                     </ul>
-                    <a 
+                    <a
                       href="https://pay.kiwify.com.br/sScMslq"
                       target="_blank"
                       rel="noopener noreferrer"
@@ -678,7 +648,7 @@ const LandingPage = () => {
               </div>
             </div>
           </div>
-              </div>
+        </div>
       </section>
 
       {/* CTA Section */}
@@ -708,10 +678,10 @@ const LandingPage = () => {
                   TESTAR GRÁTIS
                 </Link>
               </div>
-              </div>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
       {/* Seção Como Funciona */}
       <section className="py-16 bg-black text-white">
@@ -719,23 +689,19 @@ const LandingPage = () => {
           <h2 className="text-3xl md:text-4xl font-bold text-center mb-12">
             Experimente Como Funciona
           </h2>
-          
-          {/* Carrossel Financeiro */}
-          <FinanceCarousel />
-          
+
           <p className="text-center text-lg mb-8">
             Envie seu link agendeifacil, ou coloque na bio do instagram
           </p>
 
-          {/* Resto da seção */}
-          </div>
-        </section>
+        </div>
+      </section>
 
       {/* Seção Final - Call to Action */}
       <div className="relative w-full bg-black py-16">
         <div className="absolute top-0 left-0 w-full">
-          <img 
-            src="/ftfinal.png" 
+          <img
+            src="/ftfinal.png"
             alt="Transforme seu negócio"
             className="w-full object-cover object-bottom"
             style={{ marginTop: '-1px' }}
@@ -749,7 +715,7 @@ const LandingPage = () => {
             Transforme seu negócio com o AgendeiFácil
           </p>
           <div className="flex flex-col gap-4 items-center">
-            <a 
+            <a
               href="https://pay.kiwify.com.br/5qMOyfX"
               target="_blank"
               rel="noopener noreferrer"
@@ -839,19 +805,19 @@ const LandingPage = () => {
         </div>
       </footer>
       {showFeedbackModal && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-    <div className="bg-[#18191a] rounded-xl p-6 shadow-lg relative w-80 max-w-full text-center border border-blue-500/40">
-      <button
-        className="absolute top-2 right-2 text-gray-400 hover:text-white text-xl font-bold"
-        onClick={() => setShowFeedbackModal(false)}
-        aria-label="Fechar"
-      >
-        ×
-      </button>
-      <p className="text-white text-lg font-semibold mb-2">Você precisa estar logado para fazer seu feedback.</p>
-    </div>
-  </div>
-)}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-[#18191a] rounded-xl p-6 shadow-lg relative w-80 max-w-full text-center border border-blue-500/40">
+            <button
+              className="absolute top-2 right-2 text-gray-400 hover:text-white text-xl font-bold"
+              onClick={() => setShowFeedbackModal(false)}
+              aria-label="Fechar"
+            >
+              ×
+            </button>
+            <p className="text-white text-lg font-semibold mb-2">Você precisa estar logado para fazer seu feedback.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
