@@ -268,6 +268,38 @@ const LandingPage = () => {
                 </button>
               </div>
 
+              {/* Demo Booking Section */}
+              <section className="py-24">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                  <h2 className="text-3xl font-bold text-white mb-4">
+                    Experimente Como Funciona
+                  </h2>
+                  <p className="text-center text-gray-400 mb-12 max-w-2xl mx-auto">
+                    Clique no botão abaixo para simular um agendamento e ver como é fácil e prático para seus clientes agendarem com você!
+                  </p>
+                  <div className="flex flex-col space-y-4 items-center">
+                    <Link
+                      to="/booking/3814" // Link para a página de demonstração Barbearia
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto"
+                    >
+                      Demonstração Barbearia
+                    </Link>
+                    <Link
+                      to="/booking/3315" // Link para a página de demonstração Lava-car
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto"
+                    >
+                      Demonstração Lava-car
+                    </Link>
+                    <button
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto cursor-not-allowed opacity-70"
+                      disabled // Desabilitado por enquanto, pois não tem link
+                    >
+                      Demonstração Salão de beleza
+                    </button>
+                  </div>
+                </div>
+              </section>
+
               {/* Seção de Benefícios */}
               <section className="py-16">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -402,38 +434,6 @@ const LandingPage = () => {
                   className="w-full h-full object-contain"
                 />
               </div>
-
-              {/* Demo Booking Section */}
-              <section className="py-24">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-                  <h2 className="text-3xl font-bold text-white mb-4">
-                    Experimente Como Funciona
-                  </h2>
-                  <p className="text-center text-gray-400 mb-12 max-w-2xl mx-auto">
-                    Clique no botão abaixo para simular um agendamento e ver como é fácil e prático para seus clientes agendarem com você!
-                  </p>
-                  <div className="flex flex-col space-y-4 items-center">
-                    <Link
-                      to="/booking/3814" // Link para a página de demonstração Barbearia
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto"
-                    >
-                      Demonstração Barbearia
-                    </Link>
-                    <Link
-                      to="/booking/3315" // Link para a página de demonstração Lava-car
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto"
-                    >
-                      Demonstração Lava-car
-                    </Link>
-                    <button
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto cursor-not-allowed opacity-70"
-                      disabled // Desabilitado por enquanto, pois não tem link
-                    >
-                      Demonstração Salão de beleza
-                    </button>
-                  </div>
-                </div>
-              </section>
 
               <div className="text-center max-w-3xl mx-auto mb-16">
                 <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white leading-tight mb-6">
