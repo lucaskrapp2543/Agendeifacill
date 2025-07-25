@@ -269,7 +269,7 @@ const LandingPage = () => {
               </div>
 
               {/* Demo Booking Section */}
-              <section className="py-24">
+              <section className="py-0">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
                   <h2 className="text-3xl font-bold text-white mb-4">
                     Experimente Como Funciona
@@ -280,20 +280,23 @@ const LandingPage = () => {
                   <div className="flex flex-col space-y-4 items-center">
                     <Link
                       to="/booking/3814" // Link para a página de demonstração Barbearia
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto"
+                      className="bg-white hover:bg-gray-100 text-blue-600 font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-center gap-2"
                     >
+                      <Scissors className="h-5 w-5" />
                       Demonstração Barbearia
                     </Link>
                     <Link
                       to="/booking/3315" // Link para a página de demonstração Lava-car
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto"
+                      className="bg-white hover:bg-gray-100 text-blue-600 font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-center gap-2"
                     >
+                      <Car className="h-5 w-5" />
                       Demonstração Lava-car
                     </Link>
                     <button
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto cursor-not-allowed opacity-70"
+                      className="bg-white hover:bg-gray-100 text-blue-600 font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto cursor-not-allowed opacity-70 flex items-center justify-center gap-2"
                       disabled // Desabilitado por enquanto, pois não tem link
                     >
+                      <Sparkles className="h-5 w-5" />
                       Demonstração Salão de beleza
                     </button>
                   </div>
