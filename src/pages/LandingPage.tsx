@@ -404,7 +404,7 @@ const LandingPage = () => {
               </div>
 
               {/* Demo Booking Section */}
-              <section className="py-24 bg-black">
+              <section className="py-24">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
                   <h2 className="text-3xl font-bold text-white mb-4">
                     Experimente Como Funciona
@@ -412,12 +412,26 @@ const LandingPage = () => {
                   <p className="text-center text-gray-400 mb-12 max-w-2xl mx-auto">
                     Clique no botão abaixo para simular um agendamento e ver como é fácil e prático para seus clientes agendarem com você!
                   </p>
-                  <Link
-                    to="/booking/3814" // Link para a página de demonstração
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block"
-                  >
-                    CLIQUE AQUI E FAÇA A DEMONSTRAÇÃO
-                  </Link>
+                  <div className="flex flex-col space-y-4 items-center">
+                    <Link
+                      to="/booking/3814" // Link para a página de demonstração Barbearia
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto"
+                    >
+                      Demonstração Barbearia
+                    </Link>
+                    <Link
+                      to="/booking/3315" // Link para a página de demonstração Lava-car
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto"
+                    >
+                      Demonstração Lava-car
+                    </Link>
+                    <button
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto cursor-not-allowed opacity-70"
+                      disabled // Desabilitado por enquanto, pois não tem link
+                    >
+                      Demonstração Salão de beleza
+                    </button>
+                  </div>
                 </div>
               </section>
 
@@ -443,9 +457,9 @@ const LandingPage = () => {
                     {features.map((feature, index) => (
                       <div
                         key={index}
-                        className="bg-[#111] p-6 rounded-xl hover:bg-[#222] transition-colors"
+                        className="bg-[#111] p-6 rounded-xl hover:bg-[#222] transition-colors text-center"
                       >
-                        <div className="bg-blue-600 w-12 h-12 rounded-full flex items-center justify-center mb-4">
+                        <div className="bg-blue-600 w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto">
                           {feature.icon}
                         </div>
                         <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>

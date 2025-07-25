@@ -157,11 +157,11 @@ export default function BookingPage() {
   };
 
   const handleSubmit = async (appointmentData: any) => {
-    if (!user && id !== '3814') return; // Se não for demonstração, exige usuário
+    if (!user && id !== '3814' && id !== '3315') return; // Se não for demonstração, exige usuário
     if (!establishment) return;
 
     try {
-      if (id === '3814') {
+      if (id === '3814' || id === '3315') {
         // Lógica para agendamento demonstrativo
         toast.success('Atenção! Este foi um agendamento demonstrativo, parabéns! Clique abaixo e volte ao menu iniciar.', {
           duration: 6000 // Aumenta a duração para a mensagem completa
@@ -171,7 +171,7 @@ export default function BookingPage() {
         return; // Sair da função para não salvar no banco
       }
 
-      // Lógica para agendamentos reais (se não for ID 3814)
+      // Lógica para agendamentos reais (se não for ID 3814 ou 3315)
       const isEstablishmentOwner = user?.id === establishment.owner_id;
 
       const { error } = await supabase
@@ -208,7 +208,7 @@ export default function BookingPage() {
   };
 
   const handleAgendarClick = () => {
-    if (id === '3814') {
+    if (id === '3814' || id === '3315') {
       setShowBookingForm(true);
       return;
     }
