@@ -254,7 +254,7 @@ const LandingPage = () => {
               </div>
 
               {/* Botão de ação */}
-              <div className="w-full flex justify-center mb-16">
+              <div className="w-full flex justify-center mb-8"> {/* Reduzido mb-16 para mb-8 */}
                 <button
                   onClick={() => {
                     const plansSection = document.getElementById('planos');

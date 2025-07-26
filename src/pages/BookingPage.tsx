@@ -13,6 +13,7 @@ import { Calendar } from 'lucide-react';
 import { LogOut } from 'lucide-react';
 import { PlusCircle } from 'lucide-react';
 import { Phone } from 'lucide-react'; // Certifique-se de que Phone está importado
+import { AlertCircle } from 'lucide-react'; // Corrigido de ExclamationCircle para AlertCircle
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -30,6 +31,36 @@ export default function BookingPage() {
   const [showDemoSuccessModal, setShowDemoSuccessModal] = useState(false); // Novo estado para o modal de demonstração
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
+
+  const pulseKeyframes = `
+    @keyframes pulse-scale {
+      0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(255, 204, 0, 0.7); // Amarelo
+      }
+
+      70% {
+        transform: scale(1.03); // Levemente mais sutil
+        box-shadow: 0 0 0 10px rgba(255, 204, 0, 0);
+      }
+
+      100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(255, 204, 0, 0);
+      }
+    }
+  `;
+
+  useEffect(() => {
+    // Adiciona os keyframes ao head do documento
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = pulseKeyframes;
+    document.head.appendChild(styleSheet);
+
+    return () => {
+      document.head.removeChild(styleSheet);
+    };
+  }, []);
 
   useEffect(() => {
     fetchEstablishment();
@@ -328,6 +359,16 @@ export default function BookingPage() {
               </button>
             )}
           </div>
+
+          {/* Mensagem de Demonstração (apenas para IDs 3814 e 3315) */}
+          {(id === '3814' || id === '3315') && (
+            <div className="bg-yellow-400 text-yellow-900 p-4 rounded-lg flex flex-col items-center justify-center gap-1 mb-4 sm:flex-row sm:gap-2">
+              <AlertCircle className="h-8 w-8 sm:h-5 sm:w-5" />
+              <p className="font-semibold text-sm sm:text-base text-center animate-pulse-custom-slow">
+                Essa é a pagina que seu cliente ira ver ao acessar o seu link, porem com as suas proprias fotos e links personalizados.
+              </p>
+            </div>
+          )}
 
           {/* Carrossel de Fotos */}
           <div className="rounded-lg overflow-hidden">
