@@ -214,8 +214,8 @@ const LandingPage = () => {
 
       {/* Hero Section */}
       <section className="pt-24 pb-16 bg-gradient-to-br from-gray-900 via-black to-gray-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-4xl mx-auto">
+        <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8"> {/* Alterado px-4 para px-0 para mobile */}
+          <div className="text-center"> {/* Removido max-w-4xl mx-auto */}
             <div className="flex flex-col items-center space-y-4 pt-8">
               <img
                 src="/logoagendei.png"
@@ -405,7 +405,7 @@ const LandingPage = () => {
                 <img
                   src="/testecel.svg"
                   alt="Versão Celular"
-                  className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300"
+                  className="w-full mx-auto hover:scale-105 transition-transform duration-300"
                 />
                 {/* Legenda e imagem nova */}
                 <div className="mt-8">
@@ -415,7 +415,7 @@ const LandingPage = () => {
                   <img
                     src="/agendeifacilpordentro.png"
                     alt="AgendeiFácil por dentro"
-                    className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300 rounded-xl shadow-lg"
+                    className="w-full mx-auto hover:scale-105 transition-transform duration-300 rounded-xl shadow-lg" // Removido max-w-2xl
                   />
                 </div>
               </div>
