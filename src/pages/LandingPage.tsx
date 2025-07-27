@@ -415,9 +415,18 @@ const LandingPage = () => {
                   <img
                     src="/agendeifacilpordentro.png"
                     alt="AgendeiFácil por dentro"
-                    className="w-full mx-auto hover:scale-105 transition-transform duration-300 rounded-xl shadow-lg" // Removido max-w-2xl
+                    className="w-full mx-auto hover:scale-105 transition-transform duration-300 rounded-xl shadow-lg"
                   />
                 </div>
+              </div>
+
+              {/* Imagem metas.png adicionada aqui */}
+              <div className="w-full mx-auto mb-8"> {/* Removido max-w-3xl */}
+                <img
+                  src="/metas.png"
+                  alt="Metas"
+                  className="w-full h-auto max-w-none" // Adicionado max-w-none
+                />
               </div>
 
               {/* Imagem finan1.png no lugar do carrossel */}
