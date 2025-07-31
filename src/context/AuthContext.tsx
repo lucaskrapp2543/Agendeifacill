@@ -10,7 +10,6 @@ type AuthContextType = {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ user: User | null; session: Session | null }>;
   signOut: () => Promise<void>;
-  signUp: (email: string, password: string, name: string) => Promise<{ user: User | null; session: Session | null }>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -99,34 +98,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const signUp = async (email: string, password: string, name: string) => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-            role: 'client', // Role padrão para novos usuários
-          },
-        },
-      });
-
-      if (error) throw error;
-
-      setUser(data.user);
-      setSession(data.session);
-      setUserRole(data.user?.user_metadata?.role as UserRole || null);
-
-      if (data.session) {
-        localStorage.setItem('supabase.auth.token', JSON.stringify(data.session));
-      }
-      return { user: data.user, session: data.session };
-    } catch (error) {
-      throw error;
-    }
-  };
-
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
@@ -140,7 +111,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const value = useMemo(
-    () => ({ user, userRole, isLoading, signIn, signOut, signUp }),
+    () => ({ user, userRole, isLoading, signIn, signOut }),
     [user, userRole, isLoading]
   );
 

@@ -75,7 +75,7 @@ interface Establishment {
   whatsapp?: string; // Novo campo para WhatsApp
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients';
 
 interface AdditionalProduct {
   name: string;
@@ -127,6 +127,17 @@ interface PremiumClient {
   last_draw_date?: string;
 }
 
+interface ClientAppointment {
+  client_name: string;
+  client_whatsapp?: string;
+}
+
+interface ClientData {
+  name: string;
+  whatsapp: string;
+  appointmentCount: number;
+}
+
 const EstablishmentDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -148,6 +159,7 @@ const EstablishmentDashboard = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
+  const [clients, setClients] = useState<ClientData[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
   
@@ -272,11 +284,11 @@ const EstablishmentDashboard = () => {
   }, []);
 
   const handlePreviousDay = () => {
-    setSelectedDate(prev => subDays(prev, 1));
+    setSelectedDate((prev: Date) => subDays(prev, 1));
   };
 
   const handleNextDay = () => {
-    setSelectedDate(prev => addDays(prev, 1));
+    setSelectedDate((prev: Date) => addDays(prev, 1));
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -323,7 +335,7 @@ const EstablishmentDashboard = () => {
     field: 'enabled' | 'open1' | 'close1' | 'open2' | 'close2',
     value: string | boolean | null
   ) => {
-    setBusinessHours(prev => ({
+    setBusinessHours((prev: Record<string, BusinessHours>) => ({
       ...prev,
       [day]: {
         ...prev[day],
@@ -377,12 +389,12 @@ const EstablishmentDashboard = () => {
 
   const handleRemoveProfessional = (id: string) => {
     console.log('Removendo profissional:', id);
-    setProfessionals(prev => prev.filter(p => p.id !== id));
+    setProfessionals((prev: Professional[]) => prev.filter(p => p.id !== id));
   };
 
   const handleProfessionalChange = (id: string, field: keyof Professional, value: string | string[]) => {
     console.log('Atualizando profissional:', { id, field, value });
-    setProfessionals(prev => prev.map(p => 
+    setProfessionals((prev: Professional[]) => prev.map(p => 
       p.id === id ? { ...p, [field]: value } : p
     ));
   };
@@ -395,17 +407,17 @@ const EstablishmentDashboard = () => {
       duration: 30
     };
     console.log('Adicionando serviço:', newService);
-    setServicesWithPrices(prev => [...prev, newService]);
+    setServicesWithPrices((prev: Service[]) => [...prev, newService]);
   };
 
   const handleRemoveService = (id: string) => {
     console.log('Removendo serviço:', id);
-    setServicesWithPrices(prev => prev.filter(s => s.id !== id));
+    setServicesWithPrices((prev: Service[]) => prev.filter(s => s.id !== id));
   };
 
   const handleServiceChange = (id: string, field: keyof Service, value: string | number) => {
     console.log('Atualizando serviço:', { id, field, value });
-    setServicesWithPrices(prev => prev.map(s => 
+    setServicesWithPrices((prev: Service[]) => prev.map(s => 
       s.id === id ? { ...s, [field]: value } : s
     ));
   };
@@ -836,6 +848,57 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
+  useEffect(() => {
+    if (establishment) {
+      fetchClients();
+    }
+  }, [establishment]);
+
+  const fetchClients = async () => {
+    if (!establishment) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('client_name, client_whatsapp')
+        .eq('establishment_id', establishment.id)
+        .neq('status', 'cancelled');
+
+      if (error) throw error;
+
+      const clientMap = new Map<string, ClientData>();
+
+      data.forEach((appointment: ClientAppointment) => {
+        if (appointment.client_whatsapp) {
+          const normalizedWhatsapp = appointment.client_whatsapp.replace(/\D/g, '');
+          if (clientMap.has(normalizedWhatsapp)) {
+            const existingClient = clientMap.get(normalizedWhatsapp)!;
+            existingClient.appointmentCount += 1;
+            // Atualiza o nome se for diferente
+            if (existingClient.name !== appointment.client_name) {
+              existingClient.name = appointment.client_name;
+            }
+            clientMap.set(normalizedWhatsapp, existingClient);
+          } else {
+            clientMap.set(normalizedWhatsapp, {
+              name: appointment.client_name,
+              whatsapp: appointment.client_whatsapp,
+              appointmentCount: 1,
+            });
+          }
+        }
+      });
+
+      const sortedClients = Array.from(clientMap.values()).sort((a, b) => 
+        a.name.localeCompare(b.name)
+      );
+      setClients(sortedClients);
+    } catch (error: any) {
+      console.error('Erro ao buscar clientes:', error);
+      toast(error.message || 'Erro ao carregar clientes', 'error');
+    }
+  };
+
   const calculateDailyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
       if (appointment.status !== 'cancelled') {
@@ -1194,8 +1257,8 @@ const EstablishmentDashboard = () => {
       if (error) throw error;
 
       // Atualiza o estado local
-      setAppointments(prevAppointments => 
-        prevAppointments.map(a => 
+      setAppointments((prevAppointments: Appointment[]) => 
+        prevAppointments.map((a: Appointment) => 
           a.id === appointmentId 
             ? {
                 ...a,
@@ -1673,6 +1736,18 @@ const EstablishmentDashboard = () => {
                   >
                     <Calendar className="h-5 w-5" />
                     <span className="hidden sm:inline">Agend.</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('clients')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                      activeTab === 'clients'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <Users className="h-5 w-5" />
+                    <span className="hidden sm:inline">Meus Clientes</span>
                   </button>
 
                   <div
@@ -2822,6 +2897,47 @@ const EstablishmentDashboard = () => {
             {activeTab === 'financial-dashboard' && !isDashboardUnlocked && (
               <div className="flex items-center justify-center h-64">
                 <p className="text-gray-400">Digite a senha para acessar o Dashboard Financeiro</p>
+              </div>
+            )}
+
+            {activeTab === 'clients' && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Meus Clientes</h2>
+                <p className="text-gray-700 mb-6">
+                  Aqui você encontra todos os clientes que já agendaram em seu estabelecimento.
+                </p>
+
+                {clients.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Users className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
+                    <p className="text-gray-400">Nenhum cliente encontrado ainda.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {clients.map((client, index) => (
+                      <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">{client.name}</h3>
+                        <p className="text-gray-700 flex items-center gap-2 mb-1">
+                          <Phone className="h-4 w-4 text-gray-500" />
+                          {client.whatsapp}
+                        </p>
+                        <p className="text-gray-700 flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-gray-500" />
+                          Agendamentos: {client.appointmentCount}
+                        </p>
+                        <a
+                          href={`https://wa.me/${client.whatsapp.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-3 inline-flex items-center px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                        >
+                          <MessageSquare className="h-4 w-4 mr-1" />
+                          Enviar Mensagem
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
         </div>

@@ -12,8 +12,6 @@ import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
 import { LogOut } from 'lucide-react';
 import { PlusCircle } from 'lucide-react';
-import { Phone } from 'lucide-react'; // Certifique-se de que Phone está importado
-import { AlertCircle } from 'lucide-react'; // Corrigido de ExclamationCircle para AlertCircle
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -28,39 +26,8 @@ export default function BookingPage() {
   const [forceRender, setForceRender] = useState(0);
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [selectedProfessional, setSelectedProfessional] = useState<string | null>(null);
-  const [showDemoSuccessModal, setShowDemoSuccessModal] = useState(false); // Novo estado para o modal de demonstração
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
-
-  const pulseKeyframes = `
-    @keyframes pulse-scale {
-      0% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(255, 204, 0, 0.7); // Amarelo
-      }
-
-      70% {
-        transform: scale(1.03); // Levemente mais sutil
-        box-shadow: 0 0 0 10px rgba(255, 204, 0, 0);
-      }
-
-      100% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(255, 204, 0, 0);
-      }
-    }
-  `;
-
-  useEffect(() => {
-    // Adiciona os keyframes ao head do documento
-    const styleSheet = document.createElement("style");
-    styleSheet.textContent = pulseKeyframes;
-    document.head.appendChild(styleSheet);
-
-    return () => {
-      document.head.removeChild(styleSheet);
-    };
-  }, []);
 
   useEffect(() => {
     fetchEstablishment();
@@ -124,8 +91,7 @@ export default function BookingPage() {
           pix_payment_link,
           review_link,
           social_media_link,
-          pix_key,
-          whatsapp
+          pix_key
         `)
         .eq('code', id)
         .single();
@@ -188,27 +154,16 @@ export default function BookingPage() {
   };
 
   const handleSubmit = async (appointmentData: any) => {
-    if (!user && id !== '3814' && id !== '3315') return; // Se não for demonstração, exige usuário
-    if (!establishment) return;
+    if (!user || !establishment) return;
 
     try {
-      if (id === '3814' || id === '3315') {
-        // Lógica para agendamento demonstrativo
-        toast.success('Atenção! Este foi um agendamento demonstrativo, parabéns! Clique abaixo e volte ao menu iniciar.', {
-          duration: 6000 // Aumenta a duração para a mensagem completa
-        });
-        setShowBookingForm(false); // Esconder formulário após agendamento demonstrativo
-        setShowDemoSuccessModal(true); // Exibir modal de sucesso de demonstração
-        return; // Sair da função para não salvar no banco
-      }
-
-      // Lógica para agendamentos reais (se não for ID 3814 ou 3315)
-      const isEstablishmentOwner = user?.id === establishment.owner_id;
-
+      // Verificar se o usuário é o próprio estabelecimento
+      const isEstablishmentOwner = user.id === establishment.owner_id;
+      
       const { error } = await supabase
         .from('appointments')
         .insert([{
-          client_id: user?.id, // Corrigido para user?.id
+          client_id: user.id,
           establishment_id: establishment.id,
           appointment_date: format(selectedDate, 'yyyy-MM-dd'),
           // TODO: Adicionar is_establishment_booking quando a coluna for criada no banco
@@ -233,17 +188,10 @@ export default function BookingPage() {
     } catch (error: any) {
       console.error('Error creating appointment:', error);
       toast.error(error.message || 'Erro ao criar agendamento');
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const handleAgendarClick = () => {
-    if (id === '3814' || id === '3315') {
-      setShowBookingForm(true);
-      return;
-    }
-
     if (!user) {
       // Salvar a URL atual para redirecionamento após o login
       const returnUrl = location.pathname;
@@ -360,16 +308,6 @@ export default function BookingPage() {
             )}
           </div>
 
-          {/* Mensagem de Demonstração (apenas para IDs 3814 e 3315) */}
-          {(id === '3814' || id === '3315') && (
-            <div className="bg-yellow-400 text-yellow-900 p-4 rounded-lg flex flex-col items-center justify-center gap-1 mb-4 sm:flex-row sm:gap-2">
-              <AlertCircle className="h-8 w-8 sm:h-5 sm:w-5" />
-              <p className="font-semibold text-sm sm:text-base text-center animate-pulse-custom-slow">
-                Essa é a pagina que seu cliente ira ver ao acessar o seu link, porem com as suas proprias fotos e links personalizados.
-              </p>
-            </div>
-          )}
-
           {/* Carrossel de Fotos */}
           <div className="rounded-lg overflow-hidden">
             <PhotoCarousel 
@@ -462,7 +400,8 @@ export default function BookingPage() {
                       }
                     }}
                     className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-pointer
-                      ${establishment?.has_wifi ? 'bg-[#242628] text-gray-300 hover:bg-[#2a2c2e]' : 'bg-[#242628] text-gray-500 opacity-50 cursor-not-allowed'}`}
+                      ${establishment?.has_wifi ? 'bg-[#242628] text-gray-300 hover:bg-[#2a2c2e]' : 'bg-[#242628] text-gray-500 opacity-50 cursor-not-allowed'}`
+                    }
                     title={establishment?.has_wifi && establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : establishment?.has_wifi ? "Wi-Fi disponível" : "Wi-Fi indisponível"}
                   >
                     <img src="/wifi.png" alt="Wi-fi" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
@@ -471,16 +410,16 @@ export default function BookingPage() {
 
                   {/* Estacionamento */}
                   <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-default
-                    ${establishment?.has_parking ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`}
-                  >
+                    ${establishment?.has_parking ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
+                  }>
                     <img src="/car.png" alt="Estacionamento" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
                     <span className={`text-xs sm:text-sm font-medium text-center ${!establishment?.has_parking ? 'line-through' : ''}`}>Estacion.</span>
                   </div>
 
                   {/* Acessibilidade */}
                   <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-default
-                    ${establishment?.has_accessibility ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`}
-                  >
+                    ${establishment?.has_accessibility ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`
+                  }>
                     <img src="/wheelchair.png" alt="Acessibilidade" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
                     <span className={`text-xs sm:text-sm font-medium text-center ${!establishment?.has_accessibility ? 'line-through' : ''}`}>Acessib.</span>
                   </div>
@@ -577,23 +516,6 @@ export default function BookingPage() {
                 existingAppointments={existingAppointments}
                 // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
               />
-            </div>
-          )}
-
-          {showDemoSuccessModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-              <div className="bg-gray-800 rounded-lg p-6 shadow-lg text-center max-w-sm mx-auto border border-blue-500">
-                <h2 className="text-2xl font-bold text-white mb-4">Atenção!</h2>
-                <p className="text-gray-300 mb-6">
-                  Este foi um agendamento demonstrativo, parabéns! Clique abaixo e volte ao menu iniciar.
-                </p>
-                <button
-                  onClick={() => navigate('/')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md w-full transition-colors"
-                >
-                  Finaliza
-                </button>
-              </div>
             </div>
           )}
         </div>
