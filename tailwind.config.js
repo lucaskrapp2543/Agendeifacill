@@ -22,7 +22,8 @@ export default {
         'fade-in': 'fadeIn 0.3s ease-in',
         'slide-up': 'slideUp 0.3s ease-out',
         'scale-in': 'scaleIn 0.2s ease-in-out',
-        'pulse-custom': 'pulse-custom 2s infinite'
+        'pulse-custom': 'pulse-custom 2s infinite',
+        'pulse-custom-slow': 'pulse-scale 3s infinite ease-in-out' // Adicionado para a animação lenta
       },
       keyframes: {
         fadeIn: {
@@ -37,18 +38,18 @@ export default {
           '0%': { transform: 'scale(0.95)', opacity: '0' },
           '100%': { transform: 'scale(1)', opacity: '1' },
         },
-        'pulse-custom': {
+        'pulse-scale': { // Renomeado de pulse-custom para pulse-scale
           '0%': {
             transform: 'scale(1)',
-            boxShadow: '0 0 0 0 rgba(6, 182, 212, 0.7)'
+            boxShadow: '0 0 0 0 rgba(255, 204, 0, 0.7)' // Cor amarela para a animação
           },
           '70%': {
-            transform: 'scale(1.05)',
-            boxShadow: '0 0 0 10px rgba(6, 182, 212, 0)'
+            transform: 'scale(1.03)',
+            boxShadow: '0 0 0 10px rgba(255, 204, 0, 0)'
           },
           '100%': {
             transform: 'scale(1)',
-            boxShadow: '0 0 0 0 rgba(6, 182, 212, 0)'
+            boxShadow: '0 0 0 0 rgba(255, 204, 0, 0)'
           }
         }
       },
