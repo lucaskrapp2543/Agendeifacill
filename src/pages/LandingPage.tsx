@@ -614,7 +614,7 @@ const LandingPage = () => {
                       </li>
                     </ul>
                     <a
-                      href="https://pay.cakto.com.br/o798qm9_509159"
+                      href="https://pay.cakto.com.br/o798qm9_509159?affiliate=jK2AXbTW"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
@@ -664,7 +664,7 @@ const LandingPage = () => {
                       </li>
                     </ul>
                     <a
-                      href="https://pay.cakto.com.br/ccx4wk8"
+                      href="https://pay.cakto.com.br/ccx4wk8?affiliate=jK2AXbTW"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors"
