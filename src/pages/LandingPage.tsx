@@ -235,13 +235,6 @@ const LandingPage = () => {
                 </div>
               </div>
 
-              {/* Texto indicativo para o vídeo */}
-              <div className="flex items-center justify-center gap-2 my-4 text-xl font-semibold text-white">
-                <ArrowDown className="w-6 h-6 animate-bounce" />
-                ASSISTA E VEJA COMO FUNCIONA TUDO
-                <ArrowDown className="w-6 h-6 animate-bounce" />
-              </div>
-
               {/* Vídeo do YouTube */}
               <div className="aspect-video w-full mb-6">
                 <iframe
@@ -571,7 +564,7 @@ const LandingPage = () => {
                   <div className="text-center">
                     <h3 className="text-2xl font-bold text-white mb-2">Plano Mensal</h3>
                     <div className="mb-6">
-                      <span className="text-4xl font-bold text-white">R$ 29</span>
+                      <span className="text-4xl font-bold text-white">R$ 39</span>
                       <span className="text-xl text-gray-300">,90/mês</span>
                     </div>
                     <ul className="space-y-4 mb-8 text-left">
@@ -621,7 +614,7 @@ const LandingPage = () => {
                       </li>
                     </ul>
                     <a
-                      href="https://pay.kiwify.com.br/5qMOyfX"
+                      href="https://pay.cakto.com.br/o798qm9_509159"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
@@ -639,14 +632,14 @@ const LandingPage = () => {
                   <div className="text-center">
                     <h3 className="text-2xl font-bold text-white mb-2">Plano Anual</h3>
                     <div className="mb-2">
-                      <span className="text-sm text-gray-200 line-through">R$ 358,80</span>
+                      <span className="text-sm text-gray-200 line-through">R$ 478,80</span>
                     </div>
                     <div className="mb-6">
-                      <span className="text-4xl font-bold text-white">R$ 299</span>
+                      <span className="text-4xl font-bold text-white">R$ 399</span>
                       <span className="text-xl text-gray-200">/ano</span>
                     </div>
                     <div className="mb-6 bg-blue-700 rounded-lg py-2 px-4">
-                      <span className="text-gray-200">Economize R$ 59,80 por ano</span>
+                      <span className="text-gray-200">Economize R$ 79,80 por ano</span>
                     </div>
                     <ul className="space-y-4 mb-8 text-left">
                       <li className="flex items-center">
@@ -671,7 +664,7 @@ const LandingPage = () => {
                       </li>
                     </ul>
                     <a
-                      href="https://pay.kiwify.com.br/sScMslq"
+                      href="https://pay.cakto.com.br/ccx4wk8"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors"
