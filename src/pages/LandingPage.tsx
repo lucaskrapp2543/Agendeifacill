@@ -218,9 +218,9 @@ const LandingPage = () => {
           <div className="text-center"> {/* Removido max-w-4xl mx-auto */}
             <div className="flex flex-col items-center space-y-4 pt-8">
               <img
-                src="/logoagendei.png"
+                src="/testeR.png"
                 alt="AgendeiFácil Logo"
-                className="mx-auto max-w-[200px] w-full"
+                className="mx-auto w-full"
               />
 
               {/* Nova seção de destaque */}
