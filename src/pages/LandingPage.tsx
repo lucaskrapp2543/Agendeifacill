@@ -213,7 +213,7 @@ const LandingPage = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="pt-24 pb-16 bg-gradient-to-br from-gray-900 via-black to-gray-900">
+      <section className="pt-12 pb-16 bg-gradient-to-br from-gray-900 via-black to-gray-900">
         <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8"> {/* Alterado px-4 para px-0 para mobile */}
           <div className="text-center"> {/* Removido max-w-4xl mx-auto */}
             <div className="flex flex-col items-center space-y-4 pt-8">
