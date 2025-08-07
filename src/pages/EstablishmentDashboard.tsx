@@ -1141,7 +1141,7 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     console.log('🔄 Iniciando fetchClients...');
-    
+
     try {
       // Busca todos os agendamentos do estabelecimento para obter os client_ids
       const { data: appointmentsData, error: appointmentsError } = await supabase
@@ -3373,13 +3373,13 @@ const EstablishmentDashboard = () => {
                 {/* Controles de busca e filtros */}
                 <div className="flex flex-col sm:flex-row gap-4 mb-6">
                   <div className="flex-1">
-                    <input
-                      type="text"
-                      placeholder="Buscar cliente por nome..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente por nome..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
                   </div>
                                   <div className="flex gap-2">
                   <button
