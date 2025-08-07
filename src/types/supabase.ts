@@ -77,6 +77,64 @@ export interface Database {
           establishment_name: string;
           establishment_code: string;
         }
+      },
+      subscriptions: {
+        Row: {
+          id: string;
+          created_at: string;
+          establishment_id: string;
+          name: string;
+          value: number;
+          duration_months: number;
+        };
+        Insert: {
+          establishment_id: string;
+          name: string;
+          value: number;
+          duration_months: number;
+        };
+        Update: {
+          name?: string;
+          value?: number;
+          duration_months?: number;
+        };
+      };
+      client_subscriptions: {
+        Row: {
+          id: string;
+          created_at: string;
+          client_id: string;
+          subscription_id: string;
+          establishment_id: string;
+          start_date: string;
+          end_date: string;
+          payment_status: 'paid' | 'unpaid';
+          last_payment_date: string | null;
+        };
+        Insert: {
+          client_id: string;
+          subscription_id: string;
+          establishment_id: string;
+          start_date: string;
+          end_date: string;
+          payment_status?: 'paid' | 'unpaid';
+          last_payment_date?: string;
+        };
+        Update: {
+          payment_status?: 'paid' | 'unpaid';
+          last_payment_date?: string;
+        };
+      };
+      profiles: {
+        Row: {
+          id: string;
+          created_at: string;
+          user_id: string;
+          full_name: string;
+          role: 'client' | 'premium' | 'establishment';
+          is_subscriber: boolean; // Nova coluna
+          birthday: string | null; // Campo de aniversário
+        }
       }
     }
   }

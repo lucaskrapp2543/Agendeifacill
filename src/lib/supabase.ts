@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../types/supabase';
+import { addMonths } from 'date-fns';
 
 // These environment variables need to be set after connecting to Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -549,7 +550,7 @@ export const getClientAppointments = async (clientId: string) => {
     console.log('💾 Dados locais encontrados:', localData?.length || 0);
     
     // Combinar dados do Supabase com dados locais
-    let combinedData = [];
+    let combinedData: Array<Database['public']['Tables']['appointments']['Row']> = [];
     
     if (supabaseData && supabaseData.length > 0) {
       combinedData = [...supabaseData];
@@ -558,7 +559,7 @@ export const getClientAppointments = async (clientId: string) => {
     // Adicionar dados locais que não estão no Supabase
     if (localData && localData.length > 0) {
       const supabaseIds = new Set(supabaseData?.map(item => item.id) || []);
-      const uniqueLocalData = localData.filter(item => !supabaseIds.has(item.id));
+      const uniqueLocalData = localData.filter((item: any) => !supabaseIds.has(item.id));
       combinedData = [...combinedData, ...uniqueLocalData];
     }
     
@@ -851,7 +852,7 @@ export const addPremiumDrawColumns = async () => {
 
 // Cancel appointment function
 export const cancelAppointment = async (appointmentId: string) => {
-  const supabase = createClient();
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
   
   return await supabase
     .from('appointments')
@@ -1016,5 +1017,189 @@ export const loadEstablishmentDirect = async (code: string) => {
     console.log('✅ Estabelecimento encontrado:', data);
   }
 
+  return { data, error };
+};
+
+// Subscription functions
+export const createSubscription = async (establishmentId: string, name: string, value: number, durationMonths: number) => {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .insert([
+      { establishment_id: establishmentId, name, value, duration_months: durationMonths }
+    ])
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const getSubscriptions = async (establishmentId: string) => {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('*')
+    .eq('establishment_id', establishmentId)
+    .order('name', { ascending: true });
+  return { data, error };
+};
+
+export const deleteSubscription = async (subscriptionId: string) => {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .delete()
+    .eq('id', subscriptionId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+// Client Subscription functions
+export const addClientSubscription = async (clientId: string, subscriptionId: string, establishmentId: string, startDate: Date) => {
+  const { data: subscriptionData, error: subscriptionError } = await getSubscriptionById(subscriptionId);
+
+  if (subscriptionError || !subscriptionData) {
+    throw new Error('Assinatura não encontrada ou erro ao buscar.');
+  }
+
+  const endDate = addMonths(startDate, subscriptionData.duration_months);
+
+  const { data, error } = await supabase
+    .from('client_subscriptions')
+    .insert([
+      {
+        client_id: clientId,
+        subscription_id: subscriptionId,
+        establishment_id: establishmentId,
+        start_date: startDate.toISOString().split('T')[0],
+        end_date: endDate.toISOString().split('T')[0],
+        payment_status: 'unpaid', // Inicia como não pago
+        last_payment_date: null
+      }
+    ])
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const getClientSubscriptions = async (establishmentId: string) => {
+  const { data: clientSubs, error } = await supabase
+    .from('client_subscriptions')
+    .select(
+      `*,
+      subscriptions (name, value, duration_months)
+      `
+    )
+    .eq('establishment_id', establishmentId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    return { data: null, error };
+  }
+
+  if (!clientSubs || clientSubs.length === 0) {
+    return { data: [], error: null };
+  }
+
+  // Coletar todos os client_ids únicos
+  const uniqueClientIds = [...new Set(clientSubs.map(cs => cs.client_id))];
+  console.log('🔍 Client IDs para buscar perfis:', uniqueClientIds);
+
+  // Buscar os perfis (name e is_subscriber) para esses client_ids
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('id, name, is_subscriber')
+    .in('id', uniqueClientIds);
+
+  console.log('👤 Perfis encontrados:', profiles);
+
+  // Buscar nomes dos agendamentos como fallback
+  const { data: appointments, error: appointmentsError } = await supabase
+    .from('appointments')
+    .select('client_id, client_name')
+    .eq('establishment_id', establishmentId)
+    .in('client_id', uniqueClientIds)
+    .order('created_at', { ascending: false });
+
+  console.log('📅 Agendamentos encontrados para nomes:', appointments);
+
+  const profilesMap = new Map();
+  profiles?.forEach(profile => {
+    profilesMap.set(profile.id, profile);
+  });
+
+  // Criar mapa de nomes dos agendamentos (client_id -> nome mais recente)
+  const appointmentNamesMap = new Map();
+  appointments?.forEach(apt => {
+    if (apt.client_name && !appointmentNamesMap.has(apt.client_id)) {
+      appointmentNamesMap.set(apt.client_id, apt.client_name);
+    }
+  });
+
+  console.log('🗺️ Mapa de perfis:', profilesMap);
+  console.log('📋 Mapa de nomes dos agendamentos:', appointmentNamesMap);
+
+  // Combinar os dados das assinaturas de clientes com os nomes
+  const combinedData = clientSubs.map(cs => {
+    const profile = profilesMap.get(cs.client_id);
+    const appointmentName = appointmentNamesMap.get(cs.client_id);
+    
+    // Prioridade: nome do perfil > nome do agendamento > Cliente Desconhecido
+    const clientName = profile?.name || appointmentName || 'Cliente Desconhecido';
+    
+    console.log(`📋 Cliente ${cs.client_id}:`, {
+      profile,
+      appointmentName,
+      clientName,
+      finalName: clientName
+    });
+
+    return {
+      ...cs,
+      profiles: {
+        full_name: clientName,
+        is_subscriber: profile?.is_subscriber || false
+      }
+    };
+  });
+
+  console.log('✅ Dados combinados finais:', combinedData);
+
+  return { data: combinedData, error: null };
+};
+
+// Nova função auxiliar para buscar perfis por IDs
+export const getProfilesByIds = async (userIds: string[]) => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, name, is_subscriber')
+    .in('id', userIds);
+  return { data, error };
+};
+
+export const updateClientSubscriptionPaymentStatus = async (clientSubscriptionId: string, status: 'paid' | 'unpaid') => {
+  const { data, error } = await supabase
+    .from('client_subscriptions')
+    .update({ payment_status: status, last_payment_date: status === 'paid' ? new Date().toISOString().split('T')[0] : null })
+    .eq('id', clientSubscriptionId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteClientSubscription = async (clientSubscriptionId: string) => {
+  const { data, error } = await supabase
+    .from('client_subscriptions')
+    .delete()
+    .eq('id', clientSubscriptionId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+// Auxiliary function to get a single subscription by ID
+const getSubscriptionById = async (subscriptionId: string) => {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('*')
+    .eq('id', subscriptionId)
+    .single();
   return { data, error };
 };

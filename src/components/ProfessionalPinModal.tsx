@@ -58,7 +58,7 @@ const ProfessionalPinModal = ({ isOpen, onClose, onValidate, professionalName }:
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-white mb-2">
-              Digite a senha de 4 dígitos
+              SENHA PADRÃO 0000
             </label>
             <input
               type="password"

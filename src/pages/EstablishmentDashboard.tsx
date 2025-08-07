@@ -18,6 +18,7 @@ import PinPasswordModal from '../components/PinPasswordModal';
 import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { FinancialDashboard } from '../components/FinancialDashboard';
+import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 
 interface BusinessHours {
   enabled: boolean;
@@ -75,7 +76,7 @@ interface Establishment {
   whatsapp?: string; // Novo campo para WhatsApp
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers';
 
 interface AdditionalProduct {
   name: string;
@@ -128,9 +129,32 @@ interface PremiumClient {
 }
 
 interface Client {
+  id: string; // ID do profile do cliente
   whatsapp: string;
   name: string;
   appointmentCount: number;
+  isSubscriber: boolean; // Nova propriedade
+  birthday: string | null; // Campo de aniversário
+}
+
+interface Subscription {
+  id: string;
+  name: string;
+  value: number;
+  duration_months: number;
+}
+
+interface ClientSubscription {
+  id: string;
+  client_id: string;
+  subscription_id: string;
+  establishment_id: string;
+  start_date: string;
+  end_date: string;
+  payment_status: 'paid' | 'unpaid';
+  last_payment_date: string | null;
+  subscriptions: Subscription;
+  profiles: { full_name: string };
 }
 
 const EstablishmentDashboard = () => {
@@ -157,7 +181,16 @@ const EstablishmentDashboard = () => {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
   const [clients, setClients] = useState<Client[]>([]);
-  const [searchQuery, setSearchQuery] = useState(''); // Novo estado para a busca
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showBirthdayFilter, setShowBirthdayFilter] = useState(false);
+  const [editingClientBirthday, setEditingClientBirthday] = useState<string | null>(null);
+  const [newBirthday, setNewBirthday] = useState('');
+  
+  // Estados para adicionar cliente manualmente
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientWhatsapp, setNewClientWhatsapp] = useState('');
+  const [newClientBirthday, setNewClientBirthday] = useState('');
   
   // Estados do formulário
   const [establishmentName, setEstablishmentName] = useState('');
@@ -242,6 +275,8 @@ const EstablishmentDashboard = () => {
   const [isSettingsUnlocked, setIsSettingsUnlocked] = useState(false);
   const [isDashboardUnlocked, setIsDashboardUnlocked] = useState(false);
   const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
+  const [isSubscribersUnlocked, setIsSubscribersUnlocked] = useState(false); // Novo estado
+  const [showSubscribersPinModal, setShowSubscribersPinModal] = useState(false); // Novo estado
 
   // Limpa o estado dos PINs quando o estabelecimento é atualizado
   useEffect(() => {
@@ -850,9 +885,22 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, activeTab]);
 
+  // Carregar assinantes pagos quando trocar de aba ou estabelecimento mudar
+  useEffect(() => {
+    if (establishment?.id) {
+      loadPaidSubscribers();
+    }
+  }, [establishment?.id, activeTab]);
+
+
+
   const calculateDailyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
       if (appointment.status !== 'cancelled') {
+        // Excluir do faturamento se for assinante pago (serviço gratuito)
+        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+          return total; // Não adiciona ao faturamento
+        }
         return total + (appointment.total_price || appointment.price || 0);
       }
       return total;
@@ -862,6 +910,10 @@ const EstablishmentDashboard = () => {
   const calculateMonthlyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
       if (appointment.status !== 'cancelled') {
+        // Excluir do faturamento se for assinante pago (serviço gratuito)
+        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+          return total; // Não adiciona ao faturamento
+        }
         return total + (appointment.total_price || appointment.price || 0);
       }
       return total;
@@ -875,14 +927,212 @@ const EstablishmentDashboard = () => {
     return isProfessionalMatch && isPaymentMethodMatch;
   });
 
-  // Clientes filtrados pela busca
-  const filteredClients = clients.filter(client =>
-    client.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Função para verificar se é aniversário no mês atual
+  const isBirthdayThisMonth = (birthday: string | null) => {
+    if (!birthday) return false;
+    const currentMonth = new Date().getMonth();
+    const birthdayDate = new Date(birthday);
+    return birthdayDate.getMonth() === currentMonth;
+  };
+
+  // Função para salvar aniversário do cliente (localStorage)
+  const saveBirthday = async (clientId: string, birthday: string) => {
+    try {
+      console.log('🎂 Salvando aniversário localmente:', { clientId, birthday });
+      
+      // Buscar o cliente na lista local para pegar o nome
+      const client = clients.find(c => c.id === clientId);
+      if (!client) {
+        toast('Cliente não encontrado.', 'error');
+        return;
+      }
+      
+      // Salvar no localStorage
+      const storageKey = `client_birthdays_${establishment?.id}`;
+      const savedBirthdays = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      
+      // Usar o WhatsApp como chave única (mais confiável que o ID)
+      savedBirthdays[client.whatsapp] = {
+        name: client.name,
+        birthday: birthday,
+        savedAt: new Date().toISOString()
+      };
+      
+      localStorage.setItem(storageKey, JSON.stringify(savedBirthdays));
+      
+      console.log('✅ Aniversário salvo no localStorage:', savedBirthdays[client.whatsapp]);
+      
+      toast('Aniversário atualizado com sucesso!', 'success');
+      setEditingClientBirthday(null);
+      setNewBirthday('');
+      
+      // Recarregar a lista para mostrar o aniversário
+      fetchClients();
+      
+    } catch (error: any) {
+      console.error('❌ Erro ao salvar aniversário:', error);
+      toast(error.message || 'Erro ao salvar aniversário', 'error');
+    }
+  };
+
+  // Função para carregar aniversários do localStorage
+  const loadBirthdaysFromStorage = () => {
+    if (!establishment?.id) return {};
+    
+    const storageKey = `client_birthdays_${establishment.id}`;
+    return JSON.parse(localStorage.getItem(storageKey) || '{}');
+  };
+
+  // Função para carregar clientes manuais do localStorage
+  const loadManualClientsFromStorage = () => {
+    if (!establishment?.id) return {};
+    
+    const storageKey = `manual_clients_${establishment.id}`;
+    return JSON.parse(localStorage.getItem(storageKey) || '{}');
+  };
+
+  // Estado para armazenar assinantes pagos
+  const [paidSubscribers, setPaidSubscribers] = useState<Set<string>>(new Set());
+
+  // Função SIMPLES para verificar se um WhatsApp é de assinante pago
+  const isClientPaidSubscriber = (clientWhatsapp?: string) => {
+    if (!clientWhatsapp) return false;
+    
+    // Limpar WhatsApp para comparação (só números)
+    const cleanWhatsapp = clientWhatsapp.replace(/\D/g, '');
+    
+    // Verificar no Set de assinantes pagos
+    return paidSubscribers.has(cleanWhatsapp);
+  };
+
+  // Função para buscar assinantes pagos do Supabase
+  const loadPaidSubscribers = async () => {
+    if (!establishment?.id) return;
+
+    try {
+      console.log('🔍 Buscando assinantes pagos...');
+      
+      // Passo 1: Buscar assinaturas pagas
+      const { data: subscriptions, error: subsError } = await supabase
+        .from('client_subscriptions')
+        .select('client_id, payment_status')
+        .eq('establishment_id', establishment.id)
+        .eq('payment_status', 'paid');
+
+      if (subsError) {
+        console.error('❌ Erro ao buscar assinaturas:', subsError);
+        return;
+      }
+
+      if (!subscriptions || subscriptions.length === 0) {
+        console.log('📋 Nenhuma assinatura paga encontrada');
+        setPaidSubscribers(new Set());
+        return;
+      }
+
+      console.log('✅ Assinaturas pagas encontradas:', subscriptions);
+
+      // Passo 2: Buscar WhatsApps dos agendamentos desses clientes
+      const clientIds = subscriptions.map(sub => sub.client_id);
+      const { data: appointmentsData, error: appointmentsError } = await supabase
+        .from('appointments')
+        .select('client_id, client_whatsapp')
+        .eq('establishment_id', establishment.id)
+        .in('client_id', clientIds)
+        .not('client_whatsapp', 'is', null);
+
+      if (appointmentsError) {
+        console.error('❌ Erro ao buscar agendamentos:', appointmentsError);
+        return;
+      }
+
+      console.log('📱 Agendamentos encontrados:', appointmentsData);
+
+      // Passo 3: Criar Set com WhatsApp únicos dos assinantes pagos
+      const whatsappSet = new Set(
+        appointmentsData?.map(apt => apt.client_whatsapp?.replace(/\D/g, '')).filter(Boolean) || []
+      );
+
+      console.log('📱 WhatsApps de assinantes pagos:', Array.from(whatsappSet));
+      setPaidSubscribers(whatsappSet);
+    } catch (error) {
+      console.error('❌ Erro geral ao carregar assinantes pagos:', error);
+    }
+  };
+
+  // Função para adicionar cliente manualmente
+  const addManualClient = () => {
+    if (!newClientName.trim() || !newClientWhatsapp.trim()) {
+      toast('Nome e WhatsApp são obrigatórios!', 'error');
+      return;
+    }
+
+    // Limpar WhatsApp (remover caracteres especiais)
+    const cleanWhatsapp = newClientWhatsapp.replace(/\D/g, '');
+    
+    if (cleanWhatsapp.length < 10) {
+      toast('WhatsApp deve ter pelo menos 10 dígitos!', 'error');
+      return;
+    }
+
+    try {
+      // Salvar cliente manual no localStorage
+      const storageKey = `manual_clients_${establishment?.id}`;
+      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      
+      manualClients[cleanWhatsapp] = {
+        name: newClientName.trim(),
+        whatsapp: cleanWhatsapp,
+        birthday: newClientBirthday || null,
+        addedAt: new Date().toISOString(),
+        appointmentCount: 0 // Começa com 0, será incrementado quando agendar
+      };
+      
+      localStorage.setItem(storageKey, JSON.stringify(manualClients));
+      
+      // Se tem aniversário, salvar também no storage de aniversários
+      if (newClientBirthday) {
+        const birthdayStorageKey = `client_birthdays_${establishment?.id}`;
+        const savedBirthdays = JSON.parse(localStorage.getItem(birthdayStorageKey) || '{}');
+        
+        savedBirthdays[cleanWhatsapp] = {
+          name: newClientName.trim(),
+          birthday: newClientBirthday,
+          savedAt: new Date().toISOString()
+        };
+        
+        localStorage.setItem(birthdayStorageKey, JSON.stringify(savedBirthdays));
+      }
+      
+      console.log('✅ Cliente manual adicionado:', manualClients[cleanWhatsapp]);
+      
+      toast('Cliente adicionado com sucesso!', 'success');
+      
+      // Limpar form e fechar modal
+      setNewClientName('');
+      setNewClientWhatsapp('');
+      setNewClientBirthday('');
+      setShowAddClientModal(false);
+      
+      // Recarregar lista de clientes
+      fetchClients();
+      
+    } catch (error: any) {
+      console.error('❌ Erro ao adicionar cliente:', error);
+      toast('Erro ao adicionar cliente', 'error');
+    }
+  };
+
+  // Filtrar clientes baseado na busca e filtro de aniversário
+  const filteredClients = clients.filter(client => {
+    const matchesSearch = client.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesBirthday = showBirthdayFilter ? isBirthdayThisMonth(client.birthday) : true;
+    return matchesSearch && matchesBirthday;
+  });
 
   // Função para obter o nome do profissional pelo ID
   const getProfessionalName = (professionalId: string): string => {
-    const professional = professionals.find(p => p.id === professionalId);
+    const professional: Professional | undefined = professionals.find(p => p.id === professionalId);
     return professional?.name || 'Profissional não encontrado';
   };
 
@@ -890,42 +1140,182 @@ const EstablishmentDashboard = () => {
   const fetchClients = async () => {
     if (!establishment) return;
 
+    console.log('🔄 Iniciando fetchClients...');
+    
     try {
-      const { data, error } = await supabase
+      // Busca todos os agendamentos do estabelecimento para obter os client_ids
+      const { data: appointmentsData, error: appointmentsError } = await supabase
         .from('appointments')
-        .select('client_name, client_whatsapp')
+        .select('client_id, client_name, client_whatsapp')
         .eq('establishment_id', establishment.id)
-        .not('client_whatsapp', 'is', null) // Garante que há um número de WhatsApp
-        .order('created_at', { ascending: false }); // Ordena para pegar o nome mais recente
+        .not('client_whatsapp', 'is', null) // Apenas agendamentos com WhatsApp
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (appointmentsError) throw appointmentsError;
 
-      const clientsMap = new Map<string, { name: string; count: number }>();
+      if (!appointmentsData || appointmentsData.length === 0) {
+        setClients([]);
+        return; // Não há agendamentos, então não há clientes a processar
+      }
 
-      data.forEach(appointment => {
-        const whatsapp = appointment.client_whatsapp?.replace(/\D/g, ''); // Remove caracteres não numéricos
+      // Coleta todos os client_ids únicos dos agendamentos
+      const uniqueClientIds = [...new Set(appointmentsData.map(apt => apt.client_id))];
+
+      // Busca os perfis correspondentes (incluindo is_subscriber e birthday)
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, user_id, name, is_subscriber, birthday')
+        .in('user_id', uniqueClientIds); // Usar user_id que é a chave correta
+
+      if (profilesError) throw profilesError;
+
+      console.log('🔍 IDs únicos buscados:', uniqueClientIds);
+      console.log('👤 Perfis encontrados:', profilesData);
+
+      // Se não encontrou nada com 'user_id', tentar buscar todos os perfis para debug
+      if (!profilesData || profilesData.length === 0) {
+        console.log('⚠️ Nenhum perfil encontrado com user_id. Tentando buscar por id...');
+        
+        // Tentar buscar por id como fallback
+        const { data: profilesByIdData } = await supabase
+          .from('profiles')
+          .select('id, user_id, name, is_subscriber, birthday')
+          .in('id', uniqueClientIds);
+        
+        console.log('🔄 Perfis encontrados por id:', profilesByIdData);
+        
+        if (profilesByIdData && profilesByIdData.length > 0) {
+          // Usar os perfis encontrados por id
+          profilesByIdData.forEach(profile => {
+            profilesData?.push(profile);
+          });
+        }
+        
+        // Debug: buscar todos os perfis para comparação
+        const { data: allProfiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .limit(5);
+        console.log('📋 Todos os perfis (amostra):', allProfiles);
+      }
+
+      // Cria um mapa de perfis para acesso rápido (user_id -> profile e id -> profile)
+      const profilesMap = new Map<string, { id: string; name: string; is_subscriber: boolean; birthday: string | null }>();
+      profilesData?.forEach(profile => {
+        const profileData = {
+          id: profile.id, // ID real do perfil para usar no update
+          name: profile.name, 
+          is_subscriber: profile.is_subscriber,
+          birthday: profile.birthday
+        };
+        
+        // Mapear tanto por user_id quanto por id para cobrir ambos os casos
+        if (profile.user_id) {
+          profilesMap.set(profile.user_id, profileData);
+        }
+        profilesMap.set(profile.id, profileData);
+        
+        console.log(`✅ Perfil mapeado:`, {
+          user_id: profile.user_id,
+          profile_id: profile.id,
+          name: profile.name,
+          is_subscriber: profile.is_subscriber,
+          birthday: profile.birthday
+        });
+      });
+
+      // Mapeia e agrupa os clientes a partir dos dados de agendamento e perfis
+      const clientsMap = new Map<string, { id: string; name: string; count: number; isSubscriber: boolean; birthday: string | null }>();
+
+      appointmentsData.forEach(appointment => {
+        const whatsapp = appointment.client_whatsapp?.replace(/\D/g, '');
         if (whatsapp) {
           const currentClient = clientsMap.get(whatsapp);
+          const profileInfo = profilesMap.get(appointment.client_id); // Buscar pelo client_id (que corresponde ao user_id)
+          const isSubscriber = profileInfo?.is_subscriber || false;
+          const birthday = profileInfo?.birthday || null;
+          const profileId = profileInfo?.id || appointment.client_id; // Usar o ID real do perfil para updates
+
+          // Usa o nome do perfil se disponível e mais recente, ou o nome do agendamento
+          const clientName = profileInfo?.name || appointment.client_name || 'Cliente Desconhecido';
+
           if (currentClient) {
-            // Se o cliente já existe, atualiza o nome (se for diferente) e incrementa a contagem
             clientsMap.set(whatsapp, {
-              name: appointment.client_name || currentClient.name, // Usa o nome mais recente
-              count: currentClient.count + 1
+              id: profileId, // Usar o ID real do perfil
+              name: clientName,
+              count: currentClient.count + 1,
+              isSubscriber: currentClient.isSubscriber || isSubscriber,
+              birthday: birthday || currentClient.birthday // Manter o birthday se já existe
             });
           } else {
             clientsMap.set(whatsapp, {
-              name: appointment.client_name || 'Cliente Desconhecido',
-              count: 1
+              id: profileId, // Usar o ID real do perfil
+              name: clientName,
+              count: 1,
+              isSubscriber: isSubscriber,
+              birthday: birthday
             });
           }
         }
       });
 
-      const uniqueClients: Client[] = Array.from(clientsMap, ([whatsapp, { name, count }]) => ({
+      // Converte o mapa de clientes para um array e atualiza o estado
+      const uniqueClients: Client[] = Array.from(clientsMap, ([whatsapp, { id, name, count, isSubscriber, birthday }]) => ({
+        id, // Adicionar o ID
         whatsapp,
         name,
-        appointmentCount: count
+        appointmentCount: count,
+        isSubscriber: isSubscriber,
+        birthday: birthday
       }));
+      
+      // Carregar clientes manuais do localStorage
+      const manualClients = loadManualClientsFromStorage();
+      console.log('👤 Clientes manuais carregados:', manualClients);
+      
+      // Adicionar clientes manuais que ainda não existem na lista
+      Object.values(manualClients).forEach((manualClient: any) => {
+        const existingClient = uniqueClients.find(c => c.whatsapp === manualClient.whatsapp);
+        
+        if (!existingClient) {
+          // Cliente manual que ainda não fez agendamentos
+          uniqueClients.push({
+            id: `manual_${manualClient.whatsapp}`, // ID único para cliente manual
+            whatsapp: manualClient.whatsapp,
+            name: manualClient.name,
+            appointmentCount: 0,
+            isSubscriber: false,
+            birthday: manualClient.birthday
+          });
+          console.log(`➕ Cliente manual adicionado: ${manualClient.name}`);
+        } else {
+          // Cliente manual que já fez agendamentos - usar nome mais atualizado
+          existingClient.name = manualClient.name;
+          if (manualClient.birthday) {
+            existingClient.birthday = manualClient.birthday;
+          }
+          console.log(`🔄 Cliente manual atualizado: ${manualClient.name}`);
+        }
+      });
+      
+      // Carregar aniversários do localStorage e aplicar aos clientes
+      const savedBirthdays = loadBirthdaysFromStorage();
+      console.log('🎂 Aniversários carregados do localStorage:', savedBirthdays);
+      
+      uniqueClients.forEach(client => {
+        const savedBirthday = savedBirthdays[client.whatsapp];
+        if (savedBirthday) {
+          client.birthday = savedBirthday.birthday;
+          console.log(`✅ Aniversário aplicado ao cliente ${client.name}:`, savedBirthday.birthday);
+        }
+      });
+      
+      console.log('🔍 Clientes finais processados:', uniqueClients.map(c => ({
+        name: c.name,
+        id: c.id,
+        isSubscriber: c.isSubscriber,
+        birthday: c.birthday
+      })));
       
       setClients(uniqueClients);
     } catch (error: any) {
@@ -1755,6 +2145,26 @@ const EstablishmentDashboard = () => {
                     <span className="hidden sm:inline">Meus Clientes</span>
                   </button>
 
+                  {/* Novo Botão Assinantes */}
+                  <button
+                    onClick={() => {
+                      if (establishment?.pin_password && establishment.pin_password.length > 0 && !isSubscribersUnlocked) {
+                        setShowSubscribersPinModal(true);
+                      } else {
+                        setIsSubscribersUnlocked(true);
+                      }
+                      setActiveTab('subscribers');
+                    }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                      activeTab === 'subscribers'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <Crown className="h-5 w-5" />
+                    <span className="hidden sm:inline">Assinantes</span>
+                  </button>
+
                   <div
                     className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-500 cursor-not-allowed opacity-50"
                     title="Em breve"
@@ -1828,6 +2238,37 @@ const EstablishmentDashboard = () => {
           {/* Outros tabs existentes */}
             {activeTab === 'appointments' && (
               <>
+                {/* Debug temporário */}
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800 mb-2">🔧 Debug: Teste do pedroga</p>
+                                     <button
+                     onClick={() => {
+                       console.log('🔄 Recarregando assinantes pagos...');
+                       loadPaidSubscribers().then(() => {
+                         const testResult = isClientPaidSubscriber('45547854875');
+                         console.log('🧪 Teste do pedroga (45547854875):', testResult);
+                         console.log('📋 Assinantes pagos atuais:', Array.from(paidSubscribers));
+                       });
+                     }}
+                     className="px-3 py-1 bg-yellow-500 text-white rounded text-sm mr-2"
+                   >
+                     🔄 Recarregar + Testar
+                   </button>
+                                     <button
+                     onClick={() => {
+                       console.log('👥 Lista atual de clientes:', clients);
+                       console.log('📋 Total de clientes:', clients.length);
+                       console.log('🔍 Procurando pedroga por nome:', clients.find(c => c.name?.toLowerCase().includes('pedroga')));
+                       console.log('🔍 Procurando por WhatsApp 45547854875:', clients.find(c => c.whatsapp === '45547854875'));
+                       console.log('🔍 Todos os WhatsApps na lista:', clients.map(c => `${c.name}: ${c.whatsapp}`));
+                       console.log('👑 Clientes assinantes:', clients.filter(c => c.isSubscriber));
+                     }}
+                     className="px-3 py-1 bg-blue-500 text-white rounded text-sm"
+                   >
+                     👥 Ver clientes
+                   </button>
+                </div>
+                
                 {/* Seleção de Profissionais */}
                 {establishment?.professionals && establishment.professionals.length > 0 && (
                   <div className="mb-6 bg-white rounded-lg p-4 border border-gray-200">
@@ -2066,6 +2507,9 @@ const EstablishmentDashboard = () => {
                           <div className="flex flex-col gap-1 flex-grow min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-medium text-white truncate">{appointment.client_name}</span>
+                              {isClientPaidSubscriber(appointment.client_whatsapp) && (
+                                <Crown className="h-5 w-5 text-yellow-400" />
+                              )}
                               {appointment.client_whatsapp && (
                                 <a
                                   href={`https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}`}
@@ -2112,7 +2556,12 @@ const EstablishmentDashboard = () => {
                           <div className="flex flex-wrap gap-2 mt-3">
                             <div className="flex items-center gap-2 min-w-[120px]">
                               <span className="text-sm text-white/80">Valor base:</span>
-                              <span className="text-sm text-white">{formatCurrency(appointment.price)}</span>
+                              <span className="text-sm text-white">
+                                {isClientPaidSubscriber(appointment.client_whatsapp) 
+                                  ? "GRATUITO" 
+                                  : formatCurrency(appointment.price)
+                                }
+                              </span>
                             </div>
                             {appointment.additional_products && appointment.additional_products.length > 0 && (
                               <div className="flex-1 min-w-[200px]">
@@ -2131,7 +2580,12 @@ const EstablishmentDashboard = () => {
                           <div className="flex flex-wrap items-center gap-3 mt-3">
                             <div className="flex items-center gap-2">
                               <span className="text-sm text-white/80">Total:</span>
-                              <span className="text-sm font-medium text-white">{formatCurrency(appointment.total_price || appointment.price)}</span>
+                              <span className="text-sm font-medium text-white">
+                                {isClientPaidSubscriber(appointment.client_whatsapp) 
+                                  ? "GRATUITO" 
+                                  : formatCurrency(appointment.total_price || appointment.price)
+                                }
+                              </span>
                             </div>
                             
                             <div className="flex flex-wrap items-center gap-2">
@@ -2906,20 +3360,50 @@ const EstablishmentDashboard = () => {
 
             {activeTab === 'clients' && (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Meus Clientes</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-gray-900">Meus Clientes</h2>
+                  <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+                    {filteredClients.length} {filteredClients.length === 1 ? 'cliente' : 'clientes'}
+                  </div>
+                </div>
                 <p className="text-gray-700 mb-8">
                   Aqui você encontra todos os clientes que já agendaram em seu estabelecimento.
                 </p>
 
-                {/* Campo de Busca */}
-                <div className="mb-6">
-                  <input
-                    type="text"
-                    placeholder="Buscar cliente por nome..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
+                {/* Controles de busca e filtros */}
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      placeholder="Buscar cliente por nome..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                                  <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowBirthdayFilter(!showBirthdayFilter)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      showBirthdayFilter
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    🎂 Aniversariantes do mês
+                  </button>
+                  <button
+                    onClick={() => setShowAddClientModal(true)}
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                  >
+                    ➕ Adicionar Cliente
+                  </button>
+                  {showBirthdayFilter && (
+                    <span className="px-3 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm">
+                      {filteredClients.length} encontrado(s)
+                    </span>
+                  )}
+                </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2931,15 +3415,78 @@ const EstablishmentDashboard = () => {
                   ) : (
                     filteredClients.map(client => (
                       <div key={client.whatsapp} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-                        <h3 className="text-lg font-medium text-gray-900 mb-2 truncate">{client.name}</h3>
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="text-lg font-medium text-gray-900 truncate">{client.name}</h3>
+                          {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />} {/* COROA PARA ASSINANTES */}
+                        </div>
                         <p className="text-gray-700 flex items-center gap-2 mb-1">
                           <Phone className="h-4 w-4 text-gray-500" />
                           {client.whatsapp}
                         </p>
-                        <p className="text-gray-700 flex items-center gap-2 mb-4">
+                        <p className="text-gray-700 flex items-center gap-2 mb-1">
                           <Calendar className="h-4 w-4 text-gray-500" />
                           Agendamentos: {client.appointmentCount}
                         </p>
+                        
+                        {/* Campo de aniversário */}
+                        <div className="text-gray-700 flex items-center gap-2 mb-4">
+                          <span className="text-gray-500">🎂</span>
+                          {editingClientBirthday === client.id ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="date"
+                                value={newBirthday}
+                                onChange={(e) => setNewBirthday(e.target.value)}
+                                className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                              />
+                              <button
+                                onClick={() => saveBirthday(client.id, newBirthday)}
+                                className="text-green-600 hover:text-green-800"
+                                title="Salvar"
+                              >
+                                ✓
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingClientBirthday(null);
+                                  setNewBirthday('');
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                                title="Cancelar"
+                              >
+                                ✗
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm">
+                                {client.birthday 
+                                  ? new Date(client.birthday).toLocaleDateString('pt-BR')
+                                  : 'Não informado'
+                                }
+                              </span>
+                              <button
+                                onClick={() => {
+                                  console.log('🎯 Cliente clicado para editar:', {
+                                    clientId: client.id,
+                                    clientName: client.name,
+                                    currentBirthday: client.birthday
+                                  });
+                                  setEditingClientBirthday(client.id);
+                                  setNewBirthday(client.birthday || '');
+                                }}
+                                className="text-blue-600 hover:text-blue-800 text-xs"
+                                title="Editar aniversário"
+                              >
+                                ✏️
+                              </button>
+                            </div>
+                          )}
+                          {client.birthday && isBirthdayThisMonth(client.birthday) && (
+                            <span className="text-purple-600 text-xs font-medium">• Aniversário este mês!</span>
+                          )}
+                        </div>
+                        
                         <a
                           href={`https://wa.me/${client.whatsapp}`}
                           target="_blank"
@@ -2954,6 +3501,14 @@ const EstablishmentDashboard = () => {
                   )}
                 </div>
               </div>
+            )}
+
+            {activeTab === 'subscribers' && isSubscribersUnlocked && (
+              <SubscribersManager 
+                establishmentId={establishment?.id!} 
+                clients={clients} 
+                onClientUpdated={fetchClients}
+              />
             )}
         </div>
       </div>
@@ -3024,6 +3579,75 @@ const EstablishmentDashboard = () => {
               alt="Comprovante PIX"
               className="w-full rounded-lg"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Modal Adicionar Cliente */}
+      {showAddClientModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Adicionar Novo Cliente</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nome do Cliente *
+                </label>
+                <input
+                  type="text"
+                  value={newClientName}
+                  onChange={(e) => setNewClientName(e.target.value)}
+                  placeholder="Ex: João Silva"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  WhatsApp *
+                </label>
+                <input
+                  type="text"
+                  value={newClientWhatsapp}
+                  onChange={(e) => setNewClientWhatsapp(e.target.value)}
+                  placeholder="Ex: 11999999999"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Data de Aniversário (opcional)
+                </label>
+                <input
+                  type="date"
+                  value={newClientBirthday}
+                  onChange={(e) => setNewClientBirthday(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowAddClientModal(false);
+                  setNewClientName('');
+                  setNewClientWhatsapp('');
+                  setNewClientBirthday('');
+                }}
+                className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={addManualClient}
+                className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Adicionar
+              </button>
+            </div>
           </div>
         </div>
       )}
