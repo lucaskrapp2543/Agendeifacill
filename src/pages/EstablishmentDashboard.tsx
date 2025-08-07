@@ -2234,37 +2234,6 @@ const EstablishmentDashboard = () => {
           {/* Outros tabs existentes */}
             {activeTab === 'appointments' && (
               <>
-                {/* Debug temporário */}
-                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm text-yellow-800 mb-2">🔧 Debug: Teste do pedroga</p>
-                                     <button
-                     onClick={() => {
-                       console.log('🔄 Recarregando assinantes pagos...');
-                       loadPaidSubscribers().then(() => {
-                         const testResult = isClientPaidSubscriber('45547854875');
-                         console.log('🧪 Teste do pedroga (45547854875):', testResult);
-                         console.log('📋 Assinantes pagos atuais:', Array.from(paidSubscribers));
-                       });
-                     }}
-                     className="px-3 py-1 bg-yellow-500 text-white rounded text-sm mr-2"
-                   >
-                     🔄 Recarregar + Testar
-                   </button>
-                                     <button
-                     onClick={() => {
-                       console.log('👥 Lista atual de clientes:', clients);
-                       console.log('📋 Total de clientes:', clients.length);
-                       console.log('🔍 Procurando pedroga por nome:', clients.find(c => c.name?.toLowerCase().includes('pedroga')));
-                       console.log('🔍 Procurando por WhatsApp 45547854875:', clients.find(c => c.whatsapp === '45547854875'));
-                       console.log('🔍 Todos os WhatsApps na lista:', clients.map(c => `${c.name}: ${c.whatsapp}`));
-                       console.log('👑 Clientes assinantes:', clients.filter(c => c.isSubscriber));
-                     }}
-                     className="px-3 py-1 bg-blue-500 text-white rounded text-sm"
-                   >
-                     👥 Ver clientes
-                   </button>
-                </div>
-                
                 {/* Seleção de Profissionais */}
                 {establishment?.professionals && establishment.professionals.length > 0 && (
                   <div className="mb-6 bg-white rounded-lg p-4 border border-gray-200">
