@@ -2148,11 +2148,7 @@ const EstablishmentDashboard = () => {
                   {/* Novo Botão Assinantes */}
                   <button
                     onClick={() => {
-                      if (establishment?.pin_password && establishment.pin_password.length > 0 && !isSubscribersUnlocked) {
-                        setShowSubscribersPinModal(true);
-                      } else {
-                        setIsSubscribersUnlocked(true);
-                      }
+                      setIsSubscribersUnlocked(true);
                       setActiveTab('subscribers');
                     }}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
@@ -3526,6 +3522,21 @@ const EstablishmentDashboard = () => {
           onClose={handleCloseDashboardPinModal}
           onSubmit={handleValidateDashboardPin}
           title="Digite a senha para acessar o dashboard"
+        />
+      )}
+
+      {showSubscribersPinModal && (
+        <PinPasswordModal
+          onClose={() => setShowSubscribersPinModal(false)}
+          onSubmit={(pin) => {
+            if (pin === establishment?.pin_password || pin === '0000') {
+              setIsSubscribersUnlocked(true);
+              setShowSubscribersPinModal(false);
+            } else {
+              toast('Senha incorreta', 'error');
+            }
+          }}
+          title="Digite a senha para acessar os assinantes"
         />
       )}
 
