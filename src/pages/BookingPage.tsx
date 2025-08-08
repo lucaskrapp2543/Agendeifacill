@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase, getSubscriptions } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { AppointmentForm } from '../components/AppointmentForm';
 import { PhotoCarousel } from '../components/PhotoCarousel';
@@ -14,6 +14,7 @@ import { LogOut } from 'lucide-react';
 import { PlusCircle } from 'lucide-react';
 import { Phone } from 'lucide-react'; // Certifique-se de que Phone está importado
 import { AlertCircle } from 'lucide-react'; // Corrigido de ExclamationCircle para AlertCircle
+import { Crown } from 'lucide-react';
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -29,6 +30,8 @@ export default function BookingPage() {
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [selectedProfessional, setSelectedProfessional] = useState<string | null>(null);
   const [showDemoSuccessModal, setShowDemoSuccessModal] = useState(false); // Novo estado para o modal de demonstração
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +72,7 @@ export default function BookingPage() {
   useEffect(() => {
     if (establishment) {
       fetchExistingAppointments();
+      fetchSubscriptions();
     }
   }, [establishment, selectedDate]);
 
@@ -79,6 +83,24 @@ export default function BookingPage() {
     }
   }, [showBookingForm]);
 
+  // Efeito para fechar o dropdown quando clicar fora dele
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.subscriptions-dropdown')) {
+        setShowSubscriptionsDropdown(false);
+      }
+    };
+
+    if (showSubscriptionsDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showSubscriptionsDropdown]);
+
   // Debug: Monitorar mudanças no estado establishment
   useEffect(() => {
     console.log('🔄 ESTADO ESTABLISHMENT MUDOU:', establishment);
@@ -88,6 +110,13 @@ export default function BookingPage() {
       console.log('❌ Establishment é null/undefined');
     }
   }, [establishment]);
+
+  // Debug: Monitorar mudanças no estado subscriptions
+  useEffect(() => {
+    console.log('👑 ESTADO SUBSCRIPTIONS MUDOU:', subscriptions);
+    console.log('📊 Total de assinaturas:', subscriptions.length);
+    console.log('🔽 Dropdown deve aparecer?', subscriptions.length > 0);
+  }, [subscriptions]);
 
   const fetchEstablishment = async () => {
     if (!id) {
@@ -175,6 +204,64 @@ export default function BookingPage() {
     } catch (error: any) {
       console.error('Error fetching existing appointments:', error);
     }
+  };
+
+  const fetchSubscriptions = async () => {
+    if (!establishment) {
+      console.log('❌ Establishment não encontrado para buscar assinaturas');
+      return;
+    }
+
+    console.log('🔍 Buscando assinaturas para establishment:', establishment.id);
+    
+    try {
+      const { data: subscriptionsData, error } = await getSubscriptions(establishment.id);
+      console.log('📋 Assinaturas encontradas:', subscriptionsData);
+      console.log('❌ Erro (se houver):', error);
+      
+      if (error) {
+        console.error('❌ Erro ao buscar assinaturas:', error);
+        setSubscriptions([]);
+        return;
+      }
+      
+      if (subscriptionsData && Array.isArray(subscriptionsData)) {
+        setSubscriptions(subscriptionsData);
+        console.log('✅ Assinaturas carregadas:', subscriptionsData.length, 'planos');
+      } else {
+        setSubscriptions([]);
+        console.log('⚠️ Nenhuma assinatura encontrada ou dados inválidos');
+      }
+    } catch (error) {
+      console.error('❌ Erro ao buscar assinaturas:', error);
+      setSubscriptions([]);
+    }
+  };
+
+  const handleSubscribeClick = (subscriptionName: string) => {
+    if (!establishment?.whatsapp) {
+      toast.error('WhatsApp não configurado para este estabelecimento');
+      return;
+    }
+
+    const message = `Quero ser assinante ${subscriptionName.toLowerCase()}`;
+    const whatsappUrl = `https://wa.me/${establishment.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+    
+    window.open(whatsappUrl, '_blank');
+    setShowSubscriptionsDropdown(false);
+  };
+
+  const handleSaberMaisClick = () => {
+    if (!establishment?.whatsapp) {
+      toast.error('WhatsApp não configurado para este estabelecimento');
+      return;
+    }
+
+    const message = 'Quero informações sobre Assinantes.';
+    const whatsappUrl = `https://wa.me/${establishment.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+    
+    window.open(whatsappUrl, '_blank');
+    setShowSubscriptionsDropdown(false);
   };
 
   const handleLogout = async () => {
@@ -399,6 +486,76 @@ export default function BookingPage() {
                 AGENDAR
                 <img src="/calendario.png" alt="Calendário" className="h-5 w-5" />
               </button>
+
+              {/* Dropdown SER ASSINANTE */}
+              {subscriptions.length > 0 && (
+                <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 1000 }}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
+                    }}
+                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 flex items-center justify-center gap-2"
+                  >
+                    SER ASSINANTE
+                    <Crown className="h-5 w-5" />
+                  </button>
+                  
+                  {showSubscriptionsDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                      {subscriptions.map((subscription) => (
+                        <div
+                          key={subscription.id}
+                          className="flex items-center justify-between p-3 hover:bg-gray-50 border-b border-gray-200 last:border-b-0"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900 truncate">{subscription.name || 'Assinatura'}</div>
+                            <div className="text-sm text-gray-500">
+                              R$ {(subscription.value || 0).toFixed(2).replace('.', ',')} / {subscription.duration_months || 1} {subscription.duration_months === 1 ? 'mês' : 'meses'}
+                            </div>
+                          </div>
+                          <div className="flex gap-2 ml-3 flex-shrink-0">
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleSubscribeClick(subscription.name);
+                              }}
+                              className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap"
+                            >
+                              QUERO
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {/* Item fixo SABER MAIS */}
+                      <div className="flex items-center justify-between p-3 hover:bg-gray-50 border-t border-gray-200">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-gray-900 truncate">SABER MAIS</div>
+                          <div className="text-sm text-gray-500">
+                            Informações sobre assinaturas
+                          </div>
+                        </div>
+                        <div className="flex gap-2 ml-3 flex-shrink-0">
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleSaberMaisClick();
+                            }}
+                            className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap"
+                          >
+                            QUERO
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               <a
                 href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
                 target="_blank"

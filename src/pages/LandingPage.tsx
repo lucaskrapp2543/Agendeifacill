@@ -558,6 +558,15 @@ const LandingPage = () => {
                 />
               </div>
 
+              {/* Imagem 7 Dias */}
+              <div className="w-full mb-8 px-4">
+                <img
+                  src="/7dias.png"
+                  alt="7 Dias"
+                  className="w-full h-auto object-contain mx-auto"
+                />
+              </div>
+
               <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto mt-8">
                 {/* Plano Mensal */}
                 <div className="bg-[#1a1b1c] border-2 border-gray-700 rounded-2xl p-8 hover:border-blue-500 transition-all duration-300">
@@ -699,12 +708,7 @@ const LandingPage = () => {
                 >
                   Começar Agora
                 </a>
-                <Link
-                  to="/testaragendeifacilfree"
-                  className="inline-flex items-center justify-center px-8 py-3 border-2 border-blue-500 text-base font-medium rounded-md text-white hover:bg-blue-500/10 md:py-4 md:text-lg md:px-10 transition-colors"
-                >
-                  TESTAR GRÁTIS
-                </Link>
+
               </div>
             </div>
           </div>
