@@ -1190,8 +1190,23 @@ const EstablishmentDashboard = () => {
       if (appointmentsError) throw appointmentsError;
 
       if (!appointmentsData || appointmentsData.length === 0) {
-        setClients([]);
-        return; // Não há agendamentos, então não há clientes a processar
+        console.log('📋 Nenhum agendamento encontrado - carregando apenas clientes manuais');
+        // Mesmo sem agendamentos, carregar clientes manuais
+        const manualClients = loadManualClientsFromStorage();
+        console.log('👤 Clientes manuais carregados:', manualClients);
+        
+        const uniqueClients: Client[] = Object.values(manualClients).map((manualClient: any) => ({
+          id: `manual_${manualClient.whatsapp}`,
+          whatsapp: manualClient.whatsapp,
+          name: manualClient.name,
+          appointmentCount: 0,
+          isSubscriber: false,
+          birthday: manualClient.birthday
+        }));
+        
+        console.log('✅ Clientes finais (apenas manuais):', uniqueClients);
+        setClients(uniqueClients);
+        return;
       }
 
       // Coleta todos os client_ids únicos dos agendamentos
