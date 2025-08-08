@@ -358,7 +358,7 @@ export default function BookingPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen" style={{ backgroundColor: '#f0f6ff' }}>
         <div className="container-custom py-8">
           <div className="flex justify-center">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
@@ -370,7 +370,7 @@ export default function BookingPage() {
 
   if (!establishment) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen" style={{ backgroundColor: '#f0f6ff' }}>
         <div className="container-custom py-8">
           <div className="text-center">
             <h1 className="text-2xl font-bold mb-4 text-gray-900">Estabelecimento não encontrado</h1>
@@ -427,7 +427,7 @@ export default function BookingPage() {
   } : null;
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen" style={{ backgroundColor: '#f0f6ff' }}>
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex flex-col space-y-6">
           {/* Cabeçalho */}
@@ -479,13 +479,80 @@ export default function BookingPage() {
 
             {/* Botões de Ação Principal */}
             <div className="mt-6 flex flex-col space-y-4">
+              {/* Botão AGENDAR */}
               <button
                 onClick={handleAgendarClick}
-                className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 flex items-center justify-center gap-2"
+                className="w-full bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
               >
                 AGENDAR
-                <img src="/calendario.png" alt="Calendário" className="h-5 w-5" />
+                <img src="/calendario.png" alt="Calendário" className="h-6 w-6" />
               </button>
+
+              {/* Botão AVALIE A GENTE */}
+              <a
+                href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                  establishment?.review_link 
+                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
+                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                }`}
+              >
+                AVALIE A GENTE
+                <img src="/google.png" alt="Google" className="h-6 w-6" />
+              </a>
+
+              {/* Botão INSTAGRAM */}
+              <a
+                href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                  establishment?.social_media_link 
+                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
+                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                }`}
+              >
+                INSTAGRAM
+                <img src="/INST.png" alt="Instagram" className="h-6 w-6" />
+              </a>
+
+              {/* Botão PAGAR PIX */}
+              <button
+                onClick={() => {
+                  if (establishment?.pix_key) {
+                    navigator.clipboard.writeText(establishment.pix_key);
+                    toast.success('Chave PIX copiada com sucesso!');
+                  } else {
+                    toast.error('Chave PIX não disponível.');
+                  }
+                }}
+                disabled={!establishment?.pix_key}
+                className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                  establishment?.pix_key 
+                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
+                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                }`}
+              >
+                PAGAR PIX
+                <img src="/PIX.png" alt="PIX" className="h-6 w-6" />
+              </button>
+
+              {/* Botão COMO CHEGAR */}
+              <a
+                href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                  establishment?.location_link 
+                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
+                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                }`}
+              >
+                COMO CHEGAR
+                <img src="/LOCAL.png" alt="Localização" className="h-6 w-6" />
+              </a>
 
               {/* Dropdown SER ASSINANTE */}
               {subscriptions.length > 0 && (
@@ -497,10 +564,10 @@ export default function BookingPage() {
                       e.stopPropagation();
                       setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
                     }}
-                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 flex items-center justify-center gap-2"
+                    className="w-full bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
                   >
                     SER ASSINANTE
-                    <Crown className="h-5 w-5" />
+                    <img src="/coroa.png" alt="Coroa" className="h-6 w-6" />
                   </button>
                   
                   {showSubscriptionsDropdown && (
@@ -556,60 +623,14 @@ export default function BookingPage() {
                   )}
                 </div>
               )}
-              <a
-                href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.review_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'}`}
-              >
-                AVALIE A GENTE
-                <img src="/google.png" alt="Google" className="h-5 w-5" />
-              </a>
-              <a
-                href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${establishment?.social_media_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'}`}
-              >
-                INSTAGRAM
-                <img src="/INST.png" alt="Instagram" className="h-5 w-5" />
-              </a>
-              <button
-                onClick={() => {
-                  if (establishment?.pix_key) {
-                    navigator.clipboard.writeText(establishment.pix_key);
-                    toast.success('Chave PIX copiada com sucesso!');
-                  } else {
-                    toast.error('Chave PIX não disponível.');
-                  }
-                }}
-                disabled={!establishment?.pix_key}
-                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${
-                  establishment?.pix_key ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
-                }`}
-              >
-                PAGAR PIX
-                <img src="/PIX.png" alt="PIX" className="h-5 w-5" />
-              </button>
-              <a
-                href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${
-                  establishment?.location_link ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
-                }`}
-              >
-                COMO CHEGAR
-                <img src="/LOCAL.png" alt="Localização" className="h-5 w-5" />
-              </a>
 
               {/* Seção de Comodidades */}
-              <div className="mt-8 mb-6 bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
-                <h3 className="text-lg font-medium text-white mb-2">Comodidades</h3>
-                <p className="text-sm text-gray-400 mb-4">
+              <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
+                <p className="text-sm text-gray-600 mb-4">
                   Clique no item para obter informações
                 </p>
-                <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   {/* Wi-fi */}
                   <div 
                     onClick={() => {
@@ -618,28 +639,28 @@ export default function BookingPage() {
                         toast.success('Senha do Wi-Fi copiada!');
                       }
                     }}
-                    className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-pointer
-                      ${establishment?.has_wifi ? 'bg-[#242628] text-gray-300 hover:bg-[#2a2c2e]' : 'bg-[#242628] text-gray-500 opacity-50 cursor-not-allowed'}`}
+                    className={`flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-pointer bg-white shadow-md hover:shadow-lg border border-gray-200
+                      ${establishment?.has_wifi ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'}`}
                     title={establishment?.has_wifi && establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : establishment?.has_wifi ? "Wi-Fi disponível" : "Wi-Fi indisponível"}
                   >
-                    <img src="/wifi.png" alt="Wi-fi" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
-                    <span className={`text-xs sm:text-sm font-medium ${!establishment?.has_wifi ? 'line-through' : ''}`}>Wi-fi</span>
+                    <img src="/wifi.png" alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
+                    <span className="text-sm font-medium text-gray-900">Wi-fi</span>
                   </div>
 
                   {/* Estacionamento */}
-                  <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-default
-                    ${establishment?.has_parking ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`}
+                  <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200
+                    ${establishment?.has_parking ? 'hover:bg-gray-50' : 'opacity-50'}`}
                   >
-                    <img src="/car.png" alt="Estacionamento" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
-                    <span className={`text-xs sm:text-sm font-medium text-center ${!establishment?.has_parking ? 'line-through' : ''}`}>Estacion.</span>
+                    <img src="/car.png" alt="Estacionamento" className="h-8 w-8 mb-2 text-blue-500" />
+                    <span className="text-sm font-medium text-gray-900">Estacion.</span>
                   </div>
 
                   {/* Acessibilidade */}
-                  <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg transition-colors duration-200 cursor-default
-                    ${establishment?.has_accessibility ? 'bg-[#242628] text-gray-300' : 'bg-[#242628] text-gray-500 opacity-50'}`}
+                  <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200
+                    ${establishment?.has_accessibility ? 'hover:bg-gray-50' : 'opacity-50'}`}
                   >
-                    <img src="/wheelchair.png" alt="Acessibilidade" className="h-6 w-6 sm:h-8 sm:w-8 mb-1 sm:mb-2" />
-                    <span className={`text-xs sm:text-sm font-medium text-center ${!establishment?.has_accessibility ? 'line-through' : ''}`}>Acessib.</span>
+                    <img src="/wheelchair.png" alt="Acessibilidade" className="h-8 w-8 mb-2 text-blue-500" />
+                    <span className="text-sm font-medium text-gray-900">Acessib.</span>
                   </div>
                 </div>
               </div>
@@ -649,8 +670,10 @@ export default function BookingPage() {
                 href={establishment?.whatsapp ? `https://wa.me/${establishment.whatsapp}` : '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-2 text-center font-bold py-3 px-4 rounded-md text-sm uppercase tracking-wide transition-colors duration-200 ${
-                  establishment?.whatsapp ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                className={`flex items-center justify-center gap-2 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                  establishment?.whatsapp 
+                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
+                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
                 }`}
               >
                 ENTRAR EM CONTATO
@@ -658,16 +681,23 @@ export default function BookingPage() {
               </a>
 
               {/* Seção de Horário de Atendimento */}
-              <div className="mt-8 mb-6 bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
-                <h3 className="text-lg font-medium text-white mb-2">Horário de atendimento</h3>
+              <div className="mt-8 mb-6 bg-white rounded-lg p-6 shadow-md border border-gray-200">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900">Horário de atendimento</h3>
+                </div>
                 {establishment?.business_hours && (
-                  <div className="space-y-2 sm:space-y-3">
+                  <div className="space-y-2">
                     {[
-                      { dia: 'Segunda-Feira', key: 'monday' },
-                      { dia: 'Terça-Feira', key: 'tuesday' },
-                      { dia: 'Quarta-Feira', key: 'wednesday' },
-                      { dia: 'Quinta-Feira', key: 'thursday' },
-                      { dia: 'Sexta-Feira', key: 'friday' },
+                      { dia: 'Segunda', key: 'monday' },
+                      { dia: 'Terça', key: 'tuesday' },
+                      { dia: 'Quarta', key: 'wednesday' },
+                      { dia: 'Quinta', key: 'thursday' },
+                      { dia: 'Sexta', key: 'friday' },
                       { dia: 'Sábado', key: 'saturday' },
                       { dia: 'Domingo', key: 'sunday' }
                     ].map(({ dia, key }) => {
@@ -692,23 +722,31 @@ export default function BookingPage() {
                         return horario;
                       };
 
+                      const isOpen = horarios?.enabled && horarios?.open1;
+                      const horarioText = formatHorario(horarios);
+
                       return (
                         <div 
                           key={dia} 
-                          className={`flex justify-between items-center p-2 sm:p-3 rounded-lg ${
-                            isHoje ? 'bg-[#242628] border border-gray-700' : ''
+                          className={`flex justify-between items-center p-3 rounded-lg ${
+                            isOpen ? 'bg-green-50' : 'bg-gray-50'
                           }`}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs sm:text-sm text-gray-300">{dia.replace('-Feira', '')}</span>
+                          <div className="flex items-center gap-3">
+                            <div className={`w-2 h-2 rounded-full ${
+                              isOpen ? 'bg-green-500' : 'bg-gray-400'
+                            }`}></div>
+                            <span className="text-sm font-medium text-gray-900">{dia}</span>
                             {isHoje && (
-                              <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 bg-emerald-500/20 text-emerald-400 rounded-full">
+                              <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
                                 Hoje
                               </span>
                             )}
                           </div>
-                          <span className="text-xs sm:text-sm text-gray-400 text-right">
-                            {formatHorario(horarios)}
+                          <span className={`text-sm font-medium ${
+                            isOpen ? 'text-green-600' : 'text-gray-500'
+                          }`}>
+                            {horarioText}
                           </span>
                         </div>
                       );

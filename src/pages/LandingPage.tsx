@@ -26,7 +26,8 @@ import {
   DollarSign,
   Lock,
   ThumbsUp,
-  Pencil
+  Pencil,
+  Crown
 } from 'lucide-react';
 import { PromoBanner } from '../components/PromoBanner';
 import WhatsAppButton from '../components/WhatsAppButton';
@@ -370,6 +371,16 @@ const LandingPage = () => {
                       <div className="text-center sm:text-left">
                         <h3 className="text-xl font-semibold mb-2">Página personalizada</h3>
                         <p className="text-gray-300">tenha uma página exclusiva sua e personalizada por você com fotos, nomes, serviços, suas redes, localização e etc...</p>
+                      </div>
+                    </div>
+                    {/* Clientes Assinantes */}
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
+                        <Crown className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <h3 className="text-xl font-semibold mb-2">Clientes Assinantes</h3>
+                        <p className="text-gray-300">você terá também sistema de assinantes mais completo do mercado</p>
                       </div>
                     </div>
                   </div>
