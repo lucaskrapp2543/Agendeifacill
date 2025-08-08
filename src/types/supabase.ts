@@ -138,6 +138,25 @@ export interface Database {
           is_subscriber: boolean; // Nova coluna
           birthday: string | null; // Campo de aniversário
         }
+      },
+      establishment_expenses: {
+        Row: {
+          id: string;
+          establishment_id: string;
+          name: string;
+          amount: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          establishment_id: string;
+          name: string;
+          amount: number;
+        };
+        Update: {
+          name?: string;
+          amount?: number;
+        };
       }
     }
   }

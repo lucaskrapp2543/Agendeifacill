@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
-import { supabase } from '../lib/supabase';
+import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } from '../lib/supabase';
 import { getEstablishmentAppointments, createEstablishment, updateEstablishment, getEstablishmentPremiumSubscribers, removePremiumSubscriber } from '../lib/supabase';
 import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
@@ -103,6 +103,7 @@ interface Appointment {
   pix_proof_url?: string;
   additional_products?: AdditionalProduct[];
   total_price?: number;
+  is_subscriber?: boolean;
 }
 
 interface PremiumSubscriber {
@@ -252,6 +253,16 @@ const EstablishmentDashboard = () => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [subscriberDropdowns, setSubscriberDropdowns] = useState<Record<string, boolean>>({});
   const [appointmentSubscribers, setAppointmentSubscribers] = useState<Record<string, boolean>>({});
+  
+  // Estados para despesas
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [expensesTotal, setExpensesTotal] = useState(0);
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showExpensesList, setShowExpensesList] = useState(false);
+  const [newExpenseName, setNewExpenseName] = useState('');
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [openExtraProductsDropdown, setOpenExtraProductsDropdown] = useState<string | null>(null);
+  const [openDailyRevenueDropdown, setOpenDailyRevenueDropdown] = useState(false);
 
 
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -807,8 +818,14 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     try {
-      const start = startOfMonth(subMonths(month, 11)); // 11 meses atrás
-      const end = endOfMonth(month); // Mês atual
+      const start = startOfMonth(month); // Início do mês selecionado
+      const end = endOfMonth(month); // Fim do mês selecionado
+
+      console.log('📅 Buscando agendamentos para:', {
+        month: month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+        start: start.toISOString(),
+        end: end.toISOString()
+      });
 
       const { data: appointments, error } = await supabase
         .from('appointments')
@@ -824,6 +841,7 @@ const EstablishmentDashboard = () => {
         return;
       }
 
+      console.log(`📊 Encontrados ${appointments?.length || 0} agendamentos para ${month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`);
       setMonthlyAppointments(appointments || []);
     } catch (error) {
       console.error('Erro ao buscar agendamentos:', error);
@@ -921,10 +939,11 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, activeTab]);
 
-  // Carregar assinantes pagos quando trocar de aba ou estabelecimento mudar
+  // Carregar assinantes pagos e despesas quando trocar de aba ou estabelecimento mudar
   useEffect(() => {
     if (establishment?.id) {
       loadPaidSubscribers();
+      loadExpenses();
     }
   }, [establishment?.id, activeTab]);
 
@@ -1042,6 +1061,65 @@ const EstablishmentDashboard = () => {
   };
 
   // Função para buscar assinantes pagos do Supabase
+  // Funções para gerenciar despesas
+  const loadExpenses = async () => {
+    if (!establishment?.id) return;
+    
+    try {
+      const expensesData = await getExpenses(establishment.id);
+      setExpenses(expensesData);
+      
+      const total = await getExpensesTotal(establishment.id);
+      setExpensesTotal(total);
+      
+      console.log('💰 Despesas carregadas:', expensesData);
+      console.log('💰 Total de despesas:', total);
+    } catch (error) {
+      console.error('❌ Erro ao carregar despesas:', error);
+    }
+  };
+
+  const handleAddExpense = async () => {
+    if (!newExpenseName.trim() || !newExpenseAmount.trim()) {
+      toast('Nome e valor são obrigatórios!', 'error');
+      return;
+    }
+
+    const amount = parseFloat(newExpenseAmount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+      toast('Valor deve ser um número positivo!', 'error');
+      return;
+    }
+
+    try {
+      await addExpense(establishment!.id, newExpenseName.trim(), amount);
+      
+      toast('Despesa adicionada com sucesso!', 'success');
+      
+      // Limpar formulário
+      setNewExpenseName('');
+      setNewExpenseAmount('');
+      setShowAddExpenseModal(false);
+      
+      // Recarregar despesas
+      await loadExpenses();
+    } catch (error) {
+      console.error('❌ Erro ao adicionar despesa:', error);
+      toast('Erro ao adicionar despesa', 'error');
+    }
+  };
+
+  const handleDeleteExpense = async (expenseId: string) => {
+    try {
+      await deleteExpense(expenseId);
+      toast('Despesa removida com sucesso!', 'success');
+      await loadExpenses();
+    } catch (error) {
+      console.error('❌ Erro ao remover despesa:', error);
+      toast('Erro ao remover despesa', 'error');
+    }
+  };
+
   const loadPaidSubscribers = async () => {
     if (!establishment?.id) return;
 
@@ -1780,6 +1858,7 @@ const EstablishmentDashboard = () => {
   const handleMonthChange = async (newMonth: Date) => {
     setSelectedMonth(newMonth);
     await fetchMonthlyAppointments(newMonth);
+    await loadExpenses(); // Recarregar despesas também
   };
 
   // Função para fechar o modal de senha e voltar para agendamentos
@@ -3475,12 +3554,351 @@ const EstablishmentDashboard = () => {
 
             {activeTab === 'financial-dashboard' && isDashboardUnlocked && (
               <div className="space-y-6">
-                <FinancialDashboard
-                  appointments={monthlyAppointments}
-                  professionals={professionals}
-                  selectedMonth={selectedMonth}
-                  onMonthChange={handleMonthChange}
-                />
+                {/* Dashboard Financeiro com Despesas */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-gray-900">Dashboard Financeiro</h2>
+                    <button
+                      onClick={() => setShowAddExpenseModal(true)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Adicionar Despesas
+                    </button>
+                  </div>
+
+                  {/* Seletor de Mês */}
+                  <div className="flex items-center justify-between mb-6 bg-gray-50 rounded-lg p-4">
+                    <button
+                      onClick={() => handleMonthChange(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1))}
+                      className="p-4 hover:bg-gray-200 rounded-lg transition-colors border border-gray-300 bg-white shadow-sm"
+                    >
+                      <ChevronLeft className="h-6 w-6 text-gray-700" />
+                    </button>
+                    <span className="text-xl font-bold text-gray-900 px-6">
+                      {selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                    </span>
+                    <button
+                      onClick={() => handleMonthChange(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1))}
+                      className="p-4 hover:bg-gray-200 rounded-lg transition-colors border border-gray-300 bg-white shadow-sm"
+                    >
+                      <ChevronRight className="h-6 w-6 text-gray-700" />
+                    </button>
+                  </div>
+
+                  {/* Resumo Bruto e Líquido */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    {/* Resumo Bruto */}
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-green-800">Resumo Bruto</h3>
+                        <TrendingUp className="h-5 w-5 text-green-600" />
+                      </div>
+                      <p className="text-3xl font-bold text-green-900">
+                        {formatCurrency(calculateMonthlyBalance(monthlyAppointments))}
+                      </p>
+                      <p className="text-sm text-green-700 mt-1">Total faturado no mês</p>
+                    </div>
+
+                    {/* Resumo Líquido */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-blue-800">Resumo Líquido</h3>
+                        <DollarSign className="h-5 w-5 text-blue-600" />
+                      </div>
+                      <p className="text-3xl font-bold text-blue-900">
+                        {formatCurrency(calculateMonthlyBalance(monthlyAppointments) - expensesTotal)}
+                      </p>
+                      <p className="text-sm text-blue-700 mt-1">
+                        Bruto - Despesas ({formatCurrency(expensesTotal)})
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Lista de Despesas */}
+                  <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                    <button
+                      onClick={() => setShowExpensesList(!showExpensesList)}
+                      className="flex items-center justify-between w-full text-left p-3 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Receipt className="h-5 w-5 text-gray-600" />
+                        <span className="font-medium text-gray-900">
+                          Despesas ({expenses.length})
+                        </span>
+                        <span className="text-sm text-gray-600">
+                          Total: {formatCurrency(expensesTotal)}
+                        </span>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 text-gray-600 transition-transform ${showExpensesList ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showExpensesList && (
+                      <div className="mt-4 space-y-2">
+                        {expenses.length === 0 ? (
+                          <p className="text-gray-500 text-center py-4">Nenhuma despesa cadastrada</p>
+                        ) : (
+                          expenses.map(expense => (
+                            <div key={expense.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+                              <div>
+                                <p className="font-medium text-gray-900">{expense.name}</p>
+                                <p className="text-sm text-gray-600">
+                                  {new Date(expense.created_at).toLocaleDateString('pt-BR')}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-red-600">
+                                  {formatCurrency(expense.amount)}
+                                </span>
+                                <button
+                                  onClick={() => handleDeleteExpense(expense.id)}
+                                  className="p-1 text-red-500 hover:text-red-700 transition-colors"
+                                  title="Remover despesa"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                                  {/* Receita por Profissional */}
+                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Receita por Profissional</h3>
+                    
+
+                    <div className="space-y-4">
+                      {professionals.map(professional => {
+                        const professionalAppointments = monthlyAppointments.filter(
+                          apt => apt.professional === professional.id && apt.status !== 'cancelled'
+                        );
+                        
+                        console.log(`🔍 Profissional: ${professional.name}`);
+                        console.log(`📋 Agendamentos encontrados:`, professionalAppointments);
+                        
+                        const professionalRevenue = professionalAppointments.reduce((total, apt) => {
+                          if (isClientPaidSubscriber(apt.client_whatsapp)) {
+                            console.log(`💰 Assinante pago - não contabilizado: ${apt.client_name} - R$ ${apt.total_price || apt.price}`);
+                            return total; // Não adiciona ao faturamento se for assinante pago
+                          }
+                          const appointmentValue = apt.total_price || apt.price || 0;
+                          console.log(`💰 Agendamento normal: ${apt.client_name} - R$ ${appointmentValue}`);
+                          return total + appointmentValue;
+                        }, 0);
+                        
+                        // Calcular produtos extras vendidos
+                        const extraProductsSold = professionalAppointments.reduce((total, apt) => {
+                          if (apt.additional_products && apt.additional_products.length > 0) {
+                            return total + apt.additional_products.length;
+                          }
+                          return total;
+                        }, 0);
+                        
+                        // Coletar todos os produtos extras para mostrar no dropdown
+                        const allExtraProducts = professionalAppointments.reduce((products: any[], apt) => {
+                          if (apt.additional_products && apt.additional_products.length > 0) {
+                            return products.concat(apt.additional_products.map(product => ({
+                              ...product,
+                              clientName: apt.client_name,
+                              appointmentDate: apt.appointment_date
+                            })));
+                          }
+                          return products;
+                        }, []);
+                        
+                        console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
+                        
+                        return (
+                          <div key={professional.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                            <div className="flex-1">
+                              <p className="font-medium text-gray-900">{professional.name}</p>
+                              <div className="text-sm text-gray-600">
+                                <p>{professionalAppointments.length} agendamento(s)</p>
+                                {extraProductsSold > 0 && (
+                                  <div className="relative">
+                                    <button
+                                      onClick={() => setOpenExtraProductsDropdown(
+                                        openExtraProductsDropdown === professional.id ? null : professional.id
+                                      )}
+                                      className="text-orange-600 hover:text-orange-700 cursor-pointer flex items-center gap-1"
+                                    >
+                                      + {extraProductsSold} produto(s) extra
+                                      <ChevronDown className={`h-4 w-4 transition-transform ${
+                                        openExtraProductsDropdown === professional.id ? 'rotate-180' : ''
+                                      }`} />
+                                    </button>
+                                    
+                                    {/* Dropdown com detalhes dos produtos extras */}
+                                    {openExtraProductsDropdown === professional.id && (
+                                      <div className="absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-80 max-w-96">
+                                        <div className="p-3 border-b border-gray-200">
+                                          <h4 className="font-medium text-gray-900">Produtos Extras Vendidos</h4>
+                                        </div>
+                                        <div className="max-h-60 overflow-y-auto">
+                                          {allExtraProducts.map((product, index) => (
+                                            <div key={index} className="p-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+                                              <div className="flex justify-between items-start">
+                                                <div className="flex-1">
+                                                  <p className="font-medium text-gray-900">{product.name}</p>
+                                                  <p className="text-sm text-gray-600">
+                                                    Cliente: {product.clientName}
+                                                  </p>
+                                                  <p className="text-xs text-gray-500">
+                                                    {new Date(product.appointmentDate).toLocaleDateString('pt-BR')}
+                                                  </p>
+                                                </div>
+                                                <div className="text-right">
+                                                  <p className="font-bold text-green-600">
+                                                    {formatCurrency(product.price)}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                        <div className="p-3 bg-gray-50 border-t border-gray-200">
+                                          <div className="flex justify-between items-center">
+                                            <span className="font-medium text-gray-900">Total Produtos Extras:</span>
+                                            <span className="font-bold text-green-600">
+                                              {formatCurrency(allExtraProducts.reduce((total, product) => total + product.price, 0))}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-green-600">
+                                {formatCurrency(professionalRevenue)}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                {/* Receita Diária */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-bold text-gray-900">Receita Diária</h3>
+                    <button
+                      onClick={() => setOpenDailyRevenueDropdown(!openDailyRevenueDropdown)}
+                      className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      {openDailyRevenueDropdown ? 'Ocultar Detalhes' : 'Ver Todos os Dias'}
+                      <ChevronDown className={`h-4 w-4 transition-transform ${
+                        openDailyRevenueDropdown ? 'rotate-180' : ''
+                      }`} />
+                    </button>
+                  </div>
+                  
+                  {/* Resumo dos dias com receita */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    {(() => {
+                      const daysWithRevenue = Array.from({ length: 31 }, (_, i) => {
+                        const day = i + 1;
+                        const dayAppointments = monthlyAppointments.filter(apt => {
+                          const aptDate = new Date(apt.appointment_date);
+                          return aptDate.getDate() === day && apt.status !== 'cancelled';
+                        });
+                        const dayRevenue = dayAppointments.reduce((total, apt) => {
+                          if (isClientPaidSubscriber(apt.client_whatsapp)) {
+                            return total; // Não adiciona ao faturamento se for assinante pago
+                          }
+                          return total + (apt.total_price || apt.price || 0);
+                        }, 0);
+                        
+                        return { day, revenue: dayRevenue, appointments: dayAppointments.length };
+                      }).filter(day => day.revenue > 0);
+                      
+                      return daysWithRevenue.slice(0, 4).map(({ day, revenue, appointments }) => (
+                        <div key={day} className="p-3 bg-green-50 rounded-lg">
+                          <p className="text-sm font-medium text-green-700">Dia {day}</p>
+                          <p className="text-lg font-bold text-green-900">{formatCurrency(revenue)}</p>
+                          <p className="text-xs text-green-600">{appointments} agendamento(s)</p>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  
+                  {/* Dropdown com todos os dias */}
+                  {openDailyRevenueDropdown && (
+                    <div className="border-t border-gray-200 pt-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
+                        {Array.from({ length: 31 }, (_, i) => {
+                          const day = i + 1;
+                          const dayAppointments = monthlyAppointments.filter(apt => {
+                            const aptDate = new Date(apt.appointment_date);
+                            return aptDate.getDate() === day && apt.status !== 'cancelled';
+                          });
+                          const dayRevenue = dayAppointments.reduce((total, apt) => {
+                            if (isClientPaidSubscriber(apt.client_whatsapp)) {
+                              return total; // Não adiciona ao faturamento se for assinante pago
+                            }
+                            return total + (apt.total_price || apt.price || 0);
+                          }, 0);
+                          
+                          return (
+                            <div key={day} className={`p-3 rounded-lg border ${
+                              dayRevenue > 0 
+                                ? 'bg-green-50 border-green-200' 
+                                : 'bg-gray-50 border-gray-200'
+                            }`}>
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <p className={`font-medium ${
+                                    dayRevenue > 0 ? 'text-green-700' : 'text-gray-500'
+                                  }`}>
+                                    Dia {day}
+                                  </p>
+                                  <p className={`text-sm ${
+                                    dayRevenue > 0 ? 'text-green-600' : 'text-gray-400'
+                                  }`}>
+                                    {dayAppointments.length} agendamento(s)
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`font-bold ${
+                                    dayRevenue > 0 ? 'text-green-900' : 'text-gray-400'
+                                  }`}>
+                                    {formatCurrency(dayRevenue)}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Receita Mensal */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-xl font-bold text-gray-900 mb-4">Receita Mensal</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 bg-green-50 rounded-lg">
+                      <p className="text-sm text-green-700">Total Bruto</p>
+                      <p className="text-2xl font-bold text-green-900">
+                        {formatCurrency(calculateMonthlyBalance(monthlyAppointments))}
+                      </p>
+                    </div>
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-700">Total Líquido</p>
+                      <p className="text-2xl font-bold text-blue-900">
+                        {formatCurrency(calculateMonthlyBalance(monthlyAppointments) - expensesTotal)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -3797,6 +4215,73 @@ const EstablishmentDashboard = () => {
                 Adicionar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para adicionar despesa */}
+      {showAddExpenseModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Adicionar Despesa</h3>
+              <button
+                onClick={() => setShowAddExpenseModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => { e.preventDefault(); handleAddExpense(); }}>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="expenseName" className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome da Despesa
+                  </label>
+                  <input
+                    type="text"
+                    id="expenseName"
+                    value={newExpenseName}
+                    onChange={(e) => setNewExpenseName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ex: Aluguel, Luz, Internet..."
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="expenseAmount" className="block text-sm font-medium text-gray-700 mb-1">
+                    Valor da Despesa
+                  </label>
+                  <input
+                    type="text"
+                    id="expenseAmount"
+                    value={newExpenseAmount}
+                    onChange={(e) => setNewExpenseAmount(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="0,00"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddExpenseModal(false)}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Adicionar
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>
       )}

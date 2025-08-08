@@ -1238,3 +1238,49 @@ const getSubscriptionById = async (subscriptionId: string) => {
     .single();
   return { data, error };
 };
+
+// Funções para gerenciar despesas
+export const addExpense = async (establishmentId: string, name: string, amount: number) => {
+  const { data, error } = await supabase
+    .from('establishment_expenses')
+    .insert([
+      {
+        establishment_id: establishmentId,
+        name,
+        amount
+      }
+    ])
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return data;
+};
+
+export const getExpenses = async (establishmentId: string) => {
+  const { data, error } = await supabase
+    .from('establishment_expenses')
+    .select('*')
+    .eq('establishment_id', establishmentId)
+    .order('created_at', { ascending: false });
+  
+  if (error) throw error;
+  return data;
+};
+
+export const deleteExpense = async (expenseId: string) => {
+  const { error } = await supabase
+    .from('establishment_expenses')
+    .delete()
+    .eq('id', expenseId);
+  
+  if (error) throw error;
+};
+
+export const getExpensesTotal = async (establishmentId: string) => {
+  const { data, error } = await supabase
+    .rpc('get_establishment_expenses_total', { est_id: establishmentId });
+  
+  if (error) throw error;
+  return data || 0;
+};
