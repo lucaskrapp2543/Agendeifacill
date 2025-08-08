@@ -22,14 +22,12 @@ export const EstablishmentPixSettings = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!pixKey.trim()) {
-      toast.error('Por favor, insira uma chave PIX');
-      return;
-    }
+    // Se não tiver PIX, salva como vazio (opcional)
+    const finalPixKey = pixKey.trim() || '';
 
     try {
       setIsSaving(true);
-      await onSave(pixKey, pixType);
+      await onSave(finalPixKey, pixType);
       toast.success('Configurações de PIX salvas com sucesso!');
     } catch (error) {
       toast.error('Erro ao salvar configurações de PIX');
@@ -43,10 +41,10 @@ export const EstablishmentPixSettings = ({
     <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
       <h3 className="text-lg font-medium text-white mb-4">Seu PIX para pagamento</h3>
       
-      <div className="flex items-start gap-2 p-4 bg-[#242628] rounded-lg mb-6 border border-yellow-600/50">
-        <AlertTriangle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+      <div className="flex items-start gap-2 p-4 bg-[#242628] rounded-lg mb-6 border border-blue-600/50">
+        <AlertTriangle className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
         <p className="text-sm text-gray-300">
-          Você deve cadastrar uma chave PIX ou digitar <span className="text-yellow-500 font-medium">naotenhopix</span> e salvar para prosseguir. Esta é uma etapa obrigatória para configurar seu estabelecimento.
+          Configure sua chave PIX para receber pagamentos dos clientes. Se não quiser usar PIX, deixe em branco ou digite <span className="text-blue-500 font-medium">naotenhopix</span>.
         </p>
       </div>
 
@@ -59,7 +57,6 @@ export const EstablishmentPixSettings = ({
             value={pixType}
             onChange={(e) => setPixType(e.target.value)}
             className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-gray-200"
-            required
           >
             <option value="telefone">Telefone</option>
             <option value="email">E-mail</option>
@@ -78,11 +75,10 @@ export const EstablishmentPixSettings = ({
             value={pixKey}
             onChange={(e) => setPixKey(e.target.value)}
             className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-gray-200"
-            placeholder="Digite sua chave PIX"
-            required
+            placeholder="Digite sua chave PIX (opcional)"
           />
           <p className="text-sm text-gray-400">
-            Esta chave será usada para receber pagamentos via PIX dos seus clientes. Caso não queira botar seu PIX, digite "naotenhopix" e clique em salvar.
+            Esta chave será usada para receber pagamentos via PIX dos seus clientes. Se não quiser usar PIX, deixe em branco ou digite "naotenhopix".
           </p>
         </div>
 

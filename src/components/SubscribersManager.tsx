@@ -64,7 +64,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   const fetchClientSubscriptions = async () => {
-    const { data, error } = await getClientSubscriptions(establishmentId);
+    // Buscar clientes manuais do localStorage
+    const manualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
+    
+    const { data, error } = await getClientSubscriptions(establishmentId, manualClients);
     if (error) {
       console.error('Erro ao buscar assinaturas de clientes:', error);
       toast.error('Erro ao carregar assinantes.');
@@ -127,59 +130,70 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // Handlers para adicionar assinante
+  // Estados para adicionar cliente diretamente
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+
+  // Handler para adicionar assinante diretamente
   const handleAddClientSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSubscriptionToAdd || !selectedClientToAdd) {
-      toast('Por favor, selecione uma assinatura e um cliente.', 'error');
+    if (!selectedSubscriptionToAdd || !newClientName || !newClientPhone) {
+      toast('Por favor, preencha todos os campos.', 'error');
       return;
     }
 
     try {
-      console.log('Cliente selecionado ID:', selectedClientToAdd);
-      console.log('Lista de clientes disponíveis:', clients);
-      
-      // Buscar o cliente na lista local (que já tem o nome correto)
-      const clientProfile = clients.find(c => c.id === selectedClientToAdd);
-      console.log('Cliente encontrado na lista local:', clientProfile);
-      
-      if (!clientProfile) {
-        toast('Cliente selecionado não encontrado.', 'error');
+      console.log('✅ Adicionando cliente diretamente:', {
+        name: newClientName,
+        phone: newClientPhone,
+        subscriptionId: selectedSubscriptionToAdd
+      });
+
+      // SALVAR DIRETAMENTE NO BANCO
+      const subscriptionToAdd = subscriptions.find(s => s.id === selectedSubscriptionToAdd);
+      if (!subscriptionToAdd) {
+        toast('Assinatura não encontrada', 'error');
         return;
       }
 
-      // Usar o nome da lista local
-      const clientName = clientProfile.name;
-      console.log('Nome do cliente que será salvo:', clientName);
+      const endDate = new Date();
+      endDate.setMonth(endDate.getMonth() + subscriptionToAdd.duration_months);
 
-      const { data, error } = await addClientSubscription(
-        selectedClientToAdd,
-        selectedSubscriptionToAdd,
-        establishmentId,
-        new Date()
-      );
-      
+      // Gerar ID único para o cliente manual
+      const manualClientId = `manual_${newClientPhone}`;
+
+      const { data, error } = await supabase
+        .from('client_subscriptions')
+        .insert([
+          {
+            client_id: manualClientId,
+            subscription_id: selectedSubscriptionToAdd,
+            establishment_id: establishmentId,
+            start_date: new Date().toISOString().split('T')[0],
+            end_date: endDate.toISOString().split('T')[0],
+            payment_status: 'unpaid',
+            last_payment_date: null,
+            client_name_override: newClientName
+          }
+        ])
+        .select()
+        .single();
+
       if (error) throw error;
+
+      // Salvar cliente manual no localStorage
+      const manualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
+      manualClients[newClientPhone] = {
+        name: newClientName,
+        whatsapp: newClientPhone,
+        id: manualClientId
+      };
+      localStorage.setItem('manualClients', JSON.stringify(manualClients));
       
-      // Atualizar manualmente o status is_subscriber no perfil
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ is_subscriber: true })
-        .eq('id', selectedClientToAdd);
-      
-      if (updateError) {
-        console.error('Erro ao atualizar status de assinante:', updateError);
-      } else {
-        console.log('✅ Status is_subscriber atualizado para true');
-        // Notificar o EstablishmentDashboard para atualizar a lista de clientes
-        if (onClientUpdated) {
-          onClientUpdated();
-        }
-      }
-      
-      toast('Assinante adicionado com sucesso!', 'success');
+      toast(`✅ ${newClientName} adicionado como assinante!`, 'success');
       setSelectedSubscriptionToAdd('');
-      setSelectedClientToAdd('');
+      setNewClientName('');
+      setNewClientPhone('');
       
       // Forçar re-fetch dos dados
       await fetchClientSubscriptions();
@@ -491,19 +505,28 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </select>
           </div>
           <div>
-            <label htmlFor="selectClient" className="block text-sm font-medium text-gray-400 mb-1">Escolher Cliente</label>
-            <select
-              id="selectClient"
-              value={selectedClientToAdd}
-              onChange={(e) => setSelectedClientToAdd(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-blue-500"
+            <label htmlFor="newClientName" className="block text-sm font-medium text-gray-400 mb-1">Nome do Cliente</label>
+            <input
+              type="text"
+              id="newClientName"
+              value={newClientName}
+              onChange={(e) => setNewClientName(e.target.value)}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              placeholder="Digite o nome do cliente"
               required
-            >
-              <option value="">Selecione um cliente</option>
-              {clients.map(client => (
-                <option key={client.id} value={client.id}>{client.name}</option>
-              ))}
-            </select>
+            />
+          </div>
+          <div>
+            <label htmlFor="newClientPhone" className="block text-sm font-medium text-gray-400 mb-1">Número de Telefone</label>
+            <input
+              type="tel"
+              id="newClientPhone"
+              value={newClientPhone}
+              onChange={(e) => setNewClientPhone(e.target.value)}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              placeholder="Digite o número de telefone"
+              required
+            />
           </div>
           <button type="submit" className="btn-primary w-full">
             <Users className="h-5 w-5 mr-2" /> Adicionar Assinante

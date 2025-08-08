@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
@@ -94,6 +94,13 @@ export function AppointmentForm({
 
   const [pixProofUrl, setPixProofUrl] = useState<string | null>(null);
   const [pixPaymentMethod, setPixPaymentMethod] = useState<'pix_now' | 'pix_local' | null>(null);
+
+  // Definir automaticamente o método de pagamento quando não há PIX
+  useEffect(() => {
+    if (!establishment.pix_key && !selectedPaymentMethod) {
+      setSelectedPaymentMethod('pagar_local');
+    }
+  }, [establishment.pix_key, selectedPaymentMethod]);
 
   // Verificar se os dados essenciais existem
   if (!establishment) {
@@ -242,6 +249,8 @@ export function AppointmentForm({
     ? existingAppointments.filter(app => app.professional === selectedProfessional.id)
     : []; // Se nenhum profissional for selecionado, não há agendamentos a bloquear
 
+
+
   return (
     <div className="space-y-6">
       <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg shadow-sm">
@@ -283,6 +292,8 @@ export function AppointmentForm({
             maxLength={15}
           />
         </div>
+
+
 
         {/* 3. SERVIÇO */}
         <div>
@@ -365,8 +376,11 @@ export function AppointmentForm({
               />
             ) : (
               <div className="text-gray-700">
-                Pagamento somente no local
+                <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <span className="text-lg">🏪</span>
+                  <span>Pagamento somente no local</span>
                 </div>
+              </div>
             )}
           </div>
         )}

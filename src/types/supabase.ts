@@ -18,6 +18,9 @@ export interface Database {
           status: 'pending' | 'confirmed' | 'cancelled';
           is_premium: boolean;
           payment_method?: string;
+          is_subscriber?: boolean; // Nova coluna para indicar se é assinante
+          price?: number; // Preço do agendamento
+          total_price?: number; // Preço total incluindo produtos extras
         }
       },
       establishments: {

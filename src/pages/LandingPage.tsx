@@ -632,6 +632,14 @@ const LandingPage = () => {
                         <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
                         <span className="text-gray-300">Pagamentos adiantados se preferir</span>
                       </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <span className="text-gray-300">Sistema de assinantes incluso</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <span className="text-gray-300">Controle total de clientes novos e antigos e atuais</span>
+                      </li>
                     </ul>
                     <a
                       href="https://pay.cakto.com.br/o798qm9_509159?affiliate=jK2AXbTW"

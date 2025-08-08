@@ -1079,7 +1079,7 @@ export const addClientSubscription = async (clientId: string, subscriptionId: st
   return { data, error };
 };
 
-export const getClientSubscriptions = async (establishmentId: string) => {
+export const getClientSubscriptions = async (establishmentId: string, manualClients?: Record<string, any>) => {
   const { data: clientSubs, error } = await supabase
     .from('client_subscriptions')
     .select(
@@ -1100,54 +1100,88 @@ export const getClientSubscriptions = async (establishmentId: string) => {
 
   // Coletar todos os client_ids únicos
   const uniqueClientIds = [...new Set(clientSubs.map(cs => cs.client_id))];
-  console.log('🔍 Client IDs para buscar perfis:', uniqueClientIds);
+  console.log('🔍 Client IDs para buscar nomes:', uniqueClientIds);
 
-  // Buscar os perfis (name e is_subscriber) para esses client_ids
-  const { data: profiles, error: profilesError } = await supabase
-    .from('profiles')
-    .select('id, name, is_subscriber')
-    .in('id', uniqueClientIds);
+  // Filtrar apenas UUIDs válidos para a busca de agendamentos
+  const validUuids = uniqueClientIds.filter(id => 
+    id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+  );
+  
+  console.log('🔍 UUIDs válidos para buscar:', validUuids);
+  console.log('🔍 IDs manuais ignorados:', uniqueClientIds.filter(id => !validUuids.includes(id)));
 
-  console.log('👤 Perfis encontrados:', profiles);
+  // Buscar agendamentos apenas para UUIDs válidos
+  let appointments = null;
+  let appointmentsError = null;
+  if (validUuids.length > 0) {
+    const { data: appointmentsData, error: error } = await supabase
+      .from('appointments')
+      .select('client_id, client_name, client_whatsapp')
+      .eq('establishment_id', establishmentId)
+      .in('client_id', validUuids)
+      .order('created_at', { ascending: false });
+    
+    appointments = appointmentsData;
+    appointmentsError = error;
+    
+    if (appointmentsError) {
+      console.error('Erro ao buscar agendamentos:', appointmentsError);
+    }
+  }
 
-  // Buscar nomes dos agendamentos como fallback
-  const { data: appointments, error: appointmentsError } = await supabase
-    .from('appointments')
-    .select('client_id, client_name')
-    .eq('establishment_id', establishmentId)
-    .in('client_id', uniqueClientIds)
-    .order('created_at', { ascending: false });
+  console.log('📅 Agendamentos encontrados:', appointments);
 
-  console.log('📅 Agendamentos encontrados para nomes:', appointments);
-
-  const profilesMap = new Map();
-  profiles?.forEach(profile => {
-    profilesMap.set(profile.id, profile);
-  });
+  if (appointmentsError) {
+    console.error('Erro ao buscar agendamentos:', appointmentsError);
+  }
 
   // Criar mapa de nomes dos agendamentos (client_id -> nome mais recente)
-  const appointmentNamesMap = new Map();
+  const clientNamesMap = new Map();
   appointments?.forEach(apt => {
-    if (apt.client_name && !appointmentNamesMap.has(apt.client_id)) {
-      appointmentNamesMap.set(apt.client_id, apt.client_name);
+    if (apt.client_name && !clientNamesMap.has(apt.client_id)) {
+      clientNamesMap.set(apt.client_id, {
+        name: apt.client_name,
+        whatsapp: apt.client_whatsapp
+      });
     }
   });
 
-  console.log('🗺️ Mapa de perfis:', profilesMap);
-  console.log('📋 Mapa de nomes dos agendamentos:', appointmentNamesMap);
+  console.log('📋 Mapa de nomes dos clientes:', clientNamesMap);
+
+  // Usar clientes manuais passados como parâmetro ou buscar do localStorage
+  const manualClientsData = manualClients || JSON.parse(localStorage.getItem('manualClients') || '{}');
+  console.log('📋 Clientes manuais disponíveis:', manualClientsData);
 
   // Combinar os dados das assinaturas de clientes com os nomes
   const combinedData = clientSubs.map(cs => {
-    const profile = profilesMap.get(cs.client_id);
-    const appointmentName = appointmentNamesMap.get(cs.client_id);
+    const clientData = clientNamesMap.get(cs.client_id);
     
-    // Prioridade: nome do perfil > nome do agendamento > Cliente Desconhecido
-    const clientName = profile?.name || appointmentName || 'Cliente Desconhecido';
+    // Verificar se é um cliente manual
+    let clientName = 'Cliente Desconhecido';
+    let clientWhatsapp = 'N/A';
+    
+          if (cs.client_id.startsWith('manual_')) {
+        // É um cliente manual - buscar nos dados passados
+        const whatsapp = cs.client_id.replace('manual_', '');
+        const manualClient = manualClientsData[whatsapp];
+      
+      if (manualClient) {
+        clientName = manualClient.name;
+        clientWhatsapp = whatsapp;
+        console.log(`✅ Cliente manual encontrado: ${clientName} (${whatsapp})`);
+      } else {
+        console.log(`❌ Cliente manual não encontrado no localStorage: ${whatsapp}`);
+      }
+    } else {
+      // É um UUID - usar dados do agendamento
+      clientName = clientData?.name || 'Cliente Desconhecido';
+      clientWhatsapp = clientData?.whatsapp || 'N/A';
+    }
     
     console.log(`📋 Cliente ${cs.client_id}:`, {
-      profile,
-      appointmentName,
+      clientData,
       clientName,
+      clientWhatsapp,
       finalName: clientName
     });
 
@@ -1155,8 +1189,9 @@ export const getClientSubscriptions = async (establishmentId: string) => {
       ...cs,
       profiles: {
         full_name: clientName,
-        is_subscriber: profile?.is_subscriber || false
-      }
+        is_subscriber: true // Se está na lista de assinantes, é assinante
+      },
+      client_whatsapp: clientWhatsapp
     };
   });
 

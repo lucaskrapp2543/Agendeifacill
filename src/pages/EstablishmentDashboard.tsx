@@ -250,6 +250,9 @@ const EstablishmentDashboard = () => {
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
   const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [subscriberDropdowns, setSubscriberDropdowns] = useState<Record<string, boolean>>({});
+  const [appointmentSubscribers, setAppointmentSubscribers] = useState<Record<string, boolean>>({});
+
 
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pinPassword, setPinPassword] = useState('');
@@ -303,15 +306,48 @@ const EstablishmentDashboard = () => {
     return `${minutes}min`;
   };
 
-  const generateRandomCode = () => {
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
+  const generateRandomCode = async () => {
+    let code: string;
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (!isUnique && attempts < maxAttempts) {
+      code = Math.floor(1000 + Math.random() * 9000).toString();
+      
+      // Verificar se o código já existe no banco de dados
+      const { data: existingEstablishment, error } = await supabase
+        .from('establishments')
+        .select('code')
+        .eq('code', code)
+        .single();
+
+      if (error && error.code === 'PGRST116') {
+        // Código não encontrado (único)
+        isUnique = true;
     setEstablishmentCode(code);
+      } else if (existingEstablishment) {
+        // Código já existe, tentar novamente
+        attempts++;
+      } else {
+        // Outro erro, mas assumir que é único
+        isUnique = true;
+        setEstablishmentCode(code);
+      }
+    }
+
+    if (!isUnique) {
+      toast('Erro ao gerar código único. Tente novamente.', 'error');
+    }
   };
 
   useEffect(() => {
+    const initializeCode = async () => {
     if (!establishmentCode) {
-      generateRandomCode();
+        await generateRandomCode();
     }
+    };
+    initializeCode();
   }, []);
 
   const handlePreviousDay = () => {
@@ -880,7 +916,7 @@ const EstablishmentDashboard = () => {
   }, [establishment, selectedDate, selectedMonth]);
 
   useEffect(() => {
-    if (establishment && activeTab === 'clients') {
+    if (establishment && (activeTab === 'clients' || activeTab === 'subscribers')) {
       fetchClients();
     }
   }, [establishment, activeTab]);
@@ -1161,46 +1197,32 @@ const EstablishmentDashboard = () => {
       // Coleta todos os client_ids únicos dos agendamentos
       const uniqueClientIds = [...new Set(appointmentsData.map(apt => apt.client_id))];
 
-      // Busca os perfis correspondentes (incluindo is_subscriber e birthday)
-      const { data: profilesData, error: profilesError } = await supabase
+      // Buscar todos os perfis disponíveis para encontrar correspondências
+      const { data: allProfilesData, error: allProfilesError } = await supabase
         .from('profiles')
-        .select('id, user_id, name, is_subscriber, birthday')
-        .in('user_id', uniqueClientIds); // Usar user_id que é a chave correta
+        .select('id, user_id, name, is_subscriber, birthday');
 
-      if (profilesError) throw profilesError;
+      if (allProfilesError) throw allProfilesError;
 
       console.log('🔍 IDs únicos buscados:', uniqueClientIds);
-      console.log('👤 Perfis encontrados:', profilesData);
+      console.log('👤 Todos os perfis disponíveis:', allProfilesData);
 
-      // Se não encontrou nada com 'user_id', tentar buscar todos os perfis para debug
-      if (!profilesData || profilesData.length === 0) {
-        console.log('⚠️ Nenhum perfil encontrado com user_id. Tentando buscar por id...');
-        
-        // Tentar buscar por id como fallback
-        const { data: profilesByIdData } = await supabase
-          .from('profiles')
-          .select('id, user_id, name, is_subscriber, birthday')
-          .in('id', uniqueClientIds);
-        
-        console.log('🔄 Perfis encontrados por id:', profilesByIdData);
-        
-        if (profilesByIdData && profilesByIdData.length > 0) {
-          // Usar os perfis encontrados por id
-          profilesByIdData.forEach(profile => {
-            profilesData?.push(profile);
-          });
-        }
-        
-        // Debug: buscar todos os perfis para comparação
-        const { data: allProfiles } = await supabase
-          .from('profiles')
-          .select('*')
-          .limit(5);
-        console.log('📋 Todos os perfis (amostra):', allProfiles);
-      }
+      // Criar um mapa de perfis por user_id e por id
+      const profilesMap = new Map();
+      allProfilesData?.forEach(profile => {
+        profilesMap.set(profile.user_id, profile);
+        profilesMap.set(profile.id, profile);
+      });
+
+      // Encontrar perfis correspondentes aos client_ids
+      const profilesData = uniqueClientIds
+        .map(clientId => profilesMap.get(clientId))
+        .filter(Boolean);
+
+      console.log('✅ Perfis correspondentes encontrados:', profilesData);
 
       // Cria um mapa de perfis para acesso rápido (user_id -> profile e id -> profile)
-      const profilesMap = new Map<string, { id: string; name: string; is_subscriber: boolean; birthday: string | null }>();
+      const profilesMapForClients = new Map<string, { id: string; name: string; is_subscriber: boolean; birthday: string | null }>();
       profilesData?.forEach(profile => {
         const profileData = {
           id: profile.id, // ID real do perfil para usar no update
@@ -1211,9 +1233,9 @@ const EstablishmentDashboard = () => {
         
         // Mapear tanto por user_id quanto por id para cobrir ambos os casos
         if (profile.user_id) {
-          profilesMap.set(profile.user_id, profileData);
+          profilesMapForClients.set(profile.user_id, profileData);
         }
-        profilesMap.set(profile.id, profileData);
+        profilesMapForClients.set(profile.id, profileData);
         
         console.log(`✅ Perfil mapeado:`, {
           user_id: profile.user_id,
@@ -1231,7 +1253,7 @@ const EstablishmentDashboard = () => {
         const whatsapp = appointment.client_whatsapp?.replace(/\D/g, '');
         if (whatsapp) {
           const currentClient = clientsMap.get(whatsapp);
-          const profileInfo = profilesMap.get(appointment.client_id); // Buscar pelo client_id (que corresponde ao user_id)
+          const profileInfo = profilesMapForClients.get(appointment.client_id); // Buscar pelo client_id (que corresponde ao user_id)
           const isSubscriber = profileInfo?.is_subscriber || false;
           const birthday = profileInfo?.birthday || null;
           const profileId = profileInfo?.id || appointment.client_id; // Usar o ID real do perfil para updates
@@ -1422,11 +1444,15 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     try {
+      // Tratar valores vazios - converter para null se estiver vazio
+      const finalPixKey = pixKey.trim() || null;
+      const finalPixType = pixKey.trim() ? pixType : null;
+
       const { error } = await supabase
         .from('establishments')
         .update({
-          pix_key: pixKey,
-          pix_key_type: pixType
+          pix_key: finalPixKey,
+          pix_key_type: finalPixType
         })
         .eq('id', establishment.id);
 
@@ -1940,7 +1966,7 @@ const EstablishmentDashboard = () => {
                     />
                     <button
                       type="button"
-                      onClick={generateRandomCode}
+                      onClick={async () => await generateRandomCode()}
                     className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                     >
                     Gerar Código
@@ -2119,30 +2145,44 @@ const EstablishmentDashboard = () => {
             </div>
           </div>
 
-              <div className="flex items-center gap-4">
+              <div className="relative w-full">
+                {/* Dica para scroll mobile */}
+                <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-center text-sm text-blue-700 md:hidden">
+                  <div className="flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16l-4-4m0 0l4-4m-4 4h18" />
+                    </svg>
+                    <span>Arraste para o lado para ver mais opções</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                    </svg>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-4 overflow-x-auto scrollbar-hide pb-2 -mb-2 w-full">
                   <button
                     onClick={() => setActiveTab('appointments')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
                       activeTab === 'appointments'
                         ? 'bg-blue-600 text-white'
                         : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Calendar className="h-5 w-5" />
-                    <span className="hidden sm:inline">Agend.</span>
+                    <span className="text-sm font-medium">Agendamentos</span>
                   </button>
 
                   {/* Botão Meus Clientes */}
                   <button
                     onClick={() => setActiveTab('clients')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
                       activeTab === 'clients'
                         ? 'bg-blue-600 text-white'
                         : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Users className="h-5 w-5" />
-                    <span className="hidden sm:inline">Meus Clientes</span>
+                    <span className="text-sm font-medium">Meus Clientes</span>
                   </button>
 
                   {/* Novo Botão Assinantes */}
@@ -2151,34 +2191,34 @@ const EstablishmentDashboard = () => {
                       setIsSubscribersUnlocked(true);
                       setActiveTab('subscribers');
                     }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
                       activeTab === 'subscribers'
                         ? 'bg-blue-600 text-white'
                         : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Crown className="h-5 w-5" />
-                    <span className="hidden sm:inline">Assinantes</span>
+                    <span className="text-sm font-medium">Assinantes</span>
                   </button>
 
                   <div
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-500 cursor-not-allowed opacity-50"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-500 cursor-not-allowed opacity-50 flex-shrink-0"
                     title="Em breve"
                   >
                     <Clock className="h-5 w-5" />
-                    <span className="hidden sm:inline">Horários</span>
+                    <span className="text-sm font-medium">Horários</span>
                   </div>
 
                   <button
                     onClick={() => setActiveTab('services')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
                       activeTab === 'services'
                         ? 'bg-blue-600 text-white'
                         : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Calendar className="h-5 w-5" />
-                    <span className="hidden sm:inline">SEUS LINKS</span>
+                    <span className="text-sm font-medium">SEUS LINKS</span>
                   </button>
 
                   <button
@@ -2190,7 +2230,7 @@ const EstablishmentDashboard = () => {
                       }
                       setActiveTab('financial-dashboard');
                     }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
                       activeTab === 'financial-dashboard'
                         ? 'bg-blue-600 text-white'
                         : 'text-gray-700 hover:bg-gray-100'
@@ -2209,24 +2249,29 @@ const EstablishmentDashboard = () => {
                       }
                       setActiveTab('settings');
                     }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
                       activeTab === 'settings'
                         ? 'bg-blue-600 text-white'
                         : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Settings className="h-5 w-5" />
-                    <span className="hidden sm:inline">Config</span>
+                    <span className="text-sm font-medium">Config</span>
                   </button>
 
                   <button
                     onClick={signOut}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
                   >
                     <LogOut className="h-5 w-5" />
-                    <span className="hidden sm:inline">Sair</span>
+                    <span className="text-sm font-medium">Sair</span>
                   </button>
                 </div>
+                
+                {/* Indicador de scroll para mobile */}
+                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none hidden sm:hidden md:block"></div>
+              </div>
+
               </div>
 
         {/* Conteúdo Principal */}
@@ -2472,6 +2517,109 @@ const EstablishmentDashboard = () => {
                           <div className="flex flex-col gap-1 flex-grow min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-medium text-white truncate">{appointment.client_name}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newDropdowns = { ...subscriberDropdowns };
+                            newDropdowns[appointment.id] = !newDropdowns[appointment.id];
+                            setSubscriberDropdowns(newDropdowns);
+                          }}
+                          className="ml-2 px-2 py-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-black font-bold rounded transition-colors"
+                        >
+                          👑 CLIENTE ASSINANTE?
+                        </button>
+                        {subscriberDropdowns[appointment.id] && (
+                          <div className="absolute z-10 mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-lg">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                console.log('Marcando cliente como assinante:', appointment.client_name);
+                                
+                                try {
+                                  // SALVAR NO BANCO
+                                  const { error } = await supabase
+                                    .from('appointments')
+                                    .update({ 
+                                      is_subscriber: true,
+                                      price: 0,
+                                      total_price: 0
+                                    })
+                                    .eq('id', appointment.id);
+                                  
+                                  if (error) throw error;
+                                  
+                                  // Atualizar estado local
+                                  const newSubscribers = { ...appointmentSubscribers };
+                                  newSubscribers[appointment.id] = true;
+                                  setAppointmentSubscribers(newSubscribers);
+                                  
+                                  // Fechar dropdown
+                                  const newDropdowns = { ...subscriberDropdowns };
+                                  newDropdowns[appointment.id] = false;
+                                  setSubscriberDropdowns(newDropdowns);
+                                  
+                                  // Recarregar dados para atualizar saldos
+                                  await fetchAppointments();
+                                  await fetchMonthlyAppointments();
+                                  
+                                  toast('Cliente marcado como assinante! Serviço gratuito.', 'success');
+                                } catch (error) {
+                                  console.error('Erro ao salvar assinante:', error);
+                                  toast('Erro ao salvar. Tente novamente.', 'error');
+                                }
+                              }}
+                              className="w-full px-3 py-2 text-left hover:bg-gray-700 border-b border-gray-600 text-sm text-white"
+                            >
+                              ✅ Sim - Serviço já é assinante
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                console.log('Marcando cliente como não assinante:', appointment.client_name);
+                                
+                                try {
+                                  // Buscar o preço original do serviço
+                                  const service = establishment?.services_with_prices?.find(s => s.name === appointment.service);
+                                  const originalPrice = service?.price || appointment.price || 0;
+                                  
+                                  // SALVAR NO BANCO
+                                  const { error } = await supabase
+                                    .from('appointments')
+                                    .update({ 
+                                      is_subscriber: false,
+                                      price: originalPrice,
+                                      total_price: originalPrice
+                                    })
+                                    .eq('id', appointment.id);
+                                  
+                                  if (error) throw error;
+                                  
+                                  // Atualizar estado local
+                                  const newSubscribers = { ...appointmentSubscribers };
+                                  newSubscribers[appointment.id] = false;
+                                  setAppointmentSubscribers(newSubscribers);
+                                  
+                                  // Fechar dropdown
+                                  const newDropdowns = { ...subscriberDropdowns };
+                                  newDropdowns[appointment.id] = false;
+                                  setSubscriberDropdowns(newDropdowns);
+                                  
+                                  // Recarregar dados para atualizar saldos
+                                  await fetchAppointments();
+                                  await fetchMonthlyAppointments();
+                                  
+                                  toast('Cliente marcado como não assinante. Preço normal.', 'success');
+                                } catch (error) {
+                                  console.error('Erro ao salvar não assinante:', error);
+                                  toast('Erro ao salvar. Tente novamente.', 'error');
+                                }
+                              }}
+                              className="w-full px-3 py-2 text-left hover:bg-gray-700 text-sm text-white"
+                            >
+                              ❌ Não é assinante
+                            </button>
+                          </div>
+                        )}
                               {isClientPaidSubscriber(appointment.client_whatsapp) && (
                                 <Crown className="h-5 w-5 text-yellow-400" />
                               )}
@@ -2522,10 +2670,12 @@ const EstablishmentDashboard = () => {
                             <div className="flex items-center gap-2 min-w-[120px]">
                               <span className="text-sm text-white/80">Valor base:</span>
                               <span className="text-sm text-white">
-                                {isClientPaidSubscriber(appointment.client_whatsapp) 
-                                  ? "GRATUITO" 
-                                  : formatCurrency(appointment.price)
-                                }
+                                                                  {isClientPaidSubscriber(appointment.client_whatsapp) 
+                                    ? "GRATUITO" 
+                                    : appointment.is_subscriber 
+                                    ? 'R$ 0,00 (GRATUITO)' 
+                                    : formatCurrency(appointment.price)
+                                  }
                               </span>
                             </div>
                             {appointment.additional_products && appointment.additional_products.length > 0 && (
@@ -2546,10 +2696,12 @@ const EstablishmentDashboard = () => {
                             <div className="flex items-center gap-2">
                               <span className="text-sm text-white/80">Total:</span>
                               <span className="text-sm font-medium text-white">
-                                {isClientPaidSubscriber(appointment.client_whatsapp) 
-                                  ? "GRATUITO" 
-                                  : formatCurrency(appointment.total_price || appointment.price)
-                                }
+                                                                  {isClientPaidSubscriber(appointment.client_whatsapp) 
+                                    ? "GRATUITO" 
+                                    : appointment.is_subscriber 
+                                    ? 'R$ 0,00 (GRATUITO)' 
+                                    : formatCurrency(appointment.total_price || appointment.price)
+                                  }
                               </span>
                             </div>
                             
@@ -2632,7 +2784,32 @@ const EstablishmentDashboard = () => {
 
             {activeTab === 'services' && (
               <div className="space-y-6">
-                {/* ... existing code ... */}
+                {/* Informações sobre o link do estabelecimento */}
+                {establishment && (
+                  <div className="mb-4 space-y-3">
+                    <div className="flex gap-2 items-center">
+                      <a
+                        href={`/booking/${establishment.code}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
+                        title="Abrir página de agendamentos"
+                      >
+                        Reservar Cliente
+                      </a>
+                      <button
+                        type="button"
+                        onClick={copyLinkToClipboard}
+                        className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
+                      >
+                        Copiar Link
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      Clique em "Reservar Cliente" para acessar a página de agendamentos. Você pode fazer reservas para seus clientes através desta página, ou copie o link envie para seus clientes ou deixe na biografia do instagram.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -3279,32 +3456,7 @@ const EstablishmentDashboard = () => {
             </div>
           )}
 
-            {/* Informações sobre o link do estabelecimento */}
-            {establishment && (
-              <div className="mb-4 space-y-3">
-                <div className="flex gap-2 items-center">
-                  <a
-                    href={`/booking/${establishment.code}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
-                    title="Abrir página de agendamentos"
-                  >
-                    Reservar Cliente
-                  </a>
-                  <button
-                    type="button"
-                    onClick={copyLinkToClipboard}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
-                  >
-                    Copiar Link
-                  </button>
-                </div>
-                <p className="text-sm text-gray-400">
-                  Clique em "Reservar Cliente" para acessar a página de agendamentos. Você pode fazer reservas para seus clientes através desta página.
-                </p>
-              </div>
-            )}
+
 
             {activeTab === 'financial-dashboard' && isDashboardUnlocked && (
               <div className="space-y-6">
@@ -3475,6 +3627,8 @@ const EstablishmentDashboard = () => {
                 onClientUpdated={fetchClients}
               />
             )}
+
+
         </div>
       </div>
 
