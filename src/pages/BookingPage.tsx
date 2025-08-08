@@ -643,7 +643,7 @@ export default function BookingPage() {
                       ${establishment?.has_wifi ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'}`}
                     title={establishment?.has_wifi && establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : establishment?.has_wifi ? "Wi-Fi disponível" : "Wi-Fi indisponível"}
                   >
-                    <img src="/wifi.png" alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
+                    <img src={`/wifi.png?v=${Date.now()}`} alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
                     <span className="text-sm font-medium text-gray-900">Wi-fi</span>
                   </div>
 
@@ -651,7 +651,7 @@ export default function BookingPage() {
                   <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200
                     ${establishment?.has_parking ? 'hover:bg-gray-50' : 'opacity-50'}`}
                   >
-                    <img src="/car.png" alt="Estacionamento" className="h-8 w-8 mb-2 text-blue-500" />
+                    <img src={`/car.png?v=${Date.now()}`} alt="Estacionamento" className="h-8 w-8 mb-2 text-blue-500" />
                     <span className="text-sm font-medium text-gray-900">Estacion.</span>
                   </div>
 
@@ -659,7 +659,7 @@ export default function BookingPage() {
                   <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200
                     ${establishment?.has_accessibility ? 'hover:bg-gray-50' : 'opacity-50'}`}
                   >
-                    <img src="/wheelchair.png" alt="Acessibilidade" className="h-8 w-8 mb-2 text-blue-500" />
+                    <img src={`/wheelchair.png?v=${Date.now()}`} alt="Acessibilidade" className="h-8 w-8 mb-2 text-blue-500" />
                     <span className="text-sm font-medium text-gray-900">Acessib.</span>
                   </div>
                 </div>
