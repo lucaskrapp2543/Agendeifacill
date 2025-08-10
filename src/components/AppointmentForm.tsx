@@ -85,6 +85,23 @@ export function AppointmentForm({
 
   const [clientName, setClientName] = useState('');
   const [clientWhatsapp, setClientWhatsapp] = useState('');
+  
+  // Auto-preenchimento com últimos dados do usuário
+  useEffect(() => {
+    if (user) {
+      // Buscar últimos dados salvos no localStorage
+      const lastUserData = localStorage.getItem('lastUserBookingData');
+      if (lastUserData) {
+        try {
+          const { name, whatsapp } = JSON.parse(lastUserData);
+          setClientName(name || '');
+          setClientWhatsapp(whatsapp || '');
+        } catch (error) {
+          console.error('Erro ao carregar dados salvos:', error);
+        }
+      }
+    }
+  }, [user]);
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
@@ -153,6 +170,16 @@ export function AppointmentForm({
       pixProofUrl,
       selectedDate: format(selectedDate, 'yyyy-MM-dd')
     });
+
+    // Salvar dados do usuário no localStorage para auto-preenchimento futuro
+    if (user && clientName.trim() && clientWhatsapp.trim()) {
+      const userData = {
+        name: clientName.trim(),
+        whatsapp: clientWhatsapp.trim()
+      };
+      localStorage.setItem('lastUserBookingData', JSON.stringify(userData));
+      console.log('💾 Dados do usuário salvos no localStorage:', userData);
+    }
 
     // Validação completa
     if (!clientName.trim()) {
@@ -267,6 +294,11 @@ export function AppointmentForm({
             placeholder="Digite seu nome"
             required
           />
+          {user && clientName && (
+            <p className="mt-1 text-sm text-blue-600 italic">
+              Esse é seu nome?
+            </p>
+          )}
           {isEstablishmentOwner && (
             <p className="mt-1 text-sm text-gray-500">
               Você está fazendo uma reserva como estabelecimento para um cliente.
@@ -291,6 +323,11 @@ export function AppointmentForm({
             required
             maxLength={15}
           />
+          {user && clientWhatsapp && (
+            <p className="mt-1 text-sm text-blue-600 italic">
+              Esse é seu WhatsApp?
+            </p>
+          )}
         </div>
 
 
