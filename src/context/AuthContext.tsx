@@ -64,8 +64,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUserRole(session?.user?.user_metadata?.role as UserRole || null);
       setIsLoading(false);
 
-      // Salvar a sessão no localStorage
+      // Salvar a sessão no localStorage (permitindo múltiplas sessões)
       if (session) {
+        const sessionKey = `supabase.auth.token.${session.user.id}`;
+        localStorage.setItem(sessionKey, JSON.stringify(session));
         localStorage.setItem('supabase.auth.token', JSON.stringify(session));
       } else {
         localStorage.removeItem('supabase.auth.token');
@@ -90,7 +92,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setSession(data.session);
       setUserRole(data.user?.user_metadata?.role as UserRole || null);
 
-      if (data.session) {
+      if (data.session && data.user) {
+        const sessionKey = `supabase.auth.token.${data.user.id}`;
+        localStorage.setItem(sessionKey, JSON.stringify(data.session));
         localStorage.setItem('supabase.auth.token', JSON.stringify(data.session));
       }
       return { user: data.user, session: data.session }; // Retorna o user e a session
@@ -118,7 +122,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setSession(data.session);
       setUserRole(data.user?.user_metadata?.role as UserRole || null);
 
-      if (data.session) {
+      if (data.session && data.user) {
+        const sessionKey = `supabase.auth.token.${data.user.id}`;
+        localStorage.setItem(sessionKey, JSON.stringify(data.session));
         localStorage.setItem('supabase.auth.token', JSON.stringify(data.session));
       }
       return { user: data.user, session: data.session };

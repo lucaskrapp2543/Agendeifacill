@@ -3569,7 +3569,7 @@ const EstablishmentDashboard = () => {
 
                   {/* Seletor de Mês */}
                   <div className="flex items-center justify-between mb-6 bg-gray-50 rounded-lg p-4">
-                    <button
+                  <button
                       onClick={() => handleMonthChange(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1))}
                       className="p-4 hover:bg-gray-200 rounded-lg transition-colors border border-gray-300 bg-white shadow-sm"
                     >
@@ -3583,8 +3583,8 @@ const EstablishmentDashboard = () => {
                       className="p-4 hover:bg-gray-200 rounded-lg transition-colors border border-gray-300 bg-white shadow-sm"
                     >
                       <ChevronRight className="h-6 w-6 text-gray-700" />
-                    </button>
-                  </div>
+                  </button>
+                </div>
 
                   {/* Resumo Bruto e Líquido */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -3598,7 +3598,7 @@ const EstablishmentDashboard = () => {
                         {formatCurrency(calculateMonthlyBalance(monthlyAppointments))}
                       </p>
                       <p className="text-sm text-green-700 mt-1">Total faturado no mês</p>
-                    </div>
+              </div>
 
                     {/* Resumo Líquido */}
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">

@@ -17,7 +17,10 @@ export const supabase: SupabaseClient<Database> = createClient(
       detectSessionInUrl: true,
       storage: localStorage,
       storageKey: 'agendafacil_auth_token',
-      flowType: 'pkce'
+      flowType: 'pkce',
+      // Configurações para permitir múltiplas sessões
+      multiTab: true,
+      debug: false
     },
     global: {
       headers: { 'x-application-name': 'agendafacil' },
