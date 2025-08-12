@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } from '../lib/supabase';
@@ -32,6 +32,7 @@ interface Professional {
   id: string;
   name: string;
   specialties: string[];
+  percentage?: number; // Campo para percentual do profissional (opcional)
 }
 
 interface ProfessionalPin {
@@ -362,17 +363,48 @@ const EstablishmentDashboard = () => {
   }, []);
 
   const handlePreviousDay = () => {
-    setSelectedDate(prev => subDays(prev, 1));
+    setSelectedDate(prev => {
+      const newDate = subDays(prev, 1);
+      
+      // Verificar se mudou de mês
+      if (newDate.getMonth() !== selectedMonth.getMonth() || newDate.getFullYear() !== selectedMonth.getFullYear()) {
+        console.log('🔍 DEBUG - Mudou de mês ao navegar para dia anterior');
+        setSelectedMonth(newDate);
+        fetchMonthlyAppointments(newDate);
+      }
+      
+      return newDate;
+    });
   };
 
   const handleNextDay = () => {
-    setSelectedDate(prev => addDays(prev, 1));
+    setSelectedDate(prev => {
+      const newDate = addDays(prev, 1);
+      
+      // Verificar se mudou de mês
+      if (newDate.getMonth() !== selectedMonth.getMonth() || newDate.getFullYear() !== selectedMonth.getFullYear()) {
+        console.log('🔍 DEBUG - Mudou de mês ao navegar para próximo dia');
+        setSelectedMonth(newDate);
+        fetchMonthlyAppointments(newDate);
+      }
+      
+      return newDate;
+    });
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     if (!value) return;
-    setSelectedDate(new Date(value));
+    
+    const newDate = new Date(value);
+    setSelectedDate(newDate);
+    
+    // Verificar se mudou de mês
+    if (newDate.getMonth() !== selectedMonth.getMonth() || newDate.getFullYear() !== selectedMonth.getFullYear()) {
+      console.log('🔍 DEBUG - Mudou de mês ao selecionar data manualmente');
+      setSelectedMonth(newDate);
+      fetchMonthlyAppointments(newDate);
+    }
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -428,7 +460,8 @@ const EstablishmentDashboard = () => {
     const newProfessional = {
       id: uuidv4(),
       name: '',
-      specialties: []
+      specialties: [],
+      percentage: 100 // Percentual padrão de 100%
     };
 
     // Adiciona a senha padrão '0000' para o novo profissional
@@ -470,11 +503,41 @@ const EstablishmentDashboard = () => {
     setProfessionals(prev => prev.filter(p => p.id !== id));
   };
 
-  const handleProfessionalChange = (id: string, field: keyof Professional, value: string | string[]) => {
+  const handleProfessionalChange = (id: string, field: keyof Professional, value: string | string[] | number) => {
     console.log('Atualizando profissional:', { id, field, value });
     setProfessionals(prev => prev.map(p => 
       p.id === id ? { ...p, [field]: value } : p
     ));
+    
+    // Removido salvamento automático para evitar loops
+  };
+
+  // Função para salvar profissionais no banco de dados
+  const saveProfessionalsToDatabase = async () => {
+    if (!establishment || professionals.length === 0) return;
+    
+    try {
+      console.log('💾 Salvando profissionais:', professionals);
+      
+      const { error } = await supabase
+        .from('establishments')
+        .update({ professionals })
+        .eq('id', establishment.id);
+
+      if (error) throw error;
+      
+      // Atualizar o estado local do establishment também
+      setEstablishment({
+        ...establishment,
+        professionals: professionals
+      });
+      
+      console.log('✅ Profissionais salvos com sucesso!');
+      toast.success('Profissionais atualizados!');
+    } catch (error) {
+      console.error('❌ Erro ao salvar profissionais:', error);
+      toast.error('Erro ao salvar profissionais');
+    }
   };
 
   const handleAddService = () => {
@@ -821,11 +884,13 @@ const EstablishmentDashboard = () => {
       const start = startOfMonth(month); // Início do mês selecionado
       const end = endOfMonth(month); // Fim do mês selecionado
 
-      console.log('📅 Buscando agendamentos para:', {
+      console.log('🔍 DEBUG - fetchMonthlyAppointments chamado para:', {
         month: month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
         start: start.toISOString(),
-        end: end.toISOString()
+        end: end.toISOString(),
+        monthObject: month
       });
+      console.log('🏢 Establishment ID:', establishment.id);
 
       const { data: appointments, error } = await supabase
         .from('appointments')
@@ -841,7 +906,23 @@ const EstablishmentDashboard = () => {
         return;
       }
 
-      console.log(`📊 Encontrados ${appointments?.length || 0} agendamentos para ${month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`);
+      console.log(`🔍 DEBUG - Encontrados ${appointments?.length || 0} agendamentos para ${month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`);
+      
+      // Log dos agendamentos encontrados
+      if (appointments && appointments.length > 0) {
+        console.log('📋 DEBUG - Agendamentos encontrados:', appointments.map(apt => ({
+          id: apt.id,
+          date: apt.appointment_date,
+          client: apt.client_name,
+          professional: apt.professional,
+          price: apt.price,
+          total_price: apt.total_price
+        })));
+      } else {
+        console.log('📋 DEBUG - Nenhum agendamento encontrado para este mês');
+      }
+      
+      console.log('🔍 DEBUG - Vou atualizar monthlyAppointments com:', appointments?.length || 0, 'agendamentos');
       setMonthlyAppointments(appointments || []);
     } catch (error) {
       console.error('Erro ao buscar agendamentos:', error);
@@ -885,7 +966,11 @@ const EstablishmentDashboard = () => {
           setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
           
           // Carrega os profissionais e serviços
-          setProfessionals(establishmentData.professionals || []);
+          const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: Professional) => ({
+            ...prof,
+            percentage: prof.percentage || 100 // Garantir que sempre tenha percentual
+          }));
+          setProfessionals(professionalsWithPercentage);
           setServicesWithPrices(establishmentData.services_with_prices || []);
           setBusinessHours(establishmentData.business_hours || {
             monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
@@ -933,6 +1018,10 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
+
+
+
+
   useEffect(() => {
     if (establishment && (activeTab === 'clients' || activeTab === 'subscribers')) {
       fetchClients();
@@ -946,6 +1035,8 @@ const EstablishmentDashboard = () => {
       loadExpenses();
     }
   }, [establishment?.id, activeTab]);
+
+  // Removido useEffect que causava loop infinito
 
 
 
@@ -973,6 +1064,146 @@ const EstablishmentDashboard = () => {
       }
       return total;
     }, 0);
+  };
+
+  // Função para calcular valor bruto mensal do profissional selecionado
+  const calculateMonthlyBalanceForSelectedProfessional = (appointments: Appointment[]): number => {
+    const result = appointments.reduce((total, appointment) => {
+      // Verificar se o agendamento é do mês selecionado
+      const appointmentDate = new Date(appointment.appointment_date);
+      const appointmentMonth = appointmentDate.getMonth();
+      const appointmentYear = appointmentDate.getFullYear();
+      const selectedMonthValue = selectedMonth.getMonth();
+      const selectedYearValue = selectedMonth.getFullYear();
+      
+      const isSameMonth = appointmentMonth === selectedMonthValue && appointmentYear === selectedYearValue;
+      
+      if (!isSameMonth) {
+        return total; // Não incluir agendamentos de outros meses
+      }
+      
+      if (appointment.status !== 'cancelled') {
+        // Excluir do faturamento se for assinante pago (serviço gratuito)
+        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+          return total; // Não adiciona ao faturamento
+        }
+        
+        if (selectedProfessional === 'all') {
+          // Se "todos" selecionado, soma todos os agendamentos do mês
+          return total + (appointment.total_price || appointment.price || 0);
+        } else {
+          // Se profissional específico selecionado, soma apenas dele
+          if (appointment.professional === selectedProfessional) {
+            return total + (appointment.total_price || appointment.price || 0);
+          }
+        }
+      }
+      return total;
+    }, 0);
+    
+    return result;
+  };
+
+  // Função para calcular valor líquido diário do profissional selecionado
+  const calculateDailyNetBalance = (appointments: Appointment[]): number => {
+    return appointments.reduce((total, appointment) => {
+      if (appointment.status !== 'cancelled') {
+        // Excluir do faturamento se for assinante pago (serviço gratuito)
+        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+          return total; // Não adiciona ao faturamento
+        }
+        const baseValue = appointment.total_price || appointment.price || 0;
+        
+        if (selectedProfessional === 'all') {
+          // Se "todos" selecionado, soma o líquido de todos os profissionais
+          return total + calculateNetValue(baseValue, appointment.professional);
+        } else {
+          // Se profissional específico selecionado, soma apenas dele
+          if (appointment.professional === selectedProfessional) {
+            return total + calculateNetValue(baseValue, selectedProfessional);
+          }
+        }
+      }
+      return total;
+    }, 0);
+  };
+
+  // Função para calcular valor líquido mensal do profissional selecionado
+  const calculateMonthlyNetBalance = (appointments: Appointment[]): number => {
+    const result = appointments.reduce((total, appointment) => {
+      // Verificar se o agendamento é do mês selecionado
+      const appointmentDate = new Date(appointment.appointment_date);
+      const appointmentMonth = appointmentDate.getMonth();
+      const appointmentYear = appointmentDate.getFullYear();
+      const selectedMonthValue = selectedMonth.getMonth();
+      const selectedYearValue = selectedMonth.getFullYear();
+      
+      const isSameMonth = appointmentMonth === selectedMonthValue && appointmentYear === selectedYearValue;
+      
+      if (!isSameMonth) {
+        return total; // Não incluir agendamentos de outros meses
+      }
+      
+      if (appointment.status !== 'cancelled') {
+        // Excluir do faturamento se for assinante pago (serviço gratuito)
+        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+          return total; // Não adiciona ao faturamento
+        }
+        const baseValue = appointment.total_price || appointment.price || 0;
+        
+        if (selectedProfessional === 'all') {
+          // Se "todos" selecionado, soma o líquido de todos os profissionais
+          return total + calculateNetValue(baseValue, appointment.professional);
+        } else {
+          // Se profissional específico selecionado, soma apenas dele
+          if (appointment.professional === selectedProfessional) {
+            return total + calculateNetValue(baseValue, selectedProfessional);
+          }
+        }
+      }
+      return total;
+    }, 0);
+    
+    return result;
+  };
+
+  // Função para calcular valor líquido do estabelecimento (bruto - valor dos colaboradores)
+  const calculateEstablishmentNetBalance = (appointments: Appointment[]): number => {
+    const grossValue = calculateMonthlyBalance(appointments);
+    
+    // Calcular apenas o valor dos colaboradores (profissionais com menos de 100%)
+    const collaboratorsValue = appointments.reduce((total, appointment) => {
+      // Verificar se o agendamento é do mês selecionado
+      const appointmentDate = new Date(appointment.appointment_date);
+      const appointmentMonth = appointmentDate.getMonth();
+      const appointmentYear = appointmentDate.getFullYear();
+      const selectedMonthValue = selectedMonth.getMonth();
+      const selectedYearValue = selectedMonth.getFullYear();
+      
+      const isSameMonth = appointmentMonth === selectedMonthValue && appointmentYear === selectedYearValue;
+      
+      if (!isSameMonth || appointment.status === 'cancelled') {
+        return total;
+      }
+      
+      // Excluir do faturamento se for assinante pago (serviço gratuito)
+      if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+        return total;
+      }
+      
+      const baseValue = appointment.total_price || appointment.price || 0;
+      const professionalPercentage = getProfessionalPercentage(appointment.professional);
+      
+      // Só descontar se o profissional tem menos de 100% (é colaborador, não dono)
+      if (professionalPercentage < 100) {
+        const netValue = (baseValue * professionalPercentage) / 100;
+        return total + netValue;
+      }
+      
+      return total; // Profissionais com 100% não são descontados
+    }, 0);
+    
+    return grossValue - collaboratorsValue;
   };
 
   // Filtrar agendamentos por profissional e forma de pagamento selecionados
@@ -1796,6 +2027,21 @@ const EstablishmentDashboard = () => {
     }).format(value);
   };
 
+  // Função para calcular valor líquido baseado no percentual do profissional
+  const calculateNetValue = (baseValue: number, professionalId: string) => {
+    const professional = professionals.find(p => p.id === professionalId);
+    if (!professional) return baseValue;
+    
+    const percentage = professional.percentage || 0;
+    return (baseValue * percentage) / 100;
+  };
+
+  // Função para obter percentual do profissional
+  const getProfessionalPercentage = (professionalId: string) => {
+    const professional = professionals.find(p => p.id === professionalId);
+    return professional?.percentage || 0;
+  };
+
   // Adicione antes do return principal
   const handleOpenProof = (url: string) => {
     setSelectedProofUrl(url);
@@ -2570,13 +2816,25 @@ const EstablishmentDashboard = () => {
                 </p>
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-4">
-                    <span className="text-gray-700 font-medium text-lg">
-                      Hoje: <span className="text-green-500">{formatCurrency(calculateDailyBalance(filteredAppointments))}</span>
-                    </span>
-                    <span className="text-gray-700 font-medium text-lg">
-                      Este mês: <span className="text-blue-500">{formatCurrency(calculateMonthlyBalance(monthlyAppointments))}</span>
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="text-gray-700 font-medium text-lg">
+                        Hoje: <span className="text-green-500">{formatCurrency(calculateDailyBalance(filteredAppointments))}</span>
+                      </span>
+                      <span className="text-gray-600 text-sm">
+                        Líquido: <span className="text-green-400">{formatCurrency(calculateDailyNetBalance(filteredAppointments))}</span>
+                      </span>
+                    </div>
+                    <div className="flex flex-col" key={`monthly-${selectedMonth.getTime()}`}>
+                      <span className="text-gray-700 font-medium text-lg">
+                        Este mês: <span className="text-blue-500">{formatCurrency(calculateMonthlyBalanceForSelectedProfessional(monthlyAppointments))}</span>
+                      </span>
+                      <span className="text-gray-600 text-sm">
+                        Líquido: <span className="text-blue-400">{formatCurrency(calculateMonthlyNetBalance(monthlyAppointments))}</span>
+                      </span>
+                    </div>
                   </div>
+                  
+
                 </div>
 
               </div>
@@ -3342,6 +3600,22 @@ const EstablishmentDashboard = () => {
                     <Plus className="h-4 w-4" />
                     <span>Adicionar</span>
                   </button>
+                  
+                  <button
+                    type="button"
+                    onClick={saveProfessionalsToDatabase}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                  >
+                    <Check className="h-4 w-4" />
+                    <span>Salvar Profissionais</span>
+                  </button>
+                  
+                  {/* Indicador de status */}
+                  <div className="text-xs text-gray-400">
+                    {professionals.length > 0 && (
+                      <span className="text-yellow-400">⚠ Clique em "Salvar Profissionais" para salvar</span>
+                    )}
+                  </div>
                 </div>
                 
                 {/* Resto do código original dos profissionais */}
@@ -3365,6 +3639,22 @@ const EstablishmentDashboard = () => {
                         >
                             <Trash2 className="h-5 w-5" />
                         </button>
+                        </div>
+                        
+                        {/* Campo de percentual do profissional */}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={professional.percentage || 0}
+                              onChange={(e) => handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0)}
+                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                              placeholder="Percentual (%)"
+                            />
+                          </div>
+                          <span className="text-sm text-gray-400">% do profissional</span>
                         </div>
                         
                         {/* Campo de senha do profissional */}
@@ -3586,8 +3876,8 @@ const EstablishmentDashboard = () => {
                   </button>
                 </div>
 
-                  {/* Resumo Bruto e Líquido */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  {/* Resumo Bruto, Líquido e Líquido Estabelecimento */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                     {/* Resumo Bruto */}
                     <div className="bg-green-50 border border-green-200 rounded-lg p-6">
                       <div className="flex items-center justify-between mb-2">
@@ -3598,7 +3888,7 @@ const EstablishmentDashboard = () => {
                         {formatCurrency(calculateMonthlyBalance(monthlyAppointments))}
                       </p>
                       <p className="text-sm text-green-700 mt-1">Total faturado no mês</p>
-              </div>
+                    </div>
 
                     {/* Resumo Líquido */}
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
@@ -3611,6 +3901,20 @@ const EstablishmentDashboard = () => {
                       </p>
                       <p className="text-sm text-blue-700 mt-1">
                         Bruto - Despesas ({formatCurrency(expensesTotal)})
+                      </p>
+                    </div>
+
+                    {/* Resumo Líquido Estabelecimento */}
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-purple-800">Líquido Estabelecimento</h3>
+                        <Building2 className="h-5 w-5 text-purple-600" />
+                      </div>
+                      <p className="text-3xl font-bold text-purple-900">
+                        {formatCurrency(calculateEstablishmentNetBalance(monthlyAppointments) - expensesTotal)}
+                      </p>
+                      <p className="text-sm text-purple-700 mt-1">
+                        Bruto - Colaboradores - Despesas
                       </p>
                     </div>
                   </div>
@@ -3717,7 +4021,14 @@ const EstablishmentDashboard = () => {
                             <div className="flex-1">
                               <p className="font-medium text-gray-900">{professional.name}</p>
                               <div className="text-sm text-gray-600">
-                                <p>{professionalAppointments.length} agendamento(s)</p>
+                                <p>
+                                  {professionalAppointments.length} agendamento(s) • 
+                                  {professional.percentage === 100 ? (
+                                    <span className="text-green-600 font-medium">Dono (100%)</span>
+                                  ) : (
+                                    <span>{professional.percentage || 100}%</span>
+                                  )}
+                                </p>
                                 {extraProductsSold > 0 && (
                                   <div className="relative">
                                     <button
@@ -3777,6 +4088,13 @@ const EstablishmentDashboard = () => {
                             <div className="text-right">
                               <p className="text-lg font-bold text-green-600">
                                 {formatCurrency(professionalRevenue)}
+                              </p>
+                              <p className="text-sm text-blue-600">
+                                {professional.percentage === 100 ? (
+                                  <span className="text-green-600">Dono - Valor total</span>
+                                ) : (
+                                  <span>Líquido: {formatCurrency(calculateNetValue(professionalRevenue, professional.id))}</span>
+                                )}
                               </p>
                             </div>
                           </div>
