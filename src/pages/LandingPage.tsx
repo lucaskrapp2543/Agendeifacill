@@ -101,6 +101,11 @@ const LandingPage = () => {
       description: "Administração completa de valores e vendas de cada profissional e produtos do seu estabelecimento"
     },
     {
+      icon: <Users className="w-6 h-6 text-white" />,
+      title: "COLABORADORES",
+      description: "Você que tem outros colaboradores, consegue controlar e adicionar a % que cada um deles recebe por cada serviço, e também configurações completo dessa parte."
+    },
+    {
       icon: <Lock className="w-6 h-6 text-white" />,
       title: "SEGURANÇA",
       description: "Você pode criar senha para cada profissional, para que eles não tenham acesso ao dashboard de outros profissionais, somente você o dono e o seu funcionário"
@@ -225,42 +230,18 @@ const LandingPage = () => {
               />
 
               {/* Nova seção de destaque */}
-              <div className="w-full max-w-3xl">
-                <div className="bg-gradient-to-r from-cyan-500 to-blue-800 rounded-2xl p-3 md:p-4 animate-pulse-custom">
-                  <div className="flex items-center justify-center gap-2 md:gap-3 whitespace-nowrap">
-                    <Rocket className="h-4 w-4 md:h-6 md:w-6 text-white flex-shrink-0" />
-                    <span className="text-sm md:text-xl text-white font-semibold">
-                      Líder em Tecnologia de Agendamentos
+              <div className="w-full max-w-3xl px-4">
+                <div className="bg-gradient-to-r from-cyan-500 to-blue-800 rounded-2xl p-2 md:p-4 animate-pulse-custom" style={{ animation: 'pulse-scale 2s infinite' }}>
+                  <div className="flex items-center justify-center gap-2 md:gap-3">
+                    <Rocket className="h-3 w-3 md:h-6 md:w-6 text-white flex-shrink-0" />
+                    <span className="text-xs md:text-xl text-white font-semibold text-center leading-tight">
+                      Sistema de agendamentos mais completo do mundo
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Vídeo do YouTube */}
-              <div className="aspect-video w-full mb-6">
-                <iframe
-                  className="w-full h-full rounded-2xl"
-                  src="https://www.youtube.com/embed/LQJe5Zo2-WI"
-                  title="Vídeo de apresentação"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              </div>
 
-              {/* Botão de ação */}
-              <div className="w-full flex justify-center mb-8"> {/* Reduzido mb-16 para mb-8 */}
-                <button
-                  onClick={() => {
-                    const plansSection = document.getElementById('planos');
-                    if (plansSection) {
-                      plansSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-                  }}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg"
-                >
-                  SER AGENDEI FÁCIL
-                </button>
-              </div>
 
               {/* Demo Booking Section */}
               <section className="py-0">
@@ -292,6 +273,19 @@ const LandingPage = () => {
                     >
                       <Sparkles className="h-5 w-5" />
                       Demonstração Salão de beleza
+                    </button>
+                    
+                    {/* Botão SER AGENDEI FÁCIL */}
+                    <button
+                      onClick={() => {
+                        const plansSection = document.getElementById('planos');
+                        if (plansSection) {
+                          plansSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-center gap-2"
+                    >
+                      SER AGENDEI FÁCIL
                     </button>
                   </div>
                 </div>
@@ -381,6 +375,17 @@ const LandingPage = () => {
                       <div className="text-center sm:text-left">
                         <h3 className="text-xl font-semibold mb-2">Clientes Assinantes</h3>
                         <p className="text-gray-300">você terá também sistema de assinantes mais completo do mercado</p>
+                      </div>
+                    </div>
+                    
+                    {/* Porcentagem Colaborador */}
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
+                        <DollarSign className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <h3 className="text-xl font-semibold mb-2">Porcentagem Colaborador</h3>
+                        <p className="text-gray-300">No Agendei Fácil, você pode definir a porcentagem que cada colaborador recebe por serviço.</p>
                       </div>
                     </div>
                   </div>
