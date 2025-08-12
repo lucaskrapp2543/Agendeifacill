@@ -22,6 +22,7 @@ import CadastroEstabelecimento060622 from './pages/CadastroEstabelecimento060622
 
 import VerTestesFree from './pages/VerTestesFree';
 import VerUsuariosGratis060622 from './pages/VerUsuariosGratis060622';
+import AdminDashboard from './pages/AdminDashboard';
 
 // Protected Routes
 import ProtectedRoute from './components/ProtectedRoute';
@@ -86,6 +87,11 @@ function App() {
                     <EstablishmentDashboard />
                   </ProtectedRoute>
                 } 
+              />
+
+              <Route 
+                path="/dashboard/admin" 
+                element={<AdminDashboard />}
               />
 
               <Route 

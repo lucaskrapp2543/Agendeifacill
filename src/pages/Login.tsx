@@ -24,6 +24,8 @@ const Login = () => {
       const returnUrl = location.state?.returnUrl;
       if (returnUrl) {
         navigate(returnUrl);
+      } else if (user?.email === 'suporteagendeifacil@gmail.com') {
+        navigate('/dashboard/admin');
       } else if (user?.user_metadata?.role) {
         navigate(`/dashboard/${user.user_metadata.role}`);
       } else {
