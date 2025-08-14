@@ -57,28 +57,7 @@ export const PixPaymentForm = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-4">
-        <button
-          onClick={() => onPixMethodSelect('pix_now')}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-            pixPaymentMethod === 'pix_now' 
-              ? 'bg-primary text-white' 
-              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-          }`}
-        >
-          ✅ Pagar agora
-        </button>
-        <button
-          onClick={() => onPixMethodSelect('pix_local')}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-            pixPaymentMethod === 'pix_local' 
-              ? 'bg-primary text-white' 
-              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-          }`}
-        >
-          🏪 Pagar no local
-        </button>
-      </div>
+      {/* Removido os botões de seleção PIX - agora são apenas para mostrar o formulário */}
 
       {pixPaymentMethod === 'pix_now' && (
         <div className="space-y-4">

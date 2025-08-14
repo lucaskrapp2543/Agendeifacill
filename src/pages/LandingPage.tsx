@@ -516,13 +516,13 @@ const LandingPage = () => {
                     {features.map((feature, index) => (
                       <div
                         key={index}
-                        className="bg-[#111] p-6 rounded-xl hover:bg-[#222] transition-colors text-center"
+                        className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105"
                       >
                         <div className="bg-blue-600 w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto">
                           {feature.icon}
                         </div>
                         <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
-                        <p className="text-gray-400">{feature.description}</p>
+                        <p className="text-blue-600">{feature.description}</p>
                       </div>
                     ))}
                   </div>
@@ -533,13 +533,13 @@ const LandingPage = () => {
                       {features.map((feature, index) => (
                         <div
                           key={index}
-                          className="bg-[#111] p-6 rounded-xl hover:bg-[#222] transition-colors text-center w-80 flex-shrink-0"
+                          className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105 text-center w-80 flex-shrink-0"
                         >
                           <div className="bg-blue-600 w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto">
                             {feature.icon}
                           </div>
                           <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
-                          <p className="text-gray-400">{feature.description}</p>
+                          <p className="text-blue-600">{feature.description}</p>
                         </div>
                       ))}
                     </div>

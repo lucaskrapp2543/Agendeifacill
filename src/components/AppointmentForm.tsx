@@ -7,6 +7,7 @@ import { DatePicker } from './DatePicker';
 import { ServiceList } from './ServiceList';
 import { useAuth } from '../context/AuthContext';
 import { PixPaymentForm } from './PixPaymentForm';
+import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { PixProofViewer } from './PixProofViewer';
 import { Phone } from 'lucide-react';
 
@@ -112,12 +113,7 @@ export function AppointmentForm({
   const [pixProofUrl, setPixProofUrl] = useState<string | null>(null);
   const [pixPaymentMethod, setPixPaymentMethod] = useState<'pix_now' | 'pix_local' | null>(null);
 
-  // Definir automaticamente o método de pagamento quando não há PIX
-  useEffect(() => {
-    if (!establishment.pix_key && !selectedPaymentMethod) {
-      setSelectedPaymentMethod('pagar_local');
-    }
-  }, [establishment.pix_key, selectedPaymentMethod]);
+  // Removido useEffect que definia automaticamente o método de pagamento
 
   // Verificar se os dados essenciais existem
   if (!establishment) {
@@ -143,7 +139,7 @@ export function AppointmentForm({
   const handleTimeSelect = (time: string) => {
     console.log('⏰ Horário selecionado:', time);
     setSelectedTime(time);
-    // NÃO fazer submit automático aqui!
+    // Apenas definir o horário, sem agendamento automático
   };
 
   const handlePixComprovantUpload = (url: string) => {
@@ -152,7 +148,7 @@ export function AppointmentForm({
 
   const handlePixMethodSelect = (method: 'pix_now' | 'pix_local') => {
     setPixPaymentMethod(method);
-    setSelectedPaymentMethod(method === 'pix_now' ? 'pix' : 'pagar_local');
+    // Não alterar automaticamente o selectedPaymentMethod aqui
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -398,25 +394,29 @@ export function AppointmentForm({
 
         {/* 7. FORMA DE PAGAMENTO */}
         {selectedService && (
-        <div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               7. Forma de Pagamento
-          </label>
-            {establishment.pix_key ? (
-              <PixPaymentForm
-                establishment={establishment}
-                selectedService={selectedService}
-                onPixMethodSelect={handlePixMethodSelect}
-                onPixProofUpload={handlePixComprovantUpload}
-                pixPaymentMethod={pixPaymentMethod}
-                pixProofUrl={pixProofUrl}
-              />
-            ) : (
-              <div className="text-gray-700">
-                <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <span className="text-lg">🏪</span>
-                  <span>Pagamento somente no local</span>
-                </div>
+            </label>
+            <PaymentMethodSelector
+              selectedMethod={selectedPaymentMethod}
+              onMethodSelect={setSelectedPaymentMethod}
+              showPixOptions={!!establishment.pix_key}
+              pixPaymentMethod={pixPaymentMethod}
+              onPixMethodSelect={handlePixMethodSelect}
+            />
+            
+            {/* Formulário PIX quando selecionado */}
+            {selectedPaymentMethod === 'pix' && establishment.pix_key && (
+              <div className="mt-4">
+                <PixPaymentForm
+                  establishment={establishment}
+                  selectedService={selectedService}
+                  onPixMethodSelect={handlePixMethodSelect}
+                  onPixProofUpload={handlePixComprovantUpload}
+                  pixPaymentMethod={pixPaymentMethod}
+                  pixProofUrl={pixProofUrl}
+                />
               </div>
             )}
           </div>

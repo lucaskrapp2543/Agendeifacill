@@ -75,6 +75,8 @@ interface Establishment {
   has_accessibility?: boolean; // Novo estado para Acessibilidade
   wifi_password?: string; // Senha do Wi-Fi
   whatsapp?: string; // Novo campo para WhatsApp
+  credit_card_tax_percentage?: number; // Taxa do cartão de crédito (%)
+  debit_card_tax_percentage?: number; // Taxa do cartão de débito (%)
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers';
@@ -99,7 +101,7 @@ interface Appointment {
   is_premium: boolean;
   duration: number;
   price: number;
-  payment_method?: string;
+  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia';
   pix_payment_status?: string;
   pix_proof_url?: string;
   additional_products?: AdditionalProduct[];
@@ -210,6 +212,8 @@ const EstablishmentDashboard = () => {
   const [hasParking, setHasParking] = useState(false); // Novo estado para Estacionamento
   const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
+  const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
+  const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
   
   // Efeito para preencher automaticamente o pixPaymentLink
   useEffect(() => {
@@ -505,9 +509,13 @@ const EstablishmentDashboard = () => {
 
   const handleProfessionalChange = (id: string, field: keyof Professional, value: string | string[] | number) => {
     console.log('Atualizando profissional:', { id, field, value });
-    setProfessionals(prev => prev.map(p => 
-      p.id === id ? { ...p, [field]: value } : p
-    ));
+    setProfessionals(prev => {
+      const updated = prev.map(p => 
+        p.id === id ? { ...p, [field]: value } : p
+      );
+      console.log('🔄 Profissionais após atualização:', updated);
+      return updated;
+    });
     
     // Removido salvamento automático para evitar loops
   };
@@ -518,6 +526,7 @@ const EstablishmentDashboard = () => {
     
     try {
       console.log('💾 Salvando profissionais:', professionals);
+      console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
       
       const { error } = await supabase
         .from('establishments')
@@ -592,7 +601,8 @@ const EstablishmentDashboard = () => {
         professionals: professionals.map(p => ({
           id: p.id,
           name: p.name.trim(),
-          specialties: p.specialties.filter(s => s.trim())
+          specialties: p.specialties.filter(s => s.trim()),
+          percentage: p.percentage || 100 // Manter o percentual
         })).filter(p => p.name),
         services_with_prices: servicesWithPrices.map(s => ({
           id: s.id,
@@ -674,7 +684,8 @@ const EstablishmentDashboard = () => {
         business_hours: businessHours,
         professionals: professionals.map(p => ({
           id: p.id,
-          name: p.name.trim()
+          name: p.name.trim(),
+          percentage: p.percentage || 100 // Manter o percentual
         })).filter(p => p.name),
         services_with_prices: servicesWithPrices.map(s => ({
           id: s.id,
@@ -964,12 +975,16 @@ const EstablishmentDashboard = () => {
           setHasParking(establishmentData.has_parking ?? false);
           setHasAccessibility(establishmentData.has_accessibility ?? false);
           setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
+          setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
+          setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
           
           // Carrega os profissionais e serviços
           const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: Professional) => ({
             ...prof,
-            percentage: prof.percentage || 100 // Garantir que sempre tenha percentual
+            percentage: prof.percentage !== undefined ? prof.percentage : 100 // Só usar 100 se realmente não existir
           }));
+          console.log('📥 Profissionais carregados:', professionalsWithPercentage);
+          console.log('🔍 Percentuais carregados:', professionalsWithPercentage.map(p => ({ name: p.name, percentage: p.percentage })));
           setProfessionals(professionalsWithPercentage);
           setServicesWithPrices(establishmentData.services_with_prices || []);
           setBusinessHours(establishmentData.business_hours || {
@@ -1030,11 +1045,11 @@ const EstablishmentDashboard = () => {
 
   // Carregar assinantes pagos e despesas quando trocar de aba ou estabelecimento mudar
   useEffect(() => {
-    if (establishment?.id) {
+    if (establishment?.id && establishment.professionals && establishment.professionals.length > 0) {
       loadPaidSubscribers();
       loadExpenses();
     }
-  }, [establishment?.id, activeTab]);
+  }, [establishment?.id, activeTab, establishment?.professionals]);
 
   // Removido useEffect que causava loop infinito
 
@@ -1047,7 +1062,7 @@ const EstablishmentDashboard = () => {
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento
         }
-        return total + (appointment.total_price || appointment.price || 0);
+        return total + calculateGrossValueWithCardTax(appointment);
       }
       return total;
     }, 0);
@@ -1060,7 +1075,7 @@ const EstablishmentDashboard = () => {
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento
         }
-        return total + (appointment.total_price || appointment.price || 0);
+        return total + calculateGrossValueWithCardTax(appointment);
       }
       return total;
     }, 0);
@@ -1090,11 +1105,11 @@ const EstablishmentDashboard = () => {
         
         if (selectedProfessional === 'all') {
           // Se "todos" selecionado, soma todos os agendamentos do mês
-          return total + (appointment.total_price || appointment.price || 0);
+          return total + calculateGrossValueWithCardTax(appointment);
         } else {
           // Se profissional específico selecionado, soma apenas dele
           if (appointment.professional === selectedProfessional) {
-            return total + (appointment.total_price || appointment.price || 0);
+            return total + calculateGrossValueWithCardTax(appointment);
           }
         }
       }
@@ -1112,15 +1127,14 @@ const EstablishmentDashboard = () => {
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento
         }
-        const baseValue = appointment.total_price || appointment.price || 0;
         
         if (selectedProfessional === 'all') {
           // Se "todos" selecionado, soma o líquido de todos os profissionais
-          return total + calculateNetValue(baseValue, appointment.professional);
+          return total + calculateNetValueWithCardTax(appointment);
         } else {
           // Se profissional específico selecionado, soma apenas dele
           if (appointment.professional === selectedProfessional) {
-            return total + calculateNetValue(baseValue, selectedProfessional);
+            return total + calculateNetValueWithCardTax(appointment);
           }
         }
       }
@@ -1149,15 +1163,13 @@ const EstablishmentDashboard = () => {
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento
         }
-        const baseValue = appointment.total_price || appointment.price || 0;
-        
         if (selectedProfessional === 'all') {
           // Se "todos" selecionado, soma o líquido de todos os profissionais
-          return total + calculateNetValue(baseValue, appointment.professional);
+          return total + calculateNetValueWithCardTax(appointment);
         } else {
           // Se profissional específico selecionado, soma apenas dele
           if (appointment.professional === selectedProfessional) {
-            return total + calculateNetValue(baseValue, selectedProfessional);
+            return total + calculateNetValueWithCardTax(appointment);
           }
         }
       }
@@ -1165,6 +1177,29 @@ const EstablishmentDashboard = () => {
     }, 0);
     
     return result;
+  };
+
+  // Função para obter percentual do profissional por nome ou ID
+  const getProfessionalPercentageByName = (professionalName: string) => {
+    // Primeiro tenta encontrar por nome
+    let professional = professionals.find(p => p.name === professionalName);
+    
+    // Se não encontrar por nome, tenta por ID
+    if (!professional) {
+      professional = professionals.find(p => p.id === professionalName);
+    }
+    
+    const percentage = professional?.percentage ?? 100;
+    
+    console.log('🚨 TESTE - Buscando percentual:', {
+      professionalName,
+      found: !!professional,
+      professionalData: professional,
+      percentage,
+      allProfessionals: professionals.map(p => ({ id: p.id, name: p.name, percentage: p.percentage }))
+    });
+    
+    return percentage;
   };
 
   // Função para calcular valor líquido do estabelecimento (bruto - valor dos colaboradores)
@@ -1191,12 +1226,11 @@ const EstablishmentDashboard = () => {
         return total;
       }
       
-      const baseValue = appointment.total_price || appointment.price || 0;
-      const professionalPercentage = getProfessionalPercentage(appointment.professional);
+      const professionalPercentage = getProfessionalPercentageByName(appointment.professional);
       
       // Só descontar se o profissional tem menos de 100% (é colaborador, não dono)
       if (professionalPercentage < 100) {
-        const netValue = (baseValue * professionalPercentage) / 100;
+        const netValue = calculateNetValueWithCardTax(appointment);
         return total + netValue;
       }
       
@@ -1378,7 +1412,15 @@ const EstablishmentDashboard = () => {
       console.log('✅ Assinaturas pagas encontradas:', subscriptions);
 
       // Passo 2: Buscar WhatsApps dos agendamentos desses clientes
-      const clientIds = subscriptions.map(sub => sub.client_id);
+      const clientIds = subscriptions.map(sub => sub.client_id).filter(id => !id.startsWith('manual_'));
+      
+      // Se não há clientIds válidos, não fazer a consulta
+      if (clientIds.length === 0) {
+        console.log('📋 Nenhum client_id válido encontrado');
+        setPaidSubscribers(new Set());
+        return;
+      }
+      
       const { data: appointmentsData, error: appointmentsError } = await supabase
         .from('appointments')
         .select('client_id, client_whatsapp')
@@ -1477,8 +1519,17 @@ const EstablishmentDashboard = () => {
 
   // Função para obter o nome do profissional pelo ID
   const getProfessionalName = (professionalId: string): string => {
-    const professional: Professional | undefined = professionals.find(p => p.id === professionalId);
-    return professional?.name || 'Profissional não encontrado';
+    if (professionalId === 'all') return 'Todos os profissionais';
+    
+    // Primeiro tenta encontrar por ID
+    const professionalById: Professional | undefined = professionals.find(p => p.id === professionalId);
+    if (professionalById) return professionalById.name;
+    
+    // Se não encontrar por ID, pode ser que seja o nome diretamente
+    const professionalByName: Professional | undefined = professionals.find(p => p.name === professionalId);
+    if (professionalByName) return professionalByName.name;
+    
+    return 'Profissional não encontrado';
   };
 
   // Função para buscar e agrupar clientes
@@ -1518,8 +1569,26 @@ const EstablishmentDashboard = () => {
         return;
       }
 
-      // Coleta todos os client_ids únicos dos agendamentos
-      const uniqueClientIds = [...new Set(appointmentsData.map(apt => apt.client_id))];
+      // Coleta todos os client_ids únicos dos agendamentos (filtrar IDs manuais)
+      const uniqueClientIds = [...new Set(appointmentsData.map(apt => apt.client_id))].filter(id => !id.startsWith('manual_'));
+
+      console.log('🔍 IDs únicos filtrados:', uniqueClientIds);
+
+      // Se não há IDs únicos, carregar apenas clientes manuais
+      if (uniqueClientIds.length === 0) {
+        console.log('📋 Nenhum client_id válido encontrado - carregando apenas clientes manuais');
+        const manualClients = loadManualClientsFromStorage();
+        const uniqueClients: Client[] = Object.values(manualClients).map((manualClient: any) => ({
+          id: `manual_${manualClient.whatsapp}`,
+          whatsapp: manualClient.whatsapp,
+          name: manualClient.name,
+          appointmentCount: 0,
+          isSubscriber: false,
+          birthday: manualClient.birthday
+        }));
+        setClients(uniqueClients);
+        return;
+      }
 
       // Buscar todos os perfis disponíveis para encontrar correspondências
       const { data: allProfilesData, error: allProfilesError } = await supabase
@@ -1793,6 +1862,36 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // Função para salvar as taxas de cartão
+  const handleSaveCardTax = async () => {
+    if (!establishment) return;
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          credit_card_tax_percentage: creditCardTaxPercentage,
+          debit_card_tax_percentage: debitCardTaxPercentage
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        throw error;
+      }
+
+      setEstablishment({
+        ...establishment,
+        credit_card_tax_percentage: creditCardTaxPercentage,
+        debit_card_tax_percentage: debitCardTaxPercentage
+      });
+      
+      toast('Taxas de cartão salvas com sucesso', 'success');
+    } catch (error) {
+      console.error('Erro ao salvar taxas de cartão:', error);
+      toast('Erro ao salvar taxas de cartão', 'error');
+    }
+  };
+
   // Função para salvar a senha
   const handleSavePin = async () => {
     if (!establishment) return;
@@ -2033,13 +2132,112 @@ const EstablishmentDashboard = () => {
     if (!professional) return baseValue;
     
     const percentage = professional.percentage || 0;
+    
+    // IMPORTANTE: Esta função é usada apenas para exibição na seção "Receita por Profissional"
+    // Ela NÃO considera a taxa do cartão porque não tem acesso ao método de pagamento
+    // Para cálculos precisos, use calculateNetValueWithCardTax que recebe o appointment completo
     return (baseValue * percentage) / 100;
+  };
+
+  // Função para calcular valor líquido do profissional considerando todos os seus agendamentos
+  const calculateProfessionalNetValue = (professionalName: string, appointments: Appointment[]) => {
+    const professional = professionals.find(p => p.name === professionalName);
+    if (!professional) return 0;
+    
+    // Filtrar apenas agendamentos deste profissional
+    const professionalAppointments = appointments.filter(apt => apt.professional === professionalName);
+    
+    // Calcular o líquido total usando a função correta
+    const totalNet = professionalAppointments.reduce((total, appointment) => {
+      if (appointment.status !== 'cancelled' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
+        return total + calculateNetValueWithCardTax(appointment);
+      }
+      return total;
+    }, 0);
+    
+    return totalNet;
   };
 
   // Função para obter percentual do profissional
   const getProfessionalPercentage = (professionalId: string) => {
     const professional = professionals.find(p => p.id === professionalId);
     return professional?.percentage || 0;
+  };
+
+  // Função para obter nome do profissional por ID
+  const getProfessionalNameById = (professionalId: string) => {
+    if (professionalId === 'all') return 'all';
+    const professional = professionals.find(p => p.id === professionalId);
+    return professional?.name || 'unknown'; // Retorna 'unknown' se não encontrar
+  };
+
+  // Função para calcular valor líquido considerando taxa de cartão e percentual do profissional
+  const calculateNetValueWithCardTax = (appointment: Appointment): number => {
+    const baseValue = appointment.total_price || appointment.price || 0;
+    
+    // Obter percentual do profissional
+    const percentage = getProfessionalPercentageByName(appointment.professional);
+    
+    console.log('🚨 TESTE - Cálculo líquido:', {
+      appointment: appointment.client_name,
+      baseValue,
+      professional: appointment.professional,
+      percentage,
+      paymentMethod: appointment.payment_method,
+      establishmentTaxes: {
+        credit: establishment?.credit_card_tax_percentage,
+        debit: establishment?.debit_card_tax_percentage
+      }
+    });
+    
+    // Se for pagamento com cartão, aplicar taxa específica primeiro
+    if (appointment.payment_method === 'credito') {
+      const cardTax = establishment?.credit_card_tax_percentage || 3.5;
+      const valueAfterCardTax = baseValue - (baseValue * cardTax / 100);
+      const result = (valueAfterCardTax * percentage) / 100;
+      
+      console.log('🚨 TESTE - Crédito:', { 
+        baseValue, 
+        cardTax, 
+        valueAfterCardTax, 
+        percentage, 
+        result,
+        calculation: `${baseValue} - (${baseValue} * ${cardTax}%) = ${valueAfterCardTax} → ${valueAfterCardTax} * ${percentage}% = ${result}`
+      });
+      return result;
+    } else if (appointment.payment_method === 'debito') {
+      const cardTax = establishment?.debit_card_tax_percentage || 2.5;
+      const valueAfterCardTax = baseValue - (baseValue * cardTax / 100);
+      const result = (valueAfterCardTax * percentage) / 100;
+      
+      console.log('🚨 TESTE - Débito:', { 
+        baseValue, 
+        cardTax, 
+        valueAfterCardTax, 
+        percentage, 
+        result,
+        calculation: `${baseValue} - (${baseValue} * ${cardTax}%) = ${valueAfterCardTax} → ${valueAfterCardTax} * ${percentage}% = ${result}`
+      });
+      return result;
+    }
+    
+    // Se não for cartão, usar cálculo normal (apenas percentual do profissional)
+    const result = (baseValue * percentage) / 100;
+    console.log('🚨 TESTE - Outros métodos:', { 
+      baseValue, 
+      percentage, 
+      result,
+      calculation: `${baseValue} * ${percentage}% = ${result}`
+    });
+    return result;
+  };
+
+  // Função para calcular valor bruto (sempre o valor original)
+  const calculateGrossValueWithCardTax = (appointment: Appointment): number => {
+    const baseValue = appointment.total_price || appointment.price || 0;
+    
+    // Valor bruto é sempre o valor original, independente do método de pagamento
+    return baseValue;
   };
 
   // Adicione antes do return principal
@@ -2084,6 +2282,18 @@ const EstablishmentDashboard = () => {
         return { icon: '🏪', name: 'Pagar no Local' };
       default:
         return { icon: '💳', name: 'Todos os tipos' };
+    }
+  };
+
+  // Função para obter a taxa do método de pagamento
+  const getPaymentMethodTax = (method: string) => {
+    switch (method) {
+      case 'credito':
+        return establishment?.credit_card_tax_percentage || 3.5;
+      case 'debito':
+        return establishment?.debit_card_tax_percentage || 2.5;
+      default:
+        return 0;
     }
   };
 
@@ -3071,6 +3281,13 @@ const EstablishmentDashboard = () => {
                                 <option value="pagar_local" className="bg-green-700 text-white">Pagar no Local</option>
                               </select>
                               
+                              {/* Mostrar taxa para cartões */}
+                              {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
+                                <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20">
+                                  Taxa: {getPaymentMethodTax(appointment.payment_method)}%
+                                </span>
+                              )}
+                              
                               {appointment.payment_method === 'pix' && (
                                 <select
                                   value={appointment.pix_payment_status || 'pending'}
@@ -3815,6 +4032,63 @@ const EstablishmentDashboard = () => {
                 </div>
               </div>
 
+              {/* Configurações de Pagamento */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
+                <h3 className="text-lg font-medium text-white mb-4">Configurações de Pagamento</h3>
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Taxa do Cartão de Crédito (%)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="10"
+                        value={creditCardTaxPercentage}
+                        onChange={(e) => setCreditCardTaxPercentage(parseFloat(e.target.value) || 0)}
+                        placeholder="Ex: 3.5"
+                        className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                      <span className="text-white text-sm">%</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Taxa cobrada pela maquininha para cartão de crédito.
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Taxa do Cartão de Débito (%)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="10"
+                        value={debitCardTaxPercentage}
+                        onChange={(e) => setDebitCardTaxPercentage(parseFloat(e.target.value) || 0)}
+                        placeholder="Ex: 2.5"
+                        className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                      <span className="text-white text-sm">%</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Taxa cobrada pela maquininha para cartão de débito.
+                    </p>
+                  </div>
+                  
+                  <button
+                    onClick={handleSaveCardTax}
+                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Salvar Taxas
+                  </button>
+                </div>
+              </div>
+
               {/* Botão de Salvar */}
               <div className="flex justify-end">
                 <button
@@ -4093,7 +4367,7 @@ const EstablishmentDashboard = () => {
                                 {professional.percentage === 100 ? (
                                   <span className="text-green-600">Dono - Valor total</span>
                                 ) : (
-                                  <span>Líquido: {formatCurrency(calculateNetValue(professionalRevenue, professional.id))}</span>
+                                  <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
                                 )}
                               </p>
                             </div>
