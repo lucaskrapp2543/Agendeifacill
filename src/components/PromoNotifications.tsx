@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { toast } from 'react-hot-toast';
+import { useLocation } from 'react-router-dom';
 
 const notifications = [
   "AGORA : uma barbearia acabou de se tornar plano mensal",
@@ -9,6 +10,13 @@ const notifications = [
 ];
 
 export const PromoNotifications = () => {
+  const location = useLocation();
+  
+  // Só mostrar notificações na página inicial
+  if (location.pathname !== '/') {
+    return null;
+  }
+  
   // Função para mostrar a notificação
   const showNotification = (message: string) => {
     return new Promise<void>((resolve) => {
@@ -40,11 +48,21 @@ export const PromoNotifications = () => {
 
   // Efeito para mostrar as notificações
   useEffect(() => {
+    // Só executar se estiver na página inicial
+    if (location.pathname !== '/') {
+      return;
+    }
+    
     let currentIndex = 0;
     let timeoutId: NodeJS.Timeout;
     
     // Função para mostrar a próxima notificação
     const showNextNotification = async () => {
+      // Verificar novamente se ainda está na página inicial
+      if (location.pathname !== '/') {
+        return;
+      }
+      
       // Mostra a notificação atual e espera ela terminar (5 segundos)
       await showNotification(notifications[currentIndex]);
       
@@ -65,7 +83,7 @@ export const PromoNotifications = () => {
       clearTimeout(timeoutId);
       toast.dismiss();
     };
-  }, []);
+  }, [location.pathname]);
 
   return null; // Este componente não renderiza nada visualmente
 }; 

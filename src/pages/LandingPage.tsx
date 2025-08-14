@@ -235,10 +235,19 @@ const LandingPage = () => {
                   <div className="flex items-center justify-center gap-2 md:gap-3">
                     <Rocket className="h-3 w-3 md:h-6 md:w-6 text-white flex-shrink-0" />
                     <span className="text-xs md:text-xl text-white font-semibold text-center leading-tight">
-                      Sistema de agendamentos mais completo do mundo
+                      Sistema de agendamentos mais completo do Brasil
                     </span>
                   </div>
                 </div>
+              </div>
+
+              {/* Imagem 10 mil */}
+              <div className="w-full max-w-2xl mx-auto mt-0 mb-0">
+                <img
+                  src="/10mil.png"
+                  alt="10 mil"
+                  className="w-full h-auto hover:scale-105 transition-transform duration-300"
+                />
               </div>
 
 
@@ -246,10 +255,10 @@ const LandingPage = () => {
               {/* Demo Booking Section */}
               <section className="py-0">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-                  <h2 className="text-3xl font-bold text-white mb-4">
+                  <h2 className="text-3xl font-bold text-white mb-2">
                     Experimente Como Funciona
                   </h2>
-                  <p className="text-center text-gray-400 mb-12 max-w-2xl mx-auto">
+                  <p className="text-center text-gray-400 mb-6 max-w-2xl mx-auto">
                     Clique no botão abaixo para simular um agendamento e ver como é fácil e prático para seus clientes agendarem com você!
                   </p>
                   <div className="flex flex-col space-y-4 items-center">
@@ -302,90 +311,87 @@ const LandingPage = () => {
                     </h2>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-16">
-                    {/* Reduza Atrasos */}
+                  <div className="grid md:grid-cols-2 gap-8">
+                    {/* Não perca clientes */}
                     <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
                       <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Clock className="w-8 h-8 text-blue-500" />
+                        <MessageCircle className="w-8 h-8 text-blue-500" />
                       </div>
                       <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Reduza Atrasos</h3>
-                        <p className="text-gray-300">Clientes recebem lembretes via Whatsapp, evitando esquecimentos.</p>
+                        <h3 className="text-xl font-semibold mb-2">Não perca clientes</h3>
+                        <p className="text-gray-300">Nosso sistema manda mensagem automática de lembrete para seu cliente no WhatsApp 1h30 antes do compromisso.</p>
                       </div>
                     </div>
 
-                    {/* Agenda Sempre Disponível */}
+                    {/* Controle total de agendamentos */}
                     <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
                       <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
                         <Calendar className="w-8 h-8 text-blue-500" />
                       </div>
                       <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Agenda Sempre Disponível</h3>
-                        <p className="text-gray-300">Seus clientes podem agendar 24h por dia, sem precisar entrar em contato com você.</p>
+                        <h3 className="text-xl font-semibold mb-2">Controle total de agendamentos</h3>
+                        <p className="text-gray-300">Você pode cancelar, adicionar novos horários e até incluir produtos extras vendidos na hora e muito mais.</p>
                       </div>
                     </div>
 
-                    {/* Facilidade de Gestão */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Users className="w-8 h-8 text-blue-500" />
-                      </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Facilidade de Gestão</h3>
-                        <p className="text-gray-300">Controle agendamentos, clientes, profissionais e faturamento, tudo em um só lugar.</p>
-                      </div>
-                    </div>
-
-                    {/* Clientes Satisfeitos */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <ThumbsUp className="w-8 h-8 text-blue-500" />
-                      </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Clientes Satisfeitos</h3>
-                        <p className="text-gray-300">Proporcione um atendimento automático, organizado, ágil e eficiente, garantindo mais satisfação e fidelização.</p>
-                      </div>
-                    </div>
-
-                    {/* Sistema de Clientes Fiel */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Star className="w-8 h-8 text-blue-500" fill="currentColor" />
-                      </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Sistema de Clientes Fiel</h3>
-                        <p className="text-gray-300">Você terá o sistema mais inovador de repescagem de clientes já visto. Redobre até 10x seu faturamento.</p>
-                      </div>
-                    </div>
-                    {/* Página personalizada */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Pencil className="w-8 h-8 text-blue-500" />
-                      </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Página personalizada</h3>
-                        <p className="text-gray-300">tenha uma página exclusiva sua e personalizada por você com fotos, nomes, serviços, suas redes, localização e etc...</p>
-                      </div>
-                    </div>
-                    {/* Clientes Assinantes */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Crown className="w-8 h-8 text-blue-500" />
-                      </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Clientes Assinantes</h3>
-                        <p className="text-gray-300">você terá também sistema de assinantes mais completo do mercado</p>
-                      </div>
-                    </div>
-                    
-                    {/* Porcentagem Colaborador */}
+                    {/* Registre as formas de pagamento */}
                     <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
                       <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
                         <DollarSign className="w-8 h-8 text-blue-500" />
                       </div>
                       <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Porcentagem Colaborador</h3>
-                        <p className="text-gray-300">No Agendei Fácil, você pode definir a porcentagem que cada colaborador recebe por serviço.</p>
+                        <h3 className="text-xl font-semibold mb-2">Registre as formas de pagamento</h3>
+                        <p className="text-gray-300">Total controle de quais foram as formas de pagamentos feitas.</p>
+                      </div>
+                    </div>
+
+                    {/* Clube de Assinantes */}
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
+                        <Crown className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <h3 className="text-xl font-semibold mb-2">Clube de Assinantes</h3>
+                        <p className="text-gray-300">Isso mesmo! Dentro do sistema ainda tem incluso sistema de clube de assinantes, e dentro você tem total controle também dos seus assinantes. Se um assinante seu for fazer agendamento, o sistema reconhece e o valor só desconta na aba "ASSINANTES", evitando confusão do caixa normal.</p>
+                      </div>
+                    </div>
+
+                    {/* Repescagem de clientes */}
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
+                        <Users className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <h3 className="text-xl font-semibold mb-2">Repescagem de clientes</h3>
+                        <p className="text-gray-300">O sistema identifica clientes que não retornaram e ajuda você a recuperá-los.</p>
+                      </div>
+                    </div>
+
+                    {/* Colaboradores */}
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
+                        <Users className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <h3 className="text-xl font-semibold mb-2">Colaboradores</h3>
+                        <p className="text-gray-300">Se você tem colaboradores que trabalham na sua barbearia, não se preocupe! Você consegue adicionar quantos profissionais quiser sem acréscimo de nada e ainda colocar a % que cada um deles recebe por corte. Cada colaborador seu terá uma página para ele ver os agendamentos dele, e você, dono do local, tem acesso a tudo.</p>
+                      </div>
+                    </div>
+
+                    {/* Controle financeiro total */}
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
+                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
+                        <BarChart3 className="w-8 h-8 text-blue-500" />
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <h3 className="text-xl font-semibold mb-2">Controle financeiro total</h3>
+                        <p className="text-gray-300">Dentro do seu AgendeiFácil você terá 3 indicadores de valor:</p>
+                        <ul className="text-gray-300 text-sm mt-2 space-y-1">
+                          <li>• <strong>Valor bruto:</strong> quanto sua barbearia está faturando no mês</li>
+                          <li>• <strong>Valor líquido:</strong> tirando as despesas que você adicionou</li>
+                          <li>• <strong>Valor líquido estabelecimento:</strong> descontando despesas e a % de cada profissional</li>
+                        </ul>
+                        <p className="text-gray-300 text-sm mt-2">Assim você vê exatamente quanto cada profissional recebeu e quanto você, estabelecimento, recebeu com tudo descontado.</p>
                       </div>
                     </div>
                   </div>
