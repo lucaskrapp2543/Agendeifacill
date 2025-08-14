@@ -27,7 +27,8 @@ import {
   Lock,
   ThumbsUp,
   Pencil,
-  Crown
+  Crown,
+  Globe
 } from 'lucide-react';
 import { PromoBanner } from '../components/PromoBanner';
 import WhatsAppButton from '../components/WhatsAppButton';
@@ -312,87 +313,108 @@ const LandingPage = () => {
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-8">
+                    {/* Página exclusiva */}
+                    <div className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-full flex items-center justify-center">
+                          <Globe className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="text-xl font-semibold">Página exclusiva</h3>
+                      </div>
+                      <p className="text-blue-600 mb-3">Sim, você ganha uma página exclusiva sua! Nela mostra:</p>
+                      <ul className="text-blue-600 text-sm space-y-1 mb-3">
+                        <li>• Sua localização e contato</li>
+                        <li>• PIX e Wi-Fi (se tiver)</li>
+                        <li>• Horários de funcionamento</li>
+                        <li>• Fotos dos seus cortes</li>
+                        <li>• Avaliação do Google</li>
+                        <li>• Serviços para assinaturas</li>
+                        <li>• Botão de agendamento rápido</li>
+                      </ul>
+                      <p className="text-blue-600 text-sm">Tudo organizado para o cliente agendar com você de forma rápida e fácil.</p>
+                    </div>
+
                     {/* Não perca clientes */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <MessageCircle className="w-8 h-8 text-blue-500" />
+                    <div className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-full flex items-center justify-center">
+                          <MessageCircle className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="text-xl font-semibold">Não perca clientes</h3>
                       </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Não perca clientes</h3>
-                        <p className="text-gray-300">Nosso sistema manda mensagem automática de lembrete para seu cliente no WhatsApp 1h30 antes do compromisso.</p>
-                      </div>
+                      <p className="text-blue-600">Nosso sistema manda mensagem automática de lembrete para seu cliente no WhatsApp 1h30 antes do compromisso.</p>
                     </div>
 
                     {/* Controle total de agendamentos */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Calendar className="w-8 h-8 text-blue-500" />
+                    <div className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-full flex items-center justify-center">
+                          <Calendar className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="text-xl font-semibold">Controle total de agendamentos</h3>
                       </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Controle total de agendamentos</h3>
-                        <p className="text-gray-300">Você pode cancelar, adicionar novos horários e até incluir produtos extras vendidos na hora e muito mais.</p>
-                      </div>
+                      <p className="text-blue-600">Você pode cancelar, adicionar novos horários e até incluir produtos extras vendidos na hora e muito mais.</p>
                     </div>
 
                     {/* Registre as formas de pagamento */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <DollarSign className="w-8 h-8 text-blue-500" />
+                    <div className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-full flex items-center justify-center">
+                          <DollarSign className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="text-xl font-semibold">Registre as formas de pagamento</h3>
                       </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Registre as formas de pagamento</h3>
-                        <p className="text-gray-300">Total controle de quais foram as formas de pagamentos feitas.</p>
-                      </div>
+                      <p className="text-blue-600">Total controle de quais foram as formas de pagamentos feitas.</p>
                     </div>
 
                     {/* Clube de Assinantes */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Crown className="w-8 h-8 text-blue-500" />
+                    <div className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-full flex items-center justify-center">
+                          <Crown className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="text-xl font-semibold">Clube de Assinantes</h3>
                       </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Clube de Assinantes</h3>
-                        <p className="text-gray-300">Isso mesmo! Dentro do sistema ainda tem incluso sistema de clube de assinantes, e dentro você tem total controle também dos seus assinantes. Se um assinante seu for fazer agendamento, o sistema reconhece e o valor só desconta na aba "ASSINANTES", evitando confusão do caixa normal.</p>
-                      </div>
+                      <p className="text-blue-600">Isso mesmo! Dentro do sistema ainda tem incluso sistema de clube de assinantes, e dentro você tem total controle também dos seus assinantes. Se um assinante seu for fazer agendamento, o sistema reconhece e o valor só desconta na aba "ASSINANTES", evitando confusão do caixa normal.</p>
                     </div>
 
                     {/* Repescagem de clientes */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Users className="w-8 h-8 text-blue-500" />
+                    <div className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-full flex items-center justify-center">
+                          <Users className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="text-xl font-semibold">Repescagem de clientes</h3>
                       </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Repescagem de clientes</h3>
-                        <p className="text-gray-300">O sistema identifica clientes que não retornaram e ajuda você a recuperá-los.</p>
-                      </div>
+                      <p className="text-blue-600">O sistema identifica clientes que não retornaram e ajuda você a recuperá-los.</p>
                     </div>
 
                     {/* Colaboradores */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <Users className="w-8 h-8 text-blue-500" />
+                    <div className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-full flex items-center justify-center">
+                          <Users className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="text-xl font-semibold">Colaboradores</h3>
                       </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Colaboradores</h3>
-                        <p className="text-gray-300">Se você tem colaboradores que trabalham na sua barbearia, não se preocupe! Você consegue adicionar quantos profissionais quiser sem acréscimo de nada e ainda colocar a % que cada um deles recebe por corte. Cada colaborador seu terá uma página para ele ver os agendamentos dele, e você, dono do local, tem acesso a tudo.</p>
-                      </div>
+                      <p className="text-blue-600">Se você tem colaboradores que trabalham na sua barbearia, não se preocupe! Você consegue adicionar quantos profissionais quiser sem acréscimo de nada e ainda colocar a % que cada um deles recebe por corte. Cada colaborador seu terá uma página para ele ver os agendamentos dele, e você, dono do local, tem acesso a tudo.</p>
                     </div>
 
                     {/* Controle financeiro total */}
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-6 bg-gradient-to-br from-blue-900/30 to-black/40 border border-blue-500/40 rounded-xl shadow-md p-4 mb-4 animate-benefit-pulse">
-                      <div className="bg-blue-100 p-4 rounded-lg flex items-center justify-center mb-2 sm:mb-0">
-                        <BarChart3 className="w-8 h-8 text-blue-500" />
+                    <div className="bg-white hover:bg-gray-100 text-blue-600 rounded-xl shadow-lg p-6 transition-all duration-300 transform hover:scale-105">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-blue-600 p-3 rounded-full flex items-center justify-center">
+                          <BarChart3 className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="text-xl font-semibold">Controle financeiro total</h3>
                       </div>
-                      <div className="text-center sm:text-left">
-                        <h3 className="text-xl font-semibold mb-2">Controle financeiro total</h3>
-                        <p className="text-gray-300">Dentro do seu AgendeiFácil você terá 3 indicadores de valor:</p>
-                        <ul className="text-gray-300 text-sm mt-2 space-y-1">
-                          <li>• <strong>Valor bruto:</strong> quanto sua barbearia está faturando no mês</li>
-                          <li>• <strong>Valor líquido:</strong> tirando as despesas que você adicionou</li>
-                          <li>• <strong>Valor líquido estabelecimento:</strong> descontando despesas e a % de cada profissional</li>
-                        </ul>
-                        <p className="text-gray-300 text-sm mt-2">Assim você vê exatamente quanto cada profissional recebeu e quanto você, estabelecimento, recebeu com tudo descontado.</p>
-                      </div>
+                      <p className="text-blue-600 mb-3">Dentro do seu AgendeiFácil você terá 3 indicadores de valor:</p>
+                      <ul className="text-blue-600 text-sm space-y-1 mb-3">
+                        <li>• <strong>Valor bruto:</strong> quanto sua barbearia está faturando no mês</li>
+                        <li>• <strong>Valor líquido:</strong> tirando as despesas que você adicionou</li>
+                        <li>• <strong>Valor líquido estabelecimento:</strong> descontando despesas e a % de cada profissional</li>
+                      </ul>
+                      <p className="text-blue-600 text-sm">Assim você vê exatamente quanto cada profissional recebeu e quanto você, estabelecimento, recebeu com tudo descontado.</p>
                     </div>
                   </div>
                 </div>
@@ -479,8 +501,18 @@ const LandingPage = () => {
                   <h2 className="text-3xl font-bold text-center mb-12">
                     Recursos Principais
                   </h2>
-                  {/* Features Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-12">
+                  
+                  {/* Indicativo para arrastar - só no mobile */}
+                  <div className="md:hidden text-center mb-4">
+                    <div className="inline-flex items-center gap-2 text-blue-400 text-sm">
+                      <ArrowRight className="h-4 w-4 animate-pulse" />
+                      <span>Arraste para ver mais recursos</span>
+                      <ArrowRight className="h-4 w-4 animate-pulse" />
+                    </div>
+                  </div>
+                  
+                  {/* Features Grid - Desktop */}
+                  <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-3 gap-6 mt-12">
                     {features.map((feature, index) => (
                       <div
                         key={index}
@@ -493,6 +525,24 @@ const LandingPage = () => {
                         <p className="text-gray-400">{feature.description}</p>
                       </div>
                     ))}
+                  </div>
+                  
+                  {/* Features Carousel - Mobile */}
+                  <div className="md:hidden mt-8 w-full overflow-hidden" style={{ maxWidth: '100vw' }}>
+                    <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-hide" style={{ overscrollBehavior: 'contain', touchAction: 'pan-x', maxWidth: '100%' }}>
+                      {features.map((feature, index) => (
+                        <div
+                          key={index}
+                          className="bg-[#111] p-6 rounded-xl hover:bg-[#222] transition-colors text-center w-80 flex-shrink-0"
+                        >
+                          <div className="bg-blue-600 w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto">
+                            {feature.icon}
+                          </div>
+                          <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
+                          <p className="text-gray-400">{feature.description}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </section>
