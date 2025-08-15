@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, Building2 } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } from '../lib/supabase';
@@ -257,6 +257,7 @@ const EstablishmentDashboard = () => {
   const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [subscriberDropdowns, setSubscriberDropdowns] = useState<Record<string, boolean>>({});
+  const [appointmentDropdowns, setAppointmentDropdowns] = useState<Record<string, boolean>>({});
   const [appointmentSubscribers, setAppointmentSubscribers] = useState<Record<string, boolean>>({});
   
   // Estados para despesas
@@ -984,7 +985,7 @@ const EstablishmentDashboard = () => {
             percentage: prof.percentage !== undefined ? prof.percentage : 100 // Só usar 100 se realmente não existir
           }));
           console.log('📥 Profissionais carregados:', professionalsWithPercentage);
-          console.log('🔍 Percentuais carregados:', professionalsWithPercentage.map(p => ({ name: p.name, percentage: p.percentage })));
+
           setProfessionals(professionalsWithPercentage);
           setServicesWithPrices(establishmentData.services_with_prices || []);
           setBusinessHours(establishmentData.business_hours || {
@@ -3070,280 +3071,330 @@ const EstablishmentDashboard = () => {
                     <p className="text-gray-400">Nenhum agendamento para este dia</p>
                   </div>
                 ) : (
-                  <div className="space-y-4 mt-4 w-full max-w-[100vw] overflow-x-hidden">
+                  <div className="space-y-3 mt-4 w-full max-w-[100vw] overflow-x-hidden">
                     {filteredAppointments.map((appointment) => (
                       <div key={appointment.id} className={`${
                         appointment.status === 'cancelled' ? 'bg-red-800/90' : 'bg-green-600'
-                      } rounded-lg p-3 sm:p-4 w-full overflow-hidden`}>
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-2">
-                          <div className="flex flex-col gap-1 flex-grow min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium text-white truncate">{appointment.client_name}</span>
-                        <button
-                          type="button"
+                      } rounded-lg w-full overflow-hidden`}>
+                        
+                        {/* Versão compacta - sempre visível */}
+                        <div 
+                          className="p-3 cursor-pointer hover:bg-black/10 transition-colors"
                           onClick={() => {
-                            const newDropdowns = { ...subscriberDropdowns };
+                            const newDropdowns = { ...appointmentDropdowns };
                             newDropdowns[appointment.id] = !newDropdowns[appointment.id];
-                            setSubscriberDropdowns(newDropdowns);
+                            setAppointmentDropdowns(newDropdowns);
                           }}
-                          className="ml-2 px-2 py-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-black font-bold rounded transition-colors"
                         >
-                          👑 CLIENTE ASSINANTE?
-                        </button>
-                        {subscriberDropdowns[appointment.id] && (
-                          <div className="absolute z-10 mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-lg">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                console.log('Marcando cliente como assinante:', appointment.client_name);
-                                
-                                try {
-                                  // SALVAR NO BANCO
-                                  const { error } = await supabase
-                                    .from('appointments')
-                                    .update({ 
-                                      is_subscriber: true,
-                                      price: 0,
-                                      total_price: 0
-                                    })
-                                    .eq('id', appointment.id);
-                                  
-                                  if (error) throw error;
-                                  
-                                  // Atualizar estado local
-                                  const newSubscribers = { ...appointmentSubscribers };
-                                  newSubscribers[appointment.id] = true;
-                                  setAppointmentSubscribers(newSubscribers);
-                                  
-                                  // Fechar dropdown
-                                  const newDropdowns = { ...subscriberDropdowns };
-                                  newDropdowns[appointment.id] = false;
-                                  setSubscriberDropdowns(newDropdowns);
-                                  
-                                  // Recarregar dados para atualizar saldos
-                                  await fetchAppointments();
-                                  await fetchMonthlyAppointments();
-                                  
-                                  toast('Cliente marcado como assinante! Serviço gratuito.', 'success');
-                                } catch (error) {
-                                  console.error('Erro ao salvar assinante:', error);
-                                  toast('Erro ao salvar. Tente novamente.', 'error');
-                                }
-                              }}
-                              className="w-full px-3 py-2 text-left hover:bg-gray-700 border-b border-gray-600 text-sm text-white"
-                            >
-                              ✅ Sim - Serviço já é assinante
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                console.log('Marcando cliente como não assinante:', appointment.client_name);
-                                
-                                try {
-                                  // Buscar o preço original do serviço
-                                  const service = establishment?.services_with_prices?.find(s => s.name === appointment.service);
-                                  const originalPrice = service?.price || appointment.price || 0;
-                                  
-                                  // SALVAR NO BANCO
-                                  const { error } = await supabase
-                                    .from('appointments')
-                                    .update({ 
-                                      is_subscriber: false,
-                                      price: originalPrice,
-                                      total_price: originalPrice
-                                    })
-                                    .eq('id', appointment.id);
-                                  
-                                  if (error) throw error;
-                                  
-                                  // Atualizar estado local
-                                  const newSubscribers = { ...appointmentSubscribers };
-                                  newSubscribers[appointment.id] = false;
-                                  setAppointmentSubscribers(newSubscribers);
-                                  
-                                  // Fechar dropdown
-                                  const newDropdowns = { ...subscriberDropdowns };
-                                  newDropdowns[appointment.id] = false;
-                                  setSubscriberDropdowns(newDropdowns);
-                                  
-                                  // Recarregar dados para atualizar saldos
-                                  await fetchAppointments();
-                                  await fetchMonthlyAppointments();
-                                  
-                                  toast('Cliente marcado como não assinante. Preço normal.', 'success');
-                                } catch (error) {
-                                  console.error('Erro ao salvar não assinante:', error);
-                                  toast('Erro ao salvar. Tente novamente.', 'error');
-                                }
-                              }}
-                              className="w-full px-3 py-2 text-left hover:bg-gray-700 text-sm text-white"
-                            >
-                              ❌ Não é assinante
-                            </button>
-                          </div>
-                        )}
-                              {isClientPaidSubscriber(appointment.client_whatsapp) && (
-                                <Crown className="h-5 w-5 text-yellow-400" />
-                              )}
-                              {appointment.client_whatsapp && (
-                                <a
-                                  href={`https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center text-white hover:text-white/80"
-                                >
-                                  <img src="/wppicon.png" alt="WhatsApp" className="h-4 w-4" />
-                                </a>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/90">
-                              <span className="inline-flex items-center gap-1">
-                                <Calendar className="h-4 w-4" />
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 flex-1">
+                              <span className="text-white font-medium">
                                 {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
                               </span>
-                              <span className="inline-flex items-center gap-1">
-                                <Clock className="h-4 w-4" />
+                              <span className="text-white">
                                 {appointment.appointment_time}
                               </span>
-                              <span className="inline-flex items-center gap-1">
-                                <User className="h-4 w-4" />
-                                {getProfessionalName(appointment.professional)}
+                              <span className="text-white">
+                                {appointment.client_name}
                               </span>
                             </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-white font-medium">
+                                {isClientPaidSubscriber(appointment.client_whatsapp) 
+                                  ? "GRATUITO" 
+                                  : appointment.is_subscriber 
+                                  ? 'GRATUITO' 
+                                  : formatCurrency(appointment.total_price || appointment.price)
+                                }
+                              </span>
+                              {appointmentDropdowns[appointment.id] ? (
+                                <ChevronUp className="h-4 w-4 text-white" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4 text-white" />
+                              )}
+                            </div>
                           </div>
-                          {appointment.is_premium && (
-                            <Crown className="h-5 w-5 text-yellow-300" />
+                          {!appointmentDropdowns[appointment.id] && (
+                            <div className="text-xs text-white/70 mt-1 text-center">
+                              clique para ver
+                            </div>
                           )}
                         </div>
 
-                        <div className="flex flex-col w-full mt-3">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-white/80">Serviço:</span>
-                              <span className="text-sm text-white">{appointment.service}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-white/80">Duração:</span>
-                              <span className="text-sm text-white">{formatDuration(appointment.duration)}</span>
-                            </div>
-                          </div>
-                          
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            <div className="flex items-center gap-2 min-w-[120px]">
-                              <span className="text-sm text-white/80">Valor base:</span>
-                              <span className="text-sm text-white">
-                                                                  {isClientPaidSubscriber(appointment.client_whatsapp) 
-                                    ? "GRATUITO" 
-                                    : appointment.is_subscriber 
-                                    ? 'R$ 0,00 (GRATUITO)' 
-                                    : formatCurrency(appointment.price)
-                                  }
-                              </span>
-                            </div>
-                            {appointment.additional_products && appointment.additional_products.length > 0 && (
-                              <div className="flex-1 min-w-[200px]">
-                                <span className="text-sm text-white/80 block mb-1">Produtos/Serviços Adicionais:</span>
-                                <div className="flex flex-wrap gap-2">
-                                  {appointment.additional_products.map((product, index) => (
-                                    <span key={index} className="inline-flex items-center px-2 py-1 text-xs bg-white/10 text-white rounded">
-                                      {product.name} - {formatCurrency(product.price)}
-                                    </span>
-                                  ))}
+                        {/* Detalhes expandidos - só aparece quando clicado */}
+                        {appointmentDropdowns[appointment.id] && (
+                          <div className="border-t border-white/20 p-3">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-2">
+                              <div className="flex flex-col gap-1 flex-grow min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-white truncate">{appointment.client_name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newDropdowns = { ...subscriberDropdowns };
+                                      newDropdowns[appointment.id] = !newDropdowns[appointment.id];
+                                      setSubscriberDropdowns(newDropdowns);
+                                    }}
+                                    className="ml-2 px-2 py-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-black font-bold rounded transition-colors"
+                                  >
+                                    👑 CLIENTE ASSINANTE?
+                                  </button>
+                                  {subscriberDropdowns[appointment.id] && (
+                                    <div className="absolute z-10 mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-lg">
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          console.log('Marcando cliente como assinante:', appointment.client_name);
+                                          
+                                          try {
+                                            // SALVAR NO BANCO
+                                            const { error } = await supabase
+                                              .from('appointments')
+                                              .update({ 
+                                                is_subscriber: true,
+                                                price: 0,
+                                                total_price: 0
+                                              })
+                                              .eq('id', appointment.id);
+                                            
+                                            if (error) throw error;
+                                            
+                                            // Atualizar estado local
+                                            const newSubscribers = { ...appointmentSubscribers };
+                                            newSubscribers[appointment.id] = true;
+                                            setAppointmentSubscribers(newSubscribers);
+                                            
+                                            // Fechar dropdown
+                                            const newDropdowns = { ...subscriberDropdowns };
+                                            newDropdowns[appointment.id] = false;
+                                            setSubscriberDropdowns(newDropdowns);
+                                            
+                                            // Recarregar dados para atualizar saldos
+                                            await fetchAppointments();
+                                            await fetchMonthlyAppointments();
+                                            
+                                            toast('Cliente marcado como assinante! Serviço gratuito.', 'success');
+                                          } catch (error) {
+                                            console.error('Erro ao salvar assinante:', error);
+                                            toast('Erro ao salvar. Tente novamente.', 'error');
+                                          }
+                                        }}
+                                        className="w-full px-3 py-2 text-left hover:bg-gray-700 border-b border-gray-600 text-sm text-white"
+                                      >
+                                        ✅ Sim - Serviço já é assinante
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          console.log('Marcando cliente como não assinante:', appointment.client_name);
+                                          
+                                          try {
+                                            // Buscar o preço original do serviço
+                                            const service = establishment?.services_with_prices?.find(s => s.name === appointment.service);
+                                            const originalPrice = service?.price || appointment.price || 0;
+                                            
+                                            // SALVAR NO BANCO
+                                            const { error } = await supabase
+                                              .from('appointments')
+                                              .update({ 
+                                                is_subscriber: false,
+                                                price: originalPrice,
+                                                total_price: originalPrice
+                                              })
+                                              .eq('id', appointment.id);
+                                            
+                                            if (error) throw error;
+                                            
+                                            // Atualizar estado local
+                                            const newSubscribers = { ...appointmentSubscribers };
+                                            newSubscribers[appointment.id] = false;
+                                            setAppointmentSubscribers(newSubscribers);
+                                            
+                                            // Fechar dropdown
+                                            const newDropdowns = { ...subscriberDropdowns };
+                                            newDropdowns[appointment.id] = false;
+                                            setSubscriberDropdowns(newDropdowns);
+                                            
+                                            // Recarregar dados para atualizar saldos
+                                            await fetchAppointments();
+                                            await fetchMonthlyAppointments();
+                                            
+                                            toast('Cliente marcado como não assinante. Preço normal.', 'success');
+                                          } catch (error) {
+                                            console.error('Erro ao salvar não assinante:', error);
+                                            toast('Erro ao salvar. Tente novamente.', 'error');
+                                          }
+                                        }}
+                                        className="w-full px-3 py-2 text-left hover:bg-gray-700 text-sm text-white"
+                                      >
+                                        ❌ Não é assinante
+                                      </button>
+                                    </div>
+                                  )}
+                                  {isClientPaidSubscriber(appointment.client_whatsapp) && (
+                                    <Crown className="h-5 w-5 text-yellow-400" />
+                                  )}
+                                  {appointment.client_whatsapp && (
+                                    <a
+                                      href={`https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center text-white hover:text-white/80"
+                                    >
+                                      <img src="/wppicon.png" alt="WhatsApp" className="h-4 w-4" />
+                                    </a>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/90">
+                                  <span className="inline-flex items-center gap-1">
+                                    <Calendar className="h-4 w-4" />
+                                    {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1">
+                                    <Clock className="h-4 w-4" />
+                                    {appointment.appointment_time}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1">
+                                    <User className="h-4 w-4" />
+                                    {getProfessionalName(appointment.professional)}
+                                  </span>
                                 </div>
                               </div>
-                            )}
-                          </div>
-                          
-                          <div className="flex flex-wrap items-center gap-3 mt-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-white/80">Total:</span>
-                              <span className="text-sm font-medium text-white">
-                                                                  {isClientPaidSubscriber(appointment.client_whatsapp) 
-                                    ? "GRATUITO" 
-                                    : appointment.is_subscriber 
-                                    ? 'R$ 0,00 (GRATUITO)' 
-                                    : formatCurrency(appointment.total_price || appointment.price)
-                                  }
-                              </span>
+                              {appointment.is_premium && (
+                                <Crown className="h-5 w-5 text-yellow-300" />
+                              )}
                             </div>
-                            
-                            <div className="flex flex-wrap items-center gap-2">
-                              <select
-                                value={appointment.payment_method || 'pendente'}
-                                onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
-                                className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
-                              >
-                                <option value="pendente" className="bg-green-700 text-white">Forma de Pagamento</option>
-                                <option value="pix" className="bg-green-700 text-white">PIX</option>
-                                <option value="credito" className="bg-green-700 text-white">Cartão de Crédito</option>
-                                <option value="debito" className="bg-green-700 text-white">Cartão de Débito</option>
-                                <option value="dinheiro" className="bg-green-700 text-white">Dinheiro</option>
-                                <option value="pagar_local" className="bg-green-700 text-white">Pagar no Local</option>
-                              </select>
+
+                            <div className="flex flex-col w-full mt-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-white/80">Serviço:</span>
+                                  <span className="text-sm text-white">{appointment.service}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-white/80">Duração:</span>
+                                  <span className="text-sm text-white">{formatDuration(appointment.duration)}</span>
+                                </div>
+                              </div>
                               
-                              {/* Mostrar taxa para cartões */}
-                              {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
-                                <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20">
-                                  Taxa: {getPaymentMethodTax(appointment.payment_method)}%
+                              <div className="flex flex-wrap gap-2 mt-3">
+                                <div className="flex items-center gap-2 min-w-[120px]">
+                                  <span className="text-sm text-white/80">Valor base:</span>
+                                  <span className="text-sm text-white">
+                                    {isClientPaidSubscriber(appointment.client_whatsapp) 
+                                      ? "GRATUITO" 
+                                      : appointment.is_subscriber 
+                                      ? 'R$ 0,00 (GRATUITO)' 
+                                      : formatCurrency(appointment.price)
+                                    }
+                                  </span>
+                                </div>
+                                {appointment.additional_products && appointment.additional_products.length > 0 && (
+                                  <div className="flex-1 min-w-[200px]">
+                                    <span className="text-sm text-white/80 block mb-1">Produtos/Serviços Adicionais:</span>
+                                    <div className="flex flex-wrap gap-2">
+                                      {appointment.additional_products.map((product, index) => (
+                                        <span key={index} className="inline-flex items-center px-2 py-1 text-xs bg-white/10 text-white rounded">
+                                          {product.name} - {formatCurrency(product.price)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              <div className="flex flex-wrap items-center gap-3 mt-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-white/80">Total:</span>
+                                  <span className="text-sm font-medium text-white">
+                                    {isClientPaidSubscriber(appointment.client_whatsapp) 
+                                      ? "GRATUITO" 
+                                      : appointment.is_subscriber 
+                                      ? 'R$ 0,00 (GRATUITO)' 
+                                      : formatCurrency(appointment.total_price || appointment.price)
+                                    }
+                                  </span>
+                                </div>
+                                
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <select
+                                    value={appointment.payment_method || 'pendente'}
+                                    onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
+                                    className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
+                                  >
+                                    <option value="pendente" className="bg-green-700 text-white">Forma de Pagamento</option>
+                                    <option value="pix" className="bg-green-700 text-white">PIX</option>
+                                    <option value="credito" className="bg-green-700 text-white">Cartão de Crédito</option>
+                                    <option value="debito" className="bg-green-700 text-white">Cartão de Débito</option>
+                                    <option value="dinheiro" className="bg-green-700 text-white">Dinheiro</option>
+                                    <option value="pagar_local" className="bg-green-700 text-white">Pagar no Local</option>
+                                  </select>
+                                  
+                                  {/* Mostrar taxa para cartões */}
+                                  {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
+                                    <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20">
+                                      Taxa: {getPaymentMethodTax(appointment.payment_method)}%
+                                    </span>
+                                  )}
+                                  
+                                  {appointment.payment_method === 'pix' && (
+                                    <select
+                                      value={appointment.pix_payment_status || 'pending'}
+                                      onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
+                                      className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
+                                    >
+                                      <option value="pending" className="bg-green-700 text-white">Aguardando PIX</option>
+                                      <option value="confirmed" className="bg-green-700 text-white">PIX Confirmado</option>
+                                      <option value="rejected" className="bg-green-700 text-white">PIX Rejeitado</option>
+                                    </select>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 mt-4 justify-end">
+                              {appointment.status !== 'cancelled' && (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedAppointmentForProduct(appointment.id);
+                                      setShowAdditionalProductModal(true);
+                                    }}
+                                    className="inline-flex items-center px-3 py-1.5 text-sm bg-white/20 text-white rounded hover:bg-white/30 transition-colors"
+                                  >
+                                    <Plus className="h-4 w-4 mr-1" />
+                                    Adicionar Produto
+                                  </button>
+
+                                  {appointment.payment_method === 'pix' && appointment.pix_proof_url && (
+                                    <button
+                                      onClick={() => handleOpenProof(appointment.pix_proof_url!)}
+                                      className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+                                    >
+                                      <ImageIcon className="h-4 w-4 mr-1" />
+                                      Ver Comprovante
+                                    </button>
+                                  )}
+
+                                  <button
+                                    onClick={() => handleCancelAppointment(appointment.id)}
+                                    className="inline-flex items-center px-3 py-1.5 text-sm bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors"
+                                  >
+                                    <X className="h-4 w-4 mr-1" />
+                                    Cancelar
+                                  </button>
+                                </>
+                              )}
+                              
+                              {appointment.status === 'cancelled' && (
+                                <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
+                                  <X className="h-4 w-4 mr-1" />
+                                  Cancelado
                                 </span>
                               )}
-                              
-                              {appointment.payment_method === 'pix' && (
-                                <select
-                                  value={appointment.pix_payment_status || 'pending'}
-                                  onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
-                                  className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
-                                >
-                                  <option value="pending" className="bg-green-700 text-white">Aguardando PIX</option>
-                                  <option value="confirmed" className="bg-green-700 text-white">PIX Confirmado</option>
-                                  <option value="rejected" className="bg-green-700 text-white">PIX Rejeitado</option>
-                                </select>
-                              )}
                             </div>
                           </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 mt-4 justify-end">
-                          {appointment.status !== 'cancelled' && (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setSelectedAppointmentForProduct(appointment.id);
-                                  setShowAdditionalProductModal(true);
-                                }}
-                                className="inline-flex items-center px-3 py-1.5 text-sm bg-white/20 text-white rounded hover:bg-white/30 transition-colors"
-                              >
-                                <Plus className="h-4 w-4 mr-1" />
-                                Adicionar Produto
-                              </button>
-
-                              {appointment.payment_method === 'pix' && appointment.pix_proof_url && (
-                                <button
-                                  onClick={() => handleOpenProof(appointment.pix_proof_url!)}
-                                  className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
-                                >
-                                  <ImageIcon className="h-4 w-4 mr-1" />
-                                  Ver Comprovante
-                                </button>
-                              )}
-
-                              <button
-                                onClick={() => handleCancelAppointment(appointment.id)}
-                                className="inline-flex items-center px-3 py-1.5 text-sm bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors"
-                              >
-                                <X className="h-4 w-4 mr-1" />
-                                Cancelar
-                              </button>
-                            </>
-                          )}
-                          
-                          {appointment.status === 'cancelled' && (
-                            <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
-                              <X className="h-4 w-4 mr-1" />
-                              Cancelado
-                            </span>
-                          )}
-                        </div>
+                        )}
                       </div>
                     ))}
                   </div>

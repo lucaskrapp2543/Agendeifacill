@@ -141,7 +141,7 @@ const LandingPage = () => {
   const businessTypes = [
     { icon: Scissors, name: "Barbearias", color: "bg-blue-500" },
     { icon: Sparkles, name: "Salões de Beleza", color: "bg-pink-500" },
-    { icon: Car, name: "Lava Car", color: "bg-green-500" },
+    { icon: Car, name: "Lava Car", color: "bg-[#2ddedb]" },
     { icon: Coffee, name: "Restaurantes", color: "bg-orange-500" },
     { icon: Calendar, name: "Outros", color: "bg-purple-500", description: "Tudo que precisa de agendamento e organização" }
   ];
@@ -230,7 +230,7 @@ const LandingPage = () => {
                   <Eye className="h-5 w-5 text-gray-300" />
                   <span className="text-sm font-medium text-gray-300">Pessoas no site:</span>
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#2ddedb' }} />
                     <span className="text-sm font-medium text-gray-300">{onlineUsers}</span>
                   </div>
                 </div>
@@ -261,8 +261,8 @@ const LandingPage = () => {
               <div className="w-full max-w-3xl px-4">
                 <div className="bg-gradient-to-r from-cyan-500 to-blue-800 rounded-2xl p-2 md:p-4 animate-pulse-custom" style={{ animation: 'pulse-scale 2s infinite' }}>
                   <div className="flex items-center justify-center gap-2 md:gap-3">
-                    <Rocket className="h-3 w-3 md:h-6 md:w-6 text-white flex-shrink-0" />
-                    <span className="text-xs md:text-xl text-white font-semibold text-center leading-tight">
+                                    <Rocket className="h-3 w-3 md:h-6 md:w-6 text-white flex-shrink-0" />
+                <span className="text-xs md:text-xl text-white font-semibold text-center leading-tight">
                       Sistema de agendamentos mais completo do Brasil
                     </span>
                   </div>
@@ -290,46 +290,115 @@ const LandingPage = () => {
                     Clique no botão abaixo para simular um agendamento e ver como é fácil e prático para seus clientes agendarem com você!
                   </p>
                   <div className="flex flex-col space-y-4 items-center">
+                    {/* Demonstração Barbearia */}
                     <Link
-                      to="/booking/3814" // Link para a página de demonstração Barbearia
-                      className="bg-gray-800 hover:bg-gray-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-between gap-4 relative"
+                      to="/booking/3814"
+                      className="group relative bg-gradient-to-r from-gray-900 to-gray-800 hover:from-gray-800 hover:to-gray-700 text-white font-semibold py-5 px-8 rounded-2xl text-lg transition-all duration-300 transform hover:scale-105 inline-block w-full sm:w-auto flex items-center justify-between gap-4 border border-gray-600 hover:border-[#2ddedb] overflow-hidden"
+                      style={{
+                        boxShadow: '0 0 20px rgba(45, 222, 219, 0.1)',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 0 30px rgba(45, 222, 219, 0.3), inset 0 0 20px rgba(45, 222, 219, 0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = '0 0 20px rgba(45, 222, 219, 0.1)';
+                      }}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="bg-green-400 p-2 rounded-lg">
-                          <Scissors className="h-5 w-5 text-white" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="flex items-center gap-4 relative z-10">
+                        <div className="relative p-3 rounded-xl bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 transition-all duration-300"
+                             style={{ 
+                               boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
+                               transition: 'all 0.3s ease'
+                             }}
+                             onMouseEnter={(e) => {
+                               e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
+                             }}
+                             onMouseLeave={(e) => {
+                               e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
+                             }}>
+                          <Scissors className="h-6 w-6" style={{ color: '#2ddedb' }} />
                         </div>
-                        <span>Demonstração Barbearia</span>
+                        <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Barbearia</span>
                       </div>
-                      <div className="bg-gray-700 p-2 rounded-full">
-                        <ArrowDown className="h-4 w-4 text-green-400" />
+                      <div className="bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 p-3 rounded-full transition-all duration-300 relative z-10"
+                           style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
+                        <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
                     </Link>
+                    {/* Demonstração Lava-car */}
                     <Link
-                      to="/booking/3315" // Link para a página de demonstração Lava-car
-                      className="bg-gray-800 hover:bg-gray-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-between gap-4 relative"
+                      to="/booking/3315"
+                      className="group relative bg-gradient-to-r from-gray-900 to-gray-800 hover:from-gray-800 hover:to-gray-700 text-white font-semibold py-5 px-8 rounded-2xl text-lg transition-all duration-300 transform hover:scale-105 inline-block w-full sm:w-auto flex items-center justify-between gap-4 border border-gray-600 hover:border-[#2ddedb] overflow-hidden"
+                      style={{
+                        boxShadow: '0 0 20px rgba(45, 222, 219, 0.1)',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 0 30px rgba(45, 222, 219, 0.3), inset 0 0 20px rgba(45, 222, 219, 0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = '0 0 20px rgba(45, 222, 219, 0.1)';
+                      }}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="bg-green-400 p-2 rounded-lg">
-                          <Car className="h-5 w-5 text-white" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="flex items-center gap-4 relative z-10">
+                        <div className="relative p-3 rounded-xl bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 transition-all duration-300"
+                             style={{ 
+                               boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
+                               transition: 'all 0.3s ease'
+                             }}
+                             onMouseEnter={(e) => {
+                               e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
+                             }}
+                             onMouseLeave={(e) => {
+                               e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
+                             }}>
+                          <Car className="h-6 w-6" style={{ color: '#2ddedb' }} />
                         </div>
-                        <span>Demonstração Lava-car</span>
+                        <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Lava-car</span>
                       </div>
-                      <div className="bg-gray-700 p-2 rounded-full">
-                        <ArrowDown className="h-4 w-4 text-green-400" />
+                      <div className="bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 p-3 rounded-full transition-all duration-300 relative z-10"
+                           style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
+                        <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
                     </Link>
+                    {/* Demonstração Salão de beleza */}
                     <button
-                      className="bg-gray-800 hover:bg-gray-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-between gap-4 relative"
+                      className="group relative bg-gradient-to-r from-gray-900 to-gray-800 hover:from-gray-800 hover:to-gray-700 text-white font-semibold py-5 px-8 rounded-2xl text-lg transition-all duration-300 transform hover:scale-105 inline-block w-full sm:w-auto flex items-center justify-between gap-4 border border-gray-600 hover:border-[#2ddedb] overflow-hidden"
+                      style={{
+                        boxShadow: '0 0 20px rgba(45, 222, 219, 0.1)',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 0 30px rgba(45, 222, 219, 0.3), inset 0 0 20px rgba(45, 222, 219, 0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = '0 0 20px rgba(45, 222, 219, 0.1)';
+                      }}
                       disabled // Desabilitado por enquanto, pois não tem link
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="bg-green-400 p-2 rounded-lg">
-                          <Sparkles className="h-5 w-5 text-white" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="flex items-center gap-4 relative z-10">
+                        <div className="relative p-3 rounded-xl bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 transition-all duration-300"
+                             style={{ 
+                               boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
+                               transition: 'all 0.3s ease'
+                             }}
+                             onMouseEnter={(e) => {
+                               e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
+                             }}
+                             onMouseLeave={(e) => {
+                               e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
+                             }}>
+                          <Sparkles className="h-6 w-6" style={{ color: '#2ddedb' }} />
                         </div>
-                        <span>Demonstração Salão de beleza</span>
+                        <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Salão de beleza</span>
                       </div>
-                      <div className="bg-gray-700 p-2 rounded-full">
-                        <ArrowDown className="h-4 w-4 text-green-400" />
+                      <div className="bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 p-3 rounded-full transition-all duration-300 relative z-10"
+                           style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
+                        <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
                     </button>
                     
@@ -341,8 +410,18 @@ const LandingPage = () => {
                           precosSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }
                       }}
-                      className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-center gap-2"
-                      style={{ animation: 'pulse-scale-green 2s infinite' }}
+                      className="text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-center gap-2"
+                      style={{ 
+                        background: 'linear-gradient(to right, #2ddedb, #1a9b95)',
+                        transition: 'all 0.3s ease',
+                        animation: 'pulse-scale-green 2s infinite'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'linear-gradient(to right, #1a9b95, #0f6b66)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'linear-gradient(to right, #2ddedb, #1a9b95)';
+                      }}
                     >
                       SER AGENDEI FÁCIL
                     </button>
@@ -803,63 +882,63 @@ const LandingPage = () => {
                     </div>
                     <ul className="space-y-4 mb-8 text-left">
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Agendamentos ilimitados</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Gestão completa de clientes</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Relatórios detalhados financeiro completo</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Confirmação automática por SMS</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Lucros diários e mensais</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Profissionais ilimitados</span>
               </li>
                             <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                 <span className="text-gray-300">Controle de % para colaboradores</span>
               </li>
               <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                 <span className="text-gray-300">Cálculo por base taxa da maquininha</span>
               </li>
               <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Serviços ilimitados</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Sistema de prêmio para clientes fiéis</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Mensagem de lembrete para clientes</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Página de agendamentos exclusiva sua e personalizável</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Pagamentos adiantados se preferir</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Sistema de assinantes incluso</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-400 mr-3" />
+                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
                         <span className="text-gray-300">Controle total de clientes novos e antigos e atuais</span>
                       </li>
                     </ul>
@@ -1021,7 +1100,7 @@ const LandingPage = () => {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold mb-4 text-white">Produto</h3>
+                              <h3 className="text-lg font-semibold mb-4 text-white">Produto</h3>
               <ul className="space-y-2 text-gray-400">
                 <li><a href="#" className="hover:text-white transition-colors">Funcionalidades</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Preços</a></li>
