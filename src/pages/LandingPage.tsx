@@ -17,6 +17,7 @@ import {
   Coffee,
   ArrowRight,
   ArrowDown,
+  ChevronDown,
   Phone,
   Mail,
   MapPin,
@@ -252,7 +253,7 @@ const LandingPage = () => {
           <div className="text-center"> {/* Removido max-w-4xl mx-auto */}
             <div className="flex flex-col items-center space-y-4 pt-8">
               <img
-                src="/testeR.png"
+                src="/aggf.png"
                 alt="AgendeiFácil Logo"
                 className="mx-auto w-full"
               />
@@ -261,16 +262,25 @@ const LandingPage = () => {
               <div className="w-full max-w-3xl px-4">
                 <div className="bg-gradient-to-r from-cyan-500 to-blue-800 rounded-2xl p-2 md:p-4 animate-pulse-custom" style={{ animation: 'pulse-scale 2s infinite' }}>
                   <div className="flex items-center justify-center gap-2 md:gap-3">
-                                    <Rocket className="h-3 w-3 md:h-6 md:w-6 text-white flex-shrink-0" />
-                <span className="text-xs md:text-xl text-white font-semibold text-center leading-tight">
+                    <Rocket className="h-3 w-3 md:h-6 md:w-6 text-white flex-shrink-0" />
+                    <span className="text-xs md:text-xl text-white font-semibold text-center leading-tight">
                       Sistema de agendamentos mais completo do Brasil
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Imagem 10 mil */}
+              {/* Imagem testeR */}
               <div className="w-full max-w-2xl mx-auto mt-0 mb-0">
+                <img
+                  src="/testeR.png"
+                  alt="Teste R"
+                  className="w-full h-auto hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+
+              {/* Imagem 10 mil abaixo da testeR */}
+              <div className="w-full max-w-2xl mx-auto mt-4">
                 <img
                   src="/10mil.png"
                   alt="10 mil"
@@ -432,221 +442,221 @@ const LandingPage = () => {
               {/* Seção de Benefícios */}
               <section className="py-16">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                  <p className="text-center text-blue-500 font-semibold mb-4">BENEFÍCIOS</p>
-                  <div className="text-center mb-8">
-                    <h2 className="text-base md:text-xl font-bold leading-snug">
-                      Mais <span className="text-blue-500 font-semibold">organização</span>,<br/>
-                      menos <span className="text-blue-500 font-semibold">preocupações</span>
-                    </h2>
-                  </div>
 
-                  <div className="grid md:grid-cols-2 gap-8">
-                    {/* Página exclusiva - ESTILO 1: Glassmorphism */}
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-600/20 backdrop-blur-sm border border-white/20 text-white rounded-2xl shadow-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-105">
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleDropdown('pagina-exclusiva')}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl flex items-center justify-center shadow-lg">
-                            <Globe className="w-6 h-6 text-white" />
+
+                  {/* Card único de funcionalidades */}
+                  <div className="max-w-4xl mx-auto">
+                    <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-200">
+                      {/* Cabeçalho */}
+                      <div className="text-center mb-8">
+                        <h3 className="text-3xl font-bold text-gray-800 mb-3">O que oferecemos</h3>
+                        <p className="text-gray-600">
+                          Porque somos o melhor do mercado?
+                        </p>
+                      </div>
+
+                      {/* Lista de funcionalidades */}
+                      <div className="space-y-4">
+                        {/* Página exclusiva */}
+                        <div className="border-b border-gray-100 pb-4">
+                          <div 
+                            className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleDropdown('pagina-exclusiva')}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              </div>
+                              <span className="text-lg font-medium text-gray-800">Página exclusiva</span>
+                            </div>
+                            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['pagina-exclusiva'] ? 'rotate-180' : ''}`} />
                           </div>
-                          <h3 className="text-xl font-bold text-white">Página exclusiva</h3>
+                          {openDropdowns['pagina-exclusiva'] && (
+                            <div className="mt-3 ml-9 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-700 mb-3">Sim, você ganha uma página exclusiva sua! Nela mostra:</p>
+                              <ul className="text-gray-700 text-sm space-y-1 list-disc list-inside">
+                                <li>Sua localização e contato</li>
+                                <li>PIX e Wi-Fi (se tiver)</li>
+                                <li>Horários de funcionamento</li>
+                                <li>Fotos dos seus cortes</li>
+                                <li>Avaliação do Google</li>
+                                <li>Serviços para assinaturas</li>
+                                <li>Botão de agendamento rápido</li>
+                              </ul>
+                              <p className="text-gray-600 text-sm mt-3">Tudo organizado para o cliente agendar com você de forma rápida e fácil.</p>
+                            </div>
+                          )}
                         </div>
-                        <div className="bg-white/20 p-2 rounded-full">
-                          <ArrowDown className={`w-4 h-4 text-white transition-transform duration-300 ${openDropdowns['pagina-exclusiva'] ? 'rotate-180' : ''}`} />
+
+                        {/* Não perca clientes */}
+                        <div className="border-b border-gray-100 pb-4">
+                          <div 
+                            className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleDropdown('nao-perca-clientes')}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              </div>
+                              <span className="text-lg font-medium text-gray-800">Lembretes automáticos</span>
+                            </div>
+                            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['nao-perca-clientes'] ? 'rotate-180' : ''}`} />
+                          </div>
+                          {openDropdowns['nao-perca-clientes'] && (
+                            <div className="mt-3 ml-9 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-700">Nosso sistema manda mensagem automática de lembrete para seu cliente no WhatsApp 1h30 antes do compromisso.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Controle total de agendamentos */}
+                        <div className="border-b border-gray-100 pb-4">
+                          <div 
+                            className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleDropdown('controle-agendamentos')}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              </div>
+                              <span className="text-lg font-medium text-gray-800">Controle total de agendamentos</span>
+                            </div>
+                            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['controle-agendamentos'] ? 'rotate-180' : ''}`} />
+                          </div>
+                          {openDropdowns['controle-agendamentos'] && (
+                            <div className="mt-3 ml-9 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-700">Você pode cancelar, adicionar novos horários e até incluir produtos extras vendidos na hora e muito mais.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Formas de pagamento */}
+                        <div className="border-b border-gray-100 pb-4">
+                          <div 
+                            className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleDropdown('formas-pagamento')}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              </div>
+                              <span className="text-lg font-medium text-gray-800">Formas de pagamento</span>
+                            </div>
+                            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['formas-pagamento'] ? 'rotate-180' : ''}`} />
+                          </div>
+                          {openDropdowns['formas-pagamento'] && (
+                            <div className="mt-3 ml-9 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-700">Total controle de quais foram as formas de pagamentos feitas.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Clube de Assinantes */}
+                        <div className="border-b border-gray-100 pb-4">
+                          <div 
+                            className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleDropdown('clube-assinantes')}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              </div>
+                              <span className="text-lg font-medium text-gray-800">Clube de Assinantes</span>
+                            </div>
+                            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['clube-assinantes'] ? 'rotate-180' : ''}`} />
+                          </div>
+                          {openDropdowns['clube-assinantes'] && (
+                            <div className="mt-3 ml-9 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-700">Isso mesmo! Dentro do sistema ainda tem incluso sistema de clube de assinantes, e dentro você tem total controle também dos seus assinantes. Se um assinante seu for fazer agendamento, o sistema reconhece e o valor só desconta na aba "ASSINANTES", evitando confusão do caixa normal.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Repescagem de clientes */}
+                        <div className="border-b border-gray-100 pb-4">
+                          <div 
+                            className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleDropdown('repescagem-clientes')}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              </div>
+                              <span className="text-lg font-medium text-gray-800">Repescagem de clientes</span>
+                            </div>
+                            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['repescagem-clientes'] ? 'rotate-180' : ''}`} />
+                          </div>
+                          {openDropdowns['repescagem-clientes'] && (
+                            <div className="mt-3 ml-9 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-700">O sistema identifica clientes que não retornaram e ajuda você a recuperá-los.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Colaboradores */}
+                        <div className="border-b border-gray-100 pb-4">
+                          <div 
+                            className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleDropdown('colaboradores')}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              </div>
+                              <span className="text-lg font-medium text-gray-800">Colaboradores</span>
+                            </div>
+                            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['colaboradores'] ? 'rotate-180' : ''}`} />
+                          </div>
+                          {openDropdowns['colaboradores'] && (
+                            <div className="mt-3 ml-9 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-700">Se você tem colaboradores que trabalham na sua barbearia, não se preocupe! Você consegue adicionar quantos profissionais quiser sem acréscimo de nada e ainda colocar a % que cada um deles recebe por corte. Cada colaborador seu terá uma página para ele ver os agendamentos dele, e você, dono do local, tem acesso a tudo.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Controle financeiro total */}
+                        <div className="pb-4">
+                          <div 
+                            className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleDropdown('controle-financeiro')}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              </div>
+                              <span className="text-lg font-medium text-gray-800">Controle financeiro total</span>
+                            </div>
+                            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['controle-financeiro'] ? 'rotate-180' : ''}`} />
+                          </div>
+                          {openDropdowns['controle-financeiro'] && (
+                            <div className="mt-3 ml-9 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-700 mb-3">Dentro do seu AgendeiFácil você terá 3 indicadores de valor:</p>
+                              <ul className="text-gray-700 text-sm space-y-1 list-disc list-inside mb-3">
+                                <li><strong>Valor bruto:</strong> quanto sua barbearia está faturando no mês</li>
+                                <li><strong>Valor líquido:</strong> tirando as despesas que você adicionou</li>
+                                <li><strong>Valor líquido estabelecimento:</strong> descontando despesas e a % de cada profissional</li>
+                              </ul>
+                              <p className="text-gray-600 text-sm">Assim você vê exatamente quanto cada profissional recebeu e quanto você, estabelecimento, recebeu com tudo descontado.</p>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <p className="text-xs text-blue-200 mt-2 text-center">Clique para ver</p>
-                      {openDropdowns['pagina-exclusiva'] && (
-                        <div className="mt-4 pt-4 border-t border-white/20">
-                          <p className="text-blue-100 mb-3">Sim, você ganha uma página exclusiva sua! Nela mostra:</p>
-                          <ul className="text-blue-100 text-sm space-y-1 mb-3">
-                            <li>• Sua localização e contato</li>
-                            <li>• PIX e Wi-Fi (se tiver)</li>
-                            <li>• Horários de funcionamento</li>
-                            <li>• Fotos dos seus cortes</li>
-                            <li>• Avaliação do Google</li>
-                            <li>• Serviços para assinaturas</li>
-                            <li>• Botão de agendamento rápido</li>
-                          </ul>
-                          <p className="text-blue-100 text-sm">Tudo organizado para o cliente agendar com você de forma rápida e fácil.</p>
-                        </div>
-                      )}
-                    </div>
 
-                    {/* Não perca clientes */}
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-600/20 backdrop-blur-sm border border-white/20 text-white rounded-2xl shadow-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-105">
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleDropdown('nao-perca-clientes')}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl flex items-center justify-center shadow-lg">
-                            <MessageCircle className="w-6 h-6 text-white" />
-                          </div>
-                          <h3 className="text-xl font-bold text-white">Não perca clientes</h3>
-                        </div>
-                        <div className="bg-white/20 p-2 rounded-full">
-                          <ArrowDown className={`w-4 h-4 text-white transition-transform duration-300 ${openDropdowns['nao-perca-clientes'] ? 'rotate-180' : ''}`} />
-                        </div>
+                      {/* Botão de ação */}
+                      <div className="mt-8 text-center">
+                        <button
+                          onClick={() => {
+                            const precosSection = document.getElementById('precos');
+                            if (precosSection) {
+                              precosSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                          }}
+                          className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-4 px-8 rounded-full text-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl flex items-center gap-2 mx-auto"
+                        >
+                          Começar agora
+                          <ArrowRight className="w-5 h-5" />
+                        </button>
                       </div>
-                      <p className="text-xs text-blue-200 mt-2 text-center">Clique para ver</p>
-                      {openDropdowns['nao-perca-clientes'] && (
-                        <div className="mt-4 pt-4 border-t border-white/20">
-                          <p className="text-blue-100">Nosso sistema manda mensagem automática de lembrete para seu cliente no WhatsApp 1h30 antes do compromisso.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Controle total de agendamentos */}
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-600/20 backdrop-blur-sm border border-white/20 text-white rounded-2xl shadow-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-105">
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleDropdown('controle-agendamentos')}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl flex items-center justify-center shadow-lg">
-                            <Calendar className="w-6 h-6 text-white" />
-                          </div>
-                          <h3 className="text-xl font-bold text-white">Controle total de agendamentos</h3>
-                        </div>
-                        <div className="bg-white/20 p-2 rounded-full">
-                          <ArrowDown className={`w-4 h-4 text-white transition-transform duration-300 ${openDropdowns['controle-agendamentos'] ? 'rotate-180' : ''}`} />
-                        </div>
-                      </div>
-                      <p className="text-xs text-blue-200 mt-2 text-center">Clique para ver</p>
-                      {openDropdowns['controle-agendamentos'] && (
-                        <div className="mt-4 pt-4 border-t border-white/20">
-                          <p className="text-blue-100">Você pode cancelar, adicionar novos horários e até incluir produtos extras vendidos na hora e muito mais.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Registre as formas de pagamento */}
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-600/20 backdrop-blur-sm border border-white/20 text-white rounded-2xl shadow-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-105">
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleDropdown('formas-pagamento')}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl flex items-center justify-center shadow-lg">
-                            <DollarSign className="w-6 h-6 text-white" />
-                          </div>
-                          <h3 className="text-xl font-bold text-white">Registre as formas de pagamento</h3>
-                        </div>
-                        <div className="bg-white/20 p-2 rounded-full">
-                          <ArrowDown className={`w-4 h-4 text-white transition-transform duration-300 ${openDropdowns['formas-pagamento'] ? 'rotate-180' : ''}`} />
-                        </div>
-                      </div>
-                      <p className="text-xs text-blue-200 mt-2 text-center">Clique para ver</p>
-                      {openDropdowns['formas-pagamento'] && (
-                        <div className="mt-4 pt-4 border-t border-white/20">
-                          <p className="text-blue-100">Total controle de quais foram as formas de pagamentos feitas.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Clube de Assinantes */}
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-600/20 backdrop-blur-sm border border-white/20 text-white rounded-2xl shadow-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-105">
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleDropdown('clube-assinantes')}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl flex items-center justify-center shadow-lg">
-                            <Crown className="w-6 h-6 text-white" />
-                          </div>
-                          <h3 className="text-xl font-bold text-white">Clube de Assinantes</h3>
-                        </div>
-                        <div className="bg-white/20 p-2 rounded-full">
-                          <ArrowDown className={`w-4 h-4 text-white transition-transform duration-300 ${openDropdowns['clube-assinantes'] ? 'rotate-180' : ''}`} />
-                        </div>
-                      </div>
-                      <p className="text-xs text-blue-200 mt-2 text-center">Clique para ver</p>
-                      {openDropdowns['clube-assinantes'] && (
-                        <div className="mt-4 pt-4 border-t border-white/20">
-                          <p className="text-blue-100">Isso mesmo! Dentro do sistema ainda tem incluso sistema de clube de assinantes, e dentro você tem total controle também dos seus assinantes. Se um assinante seu for fazer agendamento, o sistema reconhece e o valor só desconta na aba "ASSINANTES", evitando confusão do caixa normal.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Repescagem de clientes */}
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-600/20 backdrop-blur-sm border border-white/20 text-white rounded-2xl shadow-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-105">
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleDropdown('repescagem-clientes')}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl flex items-center justify-center shadow-lg">
-                            <Users className="w-6 h-6 text-white" />
-                          </div>
-                          <h3 className="text-xl font-bold text-white">Repescagem de clientes</h3>
-                        </div>
-                        <div className="bg-white/20 p-2 rounded-full">
-                          <ArrowDown className={`w-4 h-4 text-white transition-transform duration-300 ${openDropdowns['repescagem-clientes'] ? 'rotate-180' : ''}`} />
-                        </div>
-                      </div>
-                      <p className="text-xs text-blue-200 mt-2 text-center">Clique para ver</p>
-                      {openDropdowns['repescagem-clientes'] && (
-                        <div className="mt-4 pt-4 border-t border-white/20">
-                          <p className="text-blue-100">O sistema identifica clientes que não retornaram e ajuda você a recuperá-los.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Colaboradores */}
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-600/20 backdrop-blur-sm border border-white/20 text-white rounded-2xl shadow-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-105">
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleDropdown('colaboradores')}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl flex items-center justify-center shadow-lg">
-                            <Users className="w-6 h-6 text-white" />
-                          </div>
-                          <h3 className="text-xl font-bold text-white">Colaboradores</h3>
-                        </div>
-                        <div className="bg-white/20 p-2 rounded-full">
-                          <ArrowDown className={`w-4 h-4 text-white transition-transform duration-300 ${openDropdowns['colaboradores'] ? 'rotate-180' : ''}`} />
-                        </div>
-                      </div>
-                      <p className="text-xs text-blue-200 mt-2 text-center">Clique para ver</p>
-                      {openDropdowns['colaboradores'] && (
-                        <div className="mt-4 pt-4 border-t border-white/20">
-                          <p className="text-blue-100">Se você tem colaboradores que trabalham na sua barbearia, não se preocupe! Você consegue adicionar quantos profissionais quiser sem acréscimo de nada e ainda colocar a % que cada um deles recebe por corte. Cada colaborador seu terá uma página para ele ver os agendamentos dele, e você, dono do local, tem acesso a tudo.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Controle financeiro total */}
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-600/20 backdrop-blur-sm border border-white/20 text-white rounded-2xl shadow-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-105">
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleDropdown('controle-financeiro')}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl flex items-center justify-center shadow-lg">
-                            <BarChart3 className="w-6 h-6 text-white" />
-                          </div>
-                          <h3 className="text-xl font-bold text-white">Controle financeiro total</h3>
-                        </div>
-                        <div className="bg-white/20 p-2 rounded-full">
-                          <ArrowDown className={`w-4 h-4 text-white transition-transform duration-300 ${openDropdowns['controle-financeiro'] ? 'rotate-180' : ''}`} />
-                        </div>
-                      </div>
-                      <p className="text-xs text-blue-200 mt-2 text-center">Clique para ver</p>
-                      {openDropdowns['controle-financeiro'] && (
-                        <div className="mt-4 pt-4 border-t border-white/20">
-                          <p className="text-blue-100 mb-3">Dentro do seu AgendeiFácil você terá 3 indicadores de valor:</p>
-                          <ul className="text-blue-100 text-sm space-y-1 mb-3">
-                            <li>• <strong>Valor bruto:</strong> quanto sua barbearia está faturando no mês</li>
-                            <li>• <strong>Valor líquido:</strong> tirando as despesas que você adicionou</li>
-                            <li>• <strong>Valor líquido estabelecimento:</strong> descontando despesas e a % de cada profissional</li>
-                          </ul>
-                          <p className="text-blue-100 text-sm">Assim você vê exatamente quanto cada profissional recebeu e quanto você, estabelecimento, recebeu com tudo descontado.</p>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -1100,7 +1110,7 @@ const LandingPage = () => {
             </div>
 
             <div>
-                              <h3 className="text-lg font-semibold mb-4 text-white">Produto</h3>
+              <h3 className="text-lg font-semibold mb-4 text-white">Produto</h3>
               <ul className="space-y-2 text-gray-400">
                 <li><a href="#" className="hover:text-white transition-colors">Funcionalidades</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Preços</a></li>
