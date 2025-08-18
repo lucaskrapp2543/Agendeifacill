@@ -15,6 +15,7 @@ import { PlusCircle } from 'lucide-react';
 import { Phone } from 'lucide-react'; // Certifique-se de que Phone está importado
 import { AlertCircle } from 'lucide-react'; // Corrigido de ExclamationCircle para AlertCircle
 import { Crown } from 'lucide-react';
+import ReadMore from '../components/ReadMore';
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -474,7 +475,13 @@ export default function BookingPage() {
           <div className="text-center space-y-2">
             <h1 className="text-2xl font-bold text-gray-900">{establishment?.name}</h1>
             {establishment?.description && (
-              <p className="text-gray-600">{establishment.description}</p>
+              <p className="text-gray-600">
+                <ReadMore 
+                  text={establishment.description} 
+                  maxLength={60}
+                  className="text-gray-600"
+                />
+              </p>
             )}
 
             {/* Botões de Ação Principal */}

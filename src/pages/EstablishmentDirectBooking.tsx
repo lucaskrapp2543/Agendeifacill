@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BusinessHoursSelector } from '../components/BusinessHoursSelector';
 import { useToast } from '../components/ui/Toaster';
+import ReadMore from '../components/ReadMore';
 import type { Establishment, BusinessHours, Professional, Service } from '../types/supabase';
 
 const EstablishmentDirectBooking: React.FC = () => {
@@ -463,7 +464,13 @@ const EstablishmentDirectBooking: React.FC = () => {
             )}
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{establishment?.name || 'Estabelecimento'}</h1>
-              <p className="text-gray-600">{establishment?.description || 'Descrição não disponível'}</p>
+              <p className="text-gray-600">
+                <ReadMore 
+                  text={establishment?.description || 'Descrição não disponível'} 
+                  maxLength={60}
+                  className="text-gray-600"
+                />
+              </p>
               <p className="text-sm text-gray-500">Código: {extractCodeFromSlug(slug || '')}</p>
 
               {/* Botões de Ação Principal (visíveis antes de agendar) */}

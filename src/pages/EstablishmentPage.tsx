@@ -7,6 +7,7 @@ import { Calendar, Star, ArrowLeft, LogIn, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BusinessHoursSelector } from '../components/BusinessHoursSelector';
+import ReadMore from '../components/ReadMore';
 import type { Database } from '../types/supabase';
 
 interface BusinessHours {
@@ -134,7 +135,13 @@ const EstablishmentPage = () => {
         <div className="card bg-[#1a1b1c] border border-gray-800 p-8 max-w-md w-full">
           <div className="text-center mb-6">
             <h2 className="text-2xl font-bold text-white mb-2">{establishment.name}</h2>
-            <p className="text-gray-400">{establishment.description}</p>
+            <p className="text-gray-400">
+              <ReadMore 
+                text={establishment.description} 
+                maxLength={60}
+                className="text-gray-400"
+              />
+            </p>
           </div>
           
           <div className="space-y-4">
@@ -189,7 +196,13 @@ const EstablishmentPage = () => {
                 <Calendar className="h-5 w-5 text-primary" />
                 <h2 className="text-xl font-semibold text-white">Fazer Agendamento</h2>
               </div>
-              <p className="text-sm text-gray-400">{establishment.description}</p>
+              <p className="text-sm text-gray-400">
+                <ReadMore 
+                  text={establishment.description} 
+                  maxLength={60}
+                  className="text-sm text-gray-400"
+                />
+              </p>
             </div>
 
             <form onSubmit={handleBookAppointment} className="space-y-4">
