@@ -489,7 +489,7 @@ export default function BookingPage() {
               {/* Botão AGENDAR */}
               <button
                 onClick={handleAgendarClick}
-                className="w-full bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
+                className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-3 shadow-2xl hover:shadow-3xl border-2 border-gray-300"
               >
                 AGENDAR
                 <img src="/calendario.png" alt="Calendário" className="h-6 w-6" />
@@ -502,8 +502,8 @@ export default function BookingPage() {
                 rel="noopener noreferrer"
                 className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
                   establishment?.review_link 
-                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
-                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                    ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
                 }`}
               >
                 AVALIE A GENTE
@@ -517,8 +517,8 @@ export default function BookingPage() {
                 rel="noopener noreferrer"
                 className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
                   establishment?.social_media_link 
-                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
-                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                    ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
                 }`}
               >
                 INSTAGRAM
@@ -538,8 +538,8 @@ export default function BookingPage() {
                 disabled={!establishment?.pix_key}
                 className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
                   establishment?.pix_key 
-                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
-                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                    ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
                 }`}
               >
                 PAGAR PIX
@@ -553,8 +553,8 @@ export default function BookingPage() {
                 rel="noopener noreferrer"
                 className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
                   establishment?.location_link 
-                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
-                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
+                    ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
                 }`}
               >
                 COMO CHEGAR
@@ -571,7 +571,7 @@ export default function BookingPage() {
                       e.stopPropagation();
                       setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
                     }}
-                    className="w-full bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
+                    className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-3 shadow-2xl hover:shadow-3xl border-2 border-gray-300"
                   >
                     SER ASSINANTE
                     <img src="/coroa.png" alt="Coroa" className="h-6 w-6" />
