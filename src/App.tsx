@@ -4,6 +4,8 @@ import { SupabaseProvider } from './context/SupabaseContext';
 import { AuthProvider } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 
+// Teste de configuração - novo computador
+
 // Pages
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
