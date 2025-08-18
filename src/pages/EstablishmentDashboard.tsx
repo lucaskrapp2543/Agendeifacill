@@ -9,6 +9,7 @@ import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } fr
 import { getEstablishmentAppointments, createEstablishment, updateEstablishment, getEstablishmentPremiumSubscribers, removePremiumSubscriber } from '../lib/supabase';
 import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
+import { DraggableServiceList } from '../components/DraggableServiceList';
 import { TimeSelector } from '../components/TimeSelector';
 import { AvailableTimesViewer } from '../components/AvailableTimesViewer';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
@@ -173,6 +174,7 @@ const EstablishmentDashboard = () => {
   const [isEstablishmentLoading, setIsEstablishmentLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isSavingServicesOrder, setIsSavingServicesOrder] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isPaymentDropdownOpen, setIsPaymentDropdownOpen] = useState(false);
@@ -725,6 +727,40 @@ const EstablishmentDashboard = () => {
       toast.error(error.message || 'Erro ao atualizar estabelecimento');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const saveServicesOrder = async (newServices: Service[]) => {
+    if (!user || !establishment) return;
+    
+    setIsSavingServicesOrder(true);
+    
+    try {
+      const { data, error } = await supabase
+        .from('establishments')
+        .update({
+          services_with_prices: newServices.map(s => ({
+            id: s.id,
+            name: s.name.trim(),
+            price: Number(s.price),
+            duration: Number(s.duration)
+          })).filter(s => s.name && s.price > 0)
+        })
+        .eq('id', establishment.id)
+        .select();
+      
+      if (error) {
+        throw error;
+      }
+      
+      setEstablishment(data?.[0]);
+      toast.success('Ordem dos serviços atualizada!');
+      
+    } catch (error: any) {
+      console.error('Erro ao salvar ordem dos serviços:', error);
+      toast.error('Erro ao salvar ordem dos serviços');
+    } finally {
+      setIsSavingServicesOrder(false);
     }
   };
 
@@ -3966,17 +4002,20 @@ const EstablishmentDashboard = () => {
                 {servicesWithPrices.length > 0 && (
                   <div className="mb-4 border-b border-gray-800 pb-4">
                     <h4 className="text-md font-semibold text-gray-300 mb-3">Serviços Cadastrados:</h4>
-                    <div className="space-y-2">
-                      {servicesWithPrices.map((service) => (
-                        <div key={service.id} className="flex items-center justify-between bg-[#242628] p-3 rounded-lg">
-                          <span className="text-gray-300">{service.name}</span>
-                          <div className="flex items-center gap-4">
-                            <span className="text-gray-400">{service.duration}min</span>
-                            <span className="text-gray-300">R$ {service.price.toFixed(2).replace('.', ',')}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-sm text-gray-400 mb-3">
+                      Arraste os serviços para reordenar a lista
+                    </p>
+                    <DraggableServiceList
+                      services={servicesWithPrices}
+                      onReorder={(newServices) => {
+                        setServicesWithPrices(newServices);
+                        // Salvar automaticamente a nova ordem
+                        if (establishment) {
+                          saveServicesOrder(newServices);
+                        }
+                      }}
+                      isSaving={isSavingServicesOrder}
+                    />
                   </div>
                 )}
                 
