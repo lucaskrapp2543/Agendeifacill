@@ -7,7 +7,7 @@ import { supabase, getSubscriptions } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { AppointmentForm } from '../components/AppointmentForm';
 import { PhotoCarousel } from '../components/PhotoCarousel';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, ChevronDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
 import { LogOut } from 'lucide-react';
@@ -33,6 +33,7 @@ export default function BookingPage() {
   const [showDemoSuccessModal, setShowDemoSuccessModal] = useState(false); // Novo estado para o modal de demonstração
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
+  const [showBusinessHours, setShowBusinessHours] = useState(false);
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
@@ -458,6 +459,15 @@ export default function BookingPage() {
             </div>
           )}
 
+          {/* Imagem Melhor do Brasil */}
+          <div className="mb-4">
+            <img 
+              src="/melhordobrasil.png" 
+              alt="Melhor do Brasil" 
+              className="w-full h-auto rounded-lg shadow-lg"
+            />
+          </div>
+
           {/* Carrossel de Fotos */}
           <div className="rounded-lg overflow-hidden">
             <PhotoCarousel 
@@ -489,10 +499,10 @@ export default function BookingPage() {
               {/* Botão AGENDAR */}
               <button
                 onClick={handleAgendarClick}
-                className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-3 shadow-2xl hover:shadow-3xl border-2 border-gray-300"
+                className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center shadow-2xl hover:shadow-3xl border-2 border-gray-300 relative"
               >
                 AGENDAR
-                <img src="/calendario.png" alt="Calendário" className="h-6 w-6" />
+                <img src="/calendario.png" alt="Calendário" className="h-6 w-6 absolute right-6" />
               </button>
 
               {/* Botão AVALIE A GENTE */}
@@ -500,14 +510,14 @@ export default function BookingPage() {
                 href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                className={`flex items-center justify-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 relative ${
                   establishment?.review_link 
                     ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
                 }`}
               >
                 AVALIE A GENTE
-                <img src="/google.png" alt="Google" className="h-6 w-6" />
+                <img src="/google.png" alt="Google" className="h-6 w-6 absolute right-6" />
               </a>
 
               {/* Botão INSTAGRAM */}
@@ -515,14 +525,14 @@ export default function BookingPage() {
                 href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                className={`flex items-center justify-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 relative ${
                   establishment?.social_media_link 
                     ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
                 }`}
               >
                 INSTAGRAM
-                <img src="/INST.png" alt="Instagram" className="h-6 w-6" />
+                <img src="/INST.png" alt="Instagram" className="h-6 w-6 absolute right-6" />
               </a>
 
               {/* Botão PAGAR PIX */}
@@ -536,14 +546,14 @@ export default function BookingPage() {
                   }
                 }}
                 disabled={!establishment?.pix_key}
-                className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                className={`flex items-center justify-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 relative ${
                   establishment?.pix_key 
                     ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
                 }`}
               >
                 PAGAR PIX
-                <img src="/PIX.png" alt="PIX" className="h-6 w-6" />
+                <img src="/PIX.png" alt="PIX" className="h-6 w-6 absolute right-6" />
               </button>
 
               {/* Botão COMO CHEGAR */}
@@ -551,14 +561,14 @@ export default function BookingPage() {
                 href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-3 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                className={`flex items-center justify-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 relative ${
                   establishment?.location_link 
                     ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
                 }`}
               >
                 COMO CHEGAR
-                <img src="/LOCAL.png" alt="Localização" className="h-6 w-6" />
+                <img src="/LOCAL.png" alt="Localização" className="h-6 w-6 absolute right-6" />
               </a>
 
               {/* Dropdown SER ASSINANTE */}
@@ -571,10 +581,10 @@ export default function BookingPage() {
                       e.stopPropagation();
                       setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
                     }}
-                    className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-3 shadow-2xl hover:shadow-3xl border-2 border-gray-300"
+                    className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center shadow-2xl hover:shadow-3xl border-2 border-gray-300 relative"
                   >
-                    SER ASSINANTE
-                    <img src="/coroa.png" alt="Coroa" className="h-6 w-6" />
+                                          SER ASSINANTE
+                      <img src="/coroa.png" alt="Coroa" className="h-6 w-6 absolute right-6" />
                   </button>
                   
                   {showSubscriptionsDropdown && (
@@ -689,15 +699,29 @@ export default function BookingPage() {
 
               {/* Seção de Horário de Atendimento */}
               <div className="mt-8 mb-6 bg-white rounded-lg p-6 shadow-md border border-gray-200">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                    </svg>
+                <button
+                  onClick={() => setShowBusinessHours(!showBusinessHours)}
+                  className="w-full flex items-center justify-between gap-3 mb-4 hover:bg-gray-50 p-2 rounded-lg transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-lg font-medium text-gray-900">Horário de atendimento</h3>
+                      <p className="text-sm text-gray-500">Clique para ver os horários</p>
+                    </div>
                   </div>
-                  <h3 className="text-lg font-medium text-gray-900">Horário de atendimento</h3>
-                </div>
-                {establishment?.business_hours && (
+                  <ChevronDown 
+                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${
+                      showBusinessHours ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+                
+                {showBusinessHours && establishment?.business_hours && (
                   <div className="space-y-2">
                     {[
                       { dia: 'Segunda', key: 'monday' },
@@ -760,6 +784,18 @@ export default function BookingPage() {
                     })}
                   </div>
                 )}
+              </div>
+
+              {/* Link para Agendei Fácil */}
+              <div className="mt-6 text-center">
+                <a
+                  href="https://agendeifacil.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors underline"
+                >
+                  Quero Agendei Fácil no meu estabelecimento
+                </a>
               </div>
             </div>
           </div>
