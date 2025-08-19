@@ -22,6 +22,12 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    // Configurações para evitar cache
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    },
   },
   resolve: {
     alias: {
@@ -36,6 +42,15 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: undefined,
+        // Adicionar timestamp para evitar cache
+        assetFileNames: (assetInfo) => {
+          const info = assetInfo.name.split('.');
+          const ext = info[info.length - 1];
+          if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(ext)) {
+            return `assets/[name]-[hash].${ext}`;
+          }
+          return `assets/[name]-[hash].${ext}`;
+        },
       },
     },
   },
