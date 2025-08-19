@@ -35,6 +35,7 @@ interface TimeSlotSelectorProps {
     open2: string | null;
     close2: string | null;
   };
+  use15MinuteInterval?: boolean; // Nova prop para configuração de intervalo
 }
 
 export function TimeSlotSelector({
@@ -43,7 +44,8 @@ export function TimeSlotSelector({
   existingAppointments,
   selectedTime,
   onTimeSelect,
-  businessHours
+  businessHours,
+  use15MinuteInterval = false // Valor padrão false (15 em 15 min)
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -72,13 +74,16 @@ export function TimeSlotSelector({
     console.log('  - businessHours:', businessHours);
     console.log('  - relevantAppointments:', relevantAppointments);
 
+    // Determinar o intervalo baseado na configuração
+    const interval = use15MinuteInterval ? 30 : 15;
+    
     // Gerar horários para o primeiro período
     if (businessHours.open1 && businessHours.close1) {
       const startMinutes = timeToMinutes(businessHours.open1);
       const endMinutes = timeToMinutes(businessHours.close1);
       
-      // Gerar slots de 15 em 15 minutos
-      for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
+      // Gerar slots com o intervalo configurado
+      for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
         const hours = Math.floor(minutes / 60);
         const mins = minutes % 60;
         const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
@@ -105,8 +110,11 @@ export function TimeSlotSelector({
           const aptStartMinutes = timeToMinutes(appointment.appointment_time);
           const aptEndMinutes = aptStartMinutes + appointment.duration;
           
+          // Se usar intervalo de 15 min, adicionar 15 min de bloqueio após o serviço
+          const blockEndMinutes = use15MinuteInterval ? aptEndMinutes + 15 : aptEndMinutes;
+          
           // Verificar sobreposição
-          if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
+          if (!(slotEndMinutes <= aptStartMinutes || minutes >= blockEndMinutes)) {
             isAvailable = false;
             conflictReason = 'Horário Reservado';
             break;
@@ -132,7 +140,7 @@ export function TimeSlotSelector({
       const startMinutes = timeToMinutes(businessHours.open2);
       const endMinutes = timeToMinutes(businessHours.close2);
       
-      for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
+      for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
         const hours = Math.floor(minutes / 60);
         const mins = minutes % 60;
         const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
@@ -158,7 +166,10 @@ export function TimeSlotSelector({
           const aptStartMinutes = timeToMinutes(appointment.appointment_time);
           const aptEndMinutes = aptStartMinutes + appointment.duration;
           
-          if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
+          // Se usar intervalo de 15 min, adicionar 15 min de bloqueio após o serviço
+          const blockEndMinutes = use15MinuteInterval ? aptEndMinutes + 15 : aptEndMinutes;
+          
+          if (!(slotEndMinutes <= aptStartMinutes || minutes >= blockEndMinutes)) {
             isAvailable = false;
             conflictReason = 'Horário Reservado';
             break;

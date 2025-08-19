@@ -253,6 +253,12 @@ const EstablishmentDashboard = () => {
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   
   const [servicesWithPrices, setServicesWithPrices] = useState<Service[]>([]);
+  
+  // Estado para intervalo de 15 minutos
+  const [use15MinuteInterval, setUse15MinuteInterval] = useState(false);
+  
+  // Estado para mostrar imagem "Melhor do Brasil"
+  const [showBestOfBrazilImage, setShowBestOfBrazilImage] = useState(true);
 
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
@@ -712,6 +718,8 @@ const EstablishmentDashboard = () => {
         has_accessibility: hasAccessibility, // Atualiza a comodidade Acessibilidade
         wifi_password: wifiPassword.trim(), // Atualiza a senha do Wi-Fi
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
+        use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
+        show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -1014,6 +1022,12 @@ const EstablishmentDashboard = () => {
           setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
           setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
           setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
+          
+          // Carrega a configuração de intervalo de 15 minutos
+          setUse15MinuteInterval(establishmentData.use_15_minute_interval ?? false);
+          
+          // Carrega a configuração da imagem "Melhor do Brasil"
+          setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
           
           // Carrega os profissionais e serviços
           const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: Professional) => ({
@@ -3636,6 +3650,43 @@ const EstablishmentDashboard = () => {
                     />
                     <span className="text-white">Acessibilidade</span>
                   </label>
+                </div>
+              </div>
+
+              {/* Configuração de Intervalo */}
+              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
+                <h3 className="text-lg font-medium text-white mb-4">Configuração de Horários</h3>
+                <div className="space-y-4">
+                  <div className="flex items-start space-x-3">
+                    <input
+                      type="checkbox"
+                      id="use15MinuteInterval"
+                      checked={use15MinuteInterval}
+                      onChange={(e) => setUse15MinuteInterval(e.target.checked)}
+                      className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                    />
+                    <div className="flex-1">
+                      <label htmlFor="use15MinuteInterval" className="block text-white font-medium mb-2">
+                        Horários com intervalo 15 min
+                      </label>
+                      <p className="text-sm text-gray-400 leading-relaxed">
+                        Ao selecionar essa opção, para seus clientes irá aparecer horários de 30 em 30 min exemplo, 09:00 \ 09:30 \ 10:00 \ 10:30 por ai vai, essa mudança se um cliente por exemplo escolher serviço seu que tem duração de 45 min e ele selecionar as 9:00 o horário das 9 até as 10:00 ficaram (Reservado) assim você tera 15 min de 'intervalo' entre o serviço e outro.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      id="showBestOfBrazilImage"
+                      checked={showBestOfBrazilImage}
+                      onChange={(e) => setShowBestOfBrazilImage(e.target.checked)}
+                      className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded"
+                    />
+                    <label htmlFor="showBestOfBrazilImage" className="text-white font-medium">
+                      Melhor sistema de agendamentos do brasil
+                    </label>
+                  </div>
                 </div>
               </div>
 

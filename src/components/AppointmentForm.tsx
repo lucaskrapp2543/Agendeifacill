@@ -57,6 +57,7 @@ interface AppointmentFormProps {
   establishment: Establishment & {
     pix_key?: string;
     pix_key_type?: string;
+    use_15_minute_interval?: boolean;
   };
   onSubmit: (data: any) => Promise<void>;
   selectedDate: Date;
@@ -388,6 +389,7 @@ export function AppointmentForm({
               selectedTime={selectedTime}
               onTimeSelect={setSelectedTime}
               businessHours={businessHours}
+              use15MinuteInterval={establishment.use_15_minute_interval || false}
             />
           </div>
         )}

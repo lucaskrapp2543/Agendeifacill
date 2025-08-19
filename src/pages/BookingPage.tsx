@@ -459,14 +459,7 @@ export default function BookingPage() {
             </div>
           )}
 
-          {/* Imagem Melhor do Brasil */}
-          <div className="mb-4">
-            <img 
-              src="/melhordobrasil.png" 
-              alt="Melhor do Brasil" 
-              className="w-full h-auto rounded-lg shadow-lg"
-            />
-          </div>
+
 
           {/* Carrossel de Fotos */}
           <div className="rounded-lg overflow-hidden">
@@ -785,6 +778,17 @@ export default function BookingPage() {
                   </div>
                 )}
               </div>
+
+              {/* Imagem Melhor do Brasil */}
+              {establishment?.show_best_of_brazil_image && (
+                <div className="mt-6 mb-4">
+                  <img 
+                    src="/melhordobrasil.png" 
+                    alt="Melhor do Brasil" 
+                    className="w-full h-auto rounded-lg shadow-lg"
+                  />
+                </div>
+              )}
 
               {/* Link para Agendei Fácil */}
               <div className="mt-6 text-center">
