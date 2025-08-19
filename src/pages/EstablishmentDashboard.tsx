@@ -259,6 +259,9 @@ const EstablishmentDashboard = () => {
   
   // Estado para mostrar imagem "Melhor do Brasil"
   const [showBestOfBrazilImage, setShowBestOfBrazilImage] = useState(true);
+  
+  // Estado para mostrar/ocultar valores financeiros
+  const [showFinancialValues, setShowFinancialValues] = useState(true);
 
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
@@ -2726,6 +2729,15 @@ const EstablishmentDashboard = () => {
   // Renderização do dashboard quando há estabelecimento
   return (
     <div className="min-h-screen bg-white overflow-x-hidden">
+      {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
+      <div className="w-full mb-4 flex justify-center md:hidden">
+        <img 
+          src="/melhordobrasilcortado.png" 
+          alt="Melhor do Brasil" 
+          className="w-full h-auto rounded-lg shadow-lg"
+        />
+      </div>
+      
       <div className="container-custom py-4 px-2 sm:py-8 sm:px-4 max-w-full">
         {/* Cabeçalho */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8">
@@ -2745,6 +2757,10 @@ const EstablishmentDashboard = () => {
               </div>
             </div>
           </div>
+          
+
+
+
 
               <div className="relative w-full">
                 {/* Dica para scroll mobile */}
@@ -2880,193 +2896,189 @@ const EstablishmentDashboard = () => {
           {/* Outros tabs existentes */}
             {activeTab === 'appointments' && (
               <>
-                {/* Seleção de Profissionais */}
-                {establishment?.professionals && establishment.professionals.length > 0 && (
-                  <div className="mb-6 bg-white rounded-lg p-4 border border-gray-200">
-                    <h3 className="text-lg font-medium text-gray-900 mb-3 flex items-center gap-2">
-                      <User className="h-5 w-5 text-primary" />
-                      Escolha o profissional
-                    </h3>
-                    <div className="relative" ref={dropdownRef}>
-                      <button
-                        onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                        className="w-full p-4 rounded-lg bg-white hover:bg-gray-50 text-left flex justify-between items-center border border-gray-300"
-                      >
-                        <span className="flex items-center gap-2 text-gray-700">
-                          {selectedProfessional === 'all' ? '👥' : '👤'} 
-                          {getProfessionalName(selectedProfessional)}
-                        </span>
-                        <svg
-                          className={`w-5 h-5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''} text-gray-500`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-                      
-                      {/* Dropdown Menu */}
-                      {isDropdownOpen && (
-                        <div className="absolute w-full mt-2 bg-white rounded-lg shadow-xl z-10 border border-gray-200">
-                      <button
-                        onClick={() => {
-                          handleProfessionalSelect('all');
-                          setSelectedPaymentMethod('todos');
-                              setIsDropdownOpen(false);
-                            }}
-                            className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                              selectedProfessional === 'all' ? 'bg-primary text-white' : 'text-gray-700'
-                            } rounded-t-lg`}
-                      >
-                        👥 Todos os Profissionais
-                      </button>
-                          {establishment.professionals.map((professional, index) => (
-                        <button
-                          key={professional.id}
-                          onClick={() => {
-                            handleProfessionalSelect(professional.id);
-                            setSelectedPaymentMethod('todos');
-                                setIsDropdownOpen(false);
-                              }}
-                              className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                                selectedProfessional === professional.id ? 'bg-primary text-white' : 'text-gray-700'
-                              } ${index === establishment.professionals.length - 1 ? 'rounded-b-lg' : ''}`}
-                        >
-                          👤 {professional.name}
-                        </button>
-                      ))}
+                {/* Filtros Compactos */}
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Seleção de Profissionais */}
+                    {establishment?.professionals && establishment.professionals.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-medium text-gray-900 mb-2 flex items-center gap-2">
+                          <User className="h-4 w-4 text-primary" />
+                          ESCOLHER PROFISSIONAL
+                        </h3>
+                        <div className="relative" ref={dropdownRef}>
+                          <button
+                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                            className="w-full p-3 rounded-lg bg-gray-50 hover:bg-gray-100 text-left flex justify-between items-center border border-gray-300 text-sm"
+                          >
+                            <span className="flex items-center gap-2 text-gray-700">
+                              {selectedProfessional === 'all' ? '👥' : '👤'} 
+                              {getProfessionalName(selectedProfessional)}
+                            </span>
+                            <svg
+                              className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''} text-gray-500`}
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                          
+                          {/* Dropdown Menu */}
+                          {isDropdownOpen && (
+                            <div className="absolute w-full mt-2 bg-white rounded-lg shadow-xl z-10 border border-gray-200">
+                          <button
+                            onClick={() => {
+                              handleProfessionalSelect('all');
+                              setSelectedPaymentMethod('todos');
+                                  setIsDropdownOpen(false);
+                                }}
+                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                  selectedProfessional === 'all' ? 'bg-primary text-white' : 'text-gray-700'
+                                } rounded-t-lg`}
+                          >
+                            👥 Todos os Profissionais
+                          </button>
+                              {establishment.professionals.map((professional, index) => (
+                            <button
+                              key={professional.id}
+                              onClick={() => {
+                                handleProfessionalSelect(professional.id);
+                                setSelectedPaymentMethod('todos');
+                                    setIsDropdownOpen(false);
+                                  }}
+                                  className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                    selectedProfessional === professional.id ? 'bg-primary text-white' : 'text-gray-700'
+                                  } ${index === establishment.professionals.length - 1 ? 'rounded-b-lg' : ''}`}
+                            >
+                              👤 {professional.name}
+                            </button>
+                          ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div className="mt-3 flex items-center justify-between text-sm">
-                      <p className="text-gray-700">
-                        Filtro ativo: <span className="text-primary font-medium">{getProfessionalName(selectedProfessional)}</span>
-                      </p>
-                      <p className="text-gray-700">
-                        {selectedProfessional === 'all' ? filteredAppointments.length : filteredAppointments.length} agendamentos encontrados
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Filtros por Forma de Pagamento */}
-                <div className="mb-6 bg-white rounded-lg p-4 border border-gray-200">
-                  <h3 className="text-lg font-medium text-gray-900 mb-3 flex items-center gap-2">
-                    <CreditCard className="h-5 w-5 text-primary" />
-                    Filtrar por Forma de Pagamento
-                  </h3>
-                  <div className="relative" ref={paymentDropdownRef}>
-                    <button
-                      onClick={() => setIsPaymentDropdownOpen(!isPaymentDropdownOpen)}
-                      className="w-full p-4 rounded-lg bg-white hover:bg-gray-50 text-left flex justify-between items-center border border-gray-300"
-                    >
-                      <span className="flex items-center gap-2 text-gray-700">
-                        {getPaymentMethodInfo(selectedPaymentMethod).icon} 
-                        {getPaymentMethodInfo(selectedPaymentMethod).name}
-                      </span>
-                      <svg
-                        className={`w-5 h-5 transition-transform ${isPaymentDropdownOpen ? 'rotate-180' : ''} text-gray-500`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    
-                    {/* Dropdown Menu */}
-                    {isPaymentDropdownOpen && (
-                      <div className="absolute w-full mt-2 bg-white rounded-lg shadow-xl z-10 border border-gray-200">
-                    <button
-                          onClick={() => {
-                            setSelectedPaymentMethod('todos');
-                            setIsPaymentDropdownOpen(false);
-                          }}
-                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                            selectedPaymentMethod === 'todos' ? 'bg-primary text-white' : 'text-gray-700'
-                          } rounded-t-lg`}
-                        >
-                          💳 Todos os tipos
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedPaymentMethod('pendente');
-                            setIsPaymentDropdownOpen(false);
-                          }}
-                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                            selectedPaymentMethod === 'pendente' ? 'bg-gray-500 text-white' : 'text-gray-700'
-                      }`}
-                    >
-                      ⏳ Pendente
-                    </button>
-                    <button
-                          onClick={() => {
-                            setSelectedPaymentMethod('pix');
-                            setIsPaymentDropdownOpen(false);
-                          }}
-                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                            selectedPaymentMethod === 'pix' ? 'bg-green-500 text-white' : 'text-gray-700'
-                      }`}
-                    >
-                      🟢 PIX
-                    </button>
-                    <button
-                          onClick={() => {
-                            setSelectedPaymentMethod('credito');
-                            setIsPaymentDropdownOpen(false);
-                          }}
-                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                            selectedPaymentMethod === 'credito' ? 'bg-blue-500 text-white' : 'text-gray-700'
-                      }`}
-                    >
-                      🔵 Crédito
-                    </button>
-                    <button
-                          onClick={() => {
-                            setSelectedPaymentMethod('debito');
-                            setIsPaymentDropdownOpen(false);
-                          }}
-                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                            selectedPaymentMethod === 'debito' ? 'bg-purple-500 text-white' : 'text-gray-700'
-                      }`}
-                    >
-                      🟣 Débito
-                    </button>
-                    <button
-                          onClick={() => {
-                            setSelectedPaymentMethod('dinheiro');
-                            setIsPaymentDropdownOpen(false);
-                          }}
-                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                            selectedPaymentMethod === 'dinheiro' ? 'bg-yellow-500 text-white' : 'text-gray-700'
-                      }`}
-                    >
-                      🟡 Dinheiro
-                    </button>
-                    <button
-                          onClick={() => {
-                            setSelectedPaymentMethod('pagar_local');
-                            setIsPaymentDropdownOpen(false);
-                          }}
-                          className={`w-full p-4 text-left hover:bg-gray-50 flex items-center gap-2 ${
-                            selectedPaymentMethod === 'pagar_local' ? 'bg-orange-500 text-white' : 'text-gray-700'
-                          } rounded-b-lg`}
-                    >
-                      🏪 Pagar no Local
-                    </button>
+                        <div className="mt-2 text-xs text-red-600">
+                          filtro ativo: {getProfessionalName(selectedProfessional).toLowerCase()}
+                        </div>
                       </div>
                     )}
+
+                    {/* Filtros por Forma de Pagamento */}
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-900 mb-2 flex items-center gap-2">
+                        <CreditCard className="h-4 w-4 text-primary" />
+                        Filtro de pagamento
+                      </h3>
+                      <div className="relative" ref={paymentDropdownRef}>
+                        <button
+                          onClick={() => setIsPaymentDropdownOpen(!isPaymentDropdownOpen)}
+                          className="w-full p-3 rounded-lg bg-gray-50 hover:bg-gray-100 text-left flex justify-between items-center border border-gray-300 text-sm"
+                        >
+                          <span className="flex items-center gap-2 text-gray-700">
+                            {getPaymentMethodInfo(selectedPaymentMethod).icon} 
+                            {getPaymentMethodInfo(selectedPaymentMethod).name}
+                          </span>
+                          <svg
+                            className={`w-4 h-4 transition-transform ${isPaymentDropdownOpen ? 'rotate-180' : ''} text-gray-500`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        
+                        {/* Dropdown Menu */}
+                        {isPaymentDropdownOpen && (
+                          <div className="absolute w-full mt-2 bg-white rounded-lg shadow-xl z-10 border border-gray-200">
+                        <button
+                              onClick={() => {
+                                setSelectedPaymentMethod('todos');
+                                setIsPaymentDropdownOpen(false);
+                              }}
+                              className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                selectedPaymentMethod === 'todos' ? 'bg-primary text-white' : 'text-gray-700'
+                              } rounded-t-lg`}
+                            >
+                              💳 Todos os tipos
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedPaymentMethod('pendente');
+                                setIsPaymentDropdownOpen(false);
+                              }}
+                              className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                selectedPaymentMethod === 'pendente' ? 'bg-gray-500 text-white' : 'text-gray-700'
+                        }`}
+                      >
+                        ⏳ Pendente
+                      </button>
+                      <button
+                              onClick={() => {
+                                setSelectedPaymentMethod('pix');
+                                setIsPaymentDropdownOpen(false);
+                              }}
+                              className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                selectedPaymentMethod === 'pix' ? 'bg-green-500 text-white' : 'text-gray-700'
+                        }`}
+                      >
+                        🟢 PIX
+                      </button>
+                      <button
+                              onClick={() => {
+                                setSelectedPaymentMethod('credito');
+                                setIsPaymentDropdownOpen(false);
+                              }}
+                              className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                selectedPaymentMethod === 'credito' ? 'bg-blue-500 text-white' : 'text-gray-700'
+                        }`}
+                      >
+                        🔵 Crédito
+                      </button>
+                      <button
+                              onClick={() => {
+                                setSelectedPaymentMethod('debito');
+                                setIsPaymentDropdownOpen(false);
+                              }}
+                              className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                selectedPaymentMethod === 'debito' ? 'bg-purple-500 text-white' : 'text-gray-700'
+                        }`}
+                      >
+                        🟣 Débito
+                      </button>
+                      <button
+                              onClick={() => {
+                                setSelectedPaymentMethod('dinheiro');
+                                setIsPaymentDropdownOpen(false);
+                              }}
+                              className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                selectedPaymentMethod === 'dinheiro' ? 'bg-yellow-500 text-white' : 'text-gray-700'
+                        }`}
+                      >
+                        🟡 Dinheiro
+                      </button>
+                      <button
+                              onClick={() => {
+                                setSelectedPaymentMethod('pagar_local');
+                                setIsPaymentDropdownOpen(false);
+                              }}
+                              className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
+                                selectedPaymentMethod === 'pagar_local' ? 'bg-orange-500 text-white' : 'text-gray-700'
+                              } rounded-b-lg`}
+                      >
+                        🏪 Pagar no Local
+                      </button>
+                        </div>
+                        )}
+                      </div>
+                      <div className="mt-2 text-xs text-red-600">
+                        filtro de pagamento: {getPaymentMethodInfo(selectedPaymentMethod).name.toLowerCase()}
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-3 flex items-center justify-between text-sm">
-                    <p className="text-gray-700">
-                      Filtro de pagamento: <span className="text-primary font-medium">
-                        {getPaymentMethodInfo(selectedPaymentMethod).name}
-                      </span>
-                    </p>
-                    <p className="text-gray-700">
-                      {filteredAppointments.length} agendamentos encontrados
-                    </p>
+                  <div className="mt-3 text-center text-sm text-gray-600">
+                    {filteredAppointments.length} agendamentos encontrados
                   </div>
                 </div>
 
@@ -3079,23 +3091,70 @@ const EstablishmentDashboard = () => {
                   <div className="flex items-center gap-4">
                     <div className="flex flex-col">
                       <span className="text-gray-700 font-medium text-lg">
-                        Hoje: <span className="text-green-500">{formatCurrency(calculateDailyBalance(filteredAppointments))}</span>
+                        Hoje: {showFinancialValues ? (
+                          <span className="text-green-500">{formatCurrency(calculateDailyBalance(filteredAppointments))}</span>
+                        ) : (
+                          <span className="text-gray-400">••••••</span>
+                        )}
                       </span>
                       <span className="text-gray-600 text-sm">
-                        Líquido: <span className="text-green-400">{formatCurrency(calculateDailyNetBalance(filteredAppointments))}</span>
+                        Líquido: {showFinancialValues ? (
+                          <span className="text-green-400">{formatCurrency(calculateDailyNetBalance(filteredAppointments))}</span>
+                        ) : (
+                          <span className="text-gray-400">••••••</span>
+                        )}
                       </span>
                     </div>
                     <div className="flex flex-col" key={`monthly-${selectedMonth.getTime()}`}>
                       <span className="text-gray-700 font-medium text-lg">
-                        Este mês: <span className="text-blue-500">{formatCurrency(calculateMonthlyBalanceForSelectedProfessional(monthlyAppointments))}</span>
+                        Este mês: {showFinancialValues ? (
+                          <span className="text-blue-500">{formatCurrency(calculateMonthlyBalanceForSelectedProfessional(monthlyAppointments))}</span>
+                        ) : (
+                          <span className="text-gray-400">••••••</span>
+                        )}
                       </span>
                       <span className="text-gray-600 text-sm">
-                        Líquido: <span className="text-blue-400">{formatCurrency(calculateMonthlyNetBalance(monthlyAppointments))}</span>
+                        Líquido: {showFinancialValues ? (
+                          <span className="text-blue-400">{formatCurrency(calculateMonthlyNetBalance(monthlyAppointments))}</span>
+                        ) : (
+                          <span className="text-gray-400">••••••</span>
+                        )}
                       </span>
+                    </div>
+                    
+                    {/* Imagem Melhor do Brasil - Desktop */}
+                    <div className="hidden md:block ml-4">
+                      <img 
+                        src="/melhordobrasilcortado.png" 
+                        alt="Melhor do Brasil" 
+                        className="h-24 w-auto rounded shadow-lg"
+                      />
                     </div>
                   </div>
                   
-
+                  {/* Botão para mostrar/ocultar valores */}
+                  <button
+                    onClick={() => setShowFinancialValues(!showFinancialValues)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors text-sm text-gray-600"
+                    title={showFinancialValues ? "Ocultar valores" : "Mostrar valores"}
+                  >
+                    {showFinancialValues ? (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
+                        </svg>
+                        Ocultar
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Mostrar
+                      </>
+                    )}
+                  </button>
                 </div>
 
               </div>
