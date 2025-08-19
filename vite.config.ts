@@ -22,12 +22,13 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    // Configurações para evitar cache
-    headers: {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-    },
+      // Configurações para evitar cache
+  headers: {
+    'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'Last-Modified': new Date().toUTCString(),
+  },
   },
   resolve: {
     alias: {

@@ -6,6 +6,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AgendaFácil - Sistema de Agendamentos</title>
     <meta name="description" content="Sistema de agendamentos para estabelecimentos e clientes" />
+    <!-- Meta tags para evitar cache -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- Service Worker para controle de cache -->
+    <script>
+      // Força atualização automática
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').then(function(registration) {
+          registration.update();
+        });
+      }
+      
+      // Adiciona timestamp na URL para forçar reload
+      if (!window.location.search.includes('v=')) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('v', Date.now().toString());
+        window.history.replaceState({}, '', url.toString());
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
