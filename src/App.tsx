@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { SupabaseProvider } from './context/SupabaseContext';
 import { AuthProvider } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
+import { CacheBuster } from './components/CacheBuster';
+import { EnvironmentError } from './components/EnvironmentError';
 
 // Teste de configuração - novo computador
 
@@ -30,21 +32,31 @@ import AdminDashboard from './pages/AdminDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
+  // Verificar se as variáveis de ambiente estão configuradas
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  // Se as variáveis não estão configuradas, mostrar tela de erro
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return <EnvironmentError />;
+  }
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <Toaster 
-        position="top-right"
-        toastOptions={{
-          style: {
-            background: '#1a1b1c',
-            color: '#ffffff',
-            border: '1px solid #374151'
-          }
-        }}
-      />
-    <SupabaseProvider>
-      <AuthProvider>
-          <Router>
+    <CacheBuster autoReload={true} checkInterval={3000}>
+      <div className="min-h-screen bg-background text-foreground">
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: '#1a1b1c',
+              color: '#ffffff',
+              border: '1px solid #374151'
+            }
+          }}
+        />
+      <SupabaseProvider>
+        <AuthProvider>
+            <Router>
             <Routes>
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<Login />} />
@@ -109,9 +121,10 @@ function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Router>
-      </AuthProvider>
-    </SupabaseProvider>
-    </div>
+        </AuthProvider>
+      </SupabaseProvider>
+      </div>
+    </CacheBuster>
   );
 }
 

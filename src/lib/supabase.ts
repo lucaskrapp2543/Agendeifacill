@@ -6,10 +6,23 @@ import { addMonths } from 'date-fns';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+// Verificar se as variáveis de ambiente estão definidas
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('❌ CRÍTICO: Variáveis de ambiente do Supabase não estão definidas!');
+  console.error('Por favor, crie um arquivo .env na raiz do projeto com:');
+  console.error('VITE_SUPABASE_URL=sua_url_do_supabase');
+  console.error('VITE_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase');
+  
+  // Fallback temporário para desenvolvimento
+  if (import.meta.env.DEV) {
+    console.warn('⚠️ Usando configuração de fallback para desenvolvimento...');
+  }
+}
+
 // Initialize the Supabase client
 export const supabase: SupabaseClient<Database> = createClient(
-  supabaseUrl, 
-  supabaseAnonKey,
+  supabaseUrl || 'https://placeholder.supabase.co', 
+  supabaseAnonKey || 'placeholder_key',
   {
     auth: {
       autoRefreshToken: true,

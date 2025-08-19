@@ -509,7 +509,7 @@ const LandingPage = () => {
                           )}
                         </div>
 
-                        {/* Controle total de agendamentos */}
+                        {/* Controle de agendamentos */}
                         <div className="border-b border-gray-100 pb-4">
                           <div 
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
@@ -519,7 +519,7 @@ const LandingPage = () => {
                               <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Controle total de agendamentos</span>
+                              <span className="text-lg font-medium text-gray-800">Controle de agendamentos</span>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['controle-agendamentos'] ? 'rotate-180' : ''}`} />
                           </div>

@@ -10,7 +10,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: true, // Não tentar outras portas se 5173 estiver ocupada
+    strictPort: false, // Permitir outras portas se 5173 estiver ocupada
     host: true, // Necessário para network access
     watch: {
       usePolling: true, // Melhor compatibilidade com Windows
@@ -22,13 +22,18 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-      // Configurações para evitar cache
-  headers: {
-    'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-    'Pragma': 'no-cache',
-    'Expires': '0',
-    'Last-Modified': new Date().toUTCString(),
-  },
+    // Configurações para evitar cache - MELHORADAS
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0, s-maxage=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Last-Modified': new Date().toUTCString(),
+      'ETag': `"${Date.now()}"`,
+    },
+    // Forçar reload automático
+    hmr: {
+      overlay: true,
+    },
   },
   resolve: {
     alias: {
