@@ -221,25 +221,25 @@ const LandingPage = () => {
       <WhatsAppButton />
       <PromoNotifications />
       {/* Header */}
-      <header className="fixed top-0 w-full bg-black/95 backdrop-blur-sm border-b border-gray-800 z-50">
+      <header className="fixed top-0 w-full bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 backdrop-blur-sm border-b border-gray-700 z-50 shadow-lg">
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <Calendar className="h-6 w-6 text-blue-500" />
+              <Calendar className="h-6 w-6 text-cyan-400" />
               <div className="flex items-center ml-6">
                 <div className="flex items-center gap-2">
-                  <Eye className="h-5 w-5 text-gray-300" />
-                  <span className="text-sm font-medium text-gray-300">Pessoas no site:</span>
+                  <Eye className="h-5 w-5 text-cyan-300" />
+                  <span className="text-sm font-medium text-gray-200">Pessoas no site:</span>
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#2ddedb' }} />
-                    <span className="text-sm font-medium text-gray-300">{onlineUsers}</span>
+                    <div className="w-2 h-2 rounded-full animate-pulse bg-cyan-400" />
+                    <span className="text-sm font-medium text-cyan-300">{onlineUsers}</span>
                   </div>
                 </div>
               </div>
             </div>
             <button
               onClick={handleLogin}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
             >
               Entrar
             </button>
