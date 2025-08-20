@@ -44,9 +44,57 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       // Contar não lidas
       const unread = (data || []).filter(n => !n.read).length;
       setUnreadCount(unread);
+
+      // Enviar notificação para o celular se houver novas não lidas
+      if (unread > 0 && 'Notification' in window && Notification.permission === 'granted') {
+        const newNotifications = data?.filter(n => !n.read) || [];
+        newNotifications.forEach(notification => {
+          sendMobileNotification(notification);
+        });
+      }
       
     } catch (error) {
       console.error('❌ Erro ao buscar notificações:', error);
+    }
+  };
+
+  // Enviar notificação para o celular
+  const sendMobileNotification = (notification: Notification) => {
+    try {
+      const mobileNotification = new Notification(notification.title, {
+        body: notification.message,
+        icon: '/novo-icone.png',
+        badge: '/novo-icone.png',
+        vibrate: [100, 50, 100],
+        silent: false,
+        tag: `notification-${notification.id}`,
+        data: {
+          type: notification.type,
+          appointmentId: notification.appointment_id,
+          timestamp: Date.now()
+        }
+      });
+
+      // Auto-close após 10 segundos
+      setTimeout(() => {
+        mobileNotification.close();
+      }, 10000);
+
+      // Listener para clique na notificação
+      mobileNotification.onclick = () => {
+        window.focus();
+        mobileNotification.close();
+        
+        // Abrir dashboard se clicado
+        if (window.location.pathname !== '/dashboard/establishment') {
+          window.location.href = '/dashboard/establishment';
+        }
+      };
+
+      console.log('📱 Notificação enviada para o celular:', notification.title);
+
+    } catch (error) {
+      console.error('❌ Erro ao enviar notificação para celular:', error);
     }
   };
 
@@ -152,6 +200,20 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
           <div className="flex items-center justify-between p-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">Notificações</h3>
             <div className="flex items-center gap-2">
+              {Notification.permission !== 'granted' && (
+                <button
+                  onClick={async () => {
+                    const permission = await Notification.requestPermission();
+                    if (permission === 'granted') {
+                      toast.success('Notificações no celular ativadas!');
+                    }
+                  }}
+                  className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                  title="Ativar notificações no celular"
+                >
+                  📱 Ativar
+                </button>
+              )}
               <button
                 onClick={clearAllNotifications}
                 className="p-1 text-gray-500 hover:text-red-600 transition-colors"
