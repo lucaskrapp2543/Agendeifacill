@@ -1131,78 +1131,93 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // DESABILITAR ATUALIZAÇÃO AUTOMÁTICA TEMPORARIAMENTE PARA RESOLVER PROBLEMA DE EXCLUSÃO
-  // useEffect(() => {
-  //   if (!establishment) return;
+  // Atualização automática a cada 10 segundos COM PROTEÇÃO PARA EXCLUSÕES
+  useEffect(() => {
+    if (!establishment) return;
     
-  //   const interval = setInterval(async () => {
-  //     console.log('🔄 Atualização automática dos agendamentos...');
+    const interval = setInterval(async () => {
+      console.log('🔄 Atualização automática dos agendamentos...');
       
-  //     // Salvar estado atual dos agendamentos
-  //     const previousAppointments = [...previousAppointmentsRef.current];
-  //     console.log('📋 Agendamentos anteriores:', previousAppointments.length);
+      // Salvar estado atual dos agendamentos
+      const previousAppointments = [...previousAppointmentsRef.current];
+      console.log('📋 Agendamentos anteriores:', previousAppointments.length);
       
-  //     // Buscar novos dados
-  //     try {
-  //       const { data: newAppointments } = await supabase
-  //         .from('appointments')
-  //         .select(`
-  //           *,
-  //           establishments (
-  //             name,
-  //             code
-  //           )
-  //         `)
-  //         .eq('establishment_id', establishment.id)
-  //         .gte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
-  //         .lte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
-  //         .order('appointment_time');
+      // Buscar novos dados
+      try {
+        const { data: newAppointments } = await supabase
+          .from('appointments')
+          .select(`
+            *,
+            establishments (
+              name,
+              code
+            )
+          `)
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
+          .lte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
+          .order('appointment_time')
+          .abortSignal(new AbortController().signal); // Forçar busca sem cache
 
-  //       if (newAppointments) {
-  //         console.log('📋 Novos agendamentos:', newAppointments.length);
+        if (newAppointments) {
+          console.log('📋 Novos agendamentos:', newAppointments.length);
           
-  //         // Detectar novos agendamentos
-  //         newAppointments.forEach(currentApp => {
-  //           const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
+          // Detectar novos agendamentos
+          newAppointments.forEach(currentApp => {
+            const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
             
-  //           if (!prevApp && currentApp.status !== 'cancelled') {
-  //             console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
-  //             notifyNewAppointment(
-  //               currentApp.client_name,
-  //               currentApp.service,
-  //               currentApp.appointment_time
-  //               );
-  //             }
-  //           });
+            if (!prevApp && currentApp.status !== 'cancelled') {
+              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
+              notifyNewAppointment(
+                currentApp.client_name,
+                currentApp.service,
+                currentApp.appointment_time
+              );
+            }
+          });
           
-  //           // Detectar agendamentos cancelados externamente
-  //           previousAppointments.forEach(prevApp => {
-  //             const currentApp = newAppointments.find(curr => curr.id === prevApp.id);
+          // Detectar agendamentos cancelados externamente
+          previousAppointments.forEach(prevApp => {
+            const currentApp = newAppointments.find(curr => curr.id === prevApp.id);
             
-  //             if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-  //               console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
-  //               notifyCancelledAppointment(
-  //                 currentApp.client_name,
-  //                 currentApp.service,
-  //                 currentApp.appointment_time
-  //               );
-  //             }
-  //           });
+            if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
+              notifyCancelledAppointment(
+                currentApp.client_name,
+                currentApp.service,
+                currentApp.appointment_time
+              );
+            }
+          });
           
-  //           // SEMPRE ATUALIZAR A LISTA (removendo a proteção que estava causando problemas)
-  //           console.log('🔄 Atualizando lista de agendamentos');
-  //           setAppointments(newAppointments);
+          // ATUALIZAÇÃO INTELIGENTE: Só adiciona novos, não remove excluídos
+          setAppointments(currentList => {
+            // Manter agendamentos que já estão na lista (incluindo os que foram excluídos)
+            const currentIds = currentList.map(app => app.id);
+            
+            // Adicionar apenas agendamentos novos que não estão na lista atual
+            const newAppointmentsToAdd = newAppointments.filter(newApp => 
+              !currentIds.includes(newApp.id)
+            );
+            
+            if (newAppointmentsToAdd.length > 0) {
+              console.log('🔄 Adicionando novos agendamentos:', newAppointmentsToAdd.length);
+              return [...currentList, ...newAppointmentsToAdd];
+            }
+            
+            return currentList; // Não muda nada se não há novos
+          });
           
-  //           previousAppointmentsRef.current = newAppointments;
-  //         }
-  //       } catch (error) {
-  //         console.error('❌ Erro na atualização automática:', error);
-  //       }
+          previousAppointmentsRef.current = newAppointments;
+        }
+      } catch (error) {
+        console.error('❌ Erro na atualização automática:', error);
+      }
       
-  //     }, 10000); // 10 segundos - mais rápido
+    }, 10000); // 10 segundos
 
-  //     return () => clearInterval(interval);
-  //   }, [establishment, selectedDate]);
+    return () => clearInterval(interval);
+  }, [establishment, selectedDate]);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
