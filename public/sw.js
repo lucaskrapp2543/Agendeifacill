@@ -10,27 +10,7 @@ const urlsToCache = [
   '/static/css/main.css'
 ];
 
-// Sons de notificação
-const NOTIFICATION_SOUNDS = {
-  newAppointment: '/notification-sound.mp3',
-  cancelledAppointment: '/cancelled-sound.mp3'
-};
 
-// Função para tocar som de notificação
-function playNotificationSound(type) {
-  try {
-    // Tentar tocar som personalizado
-    const audio = new Audio(NOTIFICATION_SOUNDS[type]);
-    audio.volume = 0.5;
-    audio.play().catch(() => {
-      // Se falhar, usar som nativo do navegador
-      console.log('🎵 Tocando som nativo do navegador');
-      // O navegador tocará o som padrão da notificação
-    });
-  } catch (error) {
-    console.log('🎵 Erro ao tocar som, usando som nativo');
-  }
-}
 
 // Instalação do Service Worker
 self.addEventListener('install', (event) => {
@@ -154,7 +134,7 @@ self.addEventListener('push', (event) => {
     icon: '/novo-icone.png',
     badge: '/novo-icone.png',
     vibrate: [100, 50, 100],
-    sound: NOTIFICATION_SOUNDS.newAppointment,
+    silent: false, // Usar som nativo do sistema
     data: {
       dateOfArrival: Date.now(),
       primaryKey: 1,
@@ -183,7 +163,6 @@ self.addEventListener('push', (event) => {
           ...notificationData,
           title: 'Agendei Fácil',
           body: 'Agendamento cancelado',
-          sound: NOTIFICATION_SOUNDS.cancelledAppointment,
           data: {
             ...notificationData.data,
             type: 'cancelled_appointment'
@@ -205,13 +184,51 @@ self.addEventListener('push', (event) => {
       console.log('Erro ao processar dados da notificação:', error);
     }
   }
-
-  // Tocar som de notificação
-  playNotificationSound(notificationData.data.type === 'cancelled_appointment' ? 'cancelledAppointment' : 'newAppointment');
   
   event.waitUntil(
     self.registration.showNotification(notificationData.title, notificationData)
   );
+});
+
+// Listener para mensagens do app
+self.addEventListener('message', (event) => {
+  console.log('Mensagem recebida no service worker:', event.data);
+  
+  if (event.data.type === 'PUSH_NOTIFICATION') {
+    const { title, body, type, appointmentId } = event.data.data;
+    
+    const notificationData = {
+      title: title,
+      body: body,
+      icon: '/novo-icone.png',
+      badge: '/novo-icone.png',
+      vibrate: [100, 50, 100],
+      silent: false, // Usar som nativo do sistema
+      requireInteraction: false,
+      tag: 'agendei-facil-notification',
+      data: {
+        type: type,
+        appointmentId: appointmentId,
+        timestamp: Date.now()
+      },
+      actions: [
+        {
+          action: 'view',
+          title: 'Ver detalhes',
+          icon: '/novo-icone.png'
+        },
+        {
+          action: 'close',
+          title: 'Fechar',
+          icon: '/novo-icone.png'
+        }
+      ]
+    };
+    
+    event.waitUntil(
+      self.registration.showNotification(notificationData.title, notificationData)
+    );
+  }
 });
 
 // Clique em notificação

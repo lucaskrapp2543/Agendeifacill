@@ -11,12 +11,18 @@ export const useNotifications = () => {
   const [isSupported, setIsSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [isPWA, setIsPWA] = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
 
   useEffect(() => {
     // Verificar se o navegador suporta notificações
     if ('Notification' in window) {
       setIsSupported(true);
       setPermission(Notification.permission);
+    }
+
+    // Verificar se suporta push notifications
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      setPushSupported(true);
     }
 
     // Verificar se é PWA - Múltiplas formas de detecção
@@ -83,6 +89,34 @@ export const useNotifications = () => {
     }
   };
 
+  // Enviar notificação push real
+  const sendPushNotification = async (options: NotificationOptions) => {
+    try {
+      if (!pushSupported) {
+        console.log('❌ Push notifications não suportadas');
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      
+      // Enviar mensagem para o service worker para criar notificação push
+      registration.active?.postMessage({
+        type: 'PUSH_NOTIFICATION',
+        data: {
+          title: options.title,
+          body: options.body,
+          type: options.type || 'new_appointment',
+          appointmentId: options.appointmentId,
+          timestamp: Date.now()
+        }
+      });
+
+      console.log('📱 Push notification enviada para o service worker');
+    } catch (error) {
+      console.error('Erro ao enviar push notification:', error);
+    }
+  };
+
   // Enviar notificação
   const sendNotification = async (options: NotificationOptions) => {
     console.log('🔔 SEND NOTIFICATION:', { 
@@ -90,6 +124,7 @@ export const useNotifications = () => {
       isSupported, 
       permission, 
       isPWA,
+      pushSupported,
       userAgent: window.navigator.userAgent,
       url: window.location.href
     });
@@ -109,98 +144,48 @@ export const useNotifications = () => {
     }
 
     try {
-      // Para PWA, usar notificação nativa
-      if (isPWA) {
-        console.log('📱 Enviando notificação PWA nativa');
-        
-        // Tocar som ANTES da notificação
-        playNotificationSound(options.type || 'new_appointment');
-        
-        const notification = new Notification(options.title, {
-          body: options.body,
-          icon: '/novo-icone.png',
-          badge: '/novo-icone.png',
-          requireInteraction: false, // Não manter até clicar
-          silent: false, // Permitir som do sistema
-          tag: 'agendei-facil-notification', // Tag para agrupar
-          data: {
-            type: options.type || 'new_appointment',
-            appointmentId: options.appointmentId,
-            timestamp: Date.now()
-          }
-        });
-
-        // Listener para clique na notificação
-        notification.onclick = () => {
-          window.focus();
-          notification.close();
-        };
-
-        // Auto-close após 5 segundos
-        setTimeout(() => {
-          notification.close();
-        }, 5000);
-
+      // Para PWA, usar push notifications reais
+      if (isPWA && pushSupported) {
+        console.log('📱 Enviando push notification real');
+        await sendPushNotification(options);
         return;
       }
 
-      // Verificar se o service worker está registrado
-      if ('serviceWorker' in navigator && 'PushManager' in window) {
-        const registration = await navigator.serviceWorker.ready;
-        
-        // Enviar mensagem para o service worker
-        registration.active?.postMessage({
-          type: 'SEND_NOTIFICATION',
-          data: {
-            title: options.title,
-            body: options.body,
-            type: options.type || 'new_appointment',
-            appointmentId: options.appointmentId
-          }
-        });
-      } else {
-        // Fallback para notificação nativa
-        new Notification(options.title, {
-          body: options.body,
-          icon: '/novo-icone.png',
-          badge: '/novo-icone.png',
-          data: {
-            type: options.type || 'new_appointment',
-            appointmentId: options.appointmentId
-          }
-        });
-      }
+      // Fallback para notificação nativa
+      console.log('🌐 Enviando notificação nativa');
+      const notification = new Notification(options.title, {
+        body: options.body,
+        icon: '/novo-icone.png',
+        badge: '/novo-icone.png',
+        requireInteraction: false,
+        silent: false, // Usar som nativo do sistema
+        tag: 'agendei-facil-notification',
+        data: {
+          type: options.type || 'new_appointment',
+          appointmentId: options.appointmentId,
+          timestamp: Date.now()
+        }
+      });
+
+      // Listener para clique na notificação
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+
+      // Auto-close após 5 segundos
+      setTimeout(() => {
+        notification.close();
+      }, 5000);
+
     } catch (error) {
       console.error('Erro ao enviar notificação:', error);
-    }
-  };
-
-  // Função para tocar som
-  const playNotificationSound = (type: string) => {
-    try {
-      // Som embutido que sempre funciona - VOLUME MÁXIMO
-      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
-      audio.volume = 1.0; // VOLUME MÁXIMO
-      audio.play().catch(() => console.log('Som não pôde ser reproduzido'));
-      
-      // Tocar som adicional para garantir
-      setTimeout(() => {
-        const audio2 = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
-        audio2.volume = 1.0;
-        audio2.play().catch(() => {});
-      }, 200);
-      
-    } catch (error) {
-      console.log('Erro ao tocar som:', error);
     }
   };
 
   // Notificação de novo agendamento
   const notifyNewAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, isPWA });
-    
-    // Tocar som imediatamente
-    playNotificationSound('new_appointment');
     
     sendNotification({
       title: 'Agendei Fácil',
@@ -212,9 +197,6 @@ export const useNotifications = () => {
   // Notificação de agendamento cancelado
   const notifyCancelledAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, isPWA });
-    
-    // Tocar som imediatamente
-    playNotificationSound('cancelled_appointment');
     
     sendNotification({
       title: 'Agendei Fácil',
@@ -235,6 +217,7 @@ export const useNotifications = () => {
     isSupported,
     permission,
     isPWA,
+    pushSupported,
     requestPermission,
     sendNotification,
     notifyNewAppointment,
