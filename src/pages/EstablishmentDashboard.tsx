@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, RefreshCw } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } from '../lib/supabase';
@@ -854,59 +854,6 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  // FUNÇÃO REFRESH MANUAL
-  const handleRefreshAppointments = async () => {
-    console.log('🔄 REFRESH MANUAL - Iniciando...');
-    
-    try {
-      // Salvar estado atual para detectar mudanças
-      const previousAppointments = [...appointments];
-      
-      // Recarregar agendamentos do dia
-      await fetchAppointments();
-      
-      // Recarregar agendamentos mensais (para valores)
-      await fetchMonthlyAppointments();
-      
-      // DETECTAR MUDANÇAS E NOTIFICAR
-      const currentAppointments = appointments;
-      
-      // Detectar novos agendamentos
-      currentAppointments.forEach(newApp => {
-        const prevApp = previousAppointments.find(prev => prev.id === newApp.id);
-        
-        if (!prevApp && newApp.status !== 'cancelled') {
-          console.log('🔔 NOVO AGENDAMENTO DETECTADO (REFRESH):', newApp);
-          notifyNewAppointment(
-            newApp.client_name,
-            newApp.service,
-            newApp.appointment_time
-          );
-        }
-      });
-      
-      // Detectar cancelamentos
-      previousAppointments.forEach(prevApp => {
-        const currentApp = currentAppointments.find(curr => curr.id === prevApp.id);
-        
-        if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-          console.log('🔔 CANCELAMENTO DETECTADO (REFRESH):', currentApp);
-          notifyCancelledAppointment(
-            currentApp.client_name,
-            currentApp.service,
-            currentApp.appointment_time
-          );
-        }
-      });
-      
-      console.log('✅ REFRESH MANUAL - Concluído');
-      toast('Agendamentos atualizados!', 'success');
-    } catch (error) {
-      console.error('❌ Erro no refresh manual:', error);
-      toast('Erro ao atualizar agendamentos', 'error');
-    }
-  };
-
   const handlePaymentMethodChange = async (appointmentId: string, paymentMethod: string) => {
     try {
       const { error } = await supabase
@@ -1197,99 +1144,93 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // SISTEMA DE NOTIFICAÇÕES EM TEMPO REAL
+  // Atualização automática a cada 10 segundos COM PROTEÇÃO PARA EXCLUSÕES
   useEffect(() => {
-    if (!establishment || activeTab !== 'appointments') return;
+    if (!establishment) return;
     
-    console.log('🚀 INICIANDO SISTEMA DE NOTIFICAÇÕES EM TEMPO REAL');
-    
-    // Configurar listener para mudanças em tempo real
-    const channel = supabase
-      .channel('appointments-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'appointments',
-          filter: `establishment_id=eq.${establishment.id}`
-        },
-        (payload) => {
-          console.log('🔔 MUDANÇA DETECTADA NO BANCO:', payload);
+    const interval = setInterval(async () => {
+      console.log('🔄 Atualização automática dos agendamentos...');
+      
+      // Salvar estado atual dos agendamentos
+      const previousAppointments = [...previousAppointmentsRef.current];
+      console.log('📋 Agendamentos anteriores:', previousAppointments.length);
+      
+      // Buscar novos dados
+      try {
+        const { data: newAppointments } = await supabase
+          .from('appointments')
+          .select(`
+            *,
+            establishments (
+              name,
+              code
+            )
+          `)
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
+          .lte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
+          .order('appointment_time')
+          .abortSignal(new AbortController().signal); // Forçar busca sem cache
+
+        if (newAppointments) {
+          console.log('📋 Novos agendamentos:', newAppointments.length);
           
-          const { eventType, new: newRecord, old: oldRecord } = payload;
-          
-          if (eventType === 'INSERT') {
-            // NOVO AGENDAMENTO
-            console.log('🎉 NOVO AGENDAMENTO CRIADO:', newRecord);
+          // Detectar novos agendamentos
+          newAppointments.forEach(currentApp => {
+            const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
             
-            // Verificar se é para o dia atual
-            const appointmentDate = newRecord.appointment_date;
-            const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
-            
-            if (appointmentDate === selectedDateStr) {
+            if (!prevApp && currentApp.status !== 'cancelled') {
+              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
               notifyNewAppointment(
-                newRecord.client_name,
-                newRecord.service,
-                newRecord.appointment_time
+                currentApp.client_name,
+                currentApp.service,
+                currentApp.appointment_time
               );
-              
-              // Atualizar lista de agendamentos
-              setAppointments(prev => [...prev, newRecord]);
-              
-              // Atualizar valores
-              fetchMonthlyAppointments();
             }
-          }
+          });
           
-          if (eventType === 'UPDATE') {
-            // AGENDAMENTO ATUALIZADO
-            console.log('📝 AGENDAMENTO ATUALIZADO:', { old: oldRecord, new: newRecord });
+          // Detectar agendamentos cancelados externamente
+          previousAppointments.forEach(prevApp => {
+            const currentApp = newAppointments.find(curr => curr.id === prevApp.id);
             
-            // Verificar se foi cancelado
-            if (oldRecord.status !== 'cancelled' && newRecord.status === 'cancelled') {
-              console.log('❌ AGENDAMENTO CANCELADO:', newRecord);
-              
+            if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
               notifyCancelledAppointment(
-                newRecord.client_name,
-                newRecord.service,
-                newRecord.appointment_time
+                currentApp.client_name,
+                currentApp.service,
+                currentApp.appointment_time
               );
             }
-            
-            // Atualizar lista de agendamentos
-            setAppointments(prev => 
-              prev.map(app => app.id === newRecord.id ? newRecord : app)
-            );
-            
-            // Atualizar valores
-            fetchMonthlyAppointments();
-          }
+          });
           
-          if (eventType === 'DELETE') {
-            // AGENDAMENTO DELETADO
-            console.log('🗑️ AGENDAMENTO DELETADO:', oldRecord);
+          // ATUALIZAÇÃO INTELIGENTE: Só adiciona novos, não remove excluídos
+          setAppointments(currentList => {
+            // Manter agendamentos que já estão na lista (incluindo os que foram excluídos)
+            const currentIds = currentList.map(app => app.id);
             
-            // Remover da lista
-            setAppointments(prev => 
-              prev.filter(app => app.id !== oldRecord.id)
+            // Adicionar apenas agendamentos novos que não estão na lista atual
+            const newAppointmentsToAdd = newAppointments.filter(newApp => 
+              !currentIds.includes(newApp.id)
             );
             
-            // Atualizar valores
-            fetchMonthlyAppointments();
-          }
+            if (newAppointmentsToAdd.length > 0) {
+              console.log('🔄 Adicionando novos agendamentos:', newAppointmentsToAdd.length);
+              return [...currentList, ...newAppointmentsToAdd];
+            }
+            
+            return currentList; // Não muda nada se não há novos
+          });
+          
+          previousAppointmentsRef.current = newAppointments;
         }
-      )
-      .subscribe();
-    
-    console.log('✅ SISTEMA DE NOTIFICAÇÕES ATIVO');
-    
-    // Cleanup ao desmontar
-    return () => {
-      console.log('🛑 DESATIVANDO SISTEMA DE NOTIFICAÇÕES');
-      supabase.removeChannel(channel);
-    };
-  }, [establishment, selectedDate, activeTab]);
+      } catch (error) {
+        console.error('❌ Erro na atualização automática:', error);
+      }
+      
+    }, 10000); // 10 segundos
+
+    return () => clearInterval(interval);
+  }, [establishment, selectedDate]);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
@@ -3405,16 +3346,6 @@ const EstablishmentDashboard = () => {
                   />
                   <button onClick={handleNextDay} className="btn-outline">
                     <ChevronRight className="h-4 w-4" />
-                  </button>
-                  
-                  {/* BOTÃO REFRESH */}
-                  <button
-                    onClick={handleRefreshAppointments}
-                    className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                    title="Atualizar agendamentos"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Refresh
                   </button>
                 </div>
 

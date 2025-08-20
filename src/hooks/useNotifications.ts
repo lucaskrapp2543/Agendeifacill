@@ -107,16 +107,6 @@ export const useNotifications = () => {
       
       console.log('📱 Enviando notificação via Service Worker:', options);
       
-      // TOCAR SOM IMEDIATAMENTE
-      try {
-        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
-        audio.volume = 1.0;
-        await audio.play();
-        console.log('🔊 Som tocado com sucesso');
-      } catch (error) {
-        console.log('⚠️ Erro ao tocar som:', error);
-      }
-      
       // Enviar mensagem para o service worker
       registration.active?.postMessage({
         type: 'SHOW_NOTIFICATION',

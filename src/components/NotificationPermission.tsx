@@ -13,32 +13,12 @@ export const NotificationPermission: React.FC = () => {
     !isMobile // Mostrar sempre no PC
   );
 
-  console.log('🔍 NOTIFICATION PERMISSION DEBUG:', {
-    isSupported,
-    permission,
-    isPWA,
-    isMobile,
-    shouldShow,
-    userAgent: navigator.userAgent
-  });
-
   if (!shouldShow) {
-    console.log('❌ NOTIFICATION PERMISSION: Não deve mostrar');
     return null;
   }
 
-  console.log('✅ NOTIFICATION PERMISSION: Deve mostrar');
-
   const handleRequestPermission = async () => {
-    console.log('🔔 CLICOU NO BOTÃO ATIVAR NOTIFICAÇÕES');
-    console.log('🔍 Estado atual:', { isSupported, permission, isPWA });
-    
-    try {
-      const result = await requestPermission();
-      console.log('🔔 RESULTADO DA PERMISSÃO:', result);
-    } catch (error) {
-      console.error('❌ ERRO AO SOLICITAR PERMISSÃO:', error);
-    }
+    await requestPermission();
   };
 
   return (
@@ -65,11 +45,8 @@ export const NotificationPermission: React.FC = () => {
         </div>
         {permission !== 'granted' && (
           <button
-            id="notification-activate-button"
             onClick={handleRequestPermission}
-            className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-            style={{ cursor: 'pointer' }}
-            title="Clique para ativar notificações"
+            className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
           >
             Ativar
           </button>

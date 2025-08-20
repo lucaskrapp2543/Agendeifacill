@@ -8,7 +8,7 @@
   "theme_color": "#3b82f6",
   "permissions": ["notifications"],
   "categories": ["business", "productivity"],
-  "orientation": "portrait",
+  "orientation": "landscape",
   "scope": "/",
   "lang": "pt-BR",
   "dir": "ltr",
