@@ -124,9 +124,9 @@ function doBackgroundSync() {
   console.log('Sincronizando dados em background...');
 }
 
-// Notificações push
+// Notificações push reais (funcionam em segundo plano)
 self.addEventListener('push', (event) => {
-  console.log('Push notification recebida:', event.data);
+  console.log('📱 Push notification recebida:', event.data);
   
   let notificationData = {
     title: 'Agendei Fácil',
@@ -135,6 +135,8 @@ self.addEventListener('push', (event) => {
     badge: '/novo-icone.png',
     vibrate: [100, 50, 100],
     silent: false, // Usar som nativo do sistema
+    requireInteraction: false,
+    tag: 'agendei-facil-notification',
     data: {
       dateOfArrival: Date.now(),
       primaryKey: 1,
@@ -158,14 +160,17 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       const data = event.data.json();
+      console.log('📱 Dados da push notification:', data);
+      
       if (data.type === 'cancelled_appointment') {
         notificationData = {
           ...notificationData,
           title: 'Agendei Fácil',
-          body: 'Agendamento cancelado',
+          body: data.message || 'Agendamento cancelado',
           data: {
             ...notificationData.data,
-            type: 'cancelled_appointment'
+            type: 'cancelled_appointment',
+            appointmentId: data.appointmentId
           }
         };
       } else if (data.type === 'new_appointment') {
@@ -184,6 +189,8 @@ self.addEventListener('push', (event) => {
       console.log('Erro ao processar dados da notificação:', error);
     }
   }
+  
+  console.log('📱 Mostrando notificação:', notificationData);
   
   event.waitUntil(
     self.registration.showNotification(notificationData.title, notificationData)
