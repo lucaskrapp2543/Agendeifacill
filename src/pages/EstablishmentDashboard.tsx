@@ -817,70 +817,26 @@ const EstablishmentDashboard = () => {
 
   const handleDeleteAppointment = async (appointmentId: string) => {
     try {
-      console.log('🗑️ INICIANDO EXCLUSÃO DO AGENDAMENTO:', appointmentId);
+      // REMOVER IMEDIATAMENTE DA LISTA (SEM ESPERAR BANCO)
+      setAppointments(prev => prev.filter(app => app.id !== appointmentId));
       
-      // 1. EXCLUIR DO BANCO DE DADOS
-      const { error } = await supabase
+      // EXCLUIR DO BANCO EM SEGUNDO PLANO
+      supabase
         .from('appointments')
         .delete()
-        .eq('id', appointmentId);
+        .eq('id', appointmentId)
+        .then(() => {
+          console.log('✅ Excluído do banco com sucesso');
+        })
+        .catch((error) => {
+          console.error('❌ Erro ao excluir do banco:', error);
+          // Se der erro, volta o agendamento na lista
+          setAppointments(prev => [...prev, appointments.find(app => app.id === appointmentId)].filter(Boolean));
+        });
 
-      if (error) {
-        console.error('❌ ERRO NO BANCO:', error);
-        throw error;
-      }
-
-      console.log('✅ EXCLUÍDO DO BANCO COM SUCESSO');
-
-      // 2. REMOVER IMEDIATAMENTE DA LISTA LOCAL
-      setAppointments(prev => {
-        const newList = prev.filter(app => app.id !== appointmentId);
-        console.log('🗑️ Removido da lista local. Antes:', prev.length, 'Depois:', newList.length);
-        return newList;
-      });
-
-      // 3. LIMPAR CACHE DO SUPABASE AGORA
-      if (establishment) {
-        console.log('🧹 Limpando cache do Supabase...');
-        await supabase
-          .from('appointments')
-          .select('*')
-          .eq('establishment_id', establishment.id)
-          .abortSignal(new AbortController().signal);
-      }
-
-      // 4. LIMPAR CACHE DO SERVICE WORKER
-      if ('serviceWorker' in navigator) {
-        try {
-          console.log('🧹 Limpando cache do Service Worker...');
-          const registration = await navigator.serviceWorker.ready;
-          if (registration.active) {
-            registration.active.postMessage({
-              type: 'CLEAR_CACHE',
-              timestamp: Date.now()
-            });
-          }
-        } catch (error) {
-          console.log('Erro ao limpar cache do Service Worker:', error);
-        }
-      }
-
-      // 5. FORÇAR RECARREGAMENTO COMPLETO
-      console.log('🔄 Forçando recarregamento completo...');
-      setTimeout(async () => {
-        await fetchAppointments();
-        await fetchMonthlyAppointments();
-      }, 1000);
-
-      // 6. MARCAR COMO EXCLUÍDO NO ESTADO INTERNO
-      previousAppointmentsRef.current = previousAppointmentsRef.current.filter(
-        app => app.id !== appointmentId
-      );
-
-      console.log('✅ EXCLUSÃO COMPLETA FINALIZADA');
       toast('Agendamento excluído com sucesso', 'success');
     } catch (error) {
-      console.error('❌ ERRO NA EXCLUSÃO:', error);
+      console.error('❌ Erro na exclusão:', error);
       toast('Erro ao excluir agendamento', 'error');
     }
   };
