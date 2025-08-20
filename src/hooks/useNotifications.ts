@@ -112,25 +112,34 @@ export const useNotifications = () => {
       // Para PWA, usar notificação nativa
       if (isPWA) {
         console.log('📱 Enviando notificação PWA nativa');
+        
+        // Tocar som ANTES da notificação
+        playNotificationSound(options.type || 'new_appointment');
+        
         const notification = new Notification(options.title, {
           body: options.body,
           icon: '/novo-icone.png',
           badge: '/novo-icone.png',
-          requireInteraction: true, // Manter notificação até clicar
+          requireInteraction: false, // Não manter até clicar
+          silent: false, // Permitir som do sistema
+          tag: 'agendei-facil-notification', // Tag para agrupar
           data: {
             type: options.type || 'new_appointment',
-            appointmentId: options.appointmentId
+            appointmentId: options.appointmentId,
+            timestamp: Date.now()
           }
         });
 
-        // Tocar som
-        playNotificationSound(options.type || 'new_appointment');
-        
         // Listener para clique na notificação
         notification.onclick = () => {
           window.focus();
           notification.close();
         };
+
+        // Auto-close após 5 segundos
+        setTimeout(() => {
+          notification.close();
+        }, 5000);
 
         return;
       }
@@ -169,10 +178,18 @@ export const useNotifications = () => {
   // Função para tocar som
   const playNotificationSound = (type: string) => {
     try {
-      // Som embutido que sempre funciona
+      // Som embutido que sempre funciona - VOLUME MÁXIMO
       const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
-      audio.volume = 0.7;
+      audio.volume = 1.0; // VOLUME MÁXIMO
       audio.play().catch(() => console.log('Som não pôde ser reproduzido'));
+      
+      // Tocar som adicional para garantir
+      setTimeout(() => {
+        const audio2 = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
+        audio2.volume = 1.0;
+        audio2.play().catch(() => {});
+      }, 200);
+      
     } catch (error) {
       console.log('Erro ao tocar som:', error);
     }
