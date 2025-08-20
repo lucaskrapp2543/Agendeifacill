@@ -815,6 +815,30 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleDeleteAppointment = async (appointmentId: string) => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .delete()
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      // Remover da lista local
+      setAppointments(prev => 
+        prev.filter(app => app.id !== appointmentId)
+      );
+
+      // Atualizar também a lista mensal
+      await fetchMonthlyAppointments();
+
+      toast('Agendamento excluído com sucesso', 'success');
+    } catch (error) {
+      console.error('Erro ao excluir agendamento:', error);
+      toast('Erro ao excluir agendamento', 'error');
+    }
+  };
+
   const handlePaymentMethodChange = async (appointmentId: string, paymentMethod: string) => {
     try {
       const { error } = await supabase
@@ -3615,10 +3639,20 @@ const EstablishmentDashboard = () => {
                               )}
                               
                               {appointment.status === 'cancelled' && (
-                                <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
-                                  <X className="h-4 w-4 mr-1" />
-                                  Cancelado
-                                </span>
+                                <div className="flex gap-2">
+                                  <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
+                                    <X className="h-4 w-4 mr-1" />
+                                    Cancelado
+                                  </span>
+                                  <button
+                                    onClick={() => handleDeleteAppointment(appointment.id)}
+                                    className="inline-flex items-center px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                    title="Excluir agendamento permanentemente"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-1" />
+                                    EXCLUIR
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
