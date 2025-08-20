@@ -4,8 +4,14 @@ import { useNotifications } from '../hooks/useNotifications';
 export const NotificationPermission: React.FC = () => {
   const { isSupported, permission, isPWA, requestPermission } = useNotifications();
 
-  // Sempre mostrar no mobile, mesmo se já tem permissão
-  const shouldShow = isSupported && (permission === 'default' || permission === 'denied' || isPWA);
+  // Mostrar sempre se suportado e não tem permissão, ou se é PWA, ou se é PC
+  const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const shouldShow = isSupported && (
+    permission === 'default' || 
+    permission === 'denied' || 
+    isPWA || 
+    !isMobile // Mostrar sempre no PC
+  );
 
   if (!shouldShow) {
     return null;
@@ -21,7 +27,7 @@ export const NotificationPermission: React.FC = () => {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-blue-900">
-              {isPWA ? '📱 App' : '🔔'} Notificações
+              {isPWA ? '📱 App' : isMobile ? '📱 Mobile' : '💻 PC'} Notificações
             </span>
             <span className={`text-xs px-2 py-1 rounded ${
               permission === 'granted' 
