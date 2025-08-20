@@ -128,6 +128,9 @@ function doBackgroundSync() {
 self.addEventListener('push', (event) => {
   console.log('📱 Push notification recebida:', event.data);
   
+  // Gerar tag única para cada notificação
+  const uniqueTag = `agendei-facil-push-${Date.now()}-${Math.random()}`;
+  
   let notificationData = {
     title: 'Agendei Fácil',
     body: 'Novo agendamento disponível!',
@@ -136,11 +139,12 @@ self.addEventListener('push', (event) => {
     vibrate: [100, 50, 100],
     silent: false, // Usar som nativo do sistema
     requireInteraction: false,
-    tag: 'agendei-facil-notification',
+    tag: uniqueTag, // Tag única para não substituir
     data: {
       dateOfArrival: Date.now(),
       primaryKey: 1,
-      type: 'new_appointment'
+      type: 'new_appointment',
+      uniqueId: uniqueTag
     },
     actions: [
       {
@@ -206,6 +210,9 @@ self.addEventListener('message', (event) => {
     
     console.log('📱 Criando notificação:', { title, body, type, appointmentId });
     
+    // Gerar tag única para cada notificação
+    const uniqueTag = `agendei-facil-${Date.now()}-${Math.random()}`;
+    
     const notificationData = {
       title: title,
       body: body,
@@ -214,11 +221,12 @@ self.addEventListener('message', (event) => {
       vibrate: [100, 50, 100],
       silent: false, // Usar som nativo do sistema
       requireInteraction: false,
-      tag: 'agendei-facil-notification',
+      tag: uniqueTag, // Tag única para não substituir
       data: {
         type: type,
         appointmentId: appointmentId,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        uniqueId: uniqueTag
       },
       actions: [
         {
@@ -239,7 +247,18 @@ self.addEventListener('message', (event) => {
     event.waitUntil(
       self.registration.showNotification(notificationData.title, notificationData)
         .then(() => {
-          console.log('📱 Notificação mostrada com sucesso!');
+          console.log('📱 Notificação mostrada com sucesso! Tag:', uniqueTag);
+          
+          // Tocar som adicional para garantir
+          setTimeout(() => {
+            try {
+              const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
+              audio.volume = 1.0;
+              audio.play().catch(() => console.log('Som adicional não pôde ser reproduzido'));
+            } catch (error) {
+              console.log('Erro ao tocar som adicional:', error);
+            }
+          }, 100);
         })
         .catch((error) => {
           console.error('📱 Erro ao mostrar notificação:', error);
