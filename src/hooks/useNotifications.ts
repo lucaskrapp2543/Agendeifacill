@@ -90,6 +90,16 @@ export const useNotifications = () => {
   // Notificação de novo agendamento
   const notifyNewAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time });
+    
+    // Tocar som imediatamente
+    try {
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
+      audio.volume = 0.5;
+      audio.play().catch(() => console.log('Som não pôde ser reproduzido'));
+    } catch (error) {
+      console.log('Erro ao tocar som:', error);
+    }
+    
     sendNotification({
       title: 'Agendei Fácil',
       body: `Novo agendamento: ${clientName} - ${service} às ${time}`,

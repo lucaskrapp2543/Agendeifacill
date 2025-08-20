@@ -188,6 +188,7 @@ const EstablishmentDashboard = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const previousAppointmentsRef = useRef<Appointment[]>([]);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1111,49 +1112,73 @@ const EstablishmentDashboard = () => {
       console.log('🔄 Atualização automática dos agendamentos...');
       
       // Salvar estado atual dos agendamentos
-      const previousAppointments = [...appointments];
+      const previousAppointments = [...previousAppointmentsRef.current];
+      console.log('📋 Agendamentos anteriores:', previousAppointments.length);
       
       // Buscar novos dados
-      await fetchAppointments();
-      await fetchMonthlyAppointments(selectedMonth);
-      
-      // Comparar e detectar mudanças
-      setTimeout(() => {
-        const currentAppointments = appointments;
-        
-        // Detectar agendamentos cancelados externamente
-        previousAppointments.forEach(prevApp => {
-          const currentApp = currentAppointments.find(curr => curr.id === prevApp.id);
+      try {
+        const { data: newAppointments } = await supabase
+          .from('appointments')
+          .select(`
+            *,
+            establishments (
+              name,
+              code
+            )
+          `)
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
+          .lte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
+          .order('appointment_time');
+
+        if (newAppointments) {
+          console.log('📋 Novos agendamentos:', newAppointments.length);
           
-          if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-            console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
-            notifyCancelledAppointment(
-              currentApp.client_name,
-              currentApp.service,
-              currentApp.appointment_time
-            );
-          }
-        });
-        
-        // Detectar novos agendamentos
-        currentAppointments.forEach(currentApp => {
-          const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
+          // Detectar novos agendamentos
+          newAppointments.forEach(currentApp => {
+            const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
+            
+            if (!prevApp && currentApp.status !== 'cancelled') {
+              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
+              notifyNewAppointment(
+                currentApp.client_name,
+                currentApp.service,
+                currentApp.appointment_time
+              );
+            }
+          });
           
-          if (!prevApp && currentApp.status !== 'cancelled') {
-            console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
-            notifyNewAppointment(
-              currentApp.client_name,
-              currentApp.service,
-              currentApp.appointment_time
-            );
-          }
-        });
-      }, 1000); // Aguardar 1 segundo para garantir que os dados foram atualizados
+          // Detectar agendamentos cancelados externamente
+          previousAppointments.forEach(prevApp => {
+            const currentApp = newAppointments.find(curr => curr.id === prevApp.id);
+            
+            if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
+              notifyCancelledAppointment(
+                currentApp.client_name,
+                currentApp.service,
+                currentApp.appointment_time
+              );
+            }
+          });
+          
+          // Atualizar o estado
+          setAppointments(newAppointments);
+          previousAppointmentsRef.current = newAppointments;
+        }
+      } catch (error) {
+        console.error('❌ Erro na atualização automática:', error);
+      }
       
     }, 30000); // 30 segundos
 
     return () => clearInterval(interval);
-  }, [establishment, selectedMonth, appointments]);
+  }, [establishment, selectedDate]);
+
+  // Atualizar ref quando appointments mudarem
+  useEffect(() => {
+    previousAppointmentsRef.current = appointments;
+  }, [appointments]);
 
 
 
