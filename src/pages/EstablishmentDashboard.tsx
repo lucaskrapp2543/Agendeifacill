@@ -817,22 +817,35 @@ const EstablishmentDashboard = () => {
 
   const handleDeleteAppointment = async (appointmentId: string) => {
     try {
+      console.log('🗑️ INICIANDO EXCLUSÃO:', appointmentId);
+      
       // REMOVER IMEDIATAMENTE DA LISTA (SEM ESPERAR BANCO)
       setAppointments(prev => prev.filter(app => app.id !== appointmentId));
       
-      // EXCLUIR DO BANCO EM SEGUNDO PLANO
-      supabase
+      // EXCLUIR DO BANCO E AGUARDAR CONFIRMAÇÃO
+      const { error } = await supabase
         .from('appointments')
         .delete()
-        .eq('id', appointmentId)
-        .then(() => {
-          console.log('✅ Excluído do banco com sucesso');
-        })
-        .catch((error) => {
-          console.error('❌ Erro ao excluir do banco:', error);
-          // Se der erro, volta o agendamento na lista
-          setAppointments(prev => [...prev, appointments.find(app => app.id === appointmentId)].filter(Boolean));
-        });
+        .eq('id', appointmentId);
+
+      if (error) {
+        console.error('❌ ERRO AO EXCLUIR DO BANCO:', error);
+        // Se der erro, volta o agendamento na lista
+        setAppointments(prev => [...prev, appointments.find(app => app.id === appointmentId)].filter(Boolean));
+        toast('Erro ao excluir do banco', 'error');
+        return;
+      }
+
+      console.log('✅ EXCLUÍDO DO BANCO COM SUCESSO');
+      
+      // LIMPAR CACHE DO SUPABASE
+      if (establishment) {
+        await supabase
+          .from('appointments')
+          .select('*')
+          .eq('establishment_id', establishment.id)
+          .abortSignal(new AbortController().signal);
+      }
 
       toast('Agendamento excluído com sucesso', 'success');
     } catch (error) {
