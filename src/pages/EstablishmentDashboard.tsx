@@ -1144,18 +1144,17 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // F5 AUTOMÁTICO nos agendamentos a cada 10 segundos COM NOTIFICAÇÕES
+  // F5 AUTOMÁTICO nos agendamentos a cada 5 segundos - SIMPLES E FUNCIONAL
   useEffect(() => {
     if (!establishment || activeTab !== 'appointments') return;
     
+    console.log('🚀 INICIANDO F5 AUTOMÁTICO - A cada 5 segundos');
+    
     const interval = setInterval(async () => {
-      console.log('🔄 F5 AUTOMÁTICO - Recarregando agendamentos e valores...');
+      console.log('🔄 F5 AUTOMÁTICO - Executando...');
       
       try {
-        // Salvar estado atual dos agendamentos ANTES de buscar novos
-        const previousAppointments = [...appointments];
-        
-        // Buscar novos agendamentos diretamente do banco
+        // Buscar agendamentos do banco
         const { data: newAppointments, error } = await supabase
           .from('appointments')
           .select('*')
@@ -1168,64 +1167,70 @@ const EstablishmentDashboard = () => {
           return;
         }
         
-        // Recarregar agendamentos mensais (para valores)
+        console.log('📊 Agendamentos encontrados:', newAppointments?.length || 0);
+        
+        // SEMPRE atualizar o estado
+        setAppointments(newAppointments || []);
+        
+        // Recarregar valores mensais
         await fetchMonthlyAppointments();
         
-        // DETECTAR NOVOS AGENDAMENTOS E ENVIAR NOTIFICAÇÕES
-        if (newAppointments && previousAppointments) {
-          console.log('🔍 Comparando agendamentos:', {
-            previous: previousAppointments.length,
-            current: newAppointments.length
-          });
-          
-          // Detectar novos agendamentos
-          newAppointments.forEach(newApp => {
-            const prevApp = previousAppointments.find(prev => prev.id === newApp.id);
-            
-            if (!prevApp && newApp.status !== 'cancelled') {
-              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', newApp);
-              notifyNewAppointment(
-                newApp.client_name,
-                newApp.service,
-                newApp.appointment_time
-              );
-            }
-          });
-          
-          // Detectar agendamentos cancelados externamente
-          previousAppointments.forEach(prevApp => {
-            const newApp = newAppointments.find(curr => curr.id === prevApp.id);
-            
-            if (newApp && prevApp.status !== 'cancelled' && newApp.status === 'cancelled') {
-              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', newApp);
-              notifyCancelledAppointment(
-                newApp.client_name,
-                newApp.service,
-                newApp.appointment_time
-              );
-            }
-          });
-          
-          // Atualizar estado apenas se houve mudanças
-          if (JSON.stringify(newAppointments) !== JSON.stringify(previousAppointments)) {
-            setAppointments(newAppointments);
-            console.log('✅ Estado atualizado com novos agendamentos');
-          }
-        }
-        
-        console.log('✅ F5 AUTOMÁTICO - Recarregamento concluído');
+        console.log('✅ F5 AUTOMÁTICO - Concluído');
       } catch (error) {
         console.error('❌ Erro no F5 automático:', error);
       }
       
-    }, 10000); // 10 segundos
+    }, 5000); // 5 segundos
 
-    return () => clearInterval(interval);
+    return () => {
+      console.log('🛑 PARANDO F5 AUTOMÁTICO');
+      clearInterval(interval);
+    };
   }, [establishment, selectedDate, activeTab]);
 
-  // Atualizar ref quando appointments mudarem
+  // DETECTOR DE MUDANÇAS PARA NOTIFICAÇÕES
   useEffect(() => {
+    if (!appointments || !previousAppointmentsRef.current) {
+      previousAppointmentsRef.current = appointments;
+      return;
+    }
+    
+    console.log('🔍 VERIFICANDO MUDANÇAS NOS AGENDAMENTOS...');
+    
+    const previous = previousAppointmentsRef.current;
+    const current = appointments;
+    
+    // Detectar novos agendamentos
+    current.forEach(newApp => {
+      const prevApp = previous.find(prev => prev.id === newApp.id);
+      
+      if (!prevApp && newApp.status !== 'cancelled') {
+        console.log('🔔 NOVO AGENDAMENTO DETECTADO:', newApp);
+        notifyNewAppointment(
+          newApp.client_name,
+          newApp.service,
+          newApp.appointment_time
+        );
+      }
+    });
+    
+    // Detectar cancelamentos
+    previous.forEach(prevApp => {
+      const currentApp = current.find(curr => curr.id === prevApp.id);
+      
+      if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+        console.log('🔔 CANCELAMENTO DETECTADO:', currentApp);
+        notifyCancelledAppointment(
+          currentApp.client_name,
+          currentApp.service,
+          currentApp.appointment_time
+        );
+      }
+    });
+    
+    // Atualizar referência
     previousAppointmentsRef.current = appointments;
+    
   }, [appointments]);
 
   // Listener para manter conexão com Service Worker
