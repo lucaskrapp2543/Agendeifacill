@@ -12,6 +12,7 @@ export const useNotifications = () => {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [isPWA, setIsPWA] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
+  const [subscription, setSubscription] = useState<PushSubscription | null>(null);
 
   useEffect(() => {
     // Verificar se o navegador suporta notificações
@@ -82,10 +83,79 @@ export const useNotifications = () => {
       const result = await Notification.requestPermission();
       setPermission(result);
       console.log('🔔 Permissão de notificação:', result);
+      
+      // Se permissão concedida, configurar push notifications
+      if (result === 'granted') {
+        await setupPushSubscription();
+      }
+      
       return result === 'granted';
     } catch (error) {
       console.error('Erro ao solicitar permissão:', error);
       return false;
+    }
+  };
+
+  // Configurar push subscription
+  const setupPushSubscription = async () => {
+    try {
+      if (!pushSupported) {
+        console.log('❌ Push notifications não suportadas');
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      
+      // Verificar se já tem subscription
+      const existingSubscription = await registration.pushManager.getSubscription();
+      if (existingSubscription) {
+        setSubscription(existingSubscription);
+        console.log('✅ Push subscription já existe');
+        return;
+      }
+
+      // Criar nova subscription
+      const newSubscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array('YOUR_VAPID_PUBLIC_KEY') // Você precisa gerar uma chave VAPID
+      });
+
+      setSubscription(newSubscription);
+      console.log('✅ Nova push subscription criada');
+      
+      // Enviar subscription para o servidor
+      await sendSubscriptionToServer(newSubscription);
+      
+    } catch (error) {
+      console.error('❌ Erro ao configurar push subscription:', error);
+    }
+  };
+
+  // Converter chave VAPID
+  const urlBase64ToUint8Array = (base64String: string) => {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  };
+
+  // Enviar subscription para o servidor
+  const sendSubscriptionToServer = async (subscription: PushSubscription) => {
+    try {
+      // Aqui você enviaria a subscription para seu backend
+      // Por enquanto, vamos salvar no localStorage
+      localStorage.setItem('pushSubscription', JSON.stringify(subscription));
+      console.log('✅ Subscription salva localmente');
+    } catch (error) {
+      console.error('❌ Erro ao enviar subscription:', error);
     }
   };
 

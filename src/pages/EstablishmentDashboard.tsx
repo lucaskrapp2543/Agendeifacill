@@ -22,6 +22,7 @@ import { FinancialDashboard } from '../components/FinancialDashboard';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationPermission } from '../components/NotificationPermission';
+import { initRealTimeNotifications, stopRealTimeNotifications } from '../utils/realTimeNotifications';
 
 interface BusinessHours {
   enabled: boolean;
@@ -1141,7 +1142,18 @@ const EstablishmentDashboard = () => {
     if (establishment) {
       fetchAppointments();
       fetchMonthlyAppointments(selectedMonth);
+      
+      // Inicializar notificações em tempo real
+      if (Notification.permission === 'granted') {
+        console.log('🔔 Inicializando notificações em tempo real para:', establishment.id);
+        initRealTimeNotifications(establishment.id);
+      }
     }
+
+    // Cleanup ao desmontar
+    return () => {
+      stopRealTimeNotifications();
+    };
   }, [establishment, selectedDate, selectedMonth]);
 
   // Atualização automática a cada 10 segundos COM PROTEÇÃO PARA EXCLUSÕES
