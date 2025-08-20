@@ -22,7 +22,10 @@ export const InstallAppButton: React.FC = () => {
       const isInstalled = isStandalone || isIOSStandalone;
       
       setIsInstalled(isInstalled);
-      setShowButton(!isInstalled && 'serviceWorker' in navigator);
+      
+      // Mostrar botão se não está instalado E é mobile
+      const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      setShowButton(!isInstalled && isMobile);
     };
 
     // Listener para o evento beforeinstallprompt
