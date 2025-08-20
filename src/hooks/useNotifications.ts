@@ -12,7 +12,6 @@ export const useNotifications = () => {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [isPWA, setIsPWA] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
-  const [subscription, setSubscription] = useState<PushSubscription | null>(null);
 
   useEffect(() => {
     // Verificar se o navegador suporta notificações
@@ -70,77 +69,7 @@ export const useNotifications = () => {
     
     // Verificar novamente após um delay (para garantir que tudo carregou)
     setTimeout(checkIfPWA, 1000);
-
-    // Configurar push subscription
-    setupPushSubscription();
   }, []);
-
-  // Configurar push subscription
-  const setupPushSubscription = async () => {
-    if (!pushSupported) return;
-
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      
-      // Verificar se já tem subscription
-      const existingSubscription = await registration.pushManager.getSubscription();
-      
-      if (existingSubscription) {
-        console.log('📱 Push subscription já existe');
-        setSubscription(existingSubscription);
-        return;
-      }
-
-      // Criar nova subscription
-      const newSubscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array('BEl62iUYgUivxIkv69yViEuiBIa1FJqF8VgRzqJzLzQ')
-      });
-
-      console.log('📱 Nova push subscription criada:', newSubscription);
-      setSubscription(newSubscription);
-
-      // Enviar subscription para o servidor (você precisará implementar isso)
-      await sendSubscriptionToServer(newSubscription);
-
-    } catch (error) {
-      console.error('Erro ao configurar push subscription:', error);
-    }
-  };
-
-  // Converter chave para Uint8Array
-  const urlBase64ToUint8Array = (base64String: string) => {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding)
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-  };
-
-  // Enviar subscription para o servidor
-  const sendSubscriptionToServer = async (subscription: PushSubscription) => {
-    try {
-      // Aqui você enviaria a subscription para seu backend
-      // Por enquanto, vamos apenas logar
-      console.log('📱 Enviando subscription para o servidor:', subscription.toJSON());
-      
-      // Exemplo de como seria:
-      // await fetch('/api/push-subscription', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(subscription.toJSON())
-      // });
-    } catch (error) {
-      console.error('Erro ao enviar subscription:', error);
-    }
-  };
 
   // Solicitar permissão para notificações
   const requestPermission = async (): Promise<boolean> => {
@@ -153,12 +82,6 @@ export const useNotifications = () => {
       const result = await Notification.requestPermission();
       setPermission(result);
       console.log('🔔 Permissão de notificação:', result);
-      
-      if (result === 'granted') {
-        // Configurar push subscription após permissão concedida
-        await setupPushSubscription();
-      }
-      
       return result === 'granted';
     } catch (error) {
       console.error('Erro ao solicitar permissão:', error);
@@ -166,19 +89,21 @@ export const useNotifications = () => {
     }
   };
 
-  // Enviar notificação push real
-  const sendPushNotification = async (options: NotificationOptions) => {
+  // Enviar notificação via service worker
+  const sendNotificationViaServiceWorker = async (options: NotificationOptions) => {
     try {
       if (!pushSupported) {
-        console.log('❌ Push notifications não suportadas');
+        console.log('❌ Service Worker não suportado');
         return;
       }
 
       const registration = await navigator.serviceWorker.ready;
       
-      // Enviar mensagem para o service worker para criar notificação push
+      console.log('📱 Enviando notificação via Service Worker:', options);
+      
+      // Enviar mensagem para o service worker
       registration.active?.postMessage({
-        type: 'PUSH_NOTIFICATION',
+        type: 'SHOW_NOTIFICATION',
         data: {
           title: options.title,
           body: options.body,
@@ -188,9 +113,8 @@ export const useNotifications = () => {
         }
       });
 
-      console.log('📱 Push notification enviada para o service worker');
     } catch (error) {
-      console.error('Erro ao enviar push notification:', error);
+      console.error('Erro ao enviar notificação via Service Worker:', error);
     }
   };
 
@@ -202,7 +126,6 @@ export const useNotifications = () => {
       permission, 
       isPWA,
       pushSupported,
-      subscription: !!subscription,
       userAgent: window.navigator.userAgent,
       url: window.location.href
     });
@@ -222,15 +145,15 @@ export const useNotifications = () => {
     }
 
     try {
-      // Para PWA, usar push notifications reais
-      if (isPWA && pushSupported) {
-        console.log('📱 Enviando push notification real');
-        await sendPushNotification(options);
+      // Sempre usar Service Worker para notificações
+      if (pushSupported) {
+        console.log('📱 Enviando notificação via Service Worker');
+        await sendNotificationViaServiceWorker(options);
         return;
       }
 
       // Fallback para notificação nativa
-      console.log('🌐 Enviando notificação nativa');
+      console.log('🌐 Enviando notificação nativa (fallback)');
       const notification = new Notification(options.title, {
         body: options.body,
         icon: '/novo-icone.png',
@@ -296,7 +219,6 @@ export const useNotifications = () => {
     permission,
     isPWA,
     pushSupported,
-    subscription: !!subscription,
     requestPermission,
     sendNotification,
     notifyNewAppointment,

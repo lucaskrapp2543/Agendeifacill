@@ -199,10 +199,12 @@ self.addEventListener('push', (event) => {
 
 // Listener para mensagens do app
 self.addEventListener('message', (event) => {
-  console.log('Mensagem recebida no service worker:', event.data);
+  console.log('📱 Mensagem recebida no service worker:', event.data);
   
-  if (event.data.type === 'PUSH_NOTIFICATION') {
+  if (event.data.type === 'SHOW_NOTIFICATION') {
     const { title, body, type, appointmentId } = event.data.data;
+    
+    console.log('📱 Criando notificação:', { title, body, type, appointmentId });
     
     const notificationData = {
       title: title,
@@ -232,8 +234,16 @@ self.addEventListener('message', (event) => {
       ]
     };
     
+    console.log('📱 Mostrando notificação via Service Worker:', notificationData);
+    
     event.waitUntil(
       self.registration.showNotification(notificationData.title, notificationData)
+        .then(() => {
+          console.log('📱 Notificação mostrada com sucesso!');
+        })
+        .catch((error) => {
+          console.error('📱 Erro ao mostrar notificação:', error);
+        })
     );
   }
 });
