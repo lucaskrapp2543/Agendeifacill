@@ -206,6 +206,8 @@ export const useNotifications = () => {
     // Marcar como notificado
     sessionStorage.setItem(notificationKey, 'true');
     
+    console.log('🔔 ENVIANDO NOTIFICAÇÃO DE NOVO AGENDAMENTO');
+    
     sendNotification({
       title: 'Agendei Fácil',
       body: `Novo agendamento: ${clientName} - ${service} às ${time}`,
@@ -228,6 +230,8 @@ export const useNotifications = () => {
     
     // Marcar como notificado
     sessionStorage.setItem(notificationKey, 'true');
+    
+    console.log('🔔 ENVIANDO NOTIFICAÇÃO DE CANCELAMENTO');
     
     sendNotification({
       title: 'Agendei Fácil',

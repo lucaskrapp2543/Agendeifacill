@@ -1152,46 +1152,65 @@ const EstablishmentDashboard = () => {
       console.log('🔄 F5 AUTOMÁTICO - Recarregando agendamentos e valores...');
       
       try {
-        // Salvar estado atual dos agendamentos
-        const previousAppointments = [...previousAppointmentsRef.current];
+        // Salvar estado atual dos agendamentos ANTES de buscar novos
+        const previousAppointments = [...appointments];
         
-        // Recarregar agendamentos do dia
-        await fetchAppointments();
+        // Buscar novos agendamentos diretamente do banco
+        const { data: newAppointments, error } = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('establishment_id', establishment.id)
+          .eq('appointment_date', selectedDate)
+          .order('appointment_time', { ascending: true });
+        
+        if (error) {
+          console.error('❌ Erro ao buscar agendamentos:', error);
+          return;
+        }
         
         // Recarregar agendamentos mensais (para valores)
         await fetchMonthlyAppointments();
         
         // DETECTAR NOVOS AGENDAMENTOS E ENVIAR NOTIFICAÇÕES
-        const currentAppointments = appointments;
-        
-        if (currentAppointments && previousAppointments) {
+        if (newAppointments && previousAppointments) {
+          console.log('🔍 Comparando agendamentos:', {
+            previous: previousAppointments.length,
+            current: newAppointments.length
+          });
+          
           // Detectar novos agendamentos
-          currentAppointments.forEach(currentApp => {
-            const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
+          newAppointments.forEach(newApp => {
+            const prevApp = previousAppointments.find(prev => prev.id === newApp.id);
             
-            if (!prevApp && currentApp.status !== 'cancelled') {
-              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
+            if (!prevApp && newApp.status !== 'cancelled') {
+              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', newApp);
               notifyNewAppointment(
-                currentApp.client_name,
-                currentApp.service,
-                currentApp.appointment_time
+                newApp.client_name,
+                newApp.service,
+                newApp.appointment_time
               );
             }
           });
           
           // Detectar agendamentos cancelados externamente
           previousAppointments.forEach(prevApp => {
-            const currentApp = currentAppointments.find(curr => curr.id === prevApp.id);
+            const newApp = newAppointments.find(curr => curr.id === prevApp.id);
             
-            if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
+            if (newApp && prevApp.status !== 'cancelled' && newApp.status === 'cancelled') {
+              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', newApp);
               notifyCancelledAppointment(
-                currentApp.client_name,
-                currentApp.service,
-                currentApp.appointment_time
+                newApp.client_name,
+                newApp.service,
+                newApp.appointment_time
               );
             }
           });
+          
+          // Atualizar estado apenas se houve mudanças
+          if (JSON.stringify(newAppointments) !== JSON.stringify(previousAppointments)) {
+            setAppointments(newAppointments);
+            console.log('✅ Estado atualizado com novos agendamentos');
+          }
         }
         
         console.log('✅ F5 AUTOMÁTICO - Recarregamento concluído');
@@ -1202,7 +1221,7 @@ const EstablishmentDashboard = () => {
     }, 10000); // 10 segundos
 
     return () => clearInterval(interval);
-  }, [establishment, selectedDate, activeTab, appointments]);
+  }, [establishment, selectedDate, activeTab]);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
