@@ -8,6 +8,8 @@ import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Database } from '../types/supabase';
 import { CancelAppointmentButton } from '../components/CancelAppointmentButton';
+import { useNotifications } from '../hooks/useNotifications';
+import { NotificationPermission } from '../components/NotificationPermission';
 
 type Appointment = {
   id: string;
@@ -28,6 +30,7 @@ type Appointment = {
 const ClientDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -97,6 +100,16 @@ const ClientDashboard = () => {
       
       if (error) throw error;
       
+      // Encontrar o agendamento cancelado para notificação
+      const cancelledAppointment = appointments.find(apt => apt.id === appointmentId);
+      if (cancelledAppointment) {
+        notifyCancelledAppointment(
+          cancelledAppointment.service_name,
+          cancelledAppointment.establishment_name,
+          cancelledAppointment.appointment_time
+        );
+      }
+      
       await fetchAppointments();
       
       toast.success('Agendamento cancelado com sucesso!');
@@ -132,6 +145,7 @@ const ClientDashboard = () => {
               <span className="text-xl font-bold text-white">AgendaFácil</span>
             </div>
             <div className="flex items-center gap-4">
+              <NotificationPermission className="hidden sm:flex" />
               <span className="text-gray-400">{user?.email}</span>
               <button onClick={handleLogout} className="text-gray-400 hover:text-white">
                 <LogOut className="h-5 w-5" />
