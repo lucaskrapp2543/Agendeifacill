@@ -19,12 +19,50 @@ export const useNotifications = () => {
       setPermission(Notification.permission);
     }
 
-    // Verificar se é PWA
-    if (window.matchMedia('(display-mode: standalone)').matches || 
-        (window.navigator as any).standalone === true) {
-      setIsPWA(true);
-      console.log('📱 PWA detectado');
-    }
+    // Verificar se é PWA - Múltiplas formas de detecção
+    const checkIfPWA = () => {
+      // Método 1: display-mode standalone
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+      
+      // Método 2: navigator.standalone (iOS)
+      const isIOSStandalone = (window.navigator as any).standalone === true;
+      
+      // Método 3: Verificar se está em um contexto de app
+      const isInApp = window.location.href.includes('agendeifacil.com') && 
+                     !window.location.href.includes('localhost') &&
+                     (window.navigator.userAgent.includes('Mobile') || 
+                      window.navigator.userAgent.includes('Android') ||
+                      window.navigator.userAgent.includes('iPhone'));
+      
+      // Método 4: Verificar se tem service worker ativo
+      const hasServiceWorker = 'serviceWorker' in navigator;
+      
+      const pwaDetected = isStandalone || isIOSStandalone || (isInApp && hasServiceWorker);
+      
+      console.log('🔍 DETECÇÃO PWA:', {
+        isStandalone,
+        isIOSStandalone,
+        isInApp,
+        hasServiceWorker,
+        userAgent: window.navigator.userAgent,
+        url: window.location.href,
+        pwaDetected
+      });
+      
+      setIsPWA(pwaDetected);
+      
+      if (pwaDetected) {
+        console.log('📱 PWA detectado!');
+      } else {
+        console.log('🌐 Navegador normal detectado');
+      }
+    };
+
+    // Verificar imediatamente
+    checkIfPWA();
+    
+    // Verificar novamente após um delay (para garantir que tudo carregou)
+    setTimeout(checkIfPWA, 1000);
   }, []);
 
   // Solicitar permissão para notificações
@@ -37,6 +75,7 @@ export const useNotifications = () => {
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
+      console.log('🔔 Permissão de notificação:', result);
       return result === 'granted';
     } catch (error) {
       console.error('Erro ao solicitar permissão:', error);
@@ -46,7 +85,14 @@ export const useNotifications = () => {
 
   // Enviar notificação
   const sendNotification = async (options: NotificationOptions) => {
-    console.log('🔔 SEND NOTIFICATION:', { options, isSupported, permission, isPWA });
+    console.log('🔔 SEND NOTIFICATION:', { 
+      options, 
+      isSupported, 
+      permission, 
+      isPWA,
+      userAgent: window.navigator.userAgent,
+      url: window.location.href
+    });
     
     if (!isSupported) {
       console.log('❌ Notificações não são suportadas');
