@@ -20,6 +20,8 @@ import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { FinancialDashboard } from '../components/FinancialDashboard';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
+import { useNotifications } from '../hooks/useNotifications';
+import { NotificationPermission } from '../components/NotificationPermission';
 
 interface BusinessHours {
   enabled: boolean;
@@ -166,6 +168,7 @@ const EstablishmentDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
 
   // Estados básicos
   const [isLoading, setIsLoading] = useState(true);
@@ -777,6 +780,9 @@ const EstablishmentDashboard = () => {
 
   const handleCancelAppointment = async (appointmentId: string) => {
     try {
+      // Encontrar o agendamento antes de cancelar para notificação
+      const appointmentToCancel = appointments.find(apt => apt.id === appointmentId);
+      
       const { error } = await supabase
         .from('appointments')
         .update({ status: 'cancelled' })
@@ -784,6 +790,16 @@ const EstablishmentDashboard = () => {
 
       if (error) {
         throw error;
+      }
+
+      // Enviar notificação de cancelamento
+      if (appointmentToCancel) {
+        console.log('🔔 ENVIANDO NOTIFICAÇÃO DE CANCELAMENTO:', appointmentToCancel);
+        notifyCancelledAppointment(
+          appointmentToCancel.client_name,
+          appointmentToCancel.service,
+          appointmentToCancel.appointment_time
+        );
       }
 
       await Promise.all([
@@ -1086,6 +1102,19 @@ const EstablishmentDashboard = () => {
       fetchMonthlyAppointments(selectedMonth);
     }
   }, [establishment, selectedDate, selectedMonth]);
+
+  // Atualização automática a cada 30 segundos
+  useEffect(() => {
+    if (!establishment) return;
+    
+    const interval = setInterval(() => {
+      console.log('🔄 Atualização automática dos agendamentos...');
+      fetchAppointments();
+      fetchMonthlyAppointments(selectedMonth);
+    }, 30000); // 30 segundos
+
+    return () => clearInterval(interval);
+  }, [establishment, selectedMonth]);
 
 
 
@@ -2756,6 +2785,10 @@ const EstablishmentDashboard = () => {
                 </button>
               </div>
             </div>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <NotificationPermission className="hidden sm:flex" />
           </div>
           
 
