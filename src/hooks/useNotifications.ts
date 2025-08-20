@@ -184,46 +184,24 @@ export const useNotifications = () => {
     }
   };
 
-  // Função para salvar notificação no histórico
+    // Função para salvar notificação no histórico
   const saveNotificationToHistory = (notificationData: {
     title: string;
     body: string;
     type: 'new_appointment' | 'cancelled_appointment' | 'custom';
   }) => {
     try {
-      const savedNotifications = localStorage.getItem('agendei-facil-notifications');
-      const notifications = savedNotifications ? JSON.parse(savedNotifications) : [];
+      // NÃO usar localStorage - apenas disparar evento para o componente
+      console.log('📝 Notificação enviada para o componente:', notificationData);
       
-      // Verificar se já existe uma notificação similar nos últimos 5 minutos
-      const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
-      const recentSimilar = notifications.find((n: any) => 
-        n.title === notificationData.title && 
-        n.body === notificationData.body && 
-        n.timestamp > fiveMinutesAgo
-      );
+      // Disparar evento customizado para o componente NotificationHistory
+      const event = new CustomEvent('addNotificationToHistory', {
+        detail: notificationData
+      });
+      window.dispatchEvent(event);
       
-      if (recentSimilar) {
-        console.log('⚠️ Notificação similar recente encontrada, ignorando:', notificationData);
-        return;
-      }
-      
-             const newNotification = {
-         id: `notification-${Date.now()}-${Math.random()}`,
-         ...notificationData,
-         timestamp: Date.now(),
-         read: false,
-         readAt: undefined // Não foi lida ainda
-       };
-       
-       // Adicionar no início e limitar a 10 notificações não lidas
-       const updatedNotifications = [newNotification, ...notifications].slice(0, 10);
-      localStorage.setItem('agendei-facil-notifications', JSON.stringify(updatedNotifications));
-      
-      console.log('📝 Notificação salva no histórico:', newNotification);
     } catch (error) {
       console.error('Erro ao salvar notificação no histórico:', error);
-      // Limpar localStorage corrompido
-      localStorage.removeItem('agendei-facil-notifications');
     }
   };
 

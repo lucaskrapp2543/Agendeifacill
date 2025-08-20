@@ -17,58 +17,35 @@ export const NotificationHistory: React.FC = () => {
 
   // Carregar notificações do localStorage
   useEffect(() => {
-    const savedNotifications = localStorage.getItem('agendei-facil-notifications');
-    if (savedNotifications) {
-      try {
-        const parsed = JSON.parse(savedNotifications);
-        
-        // SISTEMA RADICAL: Só mostrar notificações NÃO LIDAS dos últimos 2 dias
-        const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
-        const validNotifications = parsed.filter((notification: any) => {
-          // Verificar se tem timestamp válido
-          if (!notification.timestamp || typeof notification.timestamp !== 'number') {
-            console.log('❌ Notificação inválida removida:', notification);
-            return false;
-          }
-          
-          // SÓ MANTER se NÃO foi lida E é recente (últimos 2 dias)
-          if (notification.read) {
-            console.log('❌ Notificação lida removida:', notification);
-            return false;
-          }
-          
-          // SÓ MANTER se é dos últimos 2 dias
-          if (notification.timestamp < twoDaysAgo) {
-            console.log('❌ Notificação antiga removida:', notification);
-            return false;
-          }
-          
-          return true;
-        });
-        
-        // Limitar a 10 notificações não lidas
-        const limitedNotifications = validNotifications.slice(0, 10);
-        
-        console.log('📝 Carregadas notificações NÃO LIDAS:', limitedNotifications.length);
-        setNotifications(limitedNotifications);
-        
-        // Salvar versão limpa SEMPRE
-        localStorage.setItem('agendei-facil-notifications', JSON.stringify(limitedNotifications));
-        console.log('🧹 Notificações limpas e salvas');
-        
-      } catch (error) {
-        console.error('Erro ao carregar notificações:', error);
-        // Limpar localStorage corrompido
-        localStorage.removeItem('agendei-facil-notifications');
-        setNotifications([]);
-      }
-    }
+    // LIMPEZA RADICAL: Limpar localStorage completamente ao carregar
+    console.log('🧹 LIMPEZA RADICAL: Removendo todas as notificações antigas do cache');
+    localStorage.removeItem('agendei-facil-notifications');
+    
+    // Iniciar com lista vazia
+    setNotifications([]);
+    console.log('✅ Sistema de notificações resetado completamente');
+  }, []);
+
+  // Listener para receber notificações do hook
+  useEffect(() => {
+    const handleAddNotification = (event: CustomEvent) => {
+      const notificationData = event.detail;
+      console.log('📝 Recebida notificação do hook:', notificationData);
+      addNotification(notificationData);
+    };
+
+    window.addEventListener('addNotificationToHistory', handleAddNotification as EventListener);
+
+    return () => {
+      window.removeEventListener('addNotificationToHistory', handleAddNotification as EventListener);
+    };
   }, []);
 
   // Salvar notificações no localStorage
   const saveNotifications = (newNotifications: NotificationItem[]) => {
     setNotifications(newNotifications);
-    localStorage.setItem('agendei-facil-notifications', JSON.stringify(newNotifications));
+    // NÃO salvar no localStorage - manter apenas em memória
+    console.log('📝 Notificações salvas apenas em memória:', newNotifications.length);
   };
 
   // Adicionar nova notificação
@@ -165,7 +142,7 @@ export const NotificationHistory: React.FC = () => {
       // Limpar localStorage completamente
       localStorage.removeItem('agendei-facil-notifications');
       setNotifications([]);
-      console.log('🚨 Limpeza de emergência executada');
+      console.log('🚨 Limpeza de emergência executada - localStorage e memória limpos');
     } catch (error) {
       console.error('Erro na limpeza de emergência:', error);
     }
