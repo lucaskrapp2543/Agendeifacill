@@ -194,8 +194,6 @@ export const useNotifications = () => {
   const notifyNewAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, isPWA });
     
-    console.log('🔔 ENVIANDO NOTIFICAÇÃO DE NOVO AGENDAMENTO');
-    
     sendNotification({
       title: 'Agendei Fácil',
       body: `Novo agendamento: ${clientName} - ${service} às ${time}`,
@@ -206,8 +204,6 @@ export const useNotifications = () => {
   // Notificação de agendamento cancelado
   const notifyCancelledAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, isPWA });
-    
-    console.log('🔔 ENVIANDO NOTIFICAÇÃO DE CANCELAMENTO');
     
     sendNotification({
       title: 'Agendei Fácil',

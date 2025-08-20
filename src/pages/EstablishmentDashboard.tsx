@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2 } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } from '../lib/supabase';
@@ -854,6 +854,59 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // FUNÇÃO REFRESH MANUAL
+  const handleRefreshAppointments = async () => {
+    console.log('🔄 REFRESH MANUAL - Iniciando...');
+    
+    try {
+      // Salvar estado atual para detectar mudanças
+      const previousAppointments = [...appointments];
+      
+      // Recarregar agendamentos do dia
+      await fetchAppointments();
+      
+      // Recarregar agendamentos mensais (para valores)
+      await fetchMonthlyAppointments();
+      
+      // DETECTAR MUDANÇAS E NOTIFICAR
+      const currentAppointments = appointments;
+      
+      // Detectar novos agendamentos
+      currentAppointments.forEach(newApp => {
+        const prevApp = previousAppointments.find(prev => prev.id === newApp.id);
+        
+        if (!prevApp && newApp.status !== 'cancelled') {
+          console.log('🔔 NOVO AGENDAMENTO DETECTADO (REFRESH):', newApp);
+          notifyNewAppointment(
+            newApp.client_name,
+            newApp.service,
+            newApp.appointment_time
+          );
+        }
+      });
+      
+      // Detectar cancelamentos
+      previousAppointments.forEach(prevApp => {
+        const currentApp = currentAppointments.find(curr => curr.id === prevApp.id);
+        
+        if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+          console.log('🔔 CANCELAMENTO DETECTADO (REFRESH):', currentApp);
+          notifyCancelledAppointment(
+            currentApp.client_name,
+            currentApp.service,
+            currentApp.appointment_time
+          );
+        }
+      });
+      
+      console.log('✅ REFRESH MANUAL - Concluído');
+      toast('Agendamentos atualizados!', 'success');
+    } catch (error) {
+      console.error('❌ Erro no refresh manual:', error);
+      toast('Erro ao atualizar agendamentos', 'error');
+    }
+  };
+
   const handlePaymentMethodChange = async (appointmentId: string, paymentMethod: string) => {
     try {
       const { error } = await supabase
@@ -1144,93 +1197,67 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // F5 AUTOMÁTICO nos agendamentos a cada 5 segundos - SIMPLES E FUNCIONAL
+  // F5 AUTOMÁTICO nos agendamentos a cada 20 segundos
   useEffect(() => {
     if (!establishment || activeTab !== 'appointments') return;
     
-    console.log('🚀 INICIANDO F5 AUTOMÁTICO - A cada 5 segundos');
-    
     const interval = setInterval(async () => {
-      console.log('🔄 F5 AUTOMÁTICO - Executando...');
+      console.log('🔄 F5 AUTOMÁTICO - Recarregando agendamentos e valores...');
       
       try {
-        // Buscar agendamentos do banco
-        const { data: newAppointments, error } = await supabase
-          .from('appointments')
-          .select('*')
-          .eq('establishment_id', establishment.id)
-          .eq('appointment_date', selectedDate)
-          .order('appointment_time', { ascending: true });
+        // Salvar estado atual para detectar mudanças
+        const previousAppointments = [...appointments];
         
-        if (error) {
-          console.error('❌ Erro ao buscar agendamentos:', error);
-          return;
-        }
+        // Recarregar agendamentos do dia
+        await fetchAppointments();
         
-        console.log('📊 Agendamentos encontrados:', newAppointments?.length || 0);
-        
-        // SEMPRE atualizar o estado
-        setAppointments(newAppointments || []);
-        
-        // Recarregar valores mensais
+        // Recarregar agendamentos mensais (para valores)
         await fetchMonthlyAppointments();
         
-        console.log('✅ F5 AUTOMÁTICO - Concluído');
+        // DETECTAR MUDANÇAS E NOTIFICAR
+        const currentAppointments = appointments;
+        
+        // Detectar novos agendamentos
+        currentAppointments.forEach(newApp => {
+          const prevApp = previousAppointments.find(prev => prev.id === newApp.id);
+          
+          if (!prevApp && newApp.status !== 'cancelled') {
+            console.log('🔔 NOVO AGENDAMENTO DETECTADO:', newApp);
+            notifyNewAppointment(
+              newApp.client_name,
+              newApp.service,
+              newApp.appointment_time
+            );
+          }
+        });
+        
+        // Detectar cancelamentos
+        previousAppointments.forEach(prevApp => {
+          const currentApp = currentAppointments.find(curr => curr.id === prevApp.id);
+          
+          if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+            console.log('🔔 CANCELAMENTO DETECTADO:', currentApp);
+            notifyCancelledAppointment(
+              currentApp.client_name,
+              currentApp.service,
+              currentApp.appointment_time
+            );
+          }
+        });
+        
+        console.log('✅ F5 AUTOMÁTICO - Recarregamento concluído');
       } catch (error) {
         console.error('❌ Erro no F5 automático:', error);
       }
       
-    }, 5000); // 5 segundos
+    }, 20000); // 20 segundos
 
-    return () => {
-      console.log('🛑 PARANDO F5 AUTOMÁTICO');
-      clearInterval(interval);
-    };
-  }, [establishment, selectedDate, activeTab]);
+    return () => clearInterval(interval);
+  }, [establishment, selectedDate, activeTab, appointments]);
 
-  // DETECTOR DE MUDANÇAS PARA NOTIFICAÇÕES
+  // Atualizar ref quando appointments mudarem
   useEffect(() => {
-    if (!appointments || !previousAppointmentsRef.current) {
-      previousAppointmentsRef.current = appointments;
-      return;
-    }
-    
-    console.log('🔍 VERIFICANDO MUDANÇAS NOS AGENDAMENTOS...');
-    
-    const previous = previousAppointmentsRef.current;
-    const current = appointments;
-    
-    // Detectar novos agendamentos
-    current.forEach(newApp => {
-      const prevApp = previous.find(prev => prev.id === newApp.id);
-      
-      if (!prevApp && newApp.status !== 'cancelled') {
-        console.log('🔔 NOVO AGENDAMENTO DETECTADO:', newApp);
-        notifyNewAppointment(
-          newApp.client_name,
-          newApp.service,
-          newApp.appointment_time
-        );
-      }
-    });
-    
-    // Detectar cancelamentos
-    previous.forEach(prevApp => {
-      const currentApp = current.find(curr => curr.id === prevApp.id);
-      
-      if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-        console.log('🔔 CANCELAMENTO DETECTADO:', currentApp);
-        notifyCancelledAppointment(
-          currentApp.client_name,
-          currentApp.service,
-          currentApp.appointment_time
-        );
-      }
-    });
-    
-    // Atualizar referência
     previousAppointmentsRef.current = appointments;
-    
   }, [appointments]);
 
   // Listener para manter conexão com Service Worker
@@ -3342,6 +3369,16 @@ const EstablishmentDashboard = () => {
                   />
                   <button onClick={handleNextDay} className="btn-outline">
                     <ChevronRight className="h-4 w-4" />
+                  </button>
+                  
+                  {/* BOTÃO REFRESH */}
+                  <button
+                    onClick={handleRefreshAppointments}
+                    className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                    title="Atualizar agendamentos"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Refresh
                   </button>
                 </div>
 
