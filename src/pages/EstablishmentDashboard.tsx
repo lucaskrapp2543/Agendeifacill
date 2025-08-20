@@ -22,7 +22,6 @@ import { FinancialDashboard } from '../components/FinancialDashboard';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationPermission } from '../components/NotificationPermission';
-import { NotificationHistory } from '../components/NotificationHistory';
 
 interface BusinessHours {
   enabled: boolean;
@@ -1105,13 +1104,12 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // Atualização automática a cada 10 segundos
+  // Atualização automática a cada 30 segundos
   useEffect(() => {
     if (!establishment) return;
     
-    // Função para verificar novos agendamentos
-    const checkForNewAppointments = async () => {
-      console.log('🔄 Verificação de agendamentos...');
+    const interval = setInterval(async () => {
+      console.log('🔄 Atualização automática dos agendamentos...');
       
       // Salvar estado atual dos agendamentos
       const previousAppointments = [...previousAppointmentsRef.current];
@@ -1169,36 +1167,40 @@ const EstablishmentDashboard = () => {
           previousAppointmentsRef.current = newAppointments;
         }
       } catch (error) {
-        console.error('❌ Erro na verificação de agendamentos:', error);
+        console.error('❌ Erro na atualização automática:', error);
       }
-    };
-    
-    // Verificação inicial
-    checkForNewAppointments();
-    
-    // Verificação periódica
-    const interval = setInterval(checkForNewAppointments, 10000);
-    
-    // Listener para mensagens do Service Worker
-    const handleServiceWorkerMessage = (event) => {
-      if (event.data && event.data.type === 'BACKGROUND_CHECK') {
-        console.log('🔍 Recebida verificação em background do Service Worker');
-        checkForNewAppointments();
-      }
-    };
-    
-    navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
-    
-    return () => {
-      clearInterval(interval);
-      navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
-    };
+      
+    }, 10000); // 10 segundos - mais rápido
+
+    return () => clearInterval(interval);
   }, [establishment, selectedDate]);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
     previousAppointmentsRef.current = appointments;
   }, [appointments]);
+
+  // Listener para manter conexão com Service Worker
+  useEffect(() => {
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data.type === 'KEEP_ALIVE') {
+        console.log('🔄 Heartbeat do Service Worker recebido');
+        // Forçar verificação imediata se necessário
+        if (establishment) {
+          // Verificação rápida adicional
+          setTimeout(() => {
+            fetchAppointments();
+          }, 1000);
+        }
+      }
+    };
+
+    navigator.serviceWorker?.addEventListener('message', handleServiceWorkerMessage);
+
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage);
+    };
+  }, [establishment]);
 
 
 
@@ -2873,7 +2875,6 @@ const EstablishmentDashboard = () => {
           
           <div className="flex items-center gap-4">
             <NotificationPermission className="hidden sm:flex" />
-            <NotificationHistory />
           </div>
           
 

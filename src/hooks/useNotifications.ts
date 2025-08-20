@@ -99,6 +99,12 @@ export const useNotifications = () => {
 
       const registration = await navigator.serviceWorker.ready;
       
+      // Verificar se o service worker está ativo
+      if (!registration.active) {
+        console.log('⚠️ Service Worker não está ativo, aguardando...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
       console.log('📱 Enviando notificação via Service Worker:', options);
       
       // Enviar mensagem para o service worker
@@ -184,55 +190,26 @@ export const useNotifications = () => {
     }
   };
 
-    // Função para salvar notificação no histórico
-  const saveNotificationToHistory = (notificationData: {
-    title: string;
-    body: string;
-    type: 'new_appointment' | 'cancelled_appointment' | 'custom';
-  }) => {
-    try {
-      // NÃO usar localStorage - apenas disparar evento para o componente
-      console.log('📝 Notificação enviada para o componente:', notificationData);
-      
-      // Disparar evento customizado para o componente NotificationHistory
-      const event = new CustomEvent('addNotificationToHistory', {
-        detail: notificationData
-      });
-      window.dispatchEvent(event);
-      
-    } catch (error) {
-      console.error('Erro ao salvar notificação no histórico:', error);
-    }
-  };
-
   // Notificação de novo agendamento
   const notifyNewAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, isPWA });
-    const notificationData = {
+    
+    sendNotification({
       title: 'Agendei Fácil',
       body: `Novo agendamento: ${clientName} - ${service} às ${time}`,
-      type: 'new_appointment' as const
-    };
-    
-    // Salvar no histórico
-    saveNotificationToHistory(notificationData);
-    
-    sendNotification(notificationData);
+      type: 'new_appointment'
+    });
   };
 
   // Notificação de agendamento cancelado
   const notifyCancelledAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, isPWA });
-    const notificationData = {
+    
+    sendNotification({
       title: 'Agendei Fácil',
       body: `Agendamento cancelado: ${clientName} - ${service} às ${time}`,
-      type: 'cancelled_appointment' as const
-    };
-    
-    // Salvar no histórico
-    saveNotificationToHistory(notificationData);
-    
-    sendNotification(notificationData);
+      type: 'cancelled_appointment'
+    });
   };
 
   // Notificação personalizada

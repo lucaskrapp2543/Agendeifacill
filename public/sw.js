@@ -124,28 +124,27 @@ function doBackgroundSync() {
   console.log('Sincronizando dados em background...');
 }
 
-// Verificação periódica em background
-let backgroundCheckInterval;
+// Manter Service Worker ativo em segundo plano
+let keepAliveInterval;
 
-// Iniciar verificação em background quando o service worker ativar
 self.addEventListener('activate', (event) => {
   console.log('Service Worker ativando...');
   
-  // Iniciar verificação em background
-  if (!backgroundCheckInterval) {
-    backgroundCheckInterval = setInterval(() => {
-      console.log('🔍 Verificação em background ativa...');
+  // Manter ativo em segundo plano
+  if (!keepAliveInterval) {
+    keepAliveInterval = setInterval(() => {
+      console.log('🔄 Service Worker mantendo ativo...');
       
-      // Enviar mensagem para todos os clientes conectados
+      // Enviar heartbeat para todos os clientes
       self.clients.matchAll().then(clients => {
         clients.forEach(client => {
           client.postMessage({
-            type: 'BACKGROUND_CHECK',
+            type: 'KEEP_ALIVE',
             timestamp: Date.now()
           });
         });
       });
-    }, 5000); // Verificar a cada 5 segundos
+    }, 5000); // A cada 5 segundos
   }
   
   event.waitUntil(
@@ -259,11 +258,10 @@ self.addEventListener('message', (event) => {
       body: body,
       icon: '/novo-icone.png',
       badge: '/novo-icone.png',
-      vibrate: [200, 100, 200, 100, 200], // Vibração mais forte
+      vibrate: [100, 50, 100],
       silent: false, // Usar som nativo do sistema
-      requireInteraction: true, // Forçar interação para garantir que apareça
+      requireInteraction: false,
       tag: uniqueTag, // Tag única para não substituir
-      priority: 'high', // Prioridade alta
       data: {
         type: type,
         appointmentId: appointmentId,
@@ -300,18 +298,7 @@ self.addEventListener('message', (event) => {
             } catch (error) {
               console.log('Erro ao tocar som adicional:', error);
             }
-          }, 50); // Reduzido para 50ms
-          
-          // Tocar som extra após 500ms para garantir
-          setTimeout(() => {
-            try {
-              const audio2 = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
-              audio2.volume = 0.8;
-              audio2.play().catch(() => console.log('Som extra não pôde ser reproduzido'));
-            } catch (error) {
-              console.log('Erro ao tocar som extra:', error);
-            }
-          }, 500);
+          }, 100);
         })
         .catch((error) => {
           console.error('📱 Erro ao mostrar notificação:', error);
