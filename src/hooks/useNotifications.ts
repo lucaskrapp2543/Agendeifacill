@@ -194,6 +194,18 @@ export const useNotifications = () => {
   const notifyNewAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, isPWA });
     
+    // Verificar se já notificou este agendamento (evitar duplicatas)
+    const notificationKey = `notified_${clientName}_${service}_${time}`;
+    const alreadyNotified = sessionStorage.getItem(notificationKey);
+    
+    if (alreadyNotified) {
+      console.log('🔔 Já notificado este agendamento, pulando...');
+      return;
+    }
+    
+    // Marcar como notificado
+    sessionStorage.setItem(notificationKey, 'true');
+    
     sendNotification({
       title: 'Agendei Fácil',
       body: `Novo agendamento: ${clientName} - ${service} às ${time}`,
@@ -204,6 +216,18 @@ export const useNotifications = () => {
   // Notificação de agendamento cancelado
   const notifyCancelledAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, isPWA });
+    
+    // Verificar se já notificou este cancelamento (evitar duplicatas)
+    const notificationKey = `cancelled_${clientName}_${service}_${time}`;
+    const alreadyNotified = sessionStorage.getItem(notificationKey);
+    
+    if (alreadyNotified) {
+      console.log('🔔 Já notificado este cancelamento, pulando...');
+      return;
+    }
+    
+    // Marcar como notificado
+    sessionStorage.setItem(notificationKey, 'true');
     
     sendNotification({
       title: 'Agendei Fácil',

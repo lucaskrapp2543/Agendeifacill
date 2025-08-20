@@ -1144,7 +1144,7 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // F5 AUTOMÁTICO nos agendamentos a cada 10 segundos
+  // F5 AUTOMÁTICO nos agendamentos a cada 10 segundos COM NOTIFICAÇÕES
   useEffect(() => {
     if (!establishment || activeTab !== 'appointments') return;
     
@@ -1152,11 +1152,47 @@ const EstablishmentDashboard = () => {
       console.log('🔄 F5 AUTOMÁTICO - Recarregando agendamentos e valores...');
       
       try {
+        // Salvar estado atual dos agendamentos
+        const previousAppointments = [...previousAppointmentsRef.current];
+        
         // Recarregar agendamentos do dia
         await fetchAppointments();
         
         // Recarregar agendamentos mensais (para valores)
         await fetchMonthlyAppointments();
+        
+        // DETECTAR NOVOS AGENDAMENTOS E ENVIAR NOTIFICAÇÕES
+        const currentAppointments = appointments;
+        
+        if (currentAppointments && previousAppointments) {
+          // Detectar novos agendamentos
+          currentAppointments.forEach(currentApp => {
+            const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
+            
+            if (!prevApp && currentApp.status !== 'cancelled') {
+              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
+              notifyNewAppointment(
+                currentApp.client_name,
+                currentApp.service,
+                currentApp.appointment_time
+              );
+            }
+          });
+          
+          // Detectar agendamentos cancelados externamente
+          previousAppointments.forEach(prevApp => {
+            const currentApp = currentAppointments.find(curr => curr.id === prevApp.id);
+            
+            if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
+              notifyCancelledAppointment(
+                currentApp.client_name,
+                currentApp.service,
+                currentApp.appointment_time
+              );
+            }
+          });
+        }
         
         console.log('✅ F5 AUTOMÁTICO - Recarregamento concluído');
       } catch (error) {
@@ -1166,7 +1202,7 @@ const EstablishmentDashboard = () => {
     }, 10000); // 10 segundos
 
     return () => clearInterval(interval);
-  }, [establishment, selectedDate, activeTab]);
+  }, [establishment, selectedDate, activeTab, appointments]);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
