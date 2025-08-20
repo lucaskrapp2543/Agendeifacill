@@ -8,6 +8,7 @@ interface NotificationItem {
   type: 'new_appointment' | 'cancelled_appointment' | 'custom';
   timestamp: number;
   read: boolean;
+  readAt?: number; // Timestamp quando foi marcada como lida
 }
 
 export const NotificationHistory: React.FC = () => {
@@ -36,11 +37,21 @@ export const NotificationHistory: React.FC = () => {
             return false;
           }
           
+          // Verificar se não foi marcada como lida há mais de 24 horas
+          if (notification.read && notification.readAt) {
+            const readAt = new Date(notification.readAt).getTime();
+            const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+            if (readAt < twentyFourHoursAgo) {
+              console.log('❌ Notificação lida antiga removida:', notification);
+              return false;
+            }
+          }
+          
           return true;
         });
         
-        // Limitar a 50 notificações para evitar bugs
-        const limitedNotifications = validNotifications.slice(0, 50);
+        // Limitar a 30 notificações para evitar bugs
+        const limitedNotifications = validNotifications.slice(0, 30);
         
         console.log('📝 Carregadas notificações válidas:', limitedNotifications.length);
         setNotifications(limitedNotifications);
@@ -85,11 +96,12 @@ export const NotificationHistory: React.FC = () => {
       ...notification,
       id: `notification-${Date.now()}-${Math.random()}`,
       timestamp: Date.now(),
-      read: false
+      read: false,
+      readAt: undefined // Não foi lida ainda
     };
 
-    // Limitar a 50 notificações para evitar bugs
-    const updatedNotifications = [newNotification, ...notifications].slice(0, 50);
+    // Limitar a 30 notificações para evitar bugs
+    const updatedNotifications = [newNotification, ...notifications].slice(0, 30);
     saveNotifications(updatedNotifications);
     
     console.log('✅ Nova notificação adicionada:', newNotification);
@@ -98,9 +110,14 @@ export const NotificationHistory: React.FC = () => {
   // Marcar como lida
   const markAsRead = (id: string) => {
     const updatedNotifications = notifications.map(notification =>
-      notification.id === id ? { ...notification, read: true } : notification
+      notification.id === id ? { 
+        ...notification, 
+        read: true,
+        readAt: Date.now() // Salvar timestamp de quando foi lida
+      } : notification
     );
     saveNotifications(updatedNotifications);
+    console.log('✅ Notificação marcada como lida:', id);
   };
 
   // Limpar notificações antigas (mais de 7 dias)
@@ -117,18 +134,40 @@ export const NotificationHistory: React.FC = () => {
   useEffect(() => {
     const autoCleanup = () => {
       const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+      
       const hasOldNotifications = notifications.some(
         notification => notification.timestamp < sevenDaysAgo
       );
       
-      if (hasOldNotifications) {
-        console.log('🧹 Limpeza automática de notificações antigas');
-        clearOldNotifications();
+      const hasOldReadNotifications = notifications.some(
+        notification => notification.read && notification.readAt && notification.readAt < twentyFourHoursAgo
+      );
+      
+      if (hasOldNotifications || hasOldReadNotifications) {
+        console.log('🧹 Limpeza automática de notificações antigas e lidas');
+        
+        // Remover notificações antigas e lidas antigas
+        const filteredNotifications = notifications.filter(notification => {
+          // Manter se não é muito antiga
+          if (notification.timestamp < sevenDaysAgo) {
+            return false;
+          }
+          
+          // Manter se não foi lida há mais de 24 horas
+          if (notification.read && notification.readAt && notification.readAt < twentyFourHoursAgo) {
+            return false;
+          }
+          
+          return true;
+        });
+        
+        saveNotifications(filteredNotifications);
       }
     };
 
-    // Executar limpeza a cada hora
-    const interval = setInterval(autoCleanup, 60 * 60 * 1000);
+    // Executar limpeza a cada 30 minutos
+    const interval = setInterval(autoCleanup, 30 * 60 * 1000);
     
     // Executar limpeza inicial
     autoCleanup();
@@ -158,6 +197,28 @@ export const NotificationHistory: React.FC = () => {
   const clearReadNotifications = () => {
     const unreadNotifications = notifications.filter(notification => !notification.read);
     saveNotifications(unreadNotifications);
+    console.log('🧹 Notificações lidas removidas');
+  };
+
+  // Limpar notificações lidas antigas (mais de 24 horas)
+  const clearOldReadNotifications = () => {
+    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+    const filteredNotifications = notifications.filter(notification => {
+      // Manter se não foi lida
+      if (!notification.read) {
+        return true;
+      }
+      
+      // Manter se foi lida há menos de 24 horas
+      if (notification.readAt && notification.readAt > twentyFourHoursAgo) {
+        return true;
+      }
+      
+      return false;
+    });
+    
+    saveNotifications(filteredNotifications);
+    console.log('🧹 Notificações lidas antigas removidas');
   };
 
   // Formatar data
@@ -231,6 +292,13 @@ export const NotificationHistory: React.FC = () => {
                  className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-200"
                >
                  Limpar lidas
+               </button>
+               <button
+                 onClick={clearOldReadNotifications}
+                 className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-200"
+                 title="Remove notificações lidas há mais de 24 horas"
+               >
+                 Limpar lidas antigas
                </button>
                <button
                  onClick={clearOldNotifications}

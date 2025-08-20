@@ -207,15 +207,16 @@ export const useNotifications = () => {
         return;
       }
       
-      const newNotification = {
-        id: `notification-${Date.now()}-${Math.random()}`,
-        ...notificationData,
-        timestamp: Date.now(),
-        read: false
-      };
-      
-      // Adicionar no início e limitar a 50 notificações
-      const updatedNotifications = [newNotification, ...notifications].slice(0, 50);
+             const newNotification = {
+         id: `notification-${Date.now()}-${Math.random()}`,
+         ...notificationData,
+         timestamp: Date.now(),
+         read: false,
+         readAt: undefined // Não foi lida ainda
+       };
+       
+       // Adicionar no início e limitar a 30 notificações
+       const updatedNotifications = [newNotification, ...notifications].slice(0, 30);
       localStorage.setItem('agendei-facil-notifications', JSON.stringify(updatedNotifications));
       
       console.log('📝 Notificação salva no histórico:', newNotification);
