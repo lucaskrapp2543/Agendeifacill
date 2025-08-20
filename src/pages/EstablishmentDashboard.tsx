@@ -1175,78 +1175,78 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // Atualização automática a cada 30 segundos
-  useEffect(() => {
-    if (!establishment) return;
+  // DESABILITAR ATUALIZAÇÃO AUTOMÁTICA TEMPORARIAMENTE PARA RESOLVER PROBLEMA DE EXCLUSÃO
+  // useEffect(() => {
+  //   if (!establishment) return;
     
-    const interval = setInterval(async () => {
-      console.log('🔄 Atualização automática dos agendamentos...');
+  //   const interval = setInterval(async () => {
+  //     console.log('🔄 Atualização automática dos agendamentos...');
       
-      // Salvar estado atual dos agendamentos
-      const previousAppointments = [...previousAppointmentsRef.current];
-      console.log('📋 Agendamentos anteriores:', previousAppointments.length);
+  //     // Salvar estado atual dos agendamentos
+  //     const previousAppointments = [...previousAppointmentsRef.current];
+  //     console.log('📋 Agendamentos anteriores:', previousAppointments.length);
       
-      // Buscar novos dados
-      try {
-        const { data: newAppointments } = await supabase
-          .from('appointments')
-          .select(`
-            *,
-            establishments (
-              name,
-              code
-            )
-          `)
-          .eq('establishment_id', establishment.id)
-          .gte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
-          .lte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
-          .order('appointment_time');
+  //     // Buscar novos dados
+  //     try {
+  //       const { data: newAppointments } = await supabase
+  //         .from('appointments')
+  //         .select(`
+  //           *,
+  //           establishments (
+  //             name,
+  //             code
+  //           )
+  //         `)
+  //         .eq('establishment_id', establishment.id)
+  //         .gte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
+  //         .lte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
+  //         .order('appointment_time');
 
-        if (newAppointments) {
-          console.log('📋 Novos agendamentos:', newAppointments.length);
+  //       if (newAppointments) {
+  //         console.log('📋 Novos agendamentos:', newAppointments.length);
           
-          // Detectar novos agendamentos
-          newAppointments.forEach(currentApp => {
-            const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
+  //         // Detectar novos agendamentos
+  //         newAppointments.forEach(currentApp => {
+  //           const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
             
-            if (!prevApp && currentApp.status !== 'cancelled') {
-              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
-              notifyNewAppointment(
-                currentApp.client_name,
-                currentApp.service,
-                currentApp.appointment_time
-              );
-            }
-          });
+  //           if (!prevApp && currentApp.status !== 'cancelled') {
+  //             console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
+  //             notifyNewAppointment(
+  //               currentApp.client_name,
+  //               currentApp.service,
+  //               currentApp.appointment_time
+  //               );
+  //             }
+  //           });
           
-          // Detectar agendamentos cancelados externamente
-          previousAppointments.forEach(prevApp => {
-            const currentApp = newAppointments.find(curr => curr.id === prevApp.id);
+  //           // Detectar agendamentos cancelados externamente
+  //           previousAppointments.forEach(prevApp => {
+  //             const currentApp = newAppointments.find(curr => curr.id === prevApp.id);
             
-            if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
-              notifyCancelledAppointment(
-                currentApp.client_name,
-                currentApp.service,
-                currentApp.appointment_time
-              );
-            }
-          });
+  //             if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+  //               console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
+  //               notifyCancelledAppointment(
+  //                 currentApp.client_name,
+  //                 currentApp.service,
+  //                 currentApp.appointment_time
+  //               );
+  //             }
+  //           });
           
-          // SEMPRE ATUALIZAR A LISTA (removendo a proteção que estava causando problemas)
-          console.log('🔄 Atualizando lista de agendamentos');
-          setAppointments(newAppointments);
+  //           // SEMPRE ATUALIZAR A LISTA (removendo a proteção que estava causando problemas)
+  //           console.log('🔄 Atualizando lista de agendamentos');
+  //           setAppointments(newAppointments);
           
-          previousAppointmentsRef.current = newAppointments;
-        }
-      } catch (error) {
-        console.error('❌ Erro na atualização automática:', error);
-      }
+  //           previousAppointmentsRef.current = newAppointments;
+  //         }
+  //       } catch (error) {
+  //         console.error('❌ Erro na atualização automática:', error);
+  //       }
       
-    }, 10000); // 10 segundos - mais rápido
+  //     }, 10000); // 10 segundos - mais rápido
 
-    return () => clearInterval(interval);
-  }, [establishment, selectedDate]);
+  //     return () => clearInterval(interval);
+  //   }, [establishment, selectedDate]);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
