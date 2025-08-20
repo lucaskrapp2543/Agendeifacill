@@ -5,6 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 import { CacheBuster } from './components/CacheBuster';
 import { EnvironmentError } from './components/EnvironmentError';
+import { InstallAppButton } from './components/InstallAppButton';
 
 // Teste de configuração - novo computador
 
@@ -120,6 +121,7 @@ function App() {
               
               <Route path="*" element={<NotFound />} />
             </Routes>
+            <InstallAppButton />
           </Router>
         </AuthProvider>
       </SupabaseProvider>
