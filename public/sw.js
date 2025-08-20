@@ -124,6 +124,47 @@ function doBackgroundSync() {
   console.log('Sincronizando dados em background...');
 }
 
+// Verificação periódica em background
+let backgroundCheckInterval;
+
+// Iniciar verificação em background quando o service worker ativar
+self.addEventListener('activate', (event) => {
+  console.log('Service Worker ativando...');
+  
+  // Iniciar verificação em background
+  if (!backgroundCheckInterval) {
+    backgroundCheckInterval = setInterval(() => {
+      console.log('🔍 Verificação em background ativa...');
+      
+      // Enviar mensagem para todos os clientes conectados
+      self.clients.matchAll().then(clients => {
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'BACKGROUND_CHECK',
+            timestamp: Date.now()
+          });
+        });
+      });
+    }, 5000); // Verificar a cada 5 segundos
+  }
+  
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            console.log('Deletando cache antigo:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => {
+      console.log('Service Worker ativado');
+      return self.clients.claim();
+    })
+  );
+});
+
 // Notificações push reais (funcionam em segundo plano)
 self.addEventListener('push', (event) => {
   console.log('📱 Push notification recebida:', event.data);
@@ -218,10 +259,11 @@ self.addEventListener('message', (event) => {
       body: body,
       icon: '/novo-icone.png',
       badge: '/novo-icone.png',
-      vibrate: [100, 50, 100],
+      vibrate: [200, 100, 200, 100, 200], // Vibração mais forte
       silent: false, // Usar som nativo do sistema
-      requireInteraction: false,
+      requireInteraction: true, // Forçar interação para garantir que apareça
       tag: uniqueTag, // Tag única para não substituir
+      priority: 'high', // Prioridade alta
       data: {
         type: type,
         appointmentId: appointmentId,
@@ -258,7 +300,18 @@ self.addEventListener('message', (event) => {
             } catch (error) {
               console.log('Erro ao tocar som adicional:', error);
             }
-          }, 100);
+          }, 50); // Reduzido para 50ms
+          
+          // Tocar som extra após 500ms para garantir
+          setTimeout(() => {
+            try {
+              const audio2 = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
+              audio2.volume = 0.8;
+              audio2.play().catch(() => console.log('Som extra não pôde ser reproduzido'));
+            } catch (error) {
+              console.log('Erro ao tocar som extra:', error);
+            }
+          }, 500);
         })
         .catch((error) => {
           console.error('📱 Erro ao mostrar notificação:', error);

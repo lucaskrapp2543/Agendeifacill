@@ -1104,12 +1104,13 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // Atualização automática a cada 30 segundos
+  // Atualização automática a cada 10 segundos
   useEffect(() => {
     if (!establishment) return;
     
-    const interval = setInterval(async () => {
-      console.log('🔄 Atualização automática dos agendamentos...');
+    // Função para verificar novos agendamentos
+    const checkForNewAppointments = async () => {
+      console.log('🔄 Verificação de agendamentos...');
       
       // Salvar estado atual dos agendamentos
       const previousAppointments = [...previousAppointmentsRef.current];
@@ -1167,12 +1168,30 @@ const EstablishmentDashboard = () => {
           previousAppointmentsRef.current = newAppointments;
         }
       } catch (error) {
-        console.error('❌ Erro na atualização automática:', error);
+        console.error('❌ Erro na verificação de agendamentos:', error);
       }
-      
-    }, 30000); // 30 segundos
-
-    return () => clearInterval(interval);
+    };
+    
+    // Verificação inicial
+    checkForNewAppointments();
+    
+    // Verificação periódica
+    const interval = setInterval(checkForNewAppointments, 10000);
+    
+    // Listener para mensagens do Service Worker
+    const handleServiceWorkerMessage = (event) => {
+      if (event.data && event.data.type === 'BACKGROUND_CHECK') {
+        console.log('🔍 Recebida verificação em background do Service Worker');
+        checkForNewAppointments();
+      }
+    };
+    
+    navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+    
+    return () => {
+      clearInterval(interval);
+      navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
+    };
   }, [establishment, selectedDate]);
 
   // Atualizar ref quando appointments mudarem
