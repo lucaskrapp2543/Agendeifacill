@@ -1,13 +1,47 @@
 {
-  "name": "Agendei Fácil",
-  "short_name": "Agendei",
-  "description": "Sistema de agendamentos para estabelecimentos",
+  "name": "Agendei Fácil - Sistema de Agendamentos",
+  "short_name": "Agendei Fácil",
+  "description": "Sistema completo de agendamentos para estabelecimentos e clientes",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#3b82f6",
   "orientation": "portrait",
+  "scope": "/",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
+    {
+      "src": "/logoagendei.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logoagendei.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logoagendei.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logoagendei.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logoagendei.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
     {
       "src": "/logoagendei.png",
       "sizes": "192x192",
@@ -16,9 +50,43 @@
     },
     {
       "src": "/logoagendei.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logoagendei.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/logoagendei.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "/logoagendei.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Novo Agendamento",
+      "short_name": "Agendar",
+      "description": "Criar novo agendamento",
+      "url": "/booking",
+      "icons": [
+        {
+          "src": "/logoagendei.png",
+          "sizes": "96x96"
+        }
+      ]
     }
   ]
 }

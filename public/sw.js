@@ -1,28 +1,57 @@
 // Service Worker para controle de cache
-const CACHE_NAME = 'agendei-facil-v1.0.0';
+const CACHE_NAME = 'agendei-facil-v2';
 const urlsToCache = [
   '/',
   '/index.html',
-  '/static/js/bundle.js',
-  '/static/css/main.css',
+  '/manifest.json',
   '/logoagendei.png',
-  '/melhordobrasil.png',
-  '/melhordobrasilcortado.png'
+  '/static/js/bundle.js',
+  '/static/css/main.css'
 ];
 
 // Instalação do Service Worker
 self.addEventListener('install', (event) => {
+  console.log('Service Worker instalando...');
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
         console.log('Cache aberto');
         return cache.addAll(urlsToCache);
       })
+      .then(() => {
+        console.log('Service Worker instalado');
+        return self.skipWaiting();
+      })
+  );
+});
+
+// Ativação do Service Worker
+self.addEventListener('activate', (event) => {
+  console.log('Service Worker ativando...');
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            console.log('Deletando cache antigo:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => {
+      console.log('Service Worker ativado');
+      return self.clients.claim();
+    })
   );
 });
 
 // Interceptação de requisições
 self.addEventListener('fetch', (event) => {
+  // Ignorar requisições de chrome-extension
+  if (event.request.url.startsWith('chrome-extension://')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
@@ -47,28 +76,66 @@ self.addEventListener('fetch', (event) => {
               });
 
             return response;
+          })
+          .catch(() => {
+            // Fallback para páginas offline
+            if (event.request.destination === 'document') {
+              return caches.match('/index.html');
+            }
           });
       })
   );
 });
 
-// Ativação e limpeza de caches antigos
-self.addEventListener('activate', (event) => {
+// Sincronização em background
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'background-sync') {
+    event.waitUntil(doBackgroundSync());
+  }
+});
+
+function doBackgroundSync() {
+  // Implementar sincronização de dados offline
+  console.log('Sincronizando dados em background...');
+}
+
+// Notificações push
+self.addEventListener('push', (event) => {
+  const options = {
+    body: event.data ? event.data.text() : 'Novo agendamento disponível!',
+    icon: '/logoagendei.png',
+    badge: '/logoagendei.png',
+    vibrate: [100, 50, 100],
+    data: {
+      dateOfArrival: Date.now(),
+      primaryKey: 1
+    },
+    actions: [
+      {
+        action: 'explore',
+        title: 'Ver agendamento',
+        icon: '/logoagendei.png'
+      },
+      {
+        action: 'close',
+        title: 'Fechar',
+        icon: '/logoagendei.png'
+      }
+    ]
+  };
+
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('Removendo cache antigo:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
+    self.registration.showNotification('Agendei Fácil', options)
   );
 });
 
-// Força atualização do Service Worker a cada 5 minutos
-setInterval(() => {
-  self.registration.update();
-}, 5 * 60 * 1000);
+// Clique em notificação
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  if (event.action === 'explore') {
+    event.waitUntil(
+      clients.openWindow('/')
+    );
+  }
+});
