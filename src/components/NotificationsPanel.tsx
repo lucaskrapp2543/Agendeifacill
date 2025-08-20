@@ -27,6 +27,8 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   // Buscar notificações
   const fetchNotifications = async () => {
     try {
+      console.log('🔍 Buscando notificações para establishment:', establishmentId);
+      
       const { data, error } = await supabase
         .from('establishment_notifications')
         .select('*')
@@ -39,15 +41,21 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         return;
       }
 
+      console.log('📋 Notificações encontradas:', data?.length || 0);
+      console.log('📋 Notificações:', data);
+
       setNotifications(data || []);
       
       // Contar não lidas
       const unread = (data || []).filter(n => !n.read).length;
       setUnreadCount(unread);
 
+      console.log('🔔 Notificações não lidas:', unread);
+
       // Enviar notificação para o celular se houver novas não lidas
       if (unread > 0 && 'Notification' in window && Notification.permission === 'granted') {
         const newNotifications = data?.filter(n => !n.read) || [];
+        console.log('📱 Enviando notificações para celular:', newNotifications.length);
         newNotifications.forEach(notification => {
           sendMobileNotification(notification);
         });
@@ -157,16 +165,18 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     }
   }, [isOpen, establishmentId]);
 
-  // Atualizar a cada 10 segundos quando aberto
+  // Buscar notificações periodicamente (mesmo fechado)
   useEffect(() => {
-    if (!isOpen) return;
-
+    // Buscar imediatamente
+    fetchNotifications();
+    
+    // Buscar a cada 10 segundos
     const interval = setInterval(() => {
       fetchNotifications();
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [isOpen, establishmentId]);
+  }, [establishmentId]);
 
   // Filtrar notificações
   const filteredNotifications = notifications.filter(notification => {
