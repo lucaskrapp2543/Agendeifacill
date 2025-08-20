@@ -1,10 +1,11 @@
 // Service Worker para controle de cache
-const CACHE_NAME = 'agendei-facil-v2';
+const CACHE_NAME = 'agendei-facil-v3';
 const urlsToCache = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/logoagendei.png',
+  '/novo-icone.png',
+  '/novo-icone-maskable.png',
   '/static/js/bundle.js',
   '/static/css/main.css'
 ];
@@ -49,6 +50,28 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   // Ignorar requisições de chrome-extension
   if (event.request.url.startsWith('chrome-extension://')) {
+    return;
+  }
+
+  // Forçar atualização de ícones e manifest
+  if (event.request.url.includes('manifest.json') || 
+      event.request.url.includes('novo-icone') ||
+      event.request.url.includes('logoagendei')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          // Sempre atualizar ícones e manifest
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME)
+            .then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          return response;
+        })
+        .catch(() => {
+          return caches.match(event.request);
+        })
+    );
     return;
   }
 
@@ -103,8 +126,8 @@ function doBackgroundSync() {
 self.addEventListener('push', (event) => {
   const options = {
     body: event.data ? event.data.text() : 'Novo agendamento disponível!',
-    icon: '/logoagendei.png',
-    badge: '/logoagendei.png',
+    icon: '/novo-icone.png',
+    badge: '/novo-icone.png',
     vibrate: [100, 50, 100],
     data: {
       dateOfArrival: Date.now(),
@@ -114,12 +137,12 @@ self.addEventListener('push', (event) => {
       {
         action: 'explore',
         title: 'Ver agendamento',
-        icon: '/logoagendei.png'
+        icon: '/novo-icone.png'
       },
       {
         action: 'close',
         title: 'Fechar',
-        icon: '/logoagendei.png'
+        icon: '/novo-icone.png'
       }
     ]
   };
