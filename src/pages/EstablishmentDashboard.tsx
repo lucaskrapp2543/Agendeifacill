@@ -1197,63 +1197,99 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // F5 AUTOMÁTICO nos agendamentos a cada 20 segundos
+  // SISTEMA DE NOTIFICAÇÕES EM TEMPO REAL
   useEffect(() => {
     if (!establishment || activeTab !== 'appointments') return;
     
-    const interval = setInterval(async () => {
-      console.log('🔄 F5 AUTOMÁTICO - Recarregando agendamentos e valores...');
-      
-      try {
-        // Salvar estado atual para detectar mudanças
-        const previousAppointments = [...appointments];
-        
-        // Recarregar agendamentos do dia
-        await fetchAppointments();
-        
-        // Recarregar agendamentos mensais (para valores)
-        await fetchMonthlyAppointments();
-        
-        // DETECTAR MUDANÇAS E NOTIFICAR
-        const currentAppointments = appointments;
-        
-        // Detectar novos agendamentos
-        currentAppointments.forEach(newApp => {
-          const prevApp = previousAppointments.find(prev => prev.id === newApp.id);
+    console.log('🚀 INICIANDO SISTEMA DE NOTIFICAÇÕES EM TEMPO REAL');
+    
+    // Configurar listener para mudanças em tempo real
+    const channel = supabase
+      .channel('appointments-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `establishment_id=eq.${establishment.id}`
+        },
+        (payload) => {
+          console.log('🔔 MUDANÇA DETECTADA NO BANCO:', payload);
           
-          if (!prevApp && newApp.status !== 'cancelled') {
-            console.log('🔔 NOVO AGENDAMENTO DETECTADO:', newApp);
-            notifyNewAppointment(
-              newApp.client_name,
-              newApp.service,
-              newApp.appointment_time
-            );
-          }
-        });
-        
-        // Detectar cancelamentos
-        previousAppointments.forEach(prevApp => {
-          const currentApp = currentAppointments.find(curr => curr.id === prevApp.id);
+          const { eventType, new: newRecord, old: oldRecord } = payload;
           
-          if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-            console.log('🔔 CANCELAMENTO DETECTADO:', currentApp);
-            notifyCancelledAppointment(
-              currentApp.client_name,
-              currentApp.service,
-              currentApp.appointment_time
-            );
+          if (eventType === 'INSERT') {
+            // NOVO AGENDAMENTO
+            console.log('🎉 NOVO AGENDAMENTO CRIADO:', newRecord);
+            
+            // Verificar se é para o dia atual
+            const appointmentDate = newRecord.appointment_date;
+            const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+            
+            if (appointmentDate === selectedDateStr) {
+              notifyNewAppointment(
+                newRecord.client_name,
+                newRecord.service,
+                newRecord.appointment_time
+              );
+              
+              // Atualizar lista de agendamentos
+              setAppointments(prev => [...prev, newRecord]);
+              
+              // Atualizar valores
+              fetchMonthlyAppointments();
+            }
           }
-        });
-        
-        console.log('✅ F5 AUTOMÁTICO - Recarregamento concluído');
-      } catch (error) {
-        console.error('❌ Erro no F5 automático:', error);
-      }
-      
-    }, 20000); // 20 segundos
-
-    return () => clearInterval(interval);
-  }, [establishment, selectedDate, activeTab, appointments]);
+          
+          if (eventType === 'UPDATE') {
+            // AGENDAMENTO ATUALIZADO
+            console.log('📝 AGENDAMENTO ATUALIZADO:', { old: oldRecord, new: newRecord });
+            
+            // Verificar se foi cancelado
+            if (oldRecord.status !== 'cancelled' && newRecord.status === 'cancelled') {
+              console.log('❌ AGENDAMENTO CANCELADO:', newRecord);
+              
+              notifyCancelledAppointment(
+                newRecord.client_name,
+                newRecord.service,
+                newRecord.appointment_time
+              );
+            }
+            
+            // Atualizar lista de agendamentos
+            setAppointments(prev => 
+              prev.map(app => app.id === newRecord.id ? newRecord : app)
+            );
+            
+            // Atualizar valores
+            fetchMonthlyAppointments();
+          }
+          
+          if (eventType === 'DELETE') {
+            // AGENDAMENTO DELETADO
+            console.log('🗑️ AGENDAMENTO DELETADO:', oldRecord);
+            
+            // Remover da lista
+            setAppointments(prev => 
+              prev.filter(app => app.id !== oldRecord.id)
+            );
+            
+            // Atualizar valores
+            fetchMonthlyAppointments();
+          }
+        }
+      )
+      .subscribe();
+    
+    console.log('✅ SISTEMA DE NOTIFICAÇÕES ATIVO');
+    
+    // Cleanup ao desmontar
+    return () => {
+      console.log('🛑 DESATIVANDO SISTEMA DE NOTIFICAÇÕES');
+      supabase.removeChannel(channel);
+    };
+  }, [establishment, selectedDate, activeTab]);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
