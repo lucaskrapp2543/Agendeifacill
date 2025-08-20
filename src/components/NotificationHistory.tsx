@@ -20,9 +20,41 @@ export const NotificationHistory: React.FC = () => {
     if (savedNotifications) {
       try {
         const parsed = JSON.parse(savedNotifications);
-        setNotifications(parsed);
+        
+        // Filtrar notificações antigas (mais de 7 dias) automaticamente
+        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        const validNotifications = parsed.filter((notification: any) => {
+          // Verificar se tem timestamp válido
+          if (!notification.timestamp || typeof notification.timestamp !== 'number') {
+            console.log('❌ Notificação inválida removida:', notification);
+            return false;
+          }
+          
+          // Verificar se não é muito antiga
+          if (notification.timestamp < sevenDaysAgo) {
+            console.log('❌ Notificação antiga removida:', notification);
+            return false;
+          }
+          
+          return true;
+        });
+        
+        // Limitar a 50 notificações para evitar bugs
+        const limitedNotifications = validNotifications.slice(0, 50);
+        
+        console.log('📝 Carregadas notificações válidas:', limitedNotifications.length);
+        setNotifications(limitedNotifications);
+        
+        // Salvar versão limpa se houve mudanças
+        if (limitedNotifications.length !== parsed.length) {
+          localStorage.setItem('agendei-facil-notifications', JSON.stringify(limitedNotifications));
+          console.log('🧹 Notificações limpas e salvas');
+        }
+        
       } catch (error) {
         console.error('Erro ao carregar notificações:', error);
+        // Limpar localStorage corrompido
+        localStorage.removeItem('agendei-facil-notifications');
         setNotifications([]);
       }
     }
@@ -36,6 +68,19 @@ export const NotificationHistory: React.FC = () => {
 
   // Adicionar nova notificação
   const addNotification = (notification: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => {
+    // Verificar se já existe uma notificação similar (mesmo título e corpo) nos últimos 5 minutos
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    const recentSimilar = notifications.find(n => 
+      n.title === notification.title && 
+      n.body === notification.body && 
+      n.timestamp > fiveMinutesAgo
+    );
+    
+    if (recentSimilar) {
+      console.log('⚠️ Notificação similar recente encontrada, ignorando:', notification);
+      return;
+    }
+    
     const newNotification: NotificationItem = {
       ...notification,
       id: `notification-${Date.now()}-${Math.random()}`,
@@ -43,8 +88,11 @@ export const NotificationHistory: React.FC = () => {
       read: false
     };
 
-    const updatedNotifications = [newNotification, ...notifications].slice(0, 100); // Limitar a 100 notificações
+    // Limitar a 50 notificações para evitar bugs
+    const updatedNotifications = [newNotification, ...notifications].slice(0, 50);
     saveNotifications(updatedNotifications);
+    
+    console.log('✅ Nova notificação adicionada:', newNotification);
   };
 
   // Marcar como lida
@@ -62,11 +110,48 @@ export const NotificationHistory: React.FC = () => {
       notification => notification.timestamp > sevenDaysAgo
     );
     saveNotifications(filteredNotifications);
+    console.log('🧹 Notificações antigas removidas');
   };
+
+  // Limpar notificações antigas automaticamente (chamada a cada 1 hora)
+  useEffect(() => {
+    const autoCleanup = () => {
+      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      const hasOldNotifications = notifications.some(
+        notification => notification.timestamp < sevenDaysAgo
+      );
+      
+      if (hasOldNotifications) {
+        console.log('🧹 Limpeza automática de notificações antigas');
+        clearOldNotifications();
+      }
+    };
+
+    // Executar limpeza a cada hora
+    const interval = setInterval(autoCleanup, 60 * 60 * 1000);
+    
+    // Executar limpeza inicial
+    autoCleanup();
+
+    return () => clearInterval(interval);
+  }, [notifications]);
 
   // Limpar todas as notificações
   const clearAllNotifications = () => {
     saveNotifications([]);
+    console.log('🗑️ Todas as notificações removidas');
+  };
+
+  // Limpar notificações antigas e inválidas (função de emergência)
+  const emergencyCleanup = () => {
+    try {
+      // Limpar localStorage completamente
+      localStorage.removeItem('agendei-facil-notifications');
+      setNotifications([]);
+      console.log('🚨 Limpeza de emergência executada');
+    } catch (error) {
+      console.error('Erro na limpeza de emergência:', error);
+    }
   };
 
   // Limpar notificações lidas
@@ -140,26 +225,33 @@ export const NotificationHistory: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900">
               Notificações ({notifications.length})
             </h3>
-            <div className="flex gap-2">
-              <button
-                onClick={clearReadNotifications}
-                className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-200"
-              >
-                Limpar lidas
-              </button>
-              <button
-                onClick={clearOldNotifications}
-                className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-200"
-              >
-                Limpar antigas
-              </button>
-              <button
-                onClick={clearAllNotifications}
-                className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-50"
-              >
-                Limpar todas
-              </button>
-            </div>
+                         <div className="flex gap-2">
+               <button
+                 onClick={clearReadNotifications}
+                 className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-200"
+               >
+                 Limpar lidas
+               </button>
+               <button
+                 onClick={clearOldNotifications}
+                 className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-200"
+               >
+                 Limpar antigas
+               </button>
+               <button
+                 onClick={clearAllNotifications}
+                 className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-50"
+               >
+                 Limpar todas
+               </button>
+               <button
+                 onClick={emergencyCleanup}
+                 className="text-xs text-red-800 hover:text-red-900 px-2 py-1 rounded hover:bg-red-100 border border-red-300"
+                 title="Limpeza de emergência - remove todas as notificações e corrige bugs"
+               >
+                 🚨 Emergência
+               </button>
+             </div>
           </div>
 
           {/* Lista de notificações */}

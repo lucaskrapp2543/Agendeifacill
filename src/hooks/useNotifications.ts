@@ -194,6 +194,19 @@ export const useNotifications = () => {
       const savedNotifications = localStorage.getItem('agendei-facil-notifications');
       const notifications = savedNotifications ? JSON.parse(savedNotifications) : [];
       
+      // Verificar se já existe uma notificação similar nos últimos 5 minutos
+      const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+      const recentSimilar = notifications.find((n: any) => 
+        n.title === notificationData.title && 
+        n.body === notificationData.body && 
+        n.timestamp > fiveMinutesAgo
+      );
+      
+      if (recentSimilar) {
+        console.log('⚠️ Notificação similar recente encontrada, ignorando:', notificationData);
+        return;
+      }
+      
       const newNotification = {
         id: `notification-${Date.now()}-${Math.random()}`,
         ...notificationData,
@@ -201,13 +214,15 @@ export const useNotifications = () => {
         read: false
       };
       
-      // Adicionar no início e limitar a 100 notificações
-      const updatedNotifications = [newNotification, ...notifications].slice(0, 100);
+      // Adicionar no início e limitar a 50 notificações
+      const updatedNotifications = [newNotification, ...notifications].slice(0, 50);
       localStorage.setItem('agendei-facil-notifications', JSON.stringify(updatedNotifications));
       
       console.log('📝 Notificação salva no histórico:', newNotification);
     } catch (error) {
       console.error('Erro ao salvar notificação no histórico:', error);
+      // Limpar localStorage corrompido
+      localStorage.removeItem('agendei-facil-notifications');
     }
   };
 
