@@ -817,23 +817,31 @@ const EstablishmentDashboard = () => {
 
   const handleDeleteAppointment = async (appointmentId: string) => {
     try {
+      console.log('🗑️ INICIANDO EXCLUSÃO DO AGENDAMENTO:', appointmentId);
+      
+      // 1. EXCLUIR DO BANCO DE DADOS
       const { error } = await supabase
         .from('appointments')
         .delete()
         .eq('id', appointmentId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ ERRO NO BANCO:', error);
+        throw error;
+      }
 
-      // Remover da lista local
-      setAppointments(prev => 
-        prev.filter(app => app.id !== appointmentId)
-      );
+      console.log('✅ EXCLUÍDO DO BANCO COM SUCESSO');
 
-      // Atualizar também a lista mensal
-      await fetchMonthlyAppointments();
+      // 2. REMOVER IMEDIATAMENTE DA LISTA LOCAL
+      setAppointments(prev => {
+        const newList = prev.filter(app => app.id !== appointmentId);
+        console.log('🗑️ Removido da lista local. Antes:', prev.length, 'Depois:', newList.length);
+        return newList;
+      });
 
-      // Limpar cache do Supabase para este estabelecimento
+      // 3. LIMPAR CACHE DO SUPABASE AGORA
       if (establishment) {
+        console.log('🧹 Limpando cache do Supabase...');
         await supabase
           .from('appointments')
           .select('*')
@@ -841,9 +849,10 @@ const EstablishmentDashboard = () => {
           .abortSignal(new AbortController().signal);
       }
 
-      // Limpar cache do Service Worker
+      // 4. LIMPAR CACHE DO SERVICE WORKER
       if ('serviceWorker' in navigator) {
         try {
+          console.log('🧹 Limpando cache do Service Worker...');
           const registration = await navigator.serviceWorker.ready;
           if (registration.active) {
             registration.active.postMessage({
@@ -856,14 +865,22 @@ const EstablishmentDashboard = () => {
         }
       }
 
-      // Marcar como excluído para evitar que volte na atualização automática
+      // 5. FORÇAR RECARREGAMENTO COMPLETO
+      console.log('🔄 Forçando recarregamento completo...');
+      setTimeout(async () => {
+        await fetchAppointments();
+        await fetchMonthlyAppointments();
+      }, 1000);
+
+      // 6. MARCAR COMO EXCLUÍDO NO ESTADO INTERNO
       previousAppointmentsRef.current = previousAppointmentsRef.current.filter(
         app => app.id !== appointmentId
       );
 
+      console.log('✅ EXCLUSÃO COMPLETA FINALIZADA');
       toast('Agendamento excluído com sucesso', 'success');
     } catch (error) {
-      console.error('Erro ao excluir agendamento:', error);
+      console.error('❌ ERRO NA EXCLUSÃO:', error);
       toast('Erro ao excluir agendamento', 'error');
     }
   };
@@ -1216,20 +1233,9 @@ const EstablishmentDashboard = () => {
             }
           });
           
-          // Atualizar o estado apenas se não houve exclusões recentes
-          const currentAppointmentIds = appointments.map(app => app.id);
-          const newAppointmentIds = newAppointments.map(app => app.id);
-          
-          // Verificar se algum agendamento foi removido da lista atual
-          const removedAppointments = currentAppointmentIds.filter(id => !newAppointmentIds.includes(id));
-          
-          if (removedAppointments.length > 0) {
-            console.log('🔄 Detectadas exclusões, mantendo lista atual');
-            // Não atualizar se houve exclusões
-          } else {
-            console.log('🔄 Atualizando lista de agendamentos');
-            setAppointments(newAppointments);
-          }
+          // SEMPRE ATUALIZAR A LISTA (removendo a proteção que estava causando problemas)
+          console.log('🔄 Atualizando lista de agendamentos');
+          setAppointments(newAppointments);
           
           previousAppointmentsRef.current = newAppointments;
         }
