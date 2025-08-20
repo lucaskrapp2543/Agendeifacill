@@ -829,8 +829,35 @@ const EstablishmentDashboard = () => {
         prev.filter(app => app.id !== appointmentId)
       );
 
-      // Atualizar também a lista mensal
-      await fetchMonthlyAppointments();
+      // Forçar recarregamento completo dos dados
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments()
+      ]);
+
+      // Limpar cache do Supabase para este estabelecimento
+      if (establishment) {
+        await supabase
+          .from('appointments')
+          .select('*')
+          .eq('establishment_id', establishment.id)
+          .abortSignal(new AbortController().signal);
+      }
+
+      // Limpar cache do Service Worker
+      if ('serviceWorker' in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          if (registration.active) {
+            registration.active.postMessage({
+              type: 'CLEAR_CACHE',
+              timestamp: Date.now()
+            });
+          }
+        } catch (error) {
+          console.log('Erro ao limpar cache do Service Worker:', error);
+        }
+      }
 
       toast('Agendamento excluído com sucesso', 'success');
     } catch (error) {
@@ -964,7 +991,8 @@ const EstablishmentDashboard = () => {
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startOfSelectedDate)
         .lte('appointment_date', endOfSelectedDate)
-        .order('appointment_time', { ascending: true });
+        .order('appointment_time', { ascending: true })
+        .abortSignal(new AbortController().signal); // Forçar busca sem cache
 
       if (error) throw error;
       

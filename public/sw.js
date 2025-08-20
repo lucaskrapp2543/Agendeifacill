@@ -379,4 +379,24 @@ self.addEventListener('message', (event) => {
     
     sendNotification(title, body, type);
   }
+  
+  // Limpar cache quando solicitado
+  if (event.data.type === 'CLEAR_CACHE') {
+    console.log('🗑️ Limpando cache do Service Worker...');
+    
+    event.waitUntil(
+      caches.keys().then((cacheNames) => {
+        return Promise.all(
+          cacheNames.map((cacheName) => {
+            console.log('🗑️ Deletando cache:', cacheName);
+            return caches.delete(cacheName);
+          })
+        );
+      }).then(() => {
+        console.log('✅ Cache limpo com sucesso!');
+      }).catch((error) => {
+        console.error('❌ Erro ao limpar cache:', error);
+      })
+    );
+  }
 });
