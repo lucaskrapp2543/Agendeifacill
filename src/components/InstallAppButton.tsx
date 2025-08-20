@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -10,6 +11,7 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export const InstallAppButton: React.FC = () => {
+  const location = useLocation();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [showButton, setShowButton] = useState(false);
@@ -23,9 +25,10 @@ export const InstallAppButton: React.FC = () => {
       
       setIsInstalled(isInstalled);
       
-      // Mostrar botão se não está instalado E é mobile
+      // Mostrar botão se não está instalado E é mobile E está na página inicial
       const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      setShowButton(!isInstalled && isMobile);
+      const isHomePage = location.pathname === '/' || location.pathname === '/home';
+      setShowButton(!isInstalled && isMobile && isHomePage);
     };
 
     // Listener para o evento beforeinstallprompt
