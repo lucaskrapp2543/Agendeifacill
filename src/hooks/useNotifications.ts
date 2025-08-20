@@ -1,0 +1,126 @@
+import { useEffect, useState } from 'react';
+
+interface NotificationOptions {
+  title: string;
+  body: string;
+  type?: 'new_appointment' | 'cancelled_appointment';
+  appointmentId?: string;
+}
+
+export const useNotifications = () => {
+  const [isSupported, setIsSupported] = useState(false);
+  const [permission, setPermission] = useState<NotificationPermission>('default');
+
+  useEffect(() => {
+    // Verificar se o navegador suporta notificações
+    if ('Notification' in window) {
+      setIsSupported(true);
+      setPermission(Notification.permission);
+    }
+  }, []);
+
+  // Solicitar permissão para notificações
+  const requestPermission = async (): Promise<boolean> => {
+    if (!isSupported) {
+      console.log('Notificações não são suportadas neste navegador');
+      return false;
+    }
+
+    try {
+      const result = await Notification.requestPermission();
+      setPermission(result);
+      return result === 'granted';
+    } catch (error) {
+      console.error('Erro ao solicitar permissão:', error);
+      return false;
+    }
+  };
+
+  // Enviar notificação
+  const sendNotification = async (options: NotificationOptions) => {
+    console.log('🔔 SEND NOTIFICATION:', { options, isSupported, permission });
+    
+    if (!isSupported) {
+      console.log('❌ Notificações não são suportadas');
+      return;
+    }
+
+    if (permission !== 'granted') {
+      console.log('⚠️ Permissão não concedida, solicitando...');
+      const granted = await requestPermission();
+      if (!granted) {
+        console.log('❌ Permissão de notificação negada');
+        return;
+      }
+    }
+
+    try {
+      // Verificar se o service worker está registrado
+      if ('serviceWorker' in navigator && 'PushManager' in window) {
+        const registration = await navigator.serviceWorker.ready;
+        
+        // Enviar mensagem para o service worker
+        registration.active?.postMessage({
+          type: 'SEND_NOTIFICATION',
+          data: {
+            title: options.title,
+            body: options.body,
+            type: options.type || 'new_appointment',
+            appointmentId: options.appointmentId
+          }
+        });
+      } else {
+        // Fallback para notificação nativa
+        new Notification(options.title, {
+          body: options.body,
+          icon: '/novo-icone.png',
+          badge: '/novo-icone.png',
+          vibrate: [100, 50, 100],
+          data: {
+            type: options.type || 'new_appointment',
+            appointmentId: options.appointmentId
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao enviar notificação:', error);
+    }
+  };
+
+  // Notificação de novo agendamento
+  const notifyNewAppointment = (clientName: string, service: string, time: string) => {
+    console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time });
+    sendNotification({
+      title: 'Agendei Fácil',
+      body: `Novo agendamento: ${clientName} - ${service} às ${time}`,
+      type: 'new_appointment'
+    });
+  };
+
+  // Notificação de agendamento cancelado
+  const notifyCancelledAppointment = (clientName: string, service: string, time: string) => {
+    sendNotification({
+      title: 'Agendei Fácil',
+      body: `Agendamento cancelado: ${clientName} - ${service} às ${time}`,
+      type: 'cancelled_appointment'
+    });
+  };
+
+  // Notificação personalizada
+  const notifyCustom = (title: string, body: string) => {
+    sendNotification({
+      title,
+      body
+    });
+  };
+
+  return {
+    isSupported,
+    permission,
+    requestPermission,
+    sendNotification,
+    notifyNewAppointment,
+    notifyCancelledAppointment,
+    notifyCustom
+  };
+};

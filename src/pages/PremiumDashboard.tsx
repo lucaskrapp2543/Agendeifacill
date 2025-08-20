@@ -18,6 +18,8 @@ import { ptBR } from 'date-fns/locale';
 import { supabase } from '../lib/supabase';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import type { Establishment } from '../types/supabase';
+import { useNotifications } from '../hooks/useNotifications';
+import { NotificationPermission } from '../components/NotificationPermission';
 
 interface Appointment {
   id: string;
@@ -60,6 +62,7 @@ interface FavoriteEstablishment {
 const PremiumDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -374,6 +377,10 @@ const PremiumDashboard = () => {
       
       console.log('✅ AGENDAMENTO SALVO:', data);
       
+      // Enviar notificação de novo agendamento
+      console.log('🔔 ENVIANDO NOTIFICAÇÃO:', { clientName, service: selectedService.name, time: appointmentTime });
+      notifyNewAppointment(clientName, selectedService.name, appointmentTime);
+      
       toast.success('Agendamento criado com sucesso!');
       
       // Forçar reload dos agendamentos após 1 segundo para dar tempo do Supabase processar
@@ -413,6 +420,16 @@ const PremiumDashboard = () => {
         throw error;
       }
 
+      // Encontrar o agendamento cancelado para notificação
+      const cancelledAppointment = appointments.find(apt => apt.id === appointmentId);
+      if (cancelledAppointment) {
+        notifyCancelledAppointment(
+          cancelledAppointment.client_name,
+          cancelledAppointment.service,
+          cancelledAppointment.appointment_time
+        );
+      }
+      
       toast.success('Agendamento cancelado com sucesso');
       
       // Aguardar um pouco e recarregar
@@ -722,6 +739,7 @@ const PremiumDashboard = () => {
               <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full font-medium">PREMIUM</span>
             </div>
             <div className="flex items-center gap-2 md:gap-4">
+              <NotificationPermission className="hidden sm:flex" />
               <span className="text-gray-400 text-sm md:text-base hidden sm:block">{user?.email}</span>
               <button onClick={handleSignOut} className="btn-outline text-sm md:text-base px-3 py-1 md:px-4 md:py-2">
                 Sair

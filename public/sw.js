@@ -1,5 +1,5 @@
-// Service Worker para controle de cache
-const CACHE_NAME = 'agendei-facil-v3';
+// Service Worker para controle de cache e notificações
+const CACHE_NAME = 'agendei-facil-v4';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -9,6 +9,12 @@ const urlsToCache = [
   '/static/js/bundle.js',
   '/static/css/main.css'
 ];
+
+// Sons de notificação
+const NOTIFICATION_SOUNDS = {
+  newAppointment: '/notification-sound.mp3',
+  cancelledAppointment: '/cancelled-sound.mp3'
+};
 
 // Instalação do Service Worker
 self.addEventListener('install', (event) => {
@@ -124,18 +130,23 @@ function doBackgroundSync() {
 
 // Notificações push
 self.addEventListener('push', (event) => {
-  const options = {
-    body: event.data ? event.data.text() : 'Novo agendamento disponível!',
+  console.log('Push notification recebida:', event.data);
+  
+  let notificationData = {
+    title: 'Agendei Fácil',
+    body: 'Novo agendamento disponível!',
     icon: '/novo-icone.png',
     badge: '/novo-icone.png',
     vibrate: [100, 50, 100],
+    sound: NOTIFICATION_SOUNDS.newAppointment,
     data: {
       dateOfArrival: Date.now(),
-      primaryKey: 1
+      primaryKey: 1,
+      type: 'new_appointment'
     },
     actions: [
       {
-        action: 'explore',
+        action: 'view',
         title: 'Ver agendamento',
         icon: '/novo-icone.png'
       },
@@ -147,18 +158,110 @@ self.addEventListener('push', (event) => {
     ]
   };
 
+  // Se há dados específicos na notificação
+  if (event.data) {
+    try {
+      const data = event.data.json();
+      if (data.type === 'cancelled_appointment') {
+        notificationData = {
+          ...notificationData,
+          title: 'Agendei Fácil',
+          body: 'Agendamento cancelado',
+          sound: NOTIFICATION_SOUNDS.cancelledAppointment,
+          data: {
+            ...notificationData.data,
+            type: 'cancelled_appointment'
+          }
+        };
+      } else if (data.type === 'new_appointment') {
+        notificationData = {
+          ...notificationData,
+          title: 'Agendei Fácil',
+          body: data.message || 'Novo agendamento realizado!',
+          data: {
+            ...notificationData.data,
+            type: 'new_appointment',
+            appointmentId: data.appointmentId
+          }
+        };
+      }
+    } catch (error) {
+      console.log('Erro ao processar dados da notificação:', error);
+    }
+  }
+
   event.waitUntil(
-    self.registration.showNotification('Agendei Fácil', options)
+    self.registration.showNotification(notificationData.title, notificationData)
   );
 });
 
 // Clique em notificação
 self.addEventListener('notificationclick', (event) => {
+  console.log('Notificação clicada:', event.action);
+  
   event.notification.close();
 
-  if (event.action === 'explore') {
+  if (event.action === 'view') {
+    // Abrir o app na página de agendamentos
+    event.waitUntil(
+      clients.openWindow('/dashboard/establishment')
+    );
+  } else if (event.action === 'close') {
+    // Apenas fechar a notificação
+    return;
+  } else {
+    // Clique padrão - abrir o app
     event.waitUntil(
       clients.openWindow('/')
     );
+  }
+});
+
+// Fechar notificação
+self.addEventListener('notificationclose', (event) => {
+  console.log('Notificação fechada:', event.notification.data);
+});
+
+// Função para enviar notificação manual
+function sendNotification(title, body, type = 'new_appointment') {
+  const notificationData = {
+    title: title || 'Agendei Fácil',
+    body: body || 'Novo agendamento!',
+    icon: '/novo-icone.png',
+    badge: '/novo-icone.png',
+    vibrate: [100, 50, 100],
+    sound: type === 'cancelled_appointment' ? NOTIFICATION_SOUNDS.cancelledAppointment : NOTIFICATION_SOUNDS.newAppointment,
+    data: {
+      dateOfArrival: Date.now(),
+      type: type
+    },
+    actions: [
+      {
+        action: 'view',
+        title: 'Ver detalhes',
+        icon: '/novo-icone.png'
+      },
+      {
+        action: 'close',
+        title: 'Fechar',
+        icon: '/novo-icone.png'
+      }
+    ]
+  };
+
+  return self.registration.showNotification(notificationData.title, notificationData);
+}
+
+// Expor função para uso no app
+self.sendNotification = sendNotification;
+
+// Listener para mensagens do app
+self.addEventListener('message', (event) => {
+  console.log('Mensagem recebida no service worker:', event.data);
+  
+  if (event.data.type === 'SEND_NOTIFICATION') {
+    const { title, body, type, appointmentId } = event.data.data;
+    
+    sendNotification(title, body, type);
   }
 });
