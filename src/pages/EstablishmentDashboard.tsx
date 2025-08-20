@@ -23,6 +23,7 @@ import { SubscribersManager } from '../components/SubscribersManager'; // Import
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationPermission } from '../components/NotificationPermission';
 import { initRealTimeNotifications, stopRealTimeNotifications } from '../utils/realTimeNotifications';
+import { NotificationsPanel } from '../components/NotificationsPanel';
 
 interface BusinessHours {
   enabled: boolean;
@@ -1143,16 +1144,13 @@ const EstablishmentDashboard = () => {
       fetchAppointments();
       fetchMonthlyAppointments(selectedMonth);
       
-      // Inicializar notificações em tempo real
-      if (Notification.permission === 'granted') {
-        console.log('🔔 Inicializando notificações em tempo real para:', establishment.id);
-        initRealTimeNotifications(establishment.id);
-      }
+      // Notificações agora são gerenciadas pelo painel interno
+      console.log('🔔 Sistema de notificações internas ativo para:', establishment.id);
     }
 
     // Cleanup ao desmontar
     return () => {
-      stopRealTimeNotifications();
+      // Cleanup do sistema de notificações internas
     };
   }, [establishment, selectedDate, selectedMonth]);
 
@@ -2944,6 +2942,9 @@ const EstablishmentDashboard = () => {
           
           <div className="flex items-center gap-4">
             <NotificationPermission className="hidden sm:flex" />
+            {establishment && (
+              <NotificationsPanel establishmentId={establishment.id} />
+            )}
           </div>
           
 
