@@ -215,8 +215,8 @@ export const useNotifications = () => {
          readAt: undefined // Não foi lida ainda
        };
        
-       // Adicionar no início e limitar a 30 notificações
-       const updatedNotifications = [newNotification, ...notifications].slice(0, 30);
+       // Adicionar no início e limitar a 10 notificações não lidas
+       const updatedNotifications = [newNotification, ...notifications].slice(0, 10);
       localStorage.setItem('agendei-facil-notifications', JSON.stringify(updatedNotifications));
       
       console.log('📝 Notificação salva no histórico:', newNotification);

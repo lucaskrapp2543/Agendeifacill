@@ -22,8 +22,8 @@ export const NotificationHistory: React.FC = () => {
       try {
         const parsed = JSON.parse(savedNotifications);
         
-        // Filtrar notificações antigas (mais de 7 dias) automaticamente
-        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        // SISTEMA RADICAL: Só mostrar notificações NÃO LIDAS dos últimos 2 dias
+        const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
         const validNotifications = parsed.filter((notification: any) => {
           // Verificar se tem timestamp válido
           if (!notification.timestamp || typeof notification.timestamp !== 'number') {
@@ -31,36 +31,30 @@ export const NotificationHistory: React.FC = () => {
             return false;
           }
           
-          // Verificar se não é muito antiga
-          if (notification.timestamp < sevenDaysAgo) {
-            console.log('❌ Notificação antiga removida:', notification);
+          // SÓ MANTER se NÃO foi lida E é recente (últimos 2 dias)
+          if (notification.read) {
+            console.log('❌ Notificação lida removida:', notification);
             return false;
           }
           
-          // Verificar se não foi marcada como lida há mais de 24 horas
-          if (notification.read && notification.readAt) {
-            const readAt = new Date(notification.readAt).getTime();
-            const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
-            if (readAt < twentyFourHoursAgo) {
-              console.log('❌ Notificação lida antiga removida:', notification);
-              return false;
-            }
+          // SÓ MANTER se é dos últimos 2 dias
+          if (notification.timestamp < twoDaysAgo) {
+            console.log('❌ Notificação antiga removida:', notification);
+            return false;
           }
           
           return true;
         });
         
-        // Limitar a 30 notificações para evitar bugs
-        const limitedNotifications = validNotifications.slice(0, 30);
+        // Limitar a 10 notificações não lidas
+        const limitedNotifications = validNotifications.slice(0, 10);
         
-        console.log('📝 Carregadas notificações válidas:', limitedNotifications.length);
+        console.log('📝 Carregadas notificações NÃO LIDAS:', limitedNotifications.length);
         setNotifications(limitedNotifications);
         
-        // Salvar versão limpa se houve mudanças
-        if (limitedNotifications.length !== parsed.length) {
-          localStorage.setItem('agendei-facil-notifications', JSON.stringify(limitedNotifications));
-          console.log('🧹 Notificações limpas e salvas');
-        }
+        // Salvar versão limpa SEMPRE
+        localStorage.setItem('agendei-facil-notifications', JSON.stringify(limitedNotifications));
+        console.log('🧹 Notificações limpas e salvas');
         
       } catch (error) {
         console.error('Erro ao carregar notificações:', error);
@@ -100,74 +94,58 @@ export const NotificationHistory: React.FC = () => {
       readAt: undefined // Não foi lida ainda
     };
 
-    // Limitar a 30 notificações para evitar bugs
-    const updatedNotifications = [newNotification, ...notifications].slice(0, 30);
+    // Limitar a 10 notificações não lidas
+    const updatedNotifications = [newNotification, ...notifications].slice(0, 10);
     saveNotifications(updatedNotifications);
     
     console.log('✅ Nova notificação adicionada:', newNotification);
   };
 
-  // Marcar como lida
+  // Marcar como lida - REMOVER COMPLETAMENTE
   const markAsRead = (id: string) => {
-    const updatedNotifications = notifications.map(notification =>
-      notification.id === id ? { 
-        ...notification, 
-        read: true,
-        readAt: Date.now() // Salvar timestamp de quando foi lida
-      } : notification
-    );
+    // REMOVER a notificação completamente ao invés de marcar como lida
+    const updatedNotifications = notifications.filter(notification => notification.id !== id);
     saveNotifications(updatedNotifications);
-    console.log('✅ Notificação marcada como lida:', id);
+    console.log('🗑️ Notificação removida ao ser lida:', id);
   };
 
-  // Limpar notificações antigas (mais de 7 dias)
+  // Limpar notificações antigas (mais de 2 dias)
   const clearOldNotifications = () => {
-    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
     const filteredNotifications = notifications.filter(
-      notification => notification.timestamp > sevenDaysAgo
+      notification => notification.timestamp > twoDaysAgo
     );
     saveNotifications(filteredNotifications);
     console.log('🧹 Notificações antigas removidas');
   };
 
-  // Limpar notificações antigas automaticamente (chamada a cada 1 hora)
+  // Limpeza automática RADICAL - a cada 5 minutos
   useEffect(() => {
     const autoCleanup = () => {
-      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-      const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+      const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
       
-      const hasOldNotifications = notifications.some(
-        notification => notification.timestamp < sevenDaysAgo
-      );
-      
-      const hasOldReadNotifications = notifications.some(
-        notification => notification.read && notification.readAt && notification.readAt < twentyFourHoursAgo
-      );
-      
-      if (hasOldNotifications || hasOldReadNotifications) {
-        console.log('🧹 Limpeza automática de notificações antigas e lidas');
+      // REMOVER todas as notificações lidas e antigas
+      const filteredNotifications = notifications.filter(notification => {
+        // Manter só se NÃO foi lida E é dos últimos 2 dias
+        if (notification.read) {
+          return false;
+        }
         
-        // Remover notificações antigas e lidas antigas
-        const filteredNotifications = notifications.filter(notification => {
-          // Manter se não é muito antiga
-          if (notification.timestamp < sevenDaysAgo) {
-            return false;
-          }
-          
-          // Manter se não foi lida há mais de 24 horas
-          if (notification.read && notification.readAt && notification.readAt < twentyFourHoursAgo) {
-            return false;
-          }
-          
-          return true;
-        });
+        if (notification.timestamp < twoDaysAgo) {
+          return false;
+        }
         
+        return true;
+      });
+      
+      if (filteredNotifications.length !== notifications.length) {
+        console.log('🧹 Limpeza automática RADICAL executada');
         saveNotifications(filteredNotifications);
       }
     };
 
-    // Executar limpeza a cada 30 minutos
-    const interval = setInterval(autoCleanup, 30 * 60 * 1000);
+    // Executar limpeza a cada 5 minutos
+    const interval = setInterval(autoCleanup, 5 * 60 * 1000);
     
     // Executar limpeza inicial
     autoCleanup();
@@ -193,32 +171,21 @@ export const NotificationHistory: React.FC = () => {
     }
   };
 
-  // Limpar notificações lidas
+  // Limpar notificações lidas (não existe mais, só não lidas)
   const clearReadNotifications = () => {
-    const unreadNotifications = notifications.filter(notification => !notification.read);
-    saveNotifications(unreadNotifications);
-    console.log('🧹 Notificações lidas removidas');
+    // Não faz nada, pois não existem mais notificações lidas
+    console.log('🧹 Não há notificações lidas para remover');
   };
 
-  // Limpar notificações lidas antigas (mais de 24 horas)
+  // Limpar notificações antigas (mais de 2 dias)
   const clearOldReadNotifications = () => {
-    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
-    const filteredNotifications = notifications.filter(notification => {
-      // Manter se não foi lida
-      if (!notification.read) {
-        return true;
-      }
-      
-      // Manter se foi lida há menos de 24 horas
-      if (notification.readAt && notification.readAt > twentyFourHoursAgo) {
-        return true;
-      }
-      
-      return false;
-    });
+    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
+    const filteredNotifications = notifications.filter(notification => 
+      notification.timestamp > twoDaysAgo
+    );
     
     saveNotifications(filteredNotifications);
-    console.log('🧹 Notificações lidas antigas removidas');
+    console.log('🧹 Notificações antigas removidas');
   };
 
   // Formatar data
@@ -261,7 +228,7 @@ export const NotificationHistory: React.FC = () => {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.length; // Todas são não lidas agora
 
   return (
     <div className="relative">
@@ -333,41 +300,33 @@ export const NotificationHistory: React.FC = () => {
             ) : (
               <div className="divide-y divide-gray-200">
                 {notifications.map((notification) => (
-                  <div
-                    key={notification.id}
-                    onClick={() => markAsRead(notification.id)}
-                    className={`p-4 border-l-4 cursor-pointer transition-colors hover:bg-gray-50 ${
-                      notification.read ? 'opacity-75' : ''
-                    } ${getNotificationColor(notification.type)}`}
-                  >
+                                     <div
+                     key={notification.id}
+                     onClick={() => markAsRead(notification.id)}
+                     className={`p-4 border-l-4 cursor-pointer transition-colors hover:bg-gray-50 ${getNotificationColor(notification.type)}`}
+                   >
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 mt-0.5">
                         {getNotificationIcon(notification.type)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <p className={`text-sm font-medium ${
-                            notification.read ? 'text-gray-600' : 'text-gray-900'
-                          }`}>
-                            {notification.title}
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-3 h-3 text-gray-400" />
-                            <span className="text-xs text-gray-500">
-                              {formatDate(notification.timestamp)}
-                            </span>
-                          </div>
-                        </div>
-                        <p className={`text-sm mt-1 ${
-                          notification.read ? 'text-gray-500' : 'text-gray-700'
-                        }`}>
-                          {notification.body}
-                        </p>
-                        {!notification.read && (
-                          <div className="mt-2">
-                            <span className="inline-block w-2 h-2 bg-blue-500 rounded-full"></span>
-                          </div>
-                        )}
+                                                 <div className="flex items-center justify-between">
+                           <p className="text-sm font-medium text-gray-900">
+                             {notification.title}
+                           </p>
+                           <div className="flex items-center gap-2">
+                             <Clock className="w-3 h-3 text-gray-400" />
+                             <span className="text-xs text-gray-500">
+                               {formatDate(notification.timestamp)}
+                             </span>
+                           </div>
+                         </div>
+                         <p className="text-sm mt-1 text-gray-700">
+                           {notification.body}
+                         </p>
+                         <div className="mt-2">
+                           <span className="inline-block w-2 h-2 bg-blue-500 rounded-full"></span>
+                         </div>
                       </div>
                     </div>
                   </div>
