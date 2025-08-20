@@ -1144,93 +1144,29 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment, selectedDate, selectedMonth]);
 
-  // Atualização automática a cada 10 segundos COM PROTEÇÃO PARA EXCLUSÕES
+  // F5 AUTOMÁTICO nos agendamentos a cada 10 segundos
   useEffect(() => {
-    if (!establishment) return;
+    if (!establishment || activeTab !== 'appointments') return;
     
     const interval = setInterval(async () => {
-      console.log('🔄 Atualização automática dos agendamentos...');
+      console.log('🔄 F5 AUTOMÁTICO - Recarregando agendamentos e valores...');
       
-      // Salvar estado atual dos agendamentos
-      const previousAppointments = [...previousAppointmentsRef.current];
-      console.log('📋 Agendamentos anteriores:', previousAppointments.length);
-      
-      // Buscar novos dados
       try {
-        const { data: newAppointments } = await supabase
-          .from('appointments')
-          .select(`
-            *,
-            establishments (
-              name,
-              code
-            )
-          `)
-          .eq('establishment_id', establishment.id)
-          .gte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
-          .lte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
-          .order('appointment_time')
-          .abortSignal(new AbortController().signal); // Forçar busca sem cache
-
-        if (newAppointments) {
-          console.log('📋 Novos agendamentos:', newAppointments.length);
-          
-          // Detectar novos agendamentos
-          newAppointments.forEach(currentApp => {
-            const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
-            
-            if (!prevApp && currentApp.status !== 'cancelled') {
-              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
-              notifyNewAppointment(
-                currentApp.client_name,
-                currentApp.service,
-                currentApp.appointment_time
-              );
-            }
-          });
-          
-          // Detectar agendamentos cancelados externamente
-          previousAppointments.forEach(prevApp => {
-            const currentApp = newAppointments.find(curr => curr.id === prevApp.id);
-            
-            if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
-              notifyCancelledAppointment(
-                currentApp.client_name,
-                currentApp.service,
-                currentApp.appointment_time
-              );
-            }
-          });
-          
-          // ATUALIZAÇÃO INTELIGENTE: Só adiciona novos, não remove excluídos
-          setAppointments(currentList => {
-            // Manter agendamentos que já estão na lista (incluindo os que foram excluídos)
-            const currentIds = currentList.map(app => app.id);
-            
-            // Adicionar apenas agendamentos novos que não estão na lista atual
-            const newAppointmentsToAdd = newAppointments.filter(newApp => 
-              !currentIds.includes(newApp.id)
-            );
-            
-            if (newAppointmentsToAdd.length > 0) {
-              console.log('🔄 Adicionando novos agendamentos:', newAppointmentsToAdd.length);
-              return [...currentList, ...newAppointmentsToAdd];
-            }
-            
-            return currentList; // Não muda nada se não há novos
-          });
-          
-          previousAppointmentsRef.current = newAppointments;
-        }
+        // Recarregar agendamentos do dia
+        await fetchAppointments();
+        
+        // Recarregar agendamentos mensais (para valores)
+        await fetchMonthlyAppointments();
+        
+        console.log('✅ F5 AUTOMÁTICO - Recarregamento concluído');
       } catch (error) {
-        console.error('❌ Erro na atualização automática:', error);
+        console.error('❌ Erro no F5 automático:', error);
       }
       
     }, 10000); // 10 segundos
 
     return () => clearInterval(interval);
-  }, [establishment, selectedDate]);
+  }, [establishment, selectedDate, activeTab]);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
