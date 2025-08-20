@@ -22,6 +22,7 @@ import { FinancialDashboard } from '../components/FinancialDashboard';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationPermission } from '../components/NotificationPermission';
+import { NotificationHistory } from '../components/NotificationHistory';
 
 interface BusinessHours {
   enabled: boolean;
@@ -2872,6 +2873,7 @@ const EstablishmentDashboard = () => {
           
           <div className="flex items-center gap-4">
             <NotificationPermission className="hidden sm:flex" />
+            <NotificationHistory />
           </div>
           
 

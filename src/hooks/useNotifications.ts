@@ -184,26 +184,61 @@ export const useNotifications = () => {
     }
   };
 
+  // Função para salvar notificação no histórico
+  const saveNotificationToHistory = (notificationData: {
+    title: string;
+    body: string;
+    type: 'new_appointment' | 'cancelled_appointment' | 'custom';
+  }) => {
+    try {
+      const savedNotifications = localStorage.getItem('agendei-facil-notifications');
+      const notifications = savedNotifications ? JSON.parse(savedNotifications) : [];
+      
+      const newNotification = {
+        id: `notification-${Date.now()}-${Math.random()}`,
+        ...notificationData,
+        timestamp: Date.now(),
+        read: false
+      };
+      
+      // Adicionar no início e limitar a 100 notificações
+      const updatedNotifications = [newNotification, ...notifications].slice(0, 100);
+      localStorage.setItem('agendei-facil-notifications', JSON.stringify(updatedNotifications));
+      
+      console.log('📝 Notificação salva no histórico:', newNotification);
+    } catch (error) {
+      console.error('Erro ao salvar notificação no histórico:', error);
+    }
+  };
+
   // Notificação de novo agendamento
   const notifyNewAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, isPWA });
-    
-    sendNotification({
+    const notificationData = {
       title: 'Agendei Fácil',
       body: `Novo agendamento: ${clientName} - ${service} às ${time}`,
-      type: 'new_appointment'
-    });
+      type: 'new_appointment' as const
+    };
+    
+    // Salvar no histórico
+    saveNotificationToHistory(notificationData);
+    
+    sendNotification(notificationData);
   };
 
   // Notificação de agendamento cancelado
   const notifyCancelledAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, isPWA });
-    
-    sendNotification({
+    const notificationData = {
       title: 'Agendei Fácil',
       body: `Agendamento cancelado: ${clientName} - ${service} às ${time}`,
-      type: 'cancelled_appointment'
-    });
+      type: 'cancelled_appointment' as const
+    };
+    
+    // Salvar no histórico
+    saveNotificationToHistory(notificationData);
+    
+    sendNotification(notificationData);
   };
 
   // Notificação personalizada

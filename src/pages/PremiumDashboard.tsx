@@ -20,6 +20,7 @@ import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import type { Establishment } from '../types/supabase';
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationPermission } from '../components/NotificationPermission';
+import { NotificationHistory } from '../components/NotificationHistory';
 
 interface Appointment {
   id: string;
@@ -740,6 +741,7 @@ const PremiumDashboard = () => {
             </div>
             <div className="flex items-center gap-2 md:gap-4">
               <NotificationPermission className="hidden sm:flex" />
+            <NotificationHistory />
               <span className="text-gray-400 text-sm md:text-base hidden sm:block">{user?.email}</span>
               <button onClick={handleSignOut} className="btn-outline text-sm md:text-base px-3 py-1 md:px-4 md:py-2">
                 Sair
