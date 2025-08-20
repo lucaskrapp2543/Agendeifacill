@@ -16,6 +16,22 @@ const NOTIFICATION_SOUNDS = {
   cancelledAppointment: '/cancelled-sound.mp3'
 };
 
+// Função para tocar som de notificação
+function playNotificationSound(type) {
+  try {
+    // Tentar tocar som personalizado
+    const audio = new Audio(NOTIFICATION_SOUNDS[type]);
+    audio.volume = 0.5;
+    audio.play().catch(() => {
+      // Se falhar, usar som nativo do navegador
+      console.log('🎵 Tocando som nativo do navegador');
+      // O navegador tocará o som padrão da notificação
+    });
+  } catch (error) {
+    console.log('🎵 Erro ao tocar som, usando som nativo');
+  }
+}
+
 // Instalação do Service Worker
 self.addEventListener('install', (event) => {
   console.log('Service Worker instalando...');
@@ -190,6 +206,9 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  // Tocar som de notificação
+  playNotificationSound(notificationData.data.type === 'cancelled_appointment' ? 'cancelledAppointment' : 'newAppointment');
+  
   event.waitUntil(
     self.registration.showNotification(notificationData.title, notificationData)
   );
@@ -249,6 +268,9 @@ function sendNotification(title, body, type = 'new_appointment') {
     ]
   };
 
+  // Tocar som de notificação
+  playNotificationSound(type === 'cancelled_appointment' ? 'cancelledAppointment' : 'newAppointment');
+  
   return self.registration.showNotification(notificationData.title, notificationData);
 }
 

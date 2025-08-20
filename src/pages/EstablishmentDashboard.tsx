@@ -1107,14 +1107,53 @@ const EstablishmentDashboard = () => {
   useEffect(() => {
     if (!establishment) return;
     
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       console.log('🔄 Atualização automática dos agendamentos...');
-      fetchAppointments();
-      fetchMonthlyAppointments(selectedMonth);
+      
+      // Salvar estado atual dos agendamentos
+      const previousAppointments = [...appointments];
+      
+      // Buscar novos dados
+      await fetchAppointments();
+      await fetchMonthlyAppointments(selectedMonth);
+      
+      // Comparar e detectar mudanças
+      setTimeout(() => {
+        const currentAppointments = appointments;
+        
+        // Detectar agendamentos cancelados externamente
+        previousAppointments.forEach(prevApp => {
+          const currentApp = currentAppointments.find(curr => curr.id === prevApp.id);
+          
+          if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
+            console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
+            notifyCancelledAppointment(
+              currentApp.client_name,
+              currentApp.service,
+              currentApp.appointment_time
+            );
+          }
+        });
+        
+        // Detectar novos agendamentos
+        currentAppointments.forEach(currentApp => {
+          const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
+          
+          if (!prevApp && currentApp.status !== 'cancelled') {
+            console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
+            notifyNewAppointment(
+              currentApp.client_name,
+              currentApp.service,
+              currentApp.appointment_time
+            );
+          }
+        });
+      }, 1000); // Aguardar 1 segundo para garantir que os dados foram atualizados
+      
     }, 30000); // 30 segundos
 
     return () => clearInterval(interval);
-  }, [establishment, selectedMonth]);
+  }, [establishment, selectedMonth, appointments]);
 
 
 
