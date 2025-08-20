@@ -829,11 +829,8 @@ const EstablishmentDashboard = () => {
         prev.filter(app => app.id !== appointmentId)
       );
 
-      // Forçar recarregamento completo dos dados
-      await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments()
-      ]);
+      // Atualizar também a lista mensal
+      await fetchMonthlyAppointments();
 
       // Limpar cache do Supabase para este estabelecimento
       if (establishment) {
@@ -858,6 +855,11 @@ const EstablishmentDashboard = () => {
           console.log('Erro ao limpar cache do Service Worker:', error);
         }
       }
+
+      // Marcar como excluído para evitar que volte na atualização automática
+      previousAppointmentsRef.current = previousAppointmentsRef.current.filter(
+        app => app.id !== appointmentId
+      );
 
       toast('Agendamento excluído com sucesso', 'success');
     } catch (error) {
@@ -1214,8 +1216,21 @@ const EstablishmentDashboard = () => {
             }
           });
           
-          // Atualizar o estado
-          setAppointments(newAppointments);
+          // Atualizar o estado apenas se não houve exclusões recentes
+          const currentAppointmentIds = appointments.map(app => app.id);
+          const newAppointmentIds = newAppointments.map(app => app.id);
+          
+          // Verificar se algum agendamento foi removido da lista atual
+          const removedAppointments = currentAppointmentIds.filter(id => !newAppointmentIds.includes(id));
+          
+          if (removedAppointments.length > 0) {
+            console.log('🔄 Detectadas exclusões, mantendo lista atual');
+            // Não atualizar se houve exclusões
+          } else {
+            console.log('🔄 Atualizando lista de agendamentos');
+            setAppointments(newAppointments);
+          }
+          
           previousAppointmentsRef.current = newAppointments;
         }
       } catch (error) {
