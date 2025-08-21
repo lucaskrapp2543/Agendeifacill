@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths } from 'date-fns';
+import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2 } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } from '../lib/supabase';
@@ -204,6 +204,27 @@ const EstablishmentDashboard = () => {
   const [newClientWhatsapp, setNewClientWhatsapp] = useState('');
   const [newClientBirthday, setNewClientBirthday] = useState('');
   
+  // Estados para ranking de clientes
+  const [showRankingModal, setShowRankingModal] = useState(false);
+  
+  // Estados para clientes sumidos
+  const [showMissingClientsModal, setShowMissingClientsModal] = useState(false);
+  
+  // Estados para sorteio (Clientes Fiéis)
+  const [showDrawModal, setShowDrawModal] = useState(false);
+
+  // Estados para Clientes Fiéis
+  const [showLoyalForm, setShowLoyalForm] = useState(false);
+  const [loyalCustomers, setLoyalCustomers] = useState<any[]>([]);
+  const [selectedLoyalCustomer, setSelectedLoyalCustomer] = useState<any>(null);
+  const [selectedLoyalMonth, setSelectedLoyalMonth] = useState(new Date());
+  const [loyalFormData, setLoyalFormData] = useState({
+    customerName: '',
+    whatsapp: '',
+    registrationDate: format(new Date(), 'yyyy-MM-dd')
+  });
+  const [isLoadingLoyal, setIsLoadingLoyal] = useState(false);
+  
   // Estados do formulário
   const [establishmentName, setEstablishmentName] = useState('');
   const [establishmentDescription, setEstablishmentDescription] = useState('');
@@ -272,7 +293,6 @@ const EstablishmentDashboard = () => {
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
   const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
-  const [isDrawing, setIsDrawing] = useState(false);
   const [subscriberDropdowns, setSubscriberDropdowns] = useState<Record<string, boolean>>({});
   const [appointmentDropdowns, setAppointmentDropdowns] = useState<Record<string, boolean>>({});
   const [appointmentSubscribers, setAppointmentSubscribers] = useState<Record<string, boolean>>({});
@@ -894,57 +914,7 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleDrawWinners = async () => {
-    if (!establishment) return;
-    
-    setIsDrawing(true);
-    try {
-      // Filtra os assinantes que ainda não são vencedores
-      const eligibleSubscribers = premiumSubscribers.filter(sub => !sub.is_winner);
-      
-      if (eligibleSubscribers.length === 0) {
-        toast('Não há assinantes elegíveis para o sorteio', 'warning');
-        return;
-      }
-
-      // Sorteia 3 vencedores aleatoriamente
-      const winners = [];
-      const subscribersCopy = [...eligibleSubscribers];
-      
-      for (let i = 0; i < 3 && subscribersCopy.length > 0; i++) {
-        const randomIndex = Math.floor(Math.random() * subscribersCopy.length);
-        const winner = subscribersCopy.splice(randomIndex, 1)[0];
-        winners.push({ ...winner, winner_position: i + 1 });
-      }
-
-      // Atualiza os vencedores no banco de dados
-      for (const winner of winners) {
-        const { error } = await supabase
-          .from('premium_subscribers')
-          .update({
-            is_winner: true,
-            winner_position: winner.winner_position,
-            last_draw_date: new Date().toISOString()
-          })
-          .eq('id', winner.id);
-
-        if (error) {
-          console.error('Erro ao atualizar vencedor:', error);
-          throw error;
-        }
-      }
-
-      // Atualiza a lista de assinantes
-      await fetchPremiumSubscribers();
-      
-      toast('Sorteio realizado com sucesso!', 'success');
-    } catch (error) {
-      console.error('Erro ao realizar sorteio:', error);
-      toast('Erro ao realizar sorteio', 'error');
-    } finally {
-      setIsDrawing(false);
-    }
-  };
+  
 
   const fetchAppointments = async () => {
     if (!establishment) return;
@@ -1752,6 +1722,176 @@ const EstablishmentDashboard = () => {
     const matchesBirthday = showBirthdayFilter ? isBirthdayThisMonth(client.birthday) : true;
     return matchesSearch && matchesBirthday;
   });
+
+  // Calcular ranking dos clientes (apenas com 9+ agendamentos)
+  const rankingClients = clients
+    .filter(client => client.appointmentCount >= 9)
+    .sort((a, b) => b.appointmentCount - a.appointmentCount)
+    .map((client, index) => ({
+      ...client,
+      position: index + 1
+    }));
+
+  // Calcular clientes sumidos (inativos há 2+ meses)
+  const missingClients = clients
+    .filter(client => client.appointmentCount > 0) // Apenas clientes que já agendaram
+    .map(client => {
+      // Buscar o último agendamento deste cliente
+      const lastAppointment = appointments.find(apt => 
+        apt.client_whatsapp === client.whatsapp || apt.client_id === client.id
+      );
+      
+      if (!lastAppointment) return null;
+      
+      const lastAppointmentDate = new Date(lastAppointment.appointment_date);
+      const now = new Date();
+      const monthsDiff = (now.getFullYear() - lastAppointmentDate.getFullYear()) * 12 + 
+                        (now.getMonth() - lastAppointmentDate.getMonth());
+      
+      return {
+        ...client,
+        lastAppointmentDate,
+        monthsInactive: monthsDiff,
+        isOver2Months: monthsDiff >= 2
+      };
+    })
+    .filter(client => client !== null)
+    .sort((a, b) => {
+      // Primeiro os que têm mais de 2 meses, depois ordenados por tempo de inatividade
+      if (a!.isOver2Months && !b!.isOver2Months) return -1;
+      if (!a!.isOver2Months && b!.isOver2Months) return 1;
+      return b!.monthsInactive - a!.monthsInactive;
+    })
+    .slice(0, 10); // Limitar a 10 clientes mais inativos
+
+  // Função para remover cliente da lista de sumidos
+  const removeFromMissingList = (clientWhatsapp: string) => {
+    // Aqui você pode implementar uma lógica para marcar o cliente como "não sumido"
+    // Por enquanto, vamos apenas recarregar a lista
+    toast('Cliente removido da lista de sumidos', 'success');
+    setShowMissingClientsModal(false);
+    setTimeout(() => setShowMissingClientsModal(true), 100);
+  };
+
+
+
+  // Funções para Clientes Fiéis
+  const loadLoyalCustomers = async () => {
+    try {
+      const start = startOfMonth(selectedLoyalMonth);
+      const end = endOfMonth(selectedLoyalMonth);
+
+      const { data, error } = await supabase
+        .from('loyal_customers')
+        .select('*')
+        .eq('establishment_id', establishment?.id)
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao carregar clientes fiéis:', error);
+        toast('Erro ao carregar clientes. Por favor, tente novamente.', 'error');
+        return;
+      }
+      
+      setLoyalCustomers(data || []);
+      setSelectedLoyalCustomer(null);
+    } catch (error) {
+      console.error('Erro ao carregar clientes fiéis:', error);
+      toast('Erro ao carregar clientes. Por favor, tente novamente.', 'error');
+    }
+  };
+
+  const handleLoyalFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    
+    if (name === 'whatsapp') {
+      const numbersOnly = value.replace(/\D/g, '');
+      let formattedNumber = numbersOnly;
+      if (numbersOnly.length <= 11) {
+        formattedNumber = numbersOnly
+          .replace(/(\d{2})/, '($1) ')
+          .replace(/(\d{5})/, '$1-')
+          .replace(/(-\d{4})\d+?$/, '$1');
+      }
+      setLoyalFormData(prev => ({
+        ...prev,
+        [name]: formattedNumber
+      }));
+    } else {
+      setLoyalFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  const handleSubmitLoyalCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loyalFormData.customerName.trim() || !loyalFormData.whatsapp.trim()) {
+      toast('Por favor, preencha todos os campos.', 'error');
+      return;
+    }
+
+    setIsLoadingLoyal(true);
+
+    try {
+      const whatsappNumbers = loyalFormData.whatsapp.replace(/\D/g, '');
+      
+      const { error } = await supabase
+        .from('loyal_customers')
+        .insert([{
+          establishment_id: establishment?.id,
+          customer_name: loyalFormData.customerName.trim(),
+          whatsapp: whatsappNumbers,
+          created_at: new Date(loyalFormData.registrationDate).toISOString()
+        }]);
+
+      if (error) {
+        console.error('Erro ao salvar cliente fiel:', error);
+        toast('Erro ao salvar cliente. Por favor, tente novamente.', 'error');
+        return;
+      }
+
+      toast('Cliente salvo com sucesso!', 'success');
+      setLoyalFormData({ 
+        customerName: '', 
+        whatsapp: '',
+        registrationDate: format(new Date(), 'yyyy-MM-dd')
+      });
+      await loadLoyalCustomers();
+      setShowLoyalForm(false);
+    } catch (error) {
+      console.error('Erro ao salvar cliente fiel:', error);
+      toast('Erro ao salvar cliente. Por favor, tente novamente.', 'error');
+    } finally {
+      setIsLoadingLoyal(false);
+    }
+  };
+
+  const handleDrawLoyalCustomer = () => {
+    if (loyalCustomers.length === 0) {
+      toast('Adicione clientes antes de realizar o sorteio!', 'error');
+      return;
+    }
+
+    const randomIndex = Math.floor(Math.random() * loyalCustomers.length);
+    setSelectedLoyalCustomer(loyalCustomers[randomIndex]);
+    toast('Cliente sorteado com sucesso!', 'success');
+  };
+
+  const getLoyalWhatsAppLink = (whatsapp: string) => {
+    const cleanNumber = whatsapp.replace(/\D/g, '');
+    return `https://wa.me/55${cleanNumber}`;
+  };
+
+  // Carregar clientes fiéis quando o modal abrir
+  useEffect(() => {
+    if (showDrawModal) {
+      loadLoyalCustomers();
+    }
+  }, [showDrawModal, selectedLoyalMonth]);
 
   // Função para obter o nome do profissional pelo ID
   const getProfessionalName = (professionalId: string): string => {
@@ -3686,10 +3826,10 @@ const EstablishmentDashboard = () => {
                               
                               {appointment.status === 'cancelled' && (
                                 <div className="flex gap-2">
-                                  <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
-                                    <X className="h-4 w-4 mr-1" />
-                                    Cancelado
-                                  </span>
+                                <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
+                                  <X className="h-4 w-4 mr-1" />
+                                  Cancelado
+                                </span>
                                   <button
                                     onClick={() => handleDeleteAppointment(appointment.id)}
                                     className="inline-flex items-center px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
@@ -4340,8 +4480,7 @@ const EstablishmentDashboard = () => {
                 onSave={handleSavePixSettings}
               />
 
-              {/* Sistema de Clientes Fiéis */}
-              <LoyalCustomers establishmentId={establishment.id} />
+
 
               {/* Links Personalizados */}
               <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
@@ -4912,7 +5051,7 @@ const EstablishmentDashboard = () => {
                 </p>
 
                 {/* Controles de busca e filtros */}
-                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                <div className="flex flex-col gap-4 mb-6">
                   <div className="flex-1">
                   <input
                     type="text"
@@ -4922,10 +5061,25 @@ const EstablishmentDashboard = () => {
                     className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                   </div>
-                                  <div className="flex gap-2">
+                  
+                  {/* Dica para scroll mobile dos botões */}
+                  <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-center text-sm text-blue-700 md:hidden">
+                    <div className="flex items-center justify-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16l-4-4m0 0l4-4m-4 4h18" />
+                      </svg>
+                      <span>Arraste para o lado para ver mais opções</span>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                      </svg>
+                    </div>
+                  </div>
+                  
+                  {/* Botões com scroll horizontal */}
+                  <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-2 -mb-2">
                   <button
                     onClick={() => setShowBirthdayFilter(!showBirthdayFilter)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
                       showBirthdayFilter
                         ? 'bg-purple-600 text-white'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -4935,12 +5089,30 @@ const EstablishmentDashboard = () => {
                   </button>
                   <button
                     onClick={() => setShowAddClientModal(true)}
-                    className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                      className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors flex-shrink-0"
                   >
                     ➕ Adicionar Cliente
                   </button>
+                    <button
+                      onClick={() => setShowRankingModal(true)}
+                      className="px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors flex-shrink-0"
+                    >
+                      🏆 Ranking
+                    </button>
+                    <button
+                      onClick={() => setShowMissingClientsModal(true)}
+                      className="px-4 py-2 rounded-lg text-sm font-medium bg-orange-600 text-white hover:bg-orange-700 transition-colors flex-shrink-0"
+                    >
+                      👻 Clientes Sumidos
+                    </button>
+                    <button
+                      onClick={() => setShowDrawModal(true)}
+                      className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors flex-shrink-0"
+                    >
+                      🎲 Sorteio
+                    </button>
                   {showBirthdayFilter && (
-                    <span className="px-3 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm">
+                      <span className="px-3 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm flex-shrink-0">
                       {filteredClients.length} encontrado(s)
                     </span>
                   )}
@@ -5273,6 +5445,351 @@ const EstablishmentDashboard = () => {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Ranking de Clientes */}
+      {showRankingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">🏆 Ranking dos Clientes Mais Fiéis</h3>
+              <button
+                onClick={() => setShowRankingModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700">
+                <strong>Critério:</strong> Apenas clientes com 9 ou mais agendamentos aparecem no ranking.
+              </p>
+            </div>
+
+            {rankingClients.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-6xl mb-4">🏆</div>
+                <h4 className="text-lg font-medium text-gray-900 mb-2">Nenhum cliente no ranking ainda</h4>
+                <p className="text-gray-600">
+                  Os clientes precisam ter pelo menos 9 agendamentos para aparecerem aqui.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {rankingClients.map((client) => (
+                  <div key={client.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-4">
+                      {/* Posição */}
+                      <div className={`flex items-center justify-center w-10 h-10 rounded-full text-white font-bold text-lg ${
+                        client.position === 1 ? 'bg-yellow-500' :
+                        client.position === 2 ? 'bg-gray-400' :
+                        client.position === 3 ? 'bg-orange-600' :
+                        'bg-blue-500'
+                      }`}>
+                        {client.position === 1 ? '🥇' :
+                         client.position === 2 ? '🥈' :
+                         client.position === 3 ? '🥉' :
+                         client.position}
+                      </div>
+                      
+                      {/* Informações do cliente */}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-medium text-gray-900">{client.name}</h4>
+                          {client.isSubscriber && <Crown className="h-4 w-4 text-yellow-500" />}
+                        </div>
+                        <p className="text-sm text-gray-600">{client.whatsapp}</p>
+                        <p className="text-sm text-blue-600 font-medium">
+                          {client.appointmentCount} agendamento{client.appointmentCount !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Botão WhatsApp */}
+                    <a
+                      href={`https://wa.me/${client.whatsapp}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                    >
+                      WhatsApp
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Clientes Sumidos */}
+      {showMissingClientsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">👻 Clientes Sumidos</h3>
+              <button
+                onClick={() => setShowMissingClientsModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              <p className="text-sm text-orange-700">
+                <strong>Critério:</strong> Clientes que não agendam há 2+ meses. Se não houver nenhum, mostra os mais inativos.
+              </p>
+            </div>
+
+            {missingClients.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-6xl mb-4">🎉</div>
+                <h4 className="text-lg font-medium text-gray-900 mb-2">Nenhum cliente sumido!</h4>
+                <p className="text-gray-600">
+                  Todos os seus clientes estão ativos. Parabéns!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {missingClients.map((client) => (
+                  <div key={client!.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-4">
+                      {/* Indicador de tempo */}
+                      <div className={`flex items-center justify-center w-12 h-12 rounded-full text-white font-bold text-sm ${
+                        client!.isOver2Months ? 'bg-red-500' : 'bg-orange-500'
+                      }`}>
+                        {client!.monthsInactive}m
+                      </div>
+                      
+                      {/* Informações do cliente */}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-medium text-gray-900">{client!.name}</h4>
+                          {client!.isSubscriber && <Crown className="h-4 w-4 text-yellow-500" />}
+                          {client!.isOver2Months && (
+                            <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                              SUMIDO
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600">{client!.whatsapp}</p>
+                        <p className="text-sm text-gray-500">
+                          Último agendamento: {client!.lastAppointmentDate.toLocaleDateString('pt-BR')}
+                        </p>
+                        <p className="text-sm text-blue-600 font-medium">
+                          Total: {client!.appointmentCount} agendamento{client!.appointmentCount !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Botões de ação */}
+                    <div className="flex gap-2">
+                      <a
+                        href={`https://wa.me/${client!.whatsapp}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                      >
+                        WhatsApp
+                      </a>
+                      <button
+                        onClick={() => removeFromMissingList(client!.whatsapp)}
+                        className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
+                        title="Remover da lista de sumidos"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Clientes Fiéis - EXATA INTERFACE DAS IMAGENS */}
+      {showDrawModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-[#101112] rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-white">🎲 Sorteio de Clientes</h2>
+              <button
+                onClick={() => setShowDrawModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Cabeçalho - Botão Clientes Fiéis */}
+            <div className="flex flex-col md:flex-row items-center justify-between gap-2 mb-4 bg-[#1a1b1c] p-3 rounded-lg">
+              <button
+                onClick={() => setShowLoyalForm(!showLoyalForm)}
+                className="flex items-center gap-2 text-white bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded-lg w-full md:w-auto justify-center"
+              >
+                <Star className="h-5 w-5" />
+                Clientes Fiéis
+              </button>
+
+              {/* Navegação entre meses */}
+              <div className="flex items-center justify-center gap-2 w-full md:w-auto">
+                <button
+                  onClick={() => setSelectedLoyalMonth(subMonths(selectedLoyalMonth, 1))}
+                  className="p-2 text-gray-400 hover:text-white transition-colors"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                
+                <span className="text-white font-medium min-w-[100px] text-center">
+                  {format(selectedLoyalMonth, 'MMMM yyyy', { locale: ptBR })}
+                </span>
+                
+                <button
+                  onClick={() => setSelectedLoyalMonth(addMonths(selectedLoyalMonth, 1))}
+                  className="p-2 text-gray-400 hover:text-white transition-colors"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Botão de Sorteio */}
+              <button
+                onClick={handleDrawLoyalCustomer}
+                disabled={!loyalCustomers.length}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg w-full md:w-auto justify-center ${
+                  loyalCustomers.length 
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                    : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                <Shuffle className="h-5 w-5" />
+                Sortear
+              </button>
+            </div>
+
+            {/* Formulário de Cadastro */}
+            {showLoyalForm && (
+              <form onSubmit={handleSubmitLoyalCustomer} className="bg-gray-800 p-4 rounded-lg mb-6">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-1">
+                      Nome Completo
+                    </label>
+                    <input
+                      type="text"
+                      name="customerName"
+                      value={loyalFormData.customerName}
+                      onChange={handleLoyalFormChange}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-1">
+                      WhatsApp
+                    </label>
+                    <input
+                      type="tel"
+                      name="whatsapp"
+                      value={loyalFormData.whatsapp}
+                      onChange={handleLoyalFormChange}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      placeholder="(00) 00000-0000"
+                      required
+                      maxLength={15}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-1 flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      Data de Cadastro
+                    </label>
+                    <input
+                      type="date"
+                      name="registrationDate"
+                      value={loyalFormData.registrationDate}
+                      onChange={handleLoyalFormChange}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isLoadingLoyal}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-md transition-colors"
+                  >
+                    {isLoadingLoyal ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Cliente Sorteado */}
+            {selectedLoyalCustomer && (
+              <div className="bg-purple-900/50 p-4 rounded-lg mb-6 text-center">
+                <h3 className="text-xl font-bold text-white mb-2">🎉 Cliente Sorteado!</h3>
+                <p className="text-purple-200 mb-3">{selectedLoyalCustomer.customer_name}</p>
+                <a
+                  href={getLoyalWhatsAppLink(selectedLoyalCustomer.whatsapp)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  Enviar WhatsApp
+                </a>
+              </div>
+            )}
+
+            {/* Lista de Clientes */}
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold text-white">CLIENTES</h3>
+                <span className="text-gray-400">
+                  {loyalCustomers.length} cliente{loyalCustomers.length !== 1 ? 's' : ''} em {format(selectedLoyalMonth, 'MMMM', { locale: ptBR })}
+                </span>
+              </div>
+              
+              <div className="space-y-2">
+                {loyalCustomers.map(customer => (
+                  <div
+                    key={customer.id}
+                    className="bg-gray-800 p-3 rounded-lg flex justify-between items-center"
+                  >
+                    <div className="flex-1">
+                      <p className="text-white font-medium">{customer.customer_name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-gray-400 text-sm">
+                          {customer.whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}
+                        </p>
+                        <a
+                          href={getLoyalWhatsAppLink(customer.whatsapp)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-green-500 hover:text-green-400 transition-colors"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </a>
+                      </div>
+                    </div>
+                    <Star className="w-5 h-5 text-yellow-500" />
+                  </div>
+                ))}
+                {loyalCustomers.length === 0 && (
+                  <p className="text-gray-400 text-center py-4">
+                    Nenhum cliente cadastrado em {format(selectedLoyalMonth, 'MMMM', { locale: ptBR })}.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

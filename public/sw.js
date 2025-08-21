@@ -44,7 +44,7 @@ self.addEventListener('activate', (event) => {
     }).then(() => {
       console.log('Service Worker ativado');
       return self.clients.claim();
-    })
+      })
   );
 });
 
