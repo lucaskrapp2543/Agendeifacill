@@ -43,20 +43,55 @@ export const PWARedirect: React.FC = () => {
       console.log('📊 Indicadores PWA encontrados:', indicators.length);
       
       // Só é PWA se tiver pelo menos 2 indicadores ou se for standalone (mais confiável)
-      return isStandalone || (indicators.length >= 2);
+      // OU se for mobile e tiver características específicas de PWA
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isMobilePWA = isMobile && (isStandalone || isFullscreen || hasPWAViewport);
+      
+      return isStandalone || (indicators.length >= 2) || isMobilePWA;
     };
 
-    // Se for PWA e estiver na home, redirecionar para login
-    if (isPWA() && location.pathname === '/') {
-      console.log('📱 PWA detectado, redirecionando para login...');
-      console.log('✅ Confirmação: É realmente o app instalado!');
-      // Pequeno delay para garantir que a detecção seja precisa
-      setTimeout(() => {
+    // Função para verificar e redirecionar
+    const checkAndRedirect = () => {
+      if (isPWA() && location.pathname === '/') {
+        console.log('📱 PWA detectado, redirecionando para login...');
+        console.log('✅ Confirmação: É realmente o app instalado!');
         navigate('/login', { replace: true });
-      }, 100);
-    } else if (location.pathname === '/') {
-      console.log('🌐 Navegador normal detectado, mantendo na home');
-    }
+      } else if (location.pathname === '/') {
+        console.log('🌐 Navegador normal detectado, mantendo na home');
+      }
+    };
+
+    // Verificar imediatamente
+    checkAndRedirect();
+
+    // Verificar novamente após um pequeno delay (para casos onde a detecção demora)
+    const timeoutId = setTimeout(checkAndRedirect, 500);
+
+    // Verificar quando a janela ganha foco (para casos de PWA que abrem em segundo plano)
+    const handleFocus = () => {
+      setTimeout(checkAndRedirect, 100);
+    };
+
+    // Verificar quando o DOM está pronto
+    const handleDOMReady = () => {
+      setTimeout(checkAndRedirect, 200);
+    };
+
+    // Verificar quando a página carrega completamente
+    const handleLoad = () => {
+      setTimeout(checkAndRedirect, 300);
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('DOMContentLoaded', handleDOMReady);
+    window.addEventListener('load', handleLoad);
+
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('DOMContentLoaded', handleDOMReady);
+      window.removeEventListener('load', handleLoad);
+    };
   }, [navigate, location.pathname]);
 
   return null; // Componente não renderiza nada
