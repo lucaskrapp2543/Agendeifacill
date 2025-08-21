@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast';
 import { CacheBuster } from './components/CacheBuster';
 import { EnvironmentError } from './components/EnvironmentError';
 import { InstallAppButton } from './components/InstallAppButton';
+import { PWARedirect } from './components/PWARedirect';
 
 // Teste de configuração - novo computador
 
@@ -58,6 +59,7 @@ function App() {
       <SupabaseProvider>
         <AuthProvider>
             <Router>
+              <PWARedirect />
             <Routes>
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<Login />} />
