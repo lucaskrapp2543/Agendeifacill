@@ -219,13 +219,19 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <div className="flex items-center gap-3">
                 <h3 className="text-lg font-semibold text-gray-900">Notificações</h3>
-                {/* Status das notificações */}
-                <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
-                  <div className={`w-3 h-3 rounded-full ${notificationPermission === 'granted' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                  <span className={`text-sm ${notificationPermission === 'granted' ? 'text-green-700' : 'text-gray-600'}`}>
-                    {notificationPermission === 'granted' ? 'Ativo' : 'Inativo'}
-                  </span>
-                </div>
+                                 {/* Status das notificações */}
+                 <div className="flex flex-col gap-1">
+                   <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
+                     <div className={`w-3 h-3 rounded-full ${notificationPermission === 'granted' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                     <span className={`text-sm ${notificationPermission === 'granted' ? 'text-green-700' : 'text-gray-600'}`}>
+                       {notificationPermission === 'granted' ? 'Ativo' : 'Inativo'}
+                     </span>
+                   </div>
+                   {/* Dica para o usuário */}
+                   <p className="text-xs text-gray-500 italic">
+                     Clique nas notificações para sabermos que você viu
+                   </p>
+                 </div>
               </div>
               <div className="flex items-center gap-2">
                 {('Notification' in window && notificationPermission !== 'granted') && (
@@ -312,14 +318,16 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                   }
                 </div>
               ) : (
-                filteredNotifications.map((notification) => (
-                  <div
-                    key={notification.id}
-                    className={`p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer ${
-                      !notification.read ? 'bg-blue-50' : ''
-                    }`}
-                    onClick={() => markAsRead(notification.id)}
-                  >
+                                 filteredNotifications.map((notification) => (
+                   <div
+                     key={notification.id}
+                     className={`p-4 border-b border-gray-100 transition-colors cursor-pointer ${
+                       !notification.read 
+                         ? 'bg-blue-100 border-l-4 border-l-blue-500 shadow-sm hover:bg-blue-200' 
+                         : 'hover:bg-gray-50'
+                     }`}
+                     onClick={() => markAsRead(notification.id)}
+                   >
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 mt-1">
                         {notification.type === 'new_appointment' ? (
@@ -329,14 +337,19 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-medium text-gray-900">
-                            {notification.title}
-                          </h4>
-                          {!notification.read && (
-                            <span className="inline-block w-2 h-2 bg-blue-600 rounded-full"></span>
-                          )}
-                        </div>
+                                                 <div className="flex items-center justify-between">
+                           <h4 className="text-sm font-medium text-gray-900">
+                             {notification.title}
+                           </h4>
+                           {!notification.read && (
+                             <div className="flex items-center gap-2">
+                               <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded-full font-medium">
+                                 NÃO LIDA
+                               </span>
+                               <span className="inline-block w-3 h-3 bg-blue-600 rounded-full animate-pulse"></span>
+                             </div>
+                           )}
+                         </div>
                         <p className="text-sm text-gray-600 mt-1">
                           {notification.message}
                         </p>
