@@ -675,6 +675,60 @@ export default function BookingPage() {
                 </div>
               </div>
 
+              {/* Seção de Profissionais */}
+              {establishment?.professionals && establishment.professionals.length > 0 && (
+                <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Profissionais</h3>
+                  {establishment.professionals.length <= 3 ? (
+                    // Layout normal para 3 ou menos profissionais
+                    <div className="flex flex-wrap gap-4">
+                      {establishment.professionals.map((professional: any) => (
+                        <div key={professional.id} className="flex flex-col items-center">
+                          <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-gray-200 shadow-md">
+                            <img
+                              src={(professional as any).photo_url || '/fotopessoa.png'}
+                              alt={professional.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = '/fotopessoa.png';
+                              }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium text-gray-700 mt-2 text-center max-w-20">
+                            {professional.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    // Carrossel horizontal para 4+ profissionais
+                    <div className="overflow-hidden">
+                      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+                        {establishment.professionals.map((professional: any) => (
+                          <div key={professional.id} className="flex flex-col items-center flex-shrink-0">
+                            <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-gray-200 shadow-md">
+                              <img
+                                src={(professional as any).photo_url || '/fotopessoa.png'}
+                                alt={professional.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.src = '/fotopessoa.png';
+                                }}
+                              />
+                            </div>
+                            <span className="text-sm font-medium text-gray-700 mt-2 text-center max-w-20">
+                              {professional.name}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Botão de WhatsApp */}
               <a
                 href={establishment?.whatsapp ? `https://wa.me/${establishment.whatsapp}` : '#'}

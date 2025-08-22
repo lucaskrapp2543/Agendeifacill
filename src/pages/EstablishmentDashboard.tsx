@@ -24,6 +24,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { NotificationPermission } from '../components/NotificationPermission';
 import { initRealTimeNotifications, stopRealTimeNotifications } from '../utils/realTimeNotifications';
 import { NotificationsPanel } from '../components/NotificationsPanel';
+import { ProfessionalSelector } from '../components/ProfessionalSelector';
 
 interface BusinessHours {
   enabled: boolean;
@@ -38,6 +39,7 @@ interface Professional {
   name: string;
   specialties: string[];
   percentage?: number; // Campo para percentual do profissional (opcional)
+  photo_url?: string; // Campo para foto do profissional
 }
 
 interface ProfessionalPin {
@@ -317,6 +319,7 @@ const EstablishmentDashboard = () => {
   const [showProfessionalPinModal, setShowProfessionalPinModal] = useState(false);
   const [selectedProfessionalForPin, setSelectedProfessionalForPin] = useState<string | null>(null);
   const [tempSelectedProfessional, setTempSelectedProfessional] = useState<string | null>(null);
+  const [authenticatedProfessionalId, setAuthenticatedProfessionalId] = useState<string | null>(null);
 
   // Estado para controlar os valores dos inputs de senha
   const [professionalPins, setProfessionalPins] = useState<Record<string, string>>({});
@@ -1017,90 +1020,90 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setIsEstablishmentLoading(true);
-        const { data: establishmentData, error } = await supabase
-          .from('establishments')
-          .select(`
-            *,
-            professionals:professionals,
-            services_with_prices:services_with_prices
-          `)
-          .eq('owner_id', user?.id)
-          .single();
+  const fetchEstablishment = async () => {
+    try {
+      setIsEstablishmentLoading(true);
+      const { data: establishmentData, error } = await supabase
+        .from('establishments')
+        .select(`
+          *,
+          professionals:professionals,
+          services_with_prices:services_with_prices
+        `)
+        .eq('owner_id', user?.id)
+        .single();
 
-        if (error) throw error;
+      if (error) throw error;
 
-        if (establishmentData) {
-          setEstablishment(establishmentData);
-          setEstablishmentName(establishmentData.name || '');
-          setEstablishmentDescription(establishmentData.description || '');
-          setEstablishmentCode(establishmentData.code || '');
-          setAffiliateLink(establishmentData.affiliate_link || '');
-          setPixKeyType(establishmentData.pix_key_type || '');
-          setPixKey(establishmentData.pix_key || '');
-          setPinPassword(establishmentData.pin_password || '');
-          // Carrega os novos links
-          setReviewLink(establishmentData.review_link || '');
-          setSocialMediaLink(establishmentData.social_media_link || '');
-          setPixPaymentLink(establishmentData.pix_payment_link || '');
-          setLocationLink(establishmentData.location_link || ''); // Carrega o link do local
-          // Carrega as comodidades
-          setHasWifi(establishmentData.has_wifi ?? false); // Usa ?? false para garantir um booleano
-          setHasParking(establishmentData.has_parking ?? false);
-          setHasAccessibility(establishmentData.has_accessibility ?? false);
-          setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
-          setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
-          setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
-          
-          // Carrega a configuração de intervalo de 15 minutos
-          setUse15MinuteInterval(establishmentData.use_15_minute_interval ?? false);
-          
-          // Carrega a configuração da imagem "Melhor do Brasil"
-          setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
-          
-          // Carrega os profissionais e serviços
-          const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: Professional) => ({
-            ...prof,
-            percentage: prof.percentage !== undefined ? prof.percentage : 100 // Só usar 100 se realmente não existir
-          }));
-          console.log('📥 Profissionais carregados:', professionalsWithPercentage);
+      if (establishmentData) {
+        setEstablishment(establishmentData);
+        setEstablishmentName(establishmentData.name || '');
+        setEstablishmentDescription(establishmentData.description || '');
+        setEstablishmentCode(establishmentData.code || '');
+        setAffiliateLink(establishmentData.affiliate_link || '');
+        setPixKeyType(establishmentData.pix_key_type || '');
+        setPixKey(establishmentData.pix_key || '');
+        setPinPassword(establishmentData.pin_password || '');
+        // Carrega os novos links
+        setReviewLink(establishmentData.review_link || '');
+        setSocialMediaLink(establishmentData.social_media_link || '');
+        setPixPaymentLink(establishmentData.pix_payment_link || '');
+        setLocationLink(establishmentData.location_link || ''); // Carrega o link do local
+        // Carrega as comodidades
+        setHasWifi(establishmentData.has_wifi ?? false); // Usa ?? false para garantir um booleano
+        setHasParking(establishmentData.has_parking ?? false);
+        setHasAccessibility(establishmentData.has_accessibility ?? false);
+        setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
+        setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
+        setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
+        
+        // Carrega a configuração de intervalo de 15 minutos
+        setUse15MinuteInterval(establishmentData.use_15_minute_interval ?? false);
+        
+        // Carrega a configuração da imagem "Melhor do Brasil"
+        setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
+        
+        // Carrega os profissionais e serviços
+        const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: Professional) => ({
+          ...prof,
+          percentage: prof.percentage !== undefined ? prof.percentage : 100 // Só usar 100 se realmente não existir
+        }));
+        console.log('📥 Profissionais carregados:', professionalsWithPercentage);
 
-          setProfessionals(professionalsWithPercentage);
-          setServicesWithPrices(establishmentData.services_with_prices || []);
-          setBusinessHours(establishmentData.business_hours || {
-            monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-            tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-            wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-            thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-            friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-            saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-            sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
-          });
-          
-          // Carrega as URLs das fotos personalizadas para pré-visualização
-          if (establishmentData.custom_photo_1_url) {
-            setCustomPhoto1Preview(establishmentData.custom_photo_1_url);
-          }
-          if (establishmentData.custom_photo_2_url) {
-            setCustomPhoto2Preview(establishmentData.custom_photo_2_url);
-          }
-          if (establishmentData.custom_photo_3_url) {
-            setCustomPhoto3Preview(establishmentData.custom_photo_3_url);
-          }
-          setProfileImagePreview(establishmentData.profile_image_url || null);
+        setProfessionals(professionalsWithPercentage);
+        setServicesWithPrices(establishmentData.services_with_prices || []);
+        setBusinessHours(establishmentData.business_hours || {
+          monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+          tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+          wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+          thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+          friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+          saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
+          sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
+        });
+        
+        // Carrega as URLs das fotos personalizadas para pré-visualização
+        if (establishmentData.custom_photo_1_url) {
+          setCustomPhoto1Preview(establishmentData.custom_photo_1_url);
         }
-      } catch (error) {
-        console.error('Error fetching establishment:', error);
-        toast('Erro ao carregar estabelecimento', 'error');
-      } finally {
-        setIsEstablishmentLoading(false);
+        if (establishmentData.custom_photo_2_url) {
+          setCustomPhoto2Preview(establishmentData.custom_photo_2_url);
+        }
+        if (establishmentData.custom_photo_3_url) {
+          setCustomPhoto3Preview(establishmentData.custom_photo_3_url);
+        }
+        setProfileImagePreview(establishmentData.profile_image_url || null);
       }
-    };
+    } catch (error) {
+      console.error('Error fetching establishment:', error);
+      toast('Erro ao carregar estabelecimento', 'error');
+    } finally {
+      setIsEstablishmentLoading(false);
+    }
+  };
 
-    fetchData();
+  useEffect(() => {
+    fetchEstablishment();
   }, [user]);
 
   useEffect(() => {
@@ -2351,10 +2354,12 @@ const EstablishmentDashboard = () => {
         setSelectedProfessional(tempSelectedProfessional);
         setShowProfessionalPinModal(false);
         setTempSelectedProfessional(null);
+        setAuthenticatedProfessionalId(null); // Reset autenticação
       } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
         setSelectedProfessional(tempSelectedProfessional);
         setShowProfessionalPinModal(false);
         setTempSelectedProfessional(null);
+        setAuthenticatedProfessionalId(null); // Reset autenticação para "todos"
       } else {
         toast.error('Senha incorreta');
       }
@@ -2371,6 +2376,7 @@ const EstablishmentDashboard = () => {
       setSelectedProfessional(tempSelectedProfessional);
       setShowProfessionalPinModal(false);
       setTempSelectedProfessional(null);
+      setAuthenticatedProfessionalId(tempSelectedProfessional); // Autentica o profissional
       return;
     }
 
@@ -2378,6 +2384,7 @@ const EstablishmentDashboard = () => {
       setSelectedProfessional(tempSelectedProfessional);
       setShowProfessionalPinModal(false);
       setTempSelectedProfessional(null);
+      setAuthenticatedProfessionalId(tempSelectedProfessional); // Autentica o profissional
     } else {
       toast.error('Senha incorreta');
     }
@@ -2386,6 +2393,9 @@ const EstablishmentDashboard = () => {
   // Função para mudar o profissional selecionado
   const handleProfessionalSelect = (professionalId: string) => {
     setTempSelectedProfessional(professionalId);
+    
+    // Resetar autenticação ao mudar de profissional
+    setAuthenticatedProfessionalId(null);
     
     // Se for "Todos profissionais", só pede senha se tiver configurada
     if (professionalId === 'all') {
@@ -3231,62 +3241,21 @@ const EstablishmentDashboard = () => {
                     {/* Seleção de Profissionais */}
                     {establishment?.professionals && establishment.professionals.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-medium text-gray-900 mb-2 flex items-center gap-2">
-                          <User className="h-4 w-4 text-primary" />
-                          ESCOLHER PROFISSIONAL
-                        </h3>
-                        <div className="relative" ref={dropdownRef}>
-                          <button
-                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                            className="w-full p-3 rounded-lg bg-gray-50 hover:bg-gray-100 text-left flex justify-between items-center border border-gray-300 text-sm"
-                          >
-                            <span className="flex items-center gap-2 text-gray-700">
-                              {selectedProfessional === 'all' ? '👥' : '👤'} 
-                              {getProfessionalName(selectedProfessional)}
-                            </span>
-                            <svg
-                              className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''} text-gray-500`}
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-                          
-                          {/* Dropdown Menu */}
-                          {isDropdownOpen && (
-                            <div className="absolute w-full mt-2 bg-white rounded-lg shadow-xl z-10 border border-gray-200">
-                          <button
-                            onClick={() => {
-                              handleProfessionalSelect('all');
-                              setSelectedPaymentMethod('todos');
-                                  setIsDropdownOpen(false);
-                                }}
-                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
-                                  selectedProfessional === 'all' ? 'bg-primary text-white' : 'text-gray-700'
-                                } rounded-t-lg`}
-                          >
-                            👥 Todos os Profissionais
-                          </button>
-                              {establishment.professionals.map((professional, index) => (
-                            <button
-                              key={professional.id}
-                              onClick={() => {
-                                handleProfessionalSelect(professional.id);
-                                setSelectedPaymentMethod('todos');
-                                    setIsDropdownOpen(false);
-                                  }}
-                                  className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${
-                                    selectedProfessional === professional.id ? 'bg-primary text-white' : 'text-gray-700'
-                                  } ${index === establishment.professionals.length - 1 ? 'rounded-b-lg' : ''}`}
-                            >
-                              👤 {professional.name}
-                            </button>
-                          ))}
-                            </div>
-                          )}
-                        </div>
+                        <ProfessionalSelector
+                          professionals={establishment.professionals}
+                          selectedProfessional={selectedProfessional === 'all' ? null : selectedProfessional}
+                          onSelectProfessional={(professionalId) => {
+                            handleProfessionalSelect(professionalId || 'all');
+                            setSelectedPaymentMethod('todos');
+                          }}
+                          establishmentId={establishment.id}
+                          onProfessionalUpdate={() => {
+                            // Recarregar dados do estabelecimento para atualizar as fotos
+                            fetchEstablishment();
+                          }}
+                          authenticatedProfessionalId={authenticatedProfessionalId}
+                          showPhotoEditButtons={true}
+                        />
                         <div className="mt-2 text-xs text-red-600">
                           filtro ativo: {getProfessionalName(selectedProfessional).toLowerCase()}
                         </div>

@@ -10,6 +10,7 @@ import { PixPaymentForm } from './PixPaymentForm';
 import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { PixProofViewer } from './PixProofViewer';
 import { Phone } from 'lucide-react';
+import { ProfessionalSelector } from './ProfessionalSelector';
 
 interface Service {
   id: string;
@@ -21,6 +22,7 @@ interface Service {
 interface Professional {
   id: string;
   name: string;
+  photo_url?: string;
 }
 
 interface Appointment {
@@ -346,22 +348,15 @@ export function AppointmentForm({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             4. Escolha o Profissional
           </label>
-          <select
-            value={selectedProfessional?.id || ''}
-            onChange={(e) => {
-              const professional = establishment.professionals.find(p => p.id === e.target.value);
+          <ProfessionalSelector
+            professionals={establishment.professionals}
+            selectedProfessional={selectedProfessional?.id || null}
+            onSelectProfessional={(professionalId) => {
+              const professional = establishment.professionals.find(p => p.id === professionalId);
               setSelectedProfessional(professional);
             }}
-            className="w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary bg-white text-gray-900"
-            required
-          >
-            <option value="">Selecione um profissional</option>
-            {establishment.professionals.map((professional) => (
-              <option key={professional.id} value={professional.id}>
-                {professional.name}
-              </option>
-            ))}
-          </select>
+            establishmentId={establishment.id || ''}
+          />
         </div>
 
         {/* 5. DATA */}
