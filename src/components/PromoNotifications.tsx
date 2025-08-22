@@ -24,19 +24,39 @@ export const PromoNotifications = () => {
       toast.dismiss();
       
       // Mostra a nova notificação
-      const toastId = toast(message, {
-        duration: 5000,
-        style: {
-          background: 'rgba(0, 0, 0, 0.8)',
-          color: '#fff',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '8px',
-          padding: '12px 20px',
-          fontSize: '14px',
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-        },
-      });
+      const toastId = toast(
+        (t) => (
+          <div className="flex items-center justify-between">
+            <span>{message}</span>
+            <button
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve();
+              }}
+              className="ml-3 text-white hover:text-gray-300 transition-colors text-lg font-bold"
+              style={{ fontSize: '16px', lineHeight: '1' }}
+            >
+              ×
+            </button>
+          </div>
+        ),
+        {
+          duration: 5000,
+          position: 'top-center', // Posiciona no centro superior, não no canto
+          style: {
+            background: 'rgba(0, 0, 0, 0.8)',
+            color: '#fff',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '8px',
+            padding: '12px 20px',
+            fontSize: '14px',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+            marginTop: '80px', // Adiciona margem para não ficar em cima do header
+            zIndex: 9999,
+          },
+        }
+      );
 
       // Resolve a promise após 5 segundos
       setTimeout(() => {

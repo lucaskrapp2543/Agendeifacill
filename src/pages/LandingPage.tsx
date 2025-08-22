@@ -227,25 +227,45 @@ const LandingPage = () => {
       }}>
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-              <img src="/logopequena.png" alt="Logo" className="h-8 w-8" />
-              <div className="flex items-center ml-6">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Eye className="h-5 w-5 text-gray-300" />
+                <span className="text-sm font-medium text-gray-300">Pessoas no site:</span>
                 <div className="flex items-center gap-2">
-                  <Eye className="h-5 w-5 text-gray-300" />
-                  <span className="text-sm font-medium text-gray-300">Pessoas no site:</span>
-                  <div className="flex items-center gap-2">
-                     <div className="w-2 h-2 rounded-full animate-pulse bg-gray-300" />
-                    <span className="text-sm font-medium text-gray-300">{onlineUsers}</span>
-                  </div>
+                   <div className="w-2 h-2 rounded-full animate-pulse bg-gray-300" />
+                  <span className="text-sm font-medium text-gray-300">{onlineUsers}</span>
                 </div>
               </div>
             </div>
-            <button
-              onClick={handleLogin}
-              className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-gray-500/30"
-            >
-              Entrar
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  // Lógica para instalar o app
+                  if ('serviceWorker' in navigator && 'PushManager' in window) {
+                    // Mostrar prompt de instalação se disponível
+                    const installPrompt = (window as any).deferredPrompt;
+                    if (installPrompt) {
+                      installPrompt.prompt();
+                    } else {
+                      // Fallback: abrir em nova aba
+                      window.open(window.location.href, '_blank');
+                    }
+                  } else {
+                    // Fallback para navegadores que não suportam PWA
+                    window.open(window.location.href, '_blank');
+                  }
+                }}
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-3 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-blue-500/30 text-sm"
+              >
+                Instalar app
+              </button>
+              <button
+                onClick={handleLogin}
+                className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-gray-500/30"
+              >
+                Entrar
+              </button>
+            </div>
           </div>
         </nav>
       </header>
@@ -323,7 +343,7 @@ const LandingPage = () => {
                     >
                       <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                       <div className="flex items-center gap-4 relative z-10">
-                        <div className="relative p-3 rounded-xl bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 transition-all duration-300"
+                        <div className="relative p-3 rounded-xl bg-white transition-all duration-300"
                              style={{ 
                                boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
                                transition: 'all 0.3s ease'
@@ -338,7 +358,7 @@ const LandingPage = () => {
                         </div>
                         <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Barbearia</span>
                       </div>
-                      <div className="bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 p-3 rounded-full transition-all duration-300 relative z-10"
+                      <div className="bg-white p-3 rounded-full transition-all duration-300 relative z-10"
                            style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
                         <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
@@ -360,7 +380,7 @@ const LandingPage = () => {
                     >
                       <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                       <div className="flex items-center gap-4 relative z-10">
-                        <div className="relative p-3 rounded-xl bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 transition-all duration-300"
+                        <div className="relative p-3 rounded-xl bg-white transition-all duration-300"
                              style={{ 
                                boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
                                transition: 'all 0.3s ease'
@@ -375,7 +395,7 @@ const LandingPage = () => {
                         </div>
                         <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Lava-car</span>
                       </div>
-                      <div className="bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 p-3 rounded-full transition-all duration-300 relative z-10"
+                      <div className="bg-white p-3 rounded-full transition-all duration-300 relative z-10"
                            style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
                         <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
@@ -397,7 +417,7 @@ const LandingPage = () => {
                     >
                       <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                       <div className="flex items-center gap-4 relative z-10">
-                        <div className="relative p-3 rounded-xl bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 transition-all duration-300"
+                        <div className="relative p-3 rounded-xl bg-white transition-all duration-300"
                              style={{ 
                                boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
                                transition: 'all 0.3s ease'
@@ -412,7 +432,7 @@ const LandingPage = () => {
                         </div>
                         <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Salão de beleza</span>
                       </div>
-                      <div className="bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-gray-600 group-hover:to-gray-700 p-3 rounded-full transition-all duration-300 relative z-10"
+                      <div className="bg-white p-3 rounded-full transition-all duration-300 relative z-10"
                            style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
                         <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
@@ -470,11 +490,14 @@ const LandingPage = () => {
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('pagina-exclusiva')}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                <CheckCircle className="w-4 h-4 text-white" />
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Página exclusiva</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm sm:text-lg font-medium text-gray-800 truncate">Página exclusiva</span>
+                                <span className="text-xs text-gray-500 leading-none">Clique para ver</span>
+                              </div>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['pagina-exclusiva'] ? 'rotate-180' : ''}`} />
                           </div>
@@ -501,11 +524,14 @@ const LandingPage = () => {
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('nao-perca-clientes')}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                <CheckCircle className="w-4 h-4 text-white" />
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Lembretes automáticos</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm sm:text-lg font-medium text-gray-800 truncate">Lembretes automáticos</span>
+                                <span className="text-xs text-gray-500 leading-none">Clique para ver</span>
+                              </div>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['nao-perca-clientes'] ? 'rotate-180' : ''}`} />
                           </div>
@@ -522,11 +548,14 @@ const LandingPage = () => {
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('controle-agendamentos')}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                <CheckCircle className="w-4 h-4 text-white" />
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Controle de agendamentos</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm sm:text-lg font-medium text-gray-800 truncate">Controle de agendamentos</span>
+                                <span className="text-xs text-gray-500 leading-none">Clique para ver</span>
+                              </div>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['controle-agendamentos'] ? 'rotate-180' : ''}`} />
                           </div>
@@ -543,11 +572,14 @@ const LandingPage = () => {
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('formas-pagamento')}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                <CheckCircle className="w-4 h-4 text-white" />
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Formas de pagamento</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm sm:text-lg font-medium text-gray-800 truncate">Formas de pagamento</span>
+                                <span className="text-xs text-gray-500 leading-none">Clique para ver</span>
+                              </div>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['formas-pagamento'] ? 'rotate-180' : ''}`} />
                           </div>
@@ -564,11 +596,14 @@ const LandingPage = () => {
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('clube-assinantes')}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                <CheckCircle className="w-4 h-4 text-white" />
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Clube de Assinantes</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm sm:text-lg font-medium text-gray-800 truncate">Clube de Assinantes</span>
+                                <span className="text-xs text-gray-500 leading-none">Clique para ver</span>
+                              </div>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['clube-assinantes'] ? 'rotate-180' : ''}`} />
                           </div>
@@ -585,11 +620,14 @@ const LandingPage = () => {
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('repescagem-clientes')}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                <CheckCircle className="w-4 h-4 text-white" />
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Repescagem de clientes</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm sm:text-lg font-medium text-gray-800 truncate">Repescagem de clientes</span>
+                                <span className="text-xs text-gray-500 leading-none">Clique para ver</span>
+                              </div>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['repescagem-clientes'] ? 'rotate-180' : ''}`} />
                           </div>
@@ -606,11 +644,14 @@ const LandingPage = () => {
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('colaboradores')}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                <CheckCircle className="w-4 h-4 text-white" />
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Colaboradores</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm sm:text-lg font-medium text-gray-800 truncate">Colaboradores</span>
+                                <span className="text-xs text-gray-500 leading-none">Clique para ver</span>
+                              </div>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['colaboradores'] ? 'rotate-180' : ''}`} />
                           </div>
@@ -627,11 +668,14 @@ const LandingPage = () => {
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('controle-financeiro')}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                <CheckCircle className="w-4 h-4 text-white" />
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               </div>
-                              <span className="text-lg font-medium text-gray-800">Controle financeiro total</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm sm:text-lg font-medium text-gray-800 truncate">Controle financeiro total</span>
+                                <span className="text-xs text-gray-500 leading-none">Clique para ver</span>
+                              </div>
                             </div>
                             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns['controle-financeiro'] ? 'rotate-180' : ''}`} />
                           </div>
@@ -669,69 +713,7 @@ const LandingPage = () => {
                 </div>
               </section>
 
-              {/* Imagens de exemplo do celular */}
-              <div className="w-full mt-8 mb-24">
-                {/* Legenda */}
-                <p className="text-center text-xl text-white mb-6">
-                  Envie seu link agendeifacil, ou coloque na bio do instagram
-                </p>
-                <img
-                  src="/envia.svg"
-                  alt="Envia"
-                  className="w-full max-w-2xl mx-auto hover:scale-105 transition-transform duration-300"
-                />
-              </div>
 
-              {/* Imagem Celulares */}
-              <div className="w-full mb-16">
-                {/* Nova legenda */}
-                <p className="text-center text-xl text-white mb-8">
-                  Seu cliente irá para uma página editável única e exclusiva sua
-                </p>
-                <img
-                  src="/testecel.svg"
-                  alt="Versão Celular"
-                  className="w-full mx-auto hover:scale-105 transition-transform duration-300"
-                />
-                {/* Legenda e imagem nova */}
-                <div className="mt-8">
-                  <p className="text-center text-xl text-white mb-6">
-                    e você irá ver tudo em tempo real, 100% atualizado e automático
-                  </p>
-                  <img
-                    src="/agendeifacilpordentro.png"
-                    alt="AgendeiFácil por dentro"
-                    className="w-full mx-auto hover:scale-105 transition-transform duration-300 rounded-xl shadow-lg"
-                  />
-                </div>
-              </div>
-
-              {/* Imagem metas.png adicionada aqui */}
-              <div className="w-full mx-auto mb-8"> {/* Removido max-w-3xl */}
-                <img
-                  src="/metas.png"
-                  alt="Metas"
-                  className="w-full h-auto" // Removido object-contain e adicionado h-auto
-                />
-              </div>
-
-              {/* Imagem finan1.png no lugar do carrossel */}
-              <div className="w-full max-w-3xl mx-auto mb-8">
-                <img
-                  src="/finan1.png"
-                  alt="Finanças 1"
-                  className="w-full h-full object-contain"
-                />
-              </div>
-
-              {/* Imagem finan2.png abaixo de finan1.png */}
-              <div className="w-full max-w-3xl mx-auto mb-8">
-                <img
-                  src="/finan2.png"
-                  alt="Finanças 2"
-                  className="w-full h-full object-contain"
-                />
-              </div>
 
               <div className="text-center max-w-3xl mx-auto mb-16">
                 <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white leading-tight mb-6">
@@ -899,64 +881,76 @@ const LandingPage = () => {
                     </div>
                     <ul className="space-y-4 mb-8 text-left">
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Agendamentos ilimitados</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Gestão completa de clientes</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Relatórios detalhados financeiro completo</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Confirmação automática por SMS</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Lucros diários e mensais</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Profissionais ilimitados</span>
               </li>
                             <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                 <span className="text-gray-300">Controle de % para colaboradores</span>
               </li>
               <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                 <span className="text-gray-300">Cálculo por base taxa da maquininha</span>
               </li>
               <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Serviços ilimitados</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Sistema de prêmio para clientes fiéis</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Mensagem de lembrete para clientes</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Página de agendamentos exclusiva sua e personalizável</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Pagamentos adiantados se preferir</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Sistema de assinantes incluso</span>
                       </li>
                       <li className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-[#2ddedb] mr-3" />
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Controle total de clientes novos e antigos e atuais</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                        <span className="text-gray-300">Controle de clientes sumidos</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                        <span className="text-gray-300">Ranking de clientes</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                        <span className="text-gray-300">Notificações em tempo real de agendamentos ou cancelamentos</span>
                       </li>
                     </ul>
                     <a
@@ -1046,9 +1040,7 @@ const LandingPage = () => {
             Experimente Como Funciona
           </h2>
 
-          <p className="text-center text-lg mb-8">
-            Envie seu link agendeifacil, ou coloque na bio do instagram
-          </p>
+
 
         </div>
       </section>

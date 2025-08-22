@@ -5,7 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 import { CacheBuster } from './components/CacheBuster';
 import { EnvironmentError } from './components/EnvironmentError';
-import { InstallAppButton } from './components/InstallAppButton';
+
 import { PWARedirect } from './components/PWARedirect';
 
 // Teste de configuração - novo computador
@@ -47,12 +47,14 @@ function App() {
     <div className="min-h-screen bg-background text-foreground">
       <CacheBuster />
       <Toaster 
-        position="top-right"
+        position="top-center"
         toastOptions={{
           style: {
             background: '#1a1b1c',
             color: '#ffffff',
-            border: '1px solid #374151'
+            border: '1px solid #374151',
+            marginTop: '80px', // Adiciona margem para não ficar em cima do header
+            zIndex: 9999,
           }
         }}
       />
@@ -123,7 +125,7 @@ function App() {
               
               <Route path="*" element={<NotFound />} />
             </Routes>
-            <InstallAppButton />
+
           </Router>
         </AuthProvider>
       </SupabaseProvider>
