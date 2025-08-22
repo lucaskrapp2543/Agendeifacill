@@ -41,17 +41,17 @@ const pulseKeyframes = `
   @keyframes pulse-scale {
     0% {
       transform: scale(1);
-      box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.7);
+      box-shadow: 0 0 0 0 rgba(107, 114, 128, 0.4);
     }
 
     70% {
       transform: scale(1.05);
-      box-shadow: 0 0 0 10px rgba(6, 182, 212, 0);
+      box-shadow: 0 0 0 10px rgba(107, 114, 128, 0);
     }
 
     100% {
       transform: scale(1);
-      box-shadow: 0 0 0 0 rgba(6, 182, 212, 0);
+      box-shadow: 0 0 0 0 rgba(107, 114, 128, 0);
     }
   }
 
@@ -221,25 +221,28 @@ const LandingPage = () => {
       <WhatsAppButton />
       <PromoNotifications />
       {/* Header */}
-      <header className="fixed top-0 w-full bg-gray-50/80 backdrop-blur-md border-b border-gray-200/50 z-50" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)' }}>
+      <header className="fixed top-0 w-full backdrop-blur-md border-b border-gray-200/50 z-50" style={{ 
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)'
+      }}>
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
                         <div className="flex items-center">
               <img src="/logopequena.png" alt="Logo" className="h-8 w-8" />
               <div className="flex items-center ml-6">
                 <div className="flex items-center gap-2">
-                  <Eye className="h-5 w-5 text-slate-500" />
-                  <span className="text-sm font-medium text-gray-700">Pessoas no site:</span>
+                  <Eye className="h-5 w-5 text-gray-300" />
+                  <span className="text-sm font-medium text-gray-300">Pessoas no site:</span>
                   <div className="flex items-center gap-2">
-                     <div className="w-2 h-2 rounded-full animate-pulse custom-pulse-indicator" />
-                    <span className="text-sm font-medium text-slate-600">{onlineUsers}</span>
+                     <div className="w-2 h-2 rounded-full animate-pulse bg-gray-300" />
+                    <span className="text-sm font-medium text-gray-300">{onlineUsers}</span>
                   </div>
                 </div>
               </div>
             </div>
             <button
               onClick={handleLogin}
-              className="bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+              className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-gray-500/30"
             >
               Entrar
             </button>
@@ -423,17 +426,18 @@ const LandingPage = () => {
                           precosSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }
                       }}
-                      className="text-white font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-center gap-2"
+                      className="text-gray-800 font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-center gap-2"
                       style={{ 
-                        background: 'linear-gradient(to right, #2ddedb, #1a9b95)',
+                        background: 'white',
                         transition: 'all 0.3s ease',
-                        animation: 'pulse-scale-green 2s infinite'
+                        animation: 'pulse-scale 2s infinite',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06)'
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(to right, #1a9b95, #0f6b66)';
+                        e.currentTarget.style.background = '#f8fafc';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(to right, #2ddedb, #1a9b95)';
+                        e.currentTarget.style.background = 'white';
                       }}
                     >
                       SER AGENDEI FÁCIL

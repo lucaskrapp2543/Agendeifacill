@@ -114,7 +114,7 @@ export const InstallAppButton: React.FC = () => {
 
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50">
-      <div className="bg-blue-600 text-white rounded-lg shadow-lg p-4">
+      <div className="bg-gray-800 text-white rounded-lg shadow-lg p-4 border border-gray-600">
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <h3 className="text-sm font-medium">📱 Instalar Agendei Fácil</h3>
@@ -124,7 +124,7 @@ export const InstallAppButton: React.FC = () => {
           </div>
           <button
             onClick={handleInstallClick}
-            className="ml-4 px-4 py-2 bg-white text-blue-600 rounded-md text-sm font-medium hover:bg-gray-100 transition-colors"
+            className="ml-4 px-4 py-2 bg-gray-600 text-white rounded-md text-sm font-medium hover:bg-gray-700 transition-colors border border-gray-500"
           >
             Instalar
           </button>
