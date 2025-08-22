@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atualizar Ícone - Agendei Fácil</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .success {
+            color: #059669;
+            background: #d1fae5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .warning {
+            color: #d97706;
+            background: #fef3c7;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .icon-preview {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .icon-preview img {
+            width: 64px;
+            height: 64px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Atualizar Ícone do App - Agendei Fácil</h1>
+        
+        <div class="icon-preview">
+            <h3>Ícone Atual:</h3>
+            <img src="/novo-icone-maskable.png?v=20241219" alt="Ícone Atual" id="currentIcon">
+        </div>
+        
+        <div class="warning">
+            <strong>⚠️ Importante:</strong> Para ver o novo ícone, você precisa:
+            <ol>
+                <li>Desinstalar o app atual do seu dispositivo</li>
+                <li>Limpar o cache do navegador</li>
+                <li>Reinstalar o app</li>
+            </ol>
+        </div>
+        
+        <button onclick="updateIcon()">🔄 Forçar Atualização do Ícone</button>
+        <button onclick="clearPWACache()">🧹 Limpar Cache PWA</button>
+        <button onclick="reinstallApp()">📱 Reinstalar App</button>
+        
+        <div id="result"></div>
+        
+        <hr style="margin: 30px 0;">
+        <h3>📱 Instruções para Mobile:</h3>
+        <ol>
+            <li>Toque e segure o ícone do app na tela inicial</li>
+            <li>Selecione "Remover App" ou "Desinstalar"</li>
+            <li>Abra o navegador e acesse o site</li>
+            <li>Toque em "Adicionar à Tela Inicial" novamente</li>
+        </ol>
+        
+        <h3>💻 Instruções para Desktop:</h3>
+        <ol>
+            <li>Clique com botão direito no ícone do app</li>
+            <li>Selecione "Desinstalar"</li>
+            <li>Limpe o cache do navegador (Ctrl+Shift+Del)</li>
+            <li>Reinstale o app pelo navegador</li>
+        </ol>
+    </div>
+
+    <script>
+        function showResult(message, type = 'success') {
+            const result = document.getElementById('result');
+            const className = type === 'success' ? 'success' : 'warning';
+            result.innerHTML = `<div class="${className}">${message}</div>`;
+            setTimeout(() => {
+                result.innerHTML = '';
+            }, 5000);
+        }
+
+        function updateIcon() {
+            // Força atualização do ícone
+            const icon = document.getElementById('currentIcon');
+            icon.src = '/novo-icone-maskable.png?v=' + Date.now();
+            
+            // Limpa cache do manifest
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    names.forEach(name => {
+                        if (name.includes('manifest') || name.includes('icon')) {
+                            caches.delete(name);
+                        }
+                    });
+                });
+            }
+            
+            showResult('✅ Cache do ícone limpo! Agora reinstale o app para ver as mudanças.');
+        }
+
+        function clearPWACache() {
+            // Limpa cache específico do PWA
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    names.forEach(name => {
+                        if (name.includes('pwa') || name.includes('app')) {
+                            caches.delete(name);
+                        }
+                    });
+                });
+            }
+            
+            // Desregistra service workers
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(registrations => {
+                    registrations.forEach(registration => registration.unregister());
+                });
+            }
+            
+            showResult('✅ Cache PWA limpo! Service Workers desregistrados.');
+        }
+
+        function reinstallApp() {
+            // Força reinstalação do app
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(registrations => {
+                    registrations.forEach(registration => registration.unregister());
+                });
+            }
+            
+            // Limpa todos os caches
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    names.forEach(name => caches.delete(name));
+                });
+            }
+            
+            // Redireciona para o app com parâmetros de cache busting
+            const url = new URL(window.location.href);
+            url.searchParams.set('_t', Date.now());
+            url.searchParams.set('_r', Math.random().toString(36).substring(7));
+            
+            window.location.href = '/?' + url.searchParams.toString();
+        }
+    </script>
+</body>
+</html>

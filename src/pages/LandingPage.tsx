@@ -471,7 +471,7 @@ const LandingPage = () => {
                             onClick={() => toggleDropdown('pagina-exclusiva')}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
                               <span className="text-lg font-medium text-gray-800">Página exclusiva</span>
@@ -502,7 +502,7 @@ const LandingPage = () => {
                             onClick={() => toggleDropdown('nao-perca-clientes')}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
                               <span className="text-lg font-medium text-gray-800">Lembretes automáticos</span>
@@ -523,7 +523,7 @@ const LandingPage = () => {
                             onClick={() => toggleDropdown('controle-agendamentos')}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
                               <span className="text-lg font-medium text-gray-800">Controle de agendamentos</span>
@@ -544,7 +544,7 @@ const LandingPage = () => {
                             onClick={() => toggleDropdown('formas-pagamento')}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
                               <span className="text-lg font-medium text-gray-800">Formas de pagamento</span>
@@ -565,7 +565,7 @@ const LandingPage = () => {
                             onClick={() => toggleDropdown('clube-assinantes')}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
                               <span className="text-lg font-medium text-gray-800">Clube de Assinantes</span>
@@ -586,7 +586,7 @@ const LandingPage = () => {
                             onClick={() => toggleDropdown('repescagem-clientes')}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
                               <span className="text-lg font-medium text-gray-800">Repescagem de clientes</span>
@@ -607,7 +607,7 @@ const LandingPage = () => {
                             onClick={() => toggleDropdown('colaboradores')}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
                               <span className="text-lg font-medium text-gray-800">Colaboradores</span>
@@ -628,7 +628,7 @@ const LandingPage = () => {
                             onClick={() => toggleDropdown('controle-financeiro')}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full bg-[#2ddedb] flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                                 <CheckCircle className="w-4 h-4 text-white" />
                               </div>
                               <span className="text-lg font-medium text-gray-800">Controle financeiro total</span>
