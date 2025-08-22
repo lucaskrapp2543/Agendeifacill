@@ -221,25 +221,25 @@ const LandingPage = () => {
       <WhatsAppButton />
       <PromoNotifications />
       {/* Header */}
-      <header className="fixed top-0 w-full bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 backdrop-blur-sm border-b border-gray-700 z-50 shadow-lg">
+      <header className="fixed top-0 w-full bg-gray-50/80 backdrop-blur-md border-b border-gray-200/50 z-50" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)' }}>
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Calendar className="h-6 w-6 text-cyan-400" />
+                        <div className="flex items-center">
+              <img src="/logopequena.png" alt="Logo" className="h-8 w-8" />
               <div className="flex items-center ml-6">
                 <div className="flex items-center gap-2">
-                  <Eye className="h-5 w-5 text-cyan-300" />
-                  <span className="text-sm font-medium text-gray-200">Pessoas no site:</span>
+                  <Eye className="h-5 w-5 text-slate-500" />
+                  <span className="text-sm font-medium text-gray-700">Pessoas no site:</span>
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full animate-pulse bg-cyan-400" />
-                    <span className="text-sm font-medium text-cyan-300">{onlineUsers}</span>
+                     <div className="w-2 h-2 rounded-full animate-pulse custom-pulse-indicator" />
+                    <span className="text-sm font-medium text-slate-600">{onlineUsers}</span>
                   </div>
                 </div>
               </div>
             </div>
             <button
               onClick={handleLogin}
-              className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+              className="bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
             >
               Entrar
             </button>
@@ -260,10 +260,13 @@ const LandingPage = () => {
 
               {/* Nova seção de destaque */}
               <div className="w-full max-w-3xl px-4">
-                <div className="bg-gradient-to-r from-cyan-500 to-blue-800 rounded-2xl p-2 md:p-4 animate-pulse-custom" style={{ animation: 'pulse-scale 2s infinite' }}>
+                <div className="bg-white rounded-2xl p-2 md:p-4 animate-pulse-custom shadow-lg" style={{ 
+                  animation: 'pulse-scale 2s infinite',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06)'
+                }}>
                   <div className="flex items-center justify-center gap-2 md:gap-3">
-                    <Rocket className="h-3 w-3 md:h-6 md:w-6 text-white flex-shrink-0" />
-                    <span className="text-xs md:text-xl text-white font-semibold text-center leading-tight">
+                    <Rocket className="h-3 w-3 md:h-6 md:w-6 text-blue-600 flex-shrink-0" />
+                    <span className="text-xs md:text-xl text-gray-800 font-semibold text-center leading-tight">
                       Sistema de agendamentos mais completo do Brasil
                     </span>
                   </div>
