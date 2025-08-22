@@ -22,13 +22,15 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    // Configurações para evitar cache - MELHORADAS
+    // Configurações para evitar cache - ULTRA AGRESSIVAS
     headers: {
-      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0, s-maxage=0',
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0, s-maxage=0, no-transform',
       'Pragma': 'no-cache',
       'Expires': '0',
       'Last-Modified': new Date().toUTCString(),
-      'ETag': `"${Date.now()}"`,
+      'ETag': `"${Date.now()}-${Math.random()}"`,
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
     },
     // Forçar reload automático
     hmr: {

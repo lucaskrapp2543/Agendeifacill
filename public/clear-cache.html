@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Limpar Cache - Agendei Fácil</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .success {
+            color: #059669;
+            background: #d1fae5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Limpar Cache - Agendei Fácil</h1>
+        <p>Se você não está vendo as mudanças mais recentes, use os botões abaixo para limpar o cache:</p>
+        
+        <button onclick="clearCache()">🧹 Limpar Cache</button>
+        <button onclick="reloadApp()">🔄 Recarregar App</button>
+        <button onclick="hardReload()">💥 Recarregamento Forçado</button>
+        
+        <div id="result"></div>
+        
+        <hr style="margin: 30px 0;">
+        <h3>📱 Instruções para Mobile:</h3>
+        <ol>
+            <li>Toque no botão "Limpar Cache" acima</li>
+            <li>Toque em "Recarregar App"</li>
+            <li>Se ainda não funcionar, feche o app e abra novamente</li>
+        </ol>
+        
+        <h3>💻 Instruções para Desktop:</h3>
+        <ol>
+            <li>Clique em "Limpar Cache"</li>
+            <li>Clique em "Recarregar App"</li>
+            <li>Se necessário, pressione <strong>Ctrl+F5</strong> (Windows) ou <strong>Cmd+Shift+R</strong> (Mac)</li>
+        </ol>
+    </div>
+
+    <script>
+        function showResult(message, isSuccess = true) {
+            const result = document.getElementById('result');
+            result.innerHTML = `<div class="success">✅ ${message}</div>`;
+            setTimeout(() => {
+                result.innerHTML = '';
+            }, 3000);
+        }
+
+        function clearCache() {
+            // Limpa localStorage
+            localStorage.clear();
+            sessionStorage.clear();
+            
+            // Limpa caches do navegador
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    names.forEach(name => caches.delete(name));
+                });
+            }
+            
+            // Desregistra service workers
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(registrations => {
+                    registrations.forEach(registration => registration.unregister());
+                });
+            }
+            
+            showResult('Cache limpo com sucesso!');
+        }
+
+        function reloadApp() {
+            // Adiciona timestamp na URL
+            const url = new URL(window.location.href);
+            url.searchParams.set('_t', Date.now());
+            url.searchParams.set('_r', Math.random().toString(36).substring(7));
+            
+            // Redireciona para o app com parâmetros de cache busting
+            window.location.href = '/?' + url.searchParams.toString();
+        }
+
+        function hardReload() {
+            clearCache();
+            setTimeout(() => {
+                // Força reload completo
+                window.location.reload(true);
+            }, 500);
+        }
+    </script>
+</body>
+</html>

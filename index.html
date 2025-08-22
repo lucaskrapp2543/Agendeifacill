@@ -30,9 +30,10 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/novo-icone.png">
     
     <!-- Meta tags para evitar cache -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
+    <meta http-equiv="Last-Modified" content="0">
     
     <!-- PWA Meta Tags -->
     <meta name="mobile-web-app-capable" content="yes">
@@ -56,24 +57,23 @@
         });
       }
       
-      // Sistema de cache busting otimizado
+      // Sistema de cache busting SUAVE
       const timestamp = Date.now();
+      
+      // Adiciona parâmetro de versão na URL apenas se não existir
       if (!window.location.search.includes('v=')) {
         const url = new URL(window.location.href);
         url.searchParams.set('v', timestamp.toString());
         window.history.replaceState({}, '', url.toString());
-      }
-      
-      // Verificar versão apenas se não existir
-      const currentVersion = localStorage.getItem('app_version');
-      if (!currentVersion) {
-        localStorage.setItem('app_version', timestamp.toString());
       }
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Chart.js CSS removido temporariamente para evitar erro 404 -->
+    
+    <!-- Script para forçar atualização de cache - DESATIVADO TEMPORARIAMENTE -->
+    <!-- <script src="/force-update.js"></script> -->
   </head>
   <body>
     <div id="root"></div>

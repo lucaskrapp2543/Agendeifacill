@@ -1,6 +1,6 @@
 import React from 'react';
 
 export function CacheBuster() {
-  // Componente vazio - botão removido
+  // Cache buster desativado temporariamente para evitar loop infinito
   return null;
 }
