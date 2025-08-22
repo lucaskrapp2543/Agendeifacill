@@ -44,18 +44,18 @@ function App() {
   }
 
   return (
-    <CacheBuster autoReload={true} checkInterval={3000}>
-      <div className="min-h-screen bg-background text-foreground">
-        <Toaster 
-          position="top-right"
-          toastOptions={{
-            style: {
-              background: '#1a1b1c',
-              color: '#ffffff',
-              border: '1px solid #374151'
-            }
-          }}
-        />
+    <div className="min-h-screen bg-background text-foreground">
+      <CacheBuster />
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: '#1a1b1c',
+            color: '#ffffff',
+            border: '1px solid #374151'
+          }
+        }}
+      />
       <SupabaseProvider>
         <AuthProvider>
             <Router>
@@ -127,8 +127,7 @@ function App() {
           </Router>
         </AuthProvider>
       </SupabaseProvider>
-      </div>
-    </CacheBuster>
+    </div>
   );
 }
 

@@ -56,11 +56,18 @@
         });
       }
       
-      // Adiciona timestamp na URL para forçar reload
+      // Sistema de cache busting otimizado
+      const timestamp = Date.now();
       if (!window.location.search.includes('v=')) {
         const url = new URL(window.location.href);
-        url.searchParams.set('v', Date.now().toString());
+        url.searchParams.set('v', timestamp.toString());
         window.history.replaceState({}, '', url.toString());
+      }
+      
+      // Verificar versão apenas se não existir
+      const currentVersion = localStorage.getItem('app_version');
+      if (!currentVersion) {
+        localStorage.setItem('app_version', timestamp.toString());
       }
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">

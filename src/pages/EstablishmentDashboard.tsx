@@ -1068,7 +1068,7 @@ const EstablishmentDashboard = () => {
           ...prof,
           percentage: prof.percentage !== undefined ? prof.percentage : 100 // Só usar 100 se realmente não existir
         }));
-        console.log('📥 Profissionais carregados:', professionalsWithPercentage);
+
 
         setProfessionals(professionalsWithPercentage);
         setServicesWithPrices(establishmentData.services_with_prices || []);
@@ -1118,7 +1118,7 @@ const EstablishmentDashboard = () => {
       fetchMonthlyAppointments(selectedMonth);
       
       // Notificações agora são gerenciadas pelo painel interno
-      console.log('🔔 Sistema de notificações internas ativo para:', establishment.id);
+      
     }
 
     // Cleanup ao desmontar
@@ -1132,11 +1132,11 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
     
     const interval = setInterval(async () => {
-      console.log('🔄 Atualização automática dos agendamentos...');
+      
       
       // Salvar estado atual dos agendamentos
       const previousAppointments = [...previousAppointmentsRef.current];
-      console.log('📋 Agendamentos anteriores:', previousAppointments.length);
+      
       
       // Buscar novos dados
       try {
@@ -1156,7 +1156,7 @@ const EstablishmentDashboard = () => {
           .abortSignal(new AbortController().signal); // Forçar busca sem cache
 
         if (newAppointments) {
-          console.log('📋 Novos agendamentos:', newAppointments.length);
+  
           
           // Detectar novos agendamentos
           newAppointments.forEach(currentApp => {
@@ -1224,7 +1224,7 @@ const EstablishmentDashboard = () => {
   useEffect(() => {
     const handleServiceWorkerMessage = (event: MessageEvent) => {
       if (event.data.type === 'KEEP_ALIVE') {
-        console.log('🔄 Heartbeat do Service Worker recebido');
+
         // Forçar verificação imediata se necessário
         if (establishment) {
           // Verificação rápida adicional
