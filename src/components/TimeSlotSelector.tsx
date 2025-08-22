@@ -110,11 +110,8 @@ export function TimeSlotSelector({
           const aptStartMinutes = timeToMinutes(appointment.appointment_time);
           const aptEndMinutes = aptStartMinutes + appointment.duration;
           
-          // Se usar intervalo de 15 min, adicionar 15 min de bloqueio após o serviço
-          const blockEndMinutes = use15MinuteInterval ? aptEndMinutes + 15 : aptEndMinutes;
-          
-          // Verificar sobreposição
-          if (!(slotEndMinutes <= aptStartMinutes || minutes >= blockEndMinutes)) {
+          // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
+          if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
             isAvailable = false;
             conflictReason = 'Horário Reservado';
             break;
@@ -166,10 +163,8 @@ export function TimeSlotSelector({
           const aptStartMinutes = timeToMinutes(appointment.appointment_time);
           const aptEndMinutes = aptStartMinutes + appointment.duration;
           
-          // Se usar intervalo de 15 min, adicionar 15 min de bloqueio após o serviço
-          const blockEndMinutes = use15MinuteInterval ? aptEndMinutes + 15 : aptEndMinutes;
-          
-          if (!(slotEndMinutes <= aptStartMinutes || minutes >= blockEndMinutes)) {
+          // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
+          if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
             isAvailable = false;
             conflictReason = 'Horário Reservado';
             break;
