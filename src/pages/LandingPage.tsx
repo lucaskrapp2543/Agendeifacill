@@ -78,6 +78,7 @@ const LandingPage = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(0);
   const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const toggleDropdown = (key: string) => {
     setOpenDropdowns(prev => ({
@@ -85,6 +86,20 @@ const LandingPage = () => {
       [key]: !prev[key]
     }));
   };
+
+  // Listener para capturar o prompt de instalação
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
 
   const features = [
     {
@@ -243,20 +258,41 @@ const LandingPage = () => {
             <div className="flex items-center gap-2 sm:gap-3">
               <button
                 onClick={() => {
-                  // Lógica para instalar o app
-                  if ('serviceWorker' in navigator && 'PushManager' in window) {
-                    // Mostrar prompt de instalação se disponível
-                    const installPrompt = (window as any).deferredPrompt;
-                    if (installPrompt) {
-                      installPrompt.prompt();
-                    } else {
-                      // Fallback: abrir em nova aba
-                      window.open(window.location.href, '_blank');
+                  // Lógica completa para instalar o app
+                  const handleInstall = async () => {
+                    // Verificar se há prompt de instalação disponível
+                    if (deferredPrompt) {
+                      try {
+                        await deferredPrompt.prompt();
+                        const { outcome } = await deferredPrompt.userChoice;
+                        if (outcome === 'accepted') {
+                          console.log('App instalado com sucesso!');
+                          setDeferredPrompt(null);
+                          return;
+                        }
+                      } catch (error) {
+                        console.log('Erro no prompt nativo:', error);
+                      }
                     }
-                  } else {
-                    // Fallback para navegadores que não suportam PWA
-                    window.open(window.location.href, '_blank');
-                  }
+                    
+                    // Fallback: mostrar instruções manuais
+                    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                    const isAndroid = /Android/.test(navigator.userAgent);
+                    
+                    let message = '';
+                    
+                    if (isIOS) {
+                      message = 'Para instalar o app:\n\n1. Toque no botão Compartilhar (□↑)\n2. Toque em "Adicionar à Tela Inicial"\n3. Toque em "Adicionar"';
+                    } else if (isAndroid) {
+                      message = 'Para instalar o app:\n\n1. Toque nos 3 pontos (⋮)\n2. Toque em "Adicionar à tela inicial"\n3. Toque em "Adicionar"';
+                    } else {
+                      message = 'Para instalar o app:\n\n1. Clique nos 3 pontos (⋮)\n2. Clique em "Instalar Agendei Fácil"\n3. Clique em "Instalar"';
+                    }
+                    
+                    alert(message);
+                  };
+                  
+                  handleInstall();
                 }}
                 className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-blue-500/30 text-xs sm:text-sm whitespace-nowrap"
               >
