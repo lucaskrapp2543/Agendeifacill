@@ -225,19 +225,22 @@ const LandingPage = () => {
         backgroundColor: 'rgba(0, 0, 0, 0.8)',
         boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)'
       }}>
-        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <nav className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Eye className="h-5 w-5 text-gray-300" />
-                <span className="text-sm font-medium text-gray-300">Pessoas no site:</span>
-                <div className="flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full animate-pulse bg-gray-300" />
-                  <span className="text-sm font-medium text-gray-300">{onlineUsers}</span>
+            {/* Lado esquerdo - Pessoas no site */}
+            <div className="flex items-center">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Eye className="h-4 w-4 sm:h-5 sm:w-5 text-gray-300 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium text-gray-300 whitespace-nowrap">Pessoas no site:</span>
+                <div className="flex items-center gap-1 sm:gap-2">
+                   <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-pulse bg-gray-300" />
+                  <span className="text-xs sm:text-sm font-medium text-gray-300">{onlineUsers}</span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            
+            {/* Lado direito - Botões */}
+            <div className="flex items-center gap-2 sm:gap-3">
               <button
                 onClick={() => {
                   // Lógica para instalar o app
@@ -255,13 +258,13 @@ const LandingPage = () => {
                     window.open(window.location.href, '_blank');
                   }
                 }}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-3 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-blue-500/30 text-sm"
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-blue-500/30 text-xs sm:text-sm whitespace-nowrap"
               >
                 Instalar app
               </button>
               <button
                 onClick={handleLogin}
-                className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-gray-500/30"
+                className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-gray-500/30 text-xs sm:text-sm whitespace-nowrap"
               >
                 Entrar
               </button>
