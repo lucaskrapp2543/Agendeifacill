@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle, Menu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } from '../lib/supabase';
@@ -25,6 +25,7 @@ import { NotificationPermission } from '../components/NotificationPermission';
 import { initRealTimeNotifications, stopRealTimeNotifications } from '../utils/realTimeNotifications';
 import { NotificationsPanel } from '../components/NotificationsPanel';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
+import Sidebar from '../components/Sidebar';
 
 interface BusinessHours {
   enabled: boolean;
@@ -335,8 +336,8 @@ const EstablishmentDashboard = () => {
   const [isSettingsUnlocked, setIsSettingsUnlocked] = useState(false);
   const [isDashboardUnlocked, setIsDashboardUnlocked] = useState(false);
   const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
-  const [isSubscribersUnlocked, setIsSubscribersUnlocked] = useState(false); // Novo estado
-  const [showSubscribersPinModal, setShowSubscribersPinModal] = useState(false); // Novo estado
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
 
   // Limpa o estado dos PINs quando o estabelecimento é atualizado
   useEffect(() => {
@@ -3058,181 +3059,89 @@ const EstablishmentDashboard = () => {
     );
   }
 
-  // Renderização do dashboard quando há estabelecimento
+    // Renderização do dashboard quando há estabelecimento
   return (
     <div className="min-h-screen bg-white overflow-x-hidden">
-      {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
-      <div className="w-full mb-4 flex justify-center md:hidden">
-        <img 
-          src="/melhordobrasilcortado.png" 
-          alt="Melhor do Brasil" 
-          className="w-full h-auto rounded-lg shadow-lg"
+      <div className="flex">
+        {/* Sidebar */}
+        <Sidebar
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onSignOut={signOut}
+          unreadNotifications={unreadNotificationsCount}
+          onNotificationsClick={() => {
+            // Abrir painel de notificações
+            const notificationsButton = document.querySelector('[data-notifications-button]');
+            if (notificationsButton) {
+              (notificationsButton as HTMLElement).click();
+            }
+          }}
+          isDashboardUnlocked={isDashboardUnlocked}
+          isSettingsUnlocked={isSettingsUnlocked}
+          onDashboardPinModal={() => setShowDashboardPinModal(true)}
+          onSettingsPinModal={() => setShowPinModal(true)}
+          establishment={establishment}
         />
-      </div>
-      
-      <div className="container-custom py-4 px-2 sm:py-8 sm:px-4 max-w-full">
-        {/* Cabeçalho */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{establishment.name}</h1>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-gray-700">Código:</span>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-900 font-medium">{establishment.code}</span>
-                <button
-                  onClick={copyCodeToClipboard}
-                  className="text-gray-600 hover:text-gray-900 transition-colors"
-                  title="Copiar código"
-                >
-                  {codeCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </button>
+
+        {/* Conteúdo principal */}
+        <div className="flex-1 ml-16 md:ml-0 transition-all duration-300 min-w-0">
+        {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
+        <div className="w-full mb-4 flex justify-center md:hidden">
+          <img 
+            src="/melhordobrasilcortado.png" 
+            alt="Melhor do Brasil" 
+            className="w-full h-auto rounded-lg shadow-lg"
+          />
+        </div>
+        
+        <div className="py-4 px-4 sm:py-8 sm:px-6 w-full">
+          {/* Cabeçalho */}
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6 sm:mb-8">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{establishment.name}</h1>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <span className="text-gray-700 text-sm sm:text-base">Código:</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-900 font-medium text-sm sm:text-base">{establishment.code}</span>
+                  <button
+                    onClick={copyCodeToClipboard}
+                    className="text-gray-600 hover:text-gray-900 transition-colors p-1"
+                    title="Copiar código"
+                  >
+                    {codeCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             </div>
+            
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+              {/* Botão de menu para mobile */}
+              <button
+                onClick={() => {
+                  const sidebar = document.querySelector('[data-sidebar-toggle]');
+                  if (sidebar) {
+                    (sidebar as HTMLElement).click();
+                  }
+                }}
+                className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Abrir menu"
+              >
+                <Menu className="h-5 w-5 text-gray-600" />
+              </button>
+              
+              <NotificationPermission className="hidden sm:flex" />
+              {establishment && (
+                <NotificationsPanel 
+                  establishmentId={establishment.id}
+                  onUnreadCountChange={setUnreadNotificationsCount}
+                />
+              )}
+            </div>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <NotificationPermission className="hidden sm:flex" />
-            {establishment && (
-              <NotificationsPanel establishmentId={establishment.id} />
-            )}
-          </div>
-          
-
-
-
-
-              <div className="relative w-full">
-                {/* Dica para scroll mobile */}
-                <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-center text-sm text-blue-700 md:hidden">
-                  <div className="flex items-center justify-center gap-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16l-4-4m0 0l4-4m-4 4h18" />
-                    </svg>
-                    <span>Arraste para o lado para ver mais opções</span>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                    </svg>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-4 overflow-x-auto scrollbar-hide pb-2 -mb-2 w-full">
-                  <button
-                    onClick={() => setActiveTab('appointments')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
-                      activeTab === 'appointments'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Calendar className="h-5 w-5" />
-                    <span className="text-sm font-medium">Agendamentos</span>
-                  </button>
-
-                  {/* Botão Meus Clientes */}
-                  <button
-                    onClick={() => setActiveTab('clients')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
-                      activeTab === 'clients'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Users className="h-5 w-5" />
-                    <span className="text-sm font-medium">Meus Clientes</span>
-                  </button>
-
-                  {/* Novo Botão Assinantes */}
-                  <button
-                    onClick={() => {
-                      setIsSubscribersUnlocked(true);
-                      setActiveTab('subscribers');
-                    }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
-                      activeTab === 'subscribers'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Crown className="h-5 w-5" />
-                    <span className="text-sm font-medium">Assinantes</span>
-                  </button>
-
-                  <div
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-500 cursor-not-allowed opacity-50 flex-shrink-0"
-                    title="Em breve"
-                  >
-                    <Clock className="h-5 w-5" />
-                    <span className="text-sm font-medium">Horários</span>
-                  </div>
-
-                  <button
-                    onClick={() => setActiveTab('services')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
-                      activeTab === 'services'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Calendar className="h-5 w-5" />
-                    <span className="text-sm font-medium">SEUS LINKS</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (establishment?.pin_password && establishment.pin_password.length > 0 && !isDashboardUnlocked) {
-                        setShowDashboardPinModal(true);
-                      } else {
-                        setIsDashboardUnlocked(true);
-                      }
-                      setActiveTab('financial-dashboard');
-                    }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
-                      activeTab === 'financial-dashboard'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <BarChart3 className="h-5 w-5" />
-                    <span className="hidden sm:inline">Dashboard</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (establishment?.pin_password && establishment.pin_password.length > 0 && !isSettingsUnlocked) {
-                        setShowPinModal(true);
-                      } else {
-                        setIsSettingsUnlocked(true);
-                      }
-                      setActiveTab('settings');
-                    }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
-                      activeTab === 'settings'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Settings className="h-5 w-5" />
-                    <span className="text-sm font-medium">Config</span>
-                  </button>
-
-                  <button
-                    onClick={signOut}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
-                  >
-                    <LogOut className="h-5 w-5" />
-                    <span className="text-sm font-medium">Sair</span>
-                  </button>
-                </div>
-                
-                {/* Indicador de scroll para mobile */}
-                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none hidden sm:hidden md:block"></div>
-              </div>
-
-              </div>
 
         {/* Conteúdo Principal */}
         <div className="space-y-6">
-          {/* Outros tabs existentes */}
+          {/* Tab de Agendamentos */}
             {activeTab === 'appointments' && (
               <>
                 {/* Filtros Compactos */}
@@ -3851,9 +3760,9 @@ const EstablishmentDashboard = () => {
             )}
 
           {activeTab === 'settings' && (
-            <div className="space-y-6">
+            <div className="space-y-6 w-full">
               {/* Vídeo Tutorial */}
-              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+              <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
                 <h3 className="text-lg font-medium text-white mb-4">Tutorial de Configurações</h3>
                 <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
                   <iframe
@@ -3870,7 +3779,7 @@ const EstablishmentDashboard = () => {
               </div>
 
               {/* Informações Básicas */}
-              <div className="bg-[#1a1b1c] rounded-lg p-6 mb-6">
+              <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 mb-6">
                 <h2 className="text-xl font-semibold mb-4">Informações Básicas</h2>
                 <div className="space-y-4">
                   <div>
@@ -3886,8 +3795,8 @@ const EstablishmentDashboard = () => {
                   {/* Logo do Estabelecimento */}
                   <div>
                     <label className="block text-sm font-medium mb-1">Logo do Estabelecimento</label>
-                    <div className="flex items-center gap-4">
-                      <div className="relative w-24 h-24">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                      <div className="relative w-24 h-24 flex-shrink-0">
                         <div className="w-24 h-24 rounded-full overflow-hidden bg-[#242628] border-2 border-dashed border-gray-700">
                           {establishment?.logo_url ? (
                             <div className="relative h-full">
@@ -3921,7 +3830,7 @@ const EstablishmentDashboard = () => {
                           />
                         </label>
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <p className="text-sm text-gray-400">
                           Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos.
                           <br />
@@ -5001,11 +4910,7 @@ const EstablishmentDashboard = () => {
               </div>
             )}
 
-            {activeTab === 'financial-dashboard' && !isDashboardUnlocked && (
-              <div className="flex items-center justify-center h-64">
-                <p className="text-gray-400">Digite a senha para acessar o Dashboard Financeiro</p>
-              </div>
-            )}
+
 
             {activeTab === 'clients' && (
               <div className="space-y-6">
@@ -5031,24 +4936,11 @@ const EstablishmentDashboard = () => {
                   />
                   </div>
                   
-                  {/* Dica para scroll mobile dos botões */}
-                  <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-center text-sm text-blue-700 md:hidden">
-                    <div className="flex items-center justify-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16l-4-4m0 0l4-4m-4 4h18" />
-                      </svg>
-                      <span>Arraste para o lado para ver mais opções</span>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                      </svg>
-                    </div>
-                  </div>
-                  
-                  {/* Botões com scroll horizontal */}
-                  <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-2 -mb-2">
+                  {/* Botões de ação */}
+                  <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setShowBirthdayFilter(!showBirthdayFilter)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                       showBirthdayFilter
                         ? 'bg-purple-600 text-white'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -5058,30 +4950,13 @@ const EstablishmentDashboard = () => {
                   </button>
                   <button
                     onClick={() => setShowAddClientModal(true)}
-                      className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors flex-shrink-0"
+                      className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                   >
                     ➕ Adicionar Cliente
                   </button>
-                    <button
-                      onClick={() => setShowRankingModal(true)}
-                      className="px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors flex-shrink-0"
-                    >
-                      🏆 Ranking
-                    </button>
-                    <button
-                      onClick={() => setShowMissingClientsModal(true)}
-                      className="px-4 py-2 rounded-lg text-sm font-medium bg-orange-600 text-white hover:bg-orange-700 transition-colors flex-shrink-0"
-                    >
-                      👻 Clientes Sumidos
-                    </button>
-                    <button
-                      onClick={() => setShowDrawModal(true)}
-                      className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors flex-shrink-0"
-                    >
-                      🎲 Sorteio
-                    </button>
+
                   {showBirthdayFilter && (
-                      <span className="px-3 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm flex-shrink-0">
+                      <span className="px-3 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm">
                       {filteredClients.length} encontrado(s)
                     </span>
                   )}
@@ -5095,8 +4970,8 @@ const EstablishmentDashboard = () => {
                       <p className="text-gray-400">Nenhum cliente encontrado.</p>
                     </div>
                   ) : (
-                    filteredClients.map(client => (
-                      <div key={client.whatsapp} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+                    filteredClients.map((client, index) => (
+                      <div key={`${client.whatsapp}-${client.id}-${index}`} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
                         <div className="flex items-center gap-2 mb-2">
                           <h3 className="text-lg font-medium text-gray-900 truncate">{client.name}</h3>
                           {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />} {/* COROA PARA ASSINANTES */}
@@ -5185,13 +5060,7 @@ const EstablishmentDashboard = () => {
               </div>
             )}
 
-            {activeTab === 'subscribers' && isSubscribersUnlocked && (
-              <SubscribersManager 
-                establishmentId={establishment?.id!} 
-                clients={clients} 
-                onClientUpdated={fetchClients}
-              />
-            )}
+
 
 
         </div>
@@ -5213,20 +5082,7 @@ const EstablishmentDashboard = () => {
         />
       )}
 
-      {showSubscribersPinModal && (
-        <PinPasswordModal
-          onClose={() => setShowSubscribersPinModal(false)}
-          onSubmit={(pin) => {
-            if (pin === establishment?.pin_password || pin === '0000') {
-              setIsSubscribersUnlocked(true);
-              setShowSubscribersPinModal(false);
-            } else {
-              toast('Senha incorreta', 'error');
-            }
-          }}
-          title="Digite a senha para acessar os assinantes"
-        />
-      )}
+
 
       {showConfigModal && (
         <PinPasswordModal
@@ -5448,8 +5304,8 @@ const EstablishmentDashboard = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {rankingClients.map((client) => (
-                  <div key={client.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                {rankingClients.map((client, index) => (
+                  <div key={`${client.id}-${client.whatsapp}-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
                     <div className="flex items-center gap-4">
                       {/* Posição */}
                       <div className={`flex items-center justify-center w-10 h-10 rounded-full text-white font-bold text-lg ${
@@ -5524,8 +5380,8 @@ const EstablishmentDashboard = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {missingClients.map((client) => (
-                  <div key={client!.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                {missingClients.map((client, index) => (
+                  <div key={`${client!.id}-${client!.whatsapp}-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
                     <div className="flex items-center gap-4">
                       {/* Indicador de tempo */}
                       <div className={`flex items-center justify-center w-12 h-12 rounded-full text-white font-bold text-sm ${
@@ -5762,6 +5618,230 @@ const EstablishmentDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Tab de Subscribers */}
+      {activeTab === 'subscribers' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Gerenciar Assinantes</h2>
+          <SubscribersManager establishmentId={establishment.id} />
+        </div>
+      )}
+
+      {/* Tab de Reservar Cliente */}
+      {activeTab === 'reserve-client' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Reservar Cliente</h2>
+          <div className="text-center">
+            <p className="text-gray-600 mb-6 text-lg">
+              Clique em "Reservar Cliente" para acessar a página de agendamentos. Você pode fazer reservas para seus clientes.
+            </p>
+            <a
+              href={`/booking/${establishment.code}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-lg"
+            >
+              RESERVAR CLIENTE
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Tab de Ranking */}
+      {activeTab === 'ranking' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">🏆 Ranking dos Clientes Mais Fiéis</h2>
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-700">
+              <strong>Critério:</strong> Apenas clientes com 9 ou mais agendamentos aparecem no ranking.
+            </p>
+          </div>
+          {rankingClients.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-6xl mb-4">🏆</div>
+              <h4 className="text-lg font-medium text-gray-900 mb-2">Nenhum cliente no ranking ainda</h4>
+              <p className="text-gray-600">
+                Os clientes precisam ter pelo menos 9 agendamentos para aparecerem aqui.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {rankingClients.map((client, index) => (
+                <div key={`${client.id}-${client.whatsapp}-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center gap-4">
+                    {/* Posição */}
+                    <div className={`flex items-center justify-center w-10 h-10 rounded-full text-white font-bold text-lg ${
+                      client.position === 1 ? 'bg-yellow-500' :
+                      client.position === 2 ? 'bg-gray-400' :
+                      client.position === 3 ? 'bg-orange-600' :
+                      'bg-blue-500'
+                    }`}>
+                      {client.position === 1 ? '🥇' :
+                       client.position === 2 ? '🥈' :
+                       client.position === 3 ? '🥉' :
+                       client.position}
+                    </div>
+                    
+                    {/* Informações do cliente */}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-medium text-gray-900">{client.name}</h4>
+                        {client.isSubscriber && <Crown className="h-4 w-4 text-yellow-500" />}
+                      </div>
+                      <p className="text-sm text-gray-600">{client.whatsapp}</p>
+                      <p className="text-sm text-blue-600 font-medium">
+                        {client.appointmentCount} agendamento{client.appointmentCount !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Botão WhatsApp */}
+                  <a
+                    href={`https://wa.me/${client.whatsapp}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                  >
+                    WhatsApp
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab de Clientes Sumidos */}
+      {activeTab === 'missing-clients' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">👻 Clientes Sumidos</h2>
+          <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+            <p className="text-sm text-orange-700">
+              <strong>Critério:</strong> Clientes que não agendam há 2+ meses. Se não houver nenhum, mostra os mais inativos.
+            </p>
+          </div>
+          {missingClients.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-6xl mb-4">🎉</div>
+              <h4 className="text-lg font-medium text-gray-900 mb-2">Nenhum cliente sumido!</h4>
+              <p className="text-gray-600">
+                Todos os seus clientes estão ativos. Parabéns!
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {missingClients.map((client, index) => (
+                <div key={`${client!.id}-${client!.whatsapp}-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center gap-4">
+                    {/* Indicador de tempo */}
+                    <div className={`flex items-center justify-center w-12 h-12 rounded-full text-white font-bold text-sm ${
+                      client!.isOver2Months ? 'bg-red-500' : 'bg-orange-500'
+                    }`}>
+                      {client!.monthsInactive}m
+                    </div>
+                    
+                    {/* Informações do cliente */}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-medium text-gray-900">{client!.name}</h4>
+                        {client!.isSubscriber && <Crown className="h-4 w-4 text-yellow-500" />}
+                        {client!.isOver2Months && (
+                          <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                            SUMIDO
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600">{client!.whatsapp}</p>
+                      <p className="text-sm text-gray-500">
+                        Último agendamento: {client!.lastAppointmentDate.toLocaleDateString('pt-BR')}
+                      </p>
+                      <p className="text-sm text-blue-600 font-medium">
+                        Total: {client!.appointmentCount} agendamento{client!.appointmentCount !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Botões de ação */}
+                  <div className="flex gap-2">
+                    <a
+                      href={`https://wa.me/${client!.whatsapp}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                    >
+                      WhatsApp
+                    </a>
+                    <button
+                      onClick={() => removeFromMissingList(client!.whatsapp)}
+                      className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
+                      title="Remover da lista de sumidos"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab de Sorteio */}
+      {activeTab === 'draw' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">🎲 Sorteio de Clientes</h2>
+          <div className="text-center">
+            <p className="text-gray-600 mb-6 text-lg">
+              Clique no botão abaixo para abrir o sorteio de clientes fiéis.
+            </p>
+            <button
+              onClick={() => setShowDrawModal(true)}
+              className="inline-flex items-center px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium text-lg"
+            >
+              🎲 ABRIR SORTEIO
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tab de Financial Dashboard */}
+      {activeTab === 'financial-dashboard' && isDashboardUnlocked && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200 hidden">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Dashboard Financeiro</h2>
+          <FinancialDashboard 
+            appointments={appointments}
+            professionals={establishment.professionals || []}
+            selectedMonth={selectedMonth}
+            onMonthChange={setSelectedMonth}
+          />
+        </div>
+      )}
+
+      {/* Tab de Financial Dashboard - Senha */}
+      {activeTab === 'financial-dashboard' && !isDashboardUnlocked && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Dashboard Financeiro</h2>
+          <div className="text-center">
+            <p className="text-gray-600 mb-4">Digite a senha para acessar o Dashboard Financeiro</p>
+            <div className="flex flex-col items-center gap-4">
+              <input
+                type="password"
+                placeholder="Senha do Dashboard"
+                className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+              />
+              <button
+                onClick={() => setIsDashboardUnlocked(true)}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Acessar Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+        </div>
+      </div>
     </div>
   );
 };

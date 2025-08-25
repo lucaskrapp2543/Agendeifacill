@@ -15,9 +15,10 @@ interface Notification {
 
 interface NotificationsPanelProps {
   establishmentId: string;
+  onUnreadCountChange?: (count: number) => void;
 }
 
-export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establishmentId }) => {
+export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establishmentId, onUnreadCountChange }) => {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -50,6 +51,11 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       // Contar não lidas
       const unread = (data || []).filter(n => !n.read).length;
       setUnreadCount(unread);
+      
+      // Notificar o componente pai sobre a mudança
+      if (onUnreadCountChange) {
+        onUnreadCountChange(unread);
+      }
 
       console.log('🔔 Notificações não lidas:', unread);
 
@@ -199,6 +205,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     <div className="relative">
       {/* Botão de notificações */}
       <button
+        data-notifications-button
         onClick={() => setIsOpen(!isOpen)}
         className="relative inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
       >

@@ -475,7 +475,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         </button>
         
         <h2 className="text-xl font-semibold text-white">
-          {format(selectedMonth, 'MMMM yyyy', { locale: ptBR })}
+          {selectedMonth ? format(selectedMonth, 'MMMM yyyy', { locale: ptBR }) : 'Carregando...'}
         </h2>
         
         <button
