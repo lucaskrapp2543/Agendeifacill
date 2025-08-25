@@ -3872,44 +3872,32 @@ const EstablishmentDashboard = () => {
                                     Cancelar
                                   </button>
 
-                                  {/* Botões de Status */}
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
-                                      className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                                        appointment.status === 'completed' 
-                                          ? 'bg-green-600 text-white' 
-                                          : 'bg-green-500/20 text-green-500 hover:bg-green-500/30'
-                                      }`}
-                                      title="Marcar como FEITO"
-                                    >
-                                      FEITO
-                                    </button>
-                                    
-                                    <button
-                                      onClick={() => handleUpdateAppointmentStatus(appointment.id, 'pending')}
-                                      className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                                        appointment.status === 'pending' || appointment.status === 'confirmed'
-                                          ? 'bg-yellow-600 text-white' 
-                                          : 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30'
-                                      }`}
-                                      title="Marcar como PENDENTE"
-                                    >
-                                      PENDENTE
-                                    </button>
-                                    
-                                    <button
-                                      onClick={() => handleUpdateAppointmentStatus(appointment.id, 'cancelled')}
-                                      className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                                        appointment.status === 'cancelled' 
-                                          ? 'bg-red-600 text-white' 
-                                          : 'bg-red-500/20 text-red-500 hover:bg-red-500/30'
-                                      }`}
-                                      title="Marcar como CANCELADO"
-                                    >
-                                      CANCELADO
-                                    </button>
-                                  </div>
+                                              {/* Botões de Status */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
+                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
+                title="Marcar como FEITO"
+              >
+                FEITO
+              </button>
+
+              <button
+                onClick={() => handleUpdateAppointmentStatus(appointment.id, 'pending')}
+                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-yellow-600 text-white hover:bg-yellow-700"
+                title="Marcar como PENDENTE"
+              >
+                PENDENTE
+              </button>
+
+              <button
+                onClick={() => handleUpdateAppointmentStatus(appointment.id, 'cancelled')}
+                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-red-700 text-white hover:bg-red-800"
+                title="Marcar como CANCELADO"
+              >
+                CANCELADO
+              </button>
+            </div>
                                 </>
                               )}
                               
