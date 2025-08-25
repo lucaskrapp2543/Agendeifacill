@@ -29,6 +29,8 @@ import CadastroEstabelecimento060622 from './pages/CadastroEstabelecimento060622
 import VerTestesFree from './pages/VerTestesFree';
 import VerUsuariosGratis060622 from './pages/VerUsuariosGratis060622';
 import AdminDashboard from './pages/AdminDashboard';
+import RecoveryPassword from './pages/RecoveryPassword';
+import ResetPassword from './pages/ResetPassword';
 
 // Protected Routes
 import ProtectedRoute from './components/ProtectedRoute';
@@ -66,6 +68,8 @@ function App() {
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/recovery-password" element={<RecoveryPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/suporte060622" element={<Suporte060622 />} />
       
               <Route path="/verusuariosgratis060622" element={<VerUsuariosGratis060622 />} />

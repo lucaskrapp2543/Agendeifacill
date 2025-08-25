@@ -107,13 +107,19 @@ const Login = () => {
             </div>
           </div>
 
-          <div className="text-center">
+          <div className="text-center space-y-2">
             <Link 
               to="/register" 
               state={{ returnUrl: location.state?.returnUrl }} 
-              className="text-primary hover:underline font-medium"
+              className="text-primary hover:underline font-medium block"
             >
               Criar conta
+            </Link>
+            <Link 
+              to="/recovery-password" 
+              className="text-blue-400 hover:text-blue-300 text-sm block"
+            >
+              Esqueci minha senha
             </Link>
           </div>
           
