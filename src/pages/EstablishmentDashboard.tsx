@@ -85,6 +85,7 @@ interface Establishment {
   whatsapp?: string; // Novo campo para WhatsApp
   credit_card_tax_percentage?: number; // Taxa do cartão de crédito (%)
   debit_card_tax_percentage?: number; // Taxa do cartão de débito (%)
+  card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers';
@@ -104,12 +105,13 @@ interface Appointment {
   professional: string;
   appointment_date: string;
   appointment_time: string;
-  status: 'pending' | 'confirmed' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
   created_at: string;
   is_premium: boolean;
   duration: number;
   price: number;
   payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia';
+  card_brand?: string;
   pix_payment_status?: string;
   pix_proof_url?: string;
   additional_products?: AdditionalProduct[];
@@ -246,6 +248,16 @@ const EstablishmentDashboard = () => {
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
+  const [cardBrandTaxes, setCardBrandTaxes] = useState<Record<string, number>>({
+    visa: 3.5,
+    mastercard: 3.5,
+    elo: 3.0,
+    hipercard: 3.0,
+    american_express: 4.0,
+    discover: 3.5,
+    jcb: 3.5,
+    outros: 3.5
+  }); // Taxas por bandeira de cartão
   
   // Efeito para preencher automaticamente o pixPaymentLink
   useEffect(() => {
@@ -309,6 +321,7 @@ const EstablishmentDashboard = () => {
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
   const [openExtraProductsDropdown, setOpenExtraProductsDropdown] = useState<string | null>(null);
   const [openDailyRevenueDropdown, setOpenDailyRevenueDropdown] = useState(false);
+  const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
 
 
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -841,6 +854,36 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed') => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: newStatus })
+        .eq('id', appointmentId);
+
+      if (error) {
+        throw error;
+      }
+
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments()
+      ]);
+
+      const statusMessages = {
+        'pending': 'Agendamento marcado como PENDENTE',
+        'confirmed': 'Agendamento confirmado',
+        'cancelled': 'Agendamento cancelado',
+        'completed': 'Agendamento marcado como FEITO'
+      };
+
+      toast(statusMessages[newStatus], 'success');
+    } catch (error) {
+      console.error('Erro ao atualizar status do agendamento:', error);
+      toast('Erro ao atualizar status do agendamento', 'error');
+    }
+  };
+
   const handleDeleteAppointment = async (appointmentId: string) => {
     try {
       console.log('🗑️ INICIANDO EXCLUSÃO:', appointmentId);
@@ -896,10 +939,33 @@ const EstablishmentDashboard = () => {
         fetchMonthlyAppointments()
       ]);
 
-      toast('Método de pagamento atualizado com sucesso', 'success');
+      toast('Método de pagamento atualizado', 'success');
     } catch (error) {
       console.error('Erro ao atualizar método de pagamento:', error);
       toast('Erro ao atualizar método de pagamento', 'error');
+    }
+  };
+
+  const handleCardBrandChange = async (appointmentId: string, cardBrand: string) => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ card_brand: cardBrand })
+        .eq('id', appointmentId);
+
+      if (error) {
+        throw error;
+      }
+
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments()
+      ]);
+
+      toast('Bandeira atualizada', 'success');
+    } catch (error) {
+      console.error('Erro ao atualizar bandeira do cartão:', error);
+      toast('Erro ao atualizar bandeira do cartão', 'error');
     }
   };
 
@@ -947,6 +1013,7 @@ const EstablishmentDashboard = () => {
           duration,
           price,
           payment_method,
+          card_brand,
           pix_payment_status,
           pix_proof_url,
           additional_products,
@@ -1057,6 +1124,11 @@ const EstablishmentDashboard = () => {
         setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
+        
+        // Carrega as taxas por bandeira de cartão
+        if (establishmentData.card_brand_taxes) {
+          setCardBrandTaxes(establishmentData.card_brand_taxes);
+        }
         
         // Carrega a configuração de intervalo de 15 minutos
         setUse15MinuteInterval(establishmentData.use_15_minute_interval ?? false);
@@ -2251,7 +2323,8 @@ const EstablishmentDashboard = () => {
         .from('establishments')
         .update({
           credit_card_tax_percentage: creditCardTaxPercentage,
-          debit_card_tax_percentage: debitCardTaxPercentage
+          debit_card_tax_percentage: debitCardTaxPercentage,
+          card_brand_taxes: cardBrandTaxes
         })
         .eq('id', establishment.id);
 
@@ -2262,7 +2335,8 @@ const EstablishmentDashboard = () => {
       setEstablishment({
         ...establishment,
         credit_card_tax_percentage: creditCardTaxPercentage,
-        debit_card_tax_percentage: debitCardTaxPercentage
+        debit_card_tax_percentage: debitCardTaxPercentage,
+        card_brand_taxes: cardBrandTaxes
       });
       
       toast('Taxas de cartão salvas com sucesso', 'success');
@@ -2565,45 +2639,36 @@ const EstablishmentDashboard = () => {
     // Obter percentual do profissional
     const percentage = getProfessionalPercentageByName(appointment.professional);
     
+    // Obter taxa do método de pagamento (incluindo taxas por bandeira)
+    const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+    
     console.log('🚨 TESTE - Cálculo líquido:', {
       appointment: appointment.client_name,
       baseValue,
       professional: appointment.professional,
       percentage,
       paymentMethod: appointment.payment_method,
+      cardBrand: appointment.card_brand,
+      paymentTax,
       establishmentTaxes: {
         credit: establishment?.credit_card_tax_percentage,
-        debit: establishment?.debit_card_tax_percentage
+        debit: establishment?.debit_card_tax_percentage,
+        cardBrandTaxes: establishment?.card_brand_taxes
       }
     });
     
     // Se for pagamento com cartão, aplicar taxa específica primeiro
-    if (appointment.payment_method === 'credito') {
-      const cardTax = establishment?.credit_card_tax_percentage || 3.5;
-      const valueAfterCardTax = baseValue - (baseValue * cardTax / 100);
+    if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
+      const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
       const result = (valueAfterCardTax * percentage) / 100;
       
-      console.log('🚨 TESTE - Crédito:', { 
+      console.log('🚨 TESTE - Cartão:', { 
         baseValue, 
-        cardTax, 
+        paymentTax, 
         valueAfterCardTax, 
         percentage, 
         result,
-        calculation: `${baseValue} - (${baseValue} * ${cardTax}%) = ${valueAfterCardTax} → ${valueAfterCardTax} * ${percentage}% = ${result}`
-      });
-      return result;
-    } else if (appointment.payment_method === 'debito') {
-      const cardTax = establishment?.debit_card_tax_percentage || 2.5;
-      const valueAfterCardTax = baseValue - (baseValue * cardTax / 100);
-      const result = (valueAfterCardTax * percentage) / 100;
-      
-      console.log('🚨 TESTE - Débito:', { 
-        baseValue, 
-        cardTax, 
-        valueAfterCardTax, 
-        percentage, 
-        result,
-        calculation: `${baseValue} - (${baseValue} * ${cardTax}%) = ${valueAfterCardTax} → ${valueAfterCardTax} * ${percentage}% = ${result}`
+        calculation: `${baseValue} - (${baseValue} * ${paymentTax}%) = ${valueAfterCardTax} → ${valueAfterCardTax} * ${percentage}% = ${result}`
       });
       return result;
     }
@@ -2673,7 +2738,13 @@ const EstablishmentDashboard = () => {
   };
 
   // Função para obter a taxa do método de pagamento
-  const getPaymentMethodTax = (method: string) => {
+  const getPaymentMethodTax = (method: string, cardBrand?: string) => {
+    // Se for cartão e tiver bandeira definida, usar taxa da bandeira
+    if ((method === 'credito' || method === 'debito') && cardBrand && cardBrand !== 'bandeira') {
+      return establishment?.card_brand_taxes?.[cardBrand] || cardBrandTaxes[cardBrand] || 3.5;
+    }
+    
+    // Fallback para taxas antigas por tipo de cartão
     switch (method) {
       case 'credito':
         return establishment?.credit_card_tax_percentage || 3.5;
@@ -3380,6 +3451,74 @@ const EstablishmentDashboard = () => {
                   </button>
                 </div>
 
+                {/* Legenda das Cores */}
+                <div className="mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
+                  <div className="flex flex-col sm:flex-row justify-center gap-2 sm:gap-4">
+                    <button
+                      onClick={() => setShowColorLegend('red')}
+                      className="flex items-center justify-center gap-2 px-2 py-2 sm:px-3 bg-red-600 text-white text-xs sm:text-sm rounded hover:bg-red-700 transition-colors w-full sm:w-auto"
+                    >
+                      <div className="w-3 h-3 sm:w-4 sm:h-4 bg-red-600 border border-white rounded flex-shrink-0"></div>
+                      <span>Vermelho</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => setShowColorLegend('yellow')}
+                      className="flex items-center justify-center gap-2 px-2 py-2 sm:px-3 bg-yellow-600 text-white text-xs sm:text-sm rounded hover:bg-yellow-700 transition-colors w-full sm:w-auto"
+                    >
+                      <div className="w-3 h-3 sm:w-4 sm:h-4 bg-yellow-600 border border-white rounded flex-shrink-0"></div>
+                      <span>Amarelo</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => setShowColorLegend('green')}
+                      className="flex items-center justify-center gap-2 px-2 py-2 sm:px-3 bg-green-600 text-white text-xs sm:text-sm rounded hover:bg-green-700 transition-colors w-full sm:w-auto"
+                    >
+                      <div className="w-3 h-3 sm:w-4 sm:h-4 bg-green-600 border border-white rounded flex-shrink-0"></div>
+                      <span>Verde</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Modal da Legenda */}
+                {showColorLegend && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-gray-800 p-6 rounded-lg max-w-sm mx-4">
+                      <div className="text-center">
+                        <div className={`w-16 h-16 mx-auto mb-4 rounded-lg flex items-center justify-center ${
+                          showColorLegend === 'red' ? 'bg-red-600' :
+                          showColorLegend === 'yellow' ? 'bg-yellow-600' :
+                          'bg-green-600'
+                        }`}>
+                          {showColorLegend === 'red' && <span className="text-white text-2xl">❌</span>}
+                          {showColorLegend === 'yellow' && <span className="text-white text-2xl">⏳</span>}
+                          {showColorLegend === 'green' && <span className="text-white text-2xl">✅</span>}
+                        </div>
+                        
+                        <h3 className="text-xl font-bold text-white mb-2">
+                          {showColorLegend === 'red' ? 'Agendamentos Cancelados' :
+                           showColorLegend === 'yellow' ? 'Clientes que ainda não pagaram' :
+                           'Agendamentos Concluídos ou Pagos'}
+                        </h3>
+                        
+                        <p className="text-gray-300 mb-4">
+                          {showColorLegend === 'red' ? 'Agendamentos que foram cancelados pelo cliente ou estabelecimento.' :
+                           showColorLegend === 'yellow' ? 'Agendamentos agendados mas ainda não realizados ou pagos.' :
+                           'Agendamentos que foram concluídos com sucesso e pagos.'}
+                        </p>
+                        
+                        <button
+                          onClick={() => setShowColorLegend(null)}
+                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                        >
+                          Entendi
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Lista de Agendamentos */}
                 {filteredAppointments.length === 0 ? (
                   <div className="text-center py-8">
@@ -3390,7 +3529,10 @@ const EstablishmentDashboard = () => {
                   <div className="space-y-3 mt-4 w-full max-w-[100vw] overflow-x-hidden">
                     {filteredAppointments.map((appointment) => (
                       <div key={appointment.id} className={`${
-                        appointment.status === 'cancelled' ? 'bg-red-800/90' : 'bg-green-600'
+                        appointment.status === 'cancelled' ? 'bg-red-800/90' : 
+                        appointment.status === 'completed' ? 'bg-green-600' :
+                        appointment.status === 'pending' || appointment.status === 'confirmed' ? 'bg-yellow-600' :
+                        'bg-yellow-600'
                       } rounded-lg w-full overflow-hidden`}>
                         
                         {/* Versão compacta - sempre visível */}
@@ -3402,20 +3544,24 @@ const EstablishmentDashboard = () => {
                             setAppointmentDropdowns(newDropdowns);
                           }}
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3 flex-1">
-                              <span className="text-white font-medium">
+                          {/* Layout como na imagem - data/hora e nome/valor lado a lado */}
+                          <div className="flex justify-between items-start mb-2">
+                            {/* Lado esquerdo: Data e Nome */}
+                            <div className="flex flex-col gap-1">
+                              <span className="text-white text-sm">
                                 {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
                               </span>
-                              <span className="text-white">
-                                {appointment.appointment_time}
-                              </span>
-                              <span className="text-white">
+                              <span className="text-white text-sm truncate">
                                 {appointment.client_name}
                               </span>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-white font-medium">
+                            
+                            {/* Lado direito: Horário e Valor */}
+                            <div className="flex flex-col gap-1 text-right">
+                              <span className="text-white text-sm">
+                                {appointment.appointment_time}
+                              </span>
+                              <span className="text-white font-medium text-sm">
                                 {isClientPaidSubscriber(appointment.client_whatsapp) 
                                   ? "GRATUITO" 
                                   : appointment.is_subscriber 
@@ -3423,16 +3569,16 @@ const EstablishmentDashboard = () => {
                                   : formatCurrency(appointment.total_price || appointment.price)
                                 }
                               </span>
-                              {appointmentDropdowns[appointment.id] ? (
-                                <ChevronUp className="h-4 w-4 text-white" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 text-white" />
-                              )}
                             </div>
                           </div>
+                          
+                          {/* Botão "clique para ver" com seta */}
                           {!appointmentDropdowns[appointment.id] && (
-                            <div className="text-xs text-white/70 mt-1 text-center">
-                              clique para ver
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-white/70">
+                                clique para ver
+                              </span>
+                              <ChevronDown className="h-4 w-4 text-white/70" />
                             </div>
                           )}
                         </div>
@@ -3583,18 +3729,18 @@ const EstablishmentDashboard = () => {
 
                             <div className="flex flex-col w-full mt-3">
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                   <span className="text-sm text-white/80">Serviço:</span>
-                                  <span className="text-sm text-white">{appointment.service}</span>
+                                  <span className="text-sm text-white truncate">{appointment.service}</span>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                   <span className="text-sm text-white/80">Duração:</span>
                                   <span className="text-sm text-white">{formatDuration(appointment.duration)}</span>
                                 </div>
                               </div>
                               
-                              <div className="flex flex-wrap gap-2 mt-3">
-                                <div className="flex items-center gap-2 min-w-[120px]">
+                              <div className="flex flex-col gap-3 mt-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                   <span className="text-sm text-white/80">Valor base:</span>
                                   <span className="text-sm text-white">
                                     {isClientPaidSubscriber(appointment.client_whatsapp) 
@@ -3606,8 +3752,8 @@ const EstablishmentDashboard = () => {
                                   </span>
                                 </div>
                                 {appointment.additional_products && appointment.additional_products.length > 0 && (
-                                  <div className="flex-1 min-w-[200px]">
-                                    <span className="text-sm text-white/80 block mb-1">Produtos/Serviços Adicionais:</span>
+                                  <div className="flex flex-col">
+                                    <span className="text-sm text-white/80 mb-1">Produtos/Serviços Adicionais:</span>
                                     <div className="flex flex-wrap gap-2">
                                       {appointment.additional_products.map((product, index) => (
                                         <span key={index} className="inline-flex items-center px-2 py-1 text-xs bg-white/10 text-white rounded">
@@ -3619,8 +3765,8 @@ const EstablishmentDashboard = () => {
                                 )}
                               </div>
                               
-                              <div className="flex flex-wrap items-center gap-3 mt-3">
-                                <div className="flex items-center gap-2">
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                   <span className="text-sm text-white/80">Total:</span>
                                   <span className="text-sm font-medium text-white">
                                     {isClientPaidSubscriber(appointment.client_whatsapp) 
@@ -3632,7 +3778,7 @@ const EstablishmentDashboard = () => {
                                   </span>
                                 </div>
                                 
-                                <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                                   <select
                                     value={appointment.payment_method || 'pendente'}
                                     onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
@@ -3646,11 +3792,37 @@ const EstablishmentDashboard = () => {
                                     <option value="pagar_local" className="bg-green-700 text-white">Pagar no Local</option>
                                   </select>
                                   
+                                  {/* Seletor de Bandeira para Cartões */}
+                                  {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
+                                    <select
+                                      value={appointment.card_brand || 'bandeira'}
+                                      onChange={(e) => handleCardBrandChange(appointment.id, e.target.value)}
+                                      className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
+                                    >
+                                      <option value="bandeira" className="bg-green-700 text-white">Bandeira</option>
+                                      <option value="visa" className="bg-green-700 text-white">Visa</option>
+                                      <option value="mastercard" className="bg-green-700 text-white">Mastercard</option>
+                                      <option value="elo" className="bg-green-700 text-white">Elo</option>
+                                      <option value="hipercard" className="bg-green-700 text-white">Hipercard</option>
+                                      <option value="american_express" className="bg-green-700 text-white">American Express</option>
+                                      <option value="discover" className="bg-green-700 text-white">Discover</option>
+                                      <option value="jcb" className="bg-green-700 text-white">JCB</option>
+                                      <option value="outros" className="bg-green-700 text-white">Outros</option>
+                                    </select>
+                                  )}
+                                  
                                   {/* Mostrar taxa para cartões */}
                                   {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
-                                    <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20">
-                                      Taxa: {getPaymentMethodTax(appointment.payment_method)}%
-                                    </span>
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20">
+                                        Taxa: {getPaymentMethodTax(appointment.payment_method, appointment.card_brand)}%
+                                      </span>
+                                      {appointment.card_brand && appointment.card_brand !== 'bandeira' && (
+                                        <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded border border-blue-400/20">
+                                          Bandeira: {appointment.card_brand.toUpperCase()}
+                                        </span>
+                                      )}
+                                    </div>
                                   )}
                                   
                                   {appointment.payment_method === 'pix' && (
@@ -3668,7 +3840,7 @@ const EstablishmentDashboard = () => {
                               </div>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-2 mt-4 justify-end">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-4 sm:justify-end">
                               {appointment.status !== 'cancelled' && (
                                 <>
                                   <button
@@ -3699,11 +3871,50 @@ const EstablishmentDashboard = () => {
                                     <X className="h-4 w-4 mr-1" />
                                     Cancelar
                                   </button>
+
+                                  {/* Botões de Status */}
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
+                                      className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                        appointment.status === 'completed' 
+                                          ? 'bg-green-600 text-white' 
+                                          : 'bg-green-500/20 text-green-500 hover:bg-green-500/30'
+                                      }`}
+                                      title="Marcar como FEITO"
+                                    >
+                                      FEITO
+                                    </button>
+                                    
+                                    <button
+                                      onClick={() => handleUpdateAppointmentStatus(appointment.id, 'pending')}
+                                      className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                        appointment.status === 'pending' || appointment.status === 'confirmed'
+                                          ? 'bg-yellow-600 text-white' 
+                                          : 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30'
+                                      }`}
+                                      title="Marcar como PENDENTE"
+                                    >
+                                      PENDENTE
+                                    </button>
+                                    
+                                    <button
+                                      onClick={() => handleUpdateAppointmentStatus(appointment.id, 'cancelled')}
+                                      className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                        appointment.status === 'cancelled' 
+                                          ? 'bg-red-600 text-white' 
+                                          : 'bg-red-500/20 text-red-500 hover:bg-red-500/30'
+                                      }`}
+                                      title="Marcar como CANCELADO"
+                                    >
+                                      CANCELADO
+                                    </button>
+                                  </div>
                                 </>
                               )}
                               
                               {appointment.status === 'cancelled' && (
-                                <div className="flex gap-2">
+                                <div className="flex flex-col sm:flex-row gap-2">
                                 <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
                                   <X className="h-4 w-4 mr-1" />
                                   Cancelado
@@ -4494,6 +4705,43 @@ const EstablishmentDashboard = () => {
                     <p className="text-sm text-gray-500 mt-1">
                       Taxa cobrada pela maquininha para cartão de débito.
                     </p>
+                  </div>
+
+                  {/* Taxas por Bandeira */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-3">
+                      Taxas por Bandeira de Cartão (%)
+                    </label>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Configure taxas específicas para cada bandeira de cartão. Estas taxas serão aplicadas quando o cliente escolher uma bandeira específica.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {Object.entries(cardBrandTaxes).map(([brand, tax]) => (
+                        <div key={brand} className="flex items-center gap-2">
+                          <label className="text-sm text-gray-300 min-w-[120px] capitalize">
+                            {brand === 'american_express' ? 'Amex' : 
+                             brand === 'outros' ? 'Outros' : 
+                             brand.charAt(0).toUpperCase() + brand.slice(1)}:
+                          </label>
+                          <div className="flex items-center gap-1 flex-1">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="10"
+                              value={tax}
+                              onChange={(e) => {
+                                const newTaxes = { ...cardBrandTaxes };
+                                newTaxes[brand] = parseFloat(e.target.value) || 0;
+                                setCardBrandTaxes(newTaxes);
+                              }}
+                              className="w-full px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
+                            />
+                            <span className="text-white text-sm">%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   
                   <button

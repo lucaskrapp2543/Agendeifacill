@@ -6,7 +6,7 @@ export const Toaster = () => {
     <HotToaster
       position="bottom-right"
       toastOptions={{
-        duration: 5000,
+        duration: 3000,
         style: {
           background: 'rgba(0, 0, 0, 0.8)',
           color: '#fff',
@@ -27,7 +27,7 @@ export const Toaster = () => {
       }}
       containerClassName=""
       reverseOrder={false}
-      limit={1}
+      limit={3}
     />
   );
 };
