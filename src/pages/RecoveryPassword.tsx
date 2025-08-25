@@ -16,12 +16,14 @@ const RecoveryPassword = () => {
       console.log('🔄 Enviando email de recuperação para:', email);
       console.log('📍 URL de redirecionamento:', `${window.location.origin}/reset-password`);
       
-      // Em desenvolvimento, usar URL completa
+      // Garantir que a URL seja absoluta e correta
       const redirectUrl = window.location.hostname === 'localhost' 
         ? 'http://localhost:5173/reset-password'
-        : `${window.location.origin}/reset-password`;
+        : 'https://agendeifacil.com/reset-password';
         
       console.log('🔗 URL de redirecionamento final:', redirectUrl);
+      console.log('🌐 Hostname atual:', window.location.hostname);
+      console.log('🔗 Origin atual:', window.location.origin);
       
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: redirectUrl
