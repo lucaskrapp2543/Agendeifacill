@@ -79,6 +79,7 @@ const LandingPage = () => {
   const [onlineUsers, setOnlineUsers] = useState(0);
   const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const toggleDropdown = (key: string) => {
     setOpenDropdowns(prev => ({
@@ -217,6 +218,17 @@ const LandingPage = () => {
     setOnlineUsers(getRandomUsers());
   }, []);
 
+  // Carrossel automático - troca de imagem a cada 5 segundos
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentImageIndex((prevIndex) => (prevIndex === 0 ? 1 : 0));
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+
+
   useEffect(() => {
     // Adiciona os keyframes ao head do documento
     const styleSheet = document.createElement("style");
@@ -233,92 +245,143 @@ const LandingPage = () => {
 
   return (
     <div className="min-h-screen bg-black text-white">
+      <style>
+        {`
+          .header-sticky {
+            position: sticky !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            z-index: 99999 !important;
+            transform: none !important;
+            will-change: auto !important;
+            background-color: rgba(0, 0, 0, 0.95) !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+            backdrop-filter: blur(8px) !important;
+          }
+          
+          /* Garantir que o body não tenha overflow que possa afetar */
+          body {
+            overflow-x: hidden !important;
+          }
+        `}
+      </style>
       <WhatsAppButton />
       <PromoNotifications />
       {/* Header */}
-      <header className="fixed top-0 w-full backdrop-blur-md border-b border-gray-200/50 z-50" style={{ 
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)'
-      }}>
-        <nav className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-4">
-          <div className="flex items-center justify-between">
-            {/* Lado esquerdo - Pessoas no site */}
-            <div className="flex items-center">
-              <div className="flex items-center gap-1 sm:gap-2">
-                <Eye className="h-4 w-4 sm:h-5 sm:w-5 text-gray-300 flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium text-gray-300 whitespace-nowrap">Pessoas no site:</span>
-                <div className="flex items-center gap-1 sm:gap-2">
-                   <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-pulse bg-gray-300" />
-                  <span className="text-xs sm:text-sm font-medium text-gray-300">{onlineUsers}</span>
-                </div>
-              </div>
-            </div>
-            
-            {/* Lado direito - Botões */}
-            <div className="flex items-center gap-2 sm:gap-3">
-              <button
-                onClick={() => {
-                  // Lógica completa para instalar o app
-                  const handleInstall = async () => {
-                    // Verificar se há prompt de instalação disponível
-                    if (deferredPrompt) {
-                      try {
-                        await deferredPrompt.prompt();
-                        const { outcome } = await deferredPrompt.userChoice;
-                        if (outcome === 'accepted') {
-                          console.log('App instalado com sucesso!');
-                          setDeferredPrompt(null);
-                          return;
-                        }
-                      } catch (error) {
-                        console.log('Erro no prompt nativo:', error);
+      <div className="header-sticky backdrop-blur-md border-b border-gray-200/50">
+        {/* Linha superior - Logo centralizado */}
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
+          <div className="flex justify-center">
+            <img
+              src="/aggf.png"
+              alt="AgendeiFácil Logo"
+              className="h-12 sm:h-16 object-contain"
+            />
+          </div>
+        </div>
+        
+        {/* Linha divisória */}
+        <div className="w-full border-t border-gray-600 opacity-50"></div>
+        
+        {/* Linha inferior - Menu de navegação */}
+        <nav className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
+          <div className="flex items-center justify-center gap-6 sm:gap-8">
+            <button
+              onClick={() => {
+                // Lógica completa para instalar o app
+                const handleInstall = async () => {
+                  // Verificar se há prompt de instalação disponível
+                  if (deferredPrompt) {
+                    try {
+                      await deferredPrompt.prompt();
+                      const { outcome } = await deferredPrompt.userChoice;
+                      if (outcome === 'accepted') {
+                        console.log('App instalado com sucesso!');
+                        setDeferredPrompt(null);
+                        return;
                       }
+                    } catch (error) {
+                      console.log('Erro no prompt nativo:', error);
                     }
-                    
-                    // Fallback: mostrar instruções manuais
-                    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-                    const isAndroid = /Android/.test(navigator.userAgent);
-                    
-                    let message = '';
-                    
-                    if (isIOS) {
-                      message = 'Para instalar o app:\n\n1. Toque no botão Compartilhar (□↑)\n2. Toque em "Adicionar à Tela Inicial"\n3. Toque em "Adicionar"';
-                    } else if (isAndroid) {
-                      message = 'Para instalar o app:\n\n1. Toque nos 3 pontos (⋮)\n2. Toque em "Adicionar à tela inicial"\n3. Toque em "Adicionar"';
-                    } else {
-                      message = 'Para instalar o app:\n\n1. Clique nos 3 pontos (⋮)\n2. Clique em "Instalar Agendei Fácil"\n3. Clique em "Instalar"';
-                    }
-                    
-                    alert(message);
-                  };
+                  }
                   
-                  handleInstall();
-                }}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-blue-500/30 text-xs sm:text-sm whitespace-nowrap"
-              >
-                Instalar app
-              </button>
-              <button
-                onClick={handleLogin}
-                className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg border border-gray-500/30 text-xs sm:text-sm whitespace-nowrap"
-              >
-                Entrar
-              </button>
-            </div>
+                  // Fallback: mostrar instruções manuais
+                  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                  const isAndroid = /Android/.test(navigator.userAgent);
+                  
+                  let message = '';
+                  
+                  if (isIOS) {
+                    message = 'Para instalar o app:\n\n1. Toque no botão Compartilhar (□↑)\n2. Toque em "Adicionar à Tela Inicial"\n3. Toque em "Adicionar"';
+                  } else if (isAndroid) {
+                    message = 'Para instalar o app:\n\n1. Toque nos 3 pontos (⋮)\n2. Toque em "Adicionar à tela inicial"\n3. Toque em "Adicionar"';
+                  } else {
+                    message = 'Para instalar o app:\n\n1. Clique nos 3 pontos (⋮)\n2. Clique em "Instalar Agendei Fácil"\n3. Clique em "Instalar"';
+                  }
+                  
+                  alert(message);
+                };
+                
+                handleInstall();
+              }}
+              className="text-white hover:text-blue-400 transition-colors duration-200 text-sm sm:text-base font-medium"
+            >
+              Instalar app
+            </button>
+            <button
+              onClick={handleLogin}
+              className="text-white hover:text-blue-400 transition-colors duration-200 text-sm sm:text-base font-medium"
+            >
+              Entrar
+            </button>
           </div>
         </nav>
-      </header>
+      </div>
 
-      {/* Hero Section */}
-      <section className="pt-12 pb-16 bg-gradient-to-br from-gray-900 via-black to-gray-900">
+             {/* Hero Section */}
+       <section className="pb-16 bg-gradient-to-br from-gray-900 via-black to-gray-900">
         <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8"> {/* Alterado px-4 para px-0 para mobile */}
           <div className="text-center"> {/* Removido max-w-4xl mx-auto */}
-            <div className="flex flex-col items-center space-y-4 pt-8">
-              <img
-                src="/aggf.png"
-                alt="AgendeiFácil Logo"
-                className="mx-auto w-full"
-              />
+                         <div className="flex flex-col items-center space-y-4 pt-0">
+              {/* Carrossel de imagens A1 e A2 */}
+              <div className="w-full max-w-2xl mx-auto relative">
+                <div className="relative overflow-hidden rounded-lg">
+                  {/* Imagens do carrossel */}
+                  <div className="flex transition-transform duration-500 ease-in-out" style={{ transform: `translateX(-${currentImageIndex * 100}%)` }}>
+                    <div className="w-full flex-shrink-0">
+                      <img
+                        src="/A1.png"
+                        alt="Imagem A1"
+                        className="w-full h-auto hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                    <div className="w-full flex-shrink-0">
+                      <img
+                        src="/A2.png"
+                        alt="Imagem A2"
+                        className="w-full h-auto hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Botões de navegação */}
+                  <button
+                    onClick={() => setCurrentImageIndex(0)}
+                    className={`absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 rounded-full transition-all duration-300 ${
+                      currentImageIndex === 0 ? 'bg-white' : 'bg-white/50 hover:bg-white/75'
+                    }`}
+                    aria-label="Ir para imagem 1"
+                  />
+                  <button
+                    onClick={() => setCurrentImageIndex(1)}
+                    className={`absolute right-2 top-1/2 transform -translate-y-1/2 w-3 h-3 rounded-full transition-all duration-300 ${
+                      currentImageIndex === 1 ? 'bg-white' : 'bg-white/50 hover:bg-white/75'
+                    }`}
+                    aria-label="Ir para imagem 2"
+                  />
+                </div>
+              </div>
 
               {/* Nova seção de destaque */}
               <div className="w-full max-w-3xl px-4">
