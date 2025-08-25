@@ -47,6 +47,7 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     sourcemap: false,
+    // Adicionar timestamp único ao build
     rollupOptions: {
       output: {
         manualChunks: undefined,
@@ -54,11 +55,21 @@ export default defineConfig({
         assetFileNames: (assetInfo) => {
           const info = assetInfo.name.split('.');
           const ext = info[info.length - 1];
+          const timestamp = Date.now();
           if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(ext)) {
-            return `assets/[name]-[hash].${ext}`;
+            return `assets/[name]-[hash]-${timestamp}.${ext}`;
           }
-          return `assets/[name]-[hash].${ext}`;
+          return `assets/[name]-[hash]-${timestamp}.${ext}`;
         },
+        chunkFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+        entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+      },
+    },
+    // Configurações anti-cache
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
       },
     },
   },

@@ -3,118 +3,121 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Limpar Cache - Agendei Fácil</title>
+    <title>Limpar Cache - AgendeiFácil</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 600px;
-            margin: 50px auto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
             padding: 20px;
-            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .container {
             background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
         }
-        button {
-            background: #3b82f6;
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .btn {
+            background: #667eea;
             color: white;
-            border: none;
             padding: 15px 30px;
-            border-radius: 5px;
-            cursor: pointer;
+            border: none;
+            border-radius: 8px;
             font-size: 16px;
+            cursor: pointer;
             margin: 10px;
+            transition: all 0.3s ease;
         }
-        button:hover {
-            background: #2563eb;
+        .btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: bold;
         }
         .success {
-            color: #059669;
-            background: #d1fae5;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔄 Limpar Cache - Agendei Fácil</h1>
-        <p>Se você não está vendo as mudanças mais recentes, use os botões abaixo para limpar o cache:</p>
+        <h1>🔄 Limpar Cache</h1>
+        <p>Clique no botão abaixo para limpar o cache e forçar a atualização da aplicação:</p>
         
-        <button onclick="clearCache()">🧹 Limpar Cache</button>
-        <button onclick="reloadApp()">🔄 Recarregar App</button>
-        <button onclick="hardReload()">💥 Recarregamento Forçado</button>
+        <button class="btn" onclick="clearCache()">🧹 Limpar Cache e Recarregar</button>
+        <button class="btn" onclick="hardReload()">⚡ Recarregamento Forçado</button>
         
-        <div id="result"></div>
-        
-        <hr style="margin: 30px 0;">
-        <h3>📱 Instruções para Mobile:</h3>
-        <ol>
-            <li>Toque no botão "Limpar Cache" acima</li>
-            <li>Toque em "Recarregar App"</li>
-            <li>Se ainda não funcionar, feche o app e abra novamente</li>
-        </ol>
-        
-        <h3>💻 Instruções para Desktop:</h3>
-        <ol>
-            <li>Clique em "Limpar Cache"</li>
-            <li>Clique em "Recarregar App"</li>
-            <li>Se necessário, pressione <strong>Ctrl+F5</strong> (Windows) ou <strong>Cmd+Shift+R</strong> (Mac)</li>
-        </ol>
+        <div id="status"></div>
     </div>
 
     <script>
-        function showResult(message, isSuccess = true) {
-            const result = document.getElementById('result');
-            result.innerHTML = `<div class="success">✅ ${message}</div>`;
-            setTimeout(() => {
-                result.innerHTML = '';
-            }, 3000);
-        }
-
         function clearCache() {
-            // Limpa localStorage
+            const status = document.getElementById('status');
+            status.innerHTML = '<div class="status">🔄 Limpando cache...</div>';
+            
+            // Limpar cache do service worker
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                    for(let registration of registrations) {
+                        registration.unregister();
+                    }
+                });
+            }
+            
+            // Limpar localStorage
             localStorage.clear();
             sessionStorage.clear();
             
-            // Limpa caches do navegador
+            // Limpar cache do navegador
             if ('caches' in window) {
-                caches.keys().then(names => {
-                    names.forEach(name => caches.delete(name));
+                caches.keys().then(function(names) {
+                    for (let name of names) {
+                        caches.delete(name);
+                    }
                 });
             }
             
-            // Desregistra service workers
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.getRegistrations().then(registrations => {
-                    registrations.forEach(registration => registration.unregister());
-                });
-            }
-            
-            showResult('Cache limpo com sucesso!');
-        }
-
-        function reloadApp() {
-            // Adiciona timestamp na URL
-            const url = new URL(window.location.href);
-            url.searchParams.set('_t', Date.now());
-            url.searchParams.set('_r', Math.random().toString(36).substring(7));
-            
-            // Redireciona para o app com parâmetros de cache busting
-            window.location.href = '/?' + url.searchParams.toString();
-        }
-
-        function hardReload() {
-            clearCache();
             setTimeout(() => {
-                // Força reload completo
-                window.location.reload(true);
-            }, 500);
+                status.innerHTML = '<div class="status success">✅ Cache limpo! Recarregando...</div>';
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1000);
+            }, 2000);
         }
+        
+        function hardReload() {
+            const status = document.getElementById('status');
+            status.innerHTML = '<div class="status">⚡ Forçando recarregamento...</div>';
+            
+            // Forçar reload sem cache
+            window.location.reload(true);
+        }
+        
+        // Auto-redirect após 5 segundos
+        setTimeout(() => {
+            window.location.href = '/';
+        }, 5000);
     </script>
 </body>
 </html>

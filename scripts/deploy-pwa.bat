@@ -1,28 +1,40 @@
 @echo off
-echo 🚀 Deploy PWA - Agendei Fácil
-echo =============================
+echo ========================================
+echo DEPLOY PWA - ANTI-CACHE VERSION
+echo ========================================
 
-echo.
-echo 📦 Fazendo build do projeto...
-npm run build
+REM Adicionar timestamp único
+set TIMESTAMP=%date:~-4,4%%date:~-10,2%%date:~-7,2%_%time:~0,2%%time:~3,2%%time:~6,2%
+set TIMESTAMP=%TIMESTAMP: =0%
 
-echo.
-echo ✅ Build concluído!
-echo.
-echo 🌐 Para publicar na Play Store:
-echo.
-echo 1. Faça upload da pasta 'dist' para seu servidor
-echo 2. Acesse: https://www.pwabuilder.com
-echo 3. Cole a URL do seu site
-echo 4. Clique em "Build My PWA"
-echo 5. Baixe o APK gerado
-echo 6. Publique na Google Play Console
-echo.
-echo 🔗 URLs úteis:
-echo - PWA Builder: https://www.pwabuilder.com
-echo - Google Play Console: https://play.google.com/console
-echo.
-echo 📱 Seu app está pronto para ser convertido!
-echo.
+REM Definir versão única
+set REACT_APP_VERSION=%TIMESTAMP%
 
+echo Versao: %REACT_APP_VERSION%
+
+REM Limpar cache do npm
+echo Limpando cache...
+npm cache clean --force
+
+REM Remover node_modules e reinstalar
+echo Removendo node_modules...
+rmdir /s /q node_modules
+del package-lock.json
+
+REM Reinstalar dependências
+echo Reinstalando dependencias...
+npm install
+
+REM Build com timestamp único
+echo Fazendo build...
+set "REACT_APP_VERSION=%TIMESTAMP%" && npm run build
+
+REM Deploy
+echo Fazendo deploy...
+netlify deploy --prod --dir=dist
+
+echo ========================================
+echo DEPLOY CONCLUIDO!
+echo Versao: %REACT_APP_VERSION%
+echo ========================================
 pause

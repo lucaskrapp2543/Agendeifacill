@@ -36,6 +36,7 @@ import WhatsAppButton from '../components/WhatsAppButton';
 import DemoBooking from '../components/DemoBooking';
 import { PromoNotifications } from '../components/PromoNotifications';
 import FinanceCarousel from '../components/FinanceCarousel';
+import { CacheBuster } from '../components/CacheBuster';
 
 const pulseKeyframes = `
   @keyframes pulse-scale {
@@ -245,6 +246,7 @@ const LandingPage = () => {
 
   return (
     <div className="min-h-screen bg-black text-white">
+      <CacheBuster />
       <style>
         {`
           .header-sticky {
