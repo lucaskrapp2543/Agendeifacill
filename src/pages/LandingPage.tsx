@@ -81,12 +81,39 @@ const LandingPage = () => {
   const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
 
   const toggleDropdown = (key: string) => {
     setOpenDropdowns(prev => ({
       ...prev,
       [key]: !prev[key]
     }));
+  };
+
+  // Funções para deslize no carrossel
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+
+    if (isLeftSwipe && currentImageIndex < 1) {
+      setCurrentImageIndex(currentImageIndex + 1);
+    }
+    if (isRightSwipe && currentImageIndex > 0) {
+      setCurrentImageIndex(currentImageIndex - 1);
+    }
   };
 
   // Listener para capturar o prompt de instalação
@@ -350,7 +377,13 @@ const LandingPage = () => {
               <div className="w-full max-w-2xl mx-auto relative">
                 <div className="relative overflow-hidden rounded-lg">
                   {/* Imagens do carrossel */}
-                  <div className="flex transition-transform duration-500 ease-in-out" style={{ transform: `translateX(-${currentImageIndex * 100}%)` }}>
+                  <div 
+                    className="flex transition-transform duration-500 ease-in-out" 
+                    style={{ transform: `translateX(-${currentImageIndex * 100}%)` }}
+                    onTouchStart={onTouchStart}
+                    onTouchMove={onTouchMove}
+                    onTouchEnd={onTouchEnd}
+                  >
                     <div className="w-full flex-shrink-0">
                       <img
                         src="/A1.png"
@@ -367,21 +400,47 @@ const LandingPage = () => {
                     </div>
                   </div>
                   
-                  {/* Botões de navegação */}
+                  {/* Setas de navegação mais visíveis */}
                   <button
                     onClick={() => setCurrentImageIndex(0)}
-                    className={`absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 rounded-full transition-all duration-300 ${
-                      currentImageIndex === 0 ? 'bg-white' : 'bg-white/50 hover:bg-white/75'
-                    }`}
+                    className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-all duration-300 backdrop-blur-sm"
                     aria-label="Ir para imagem 1"
-                  />
+                  >
+                    <ArrowRight className="h-5 w-5 rotate-180" />
+                  </button>
                   <button
                     onClick={() => setCurrentImageIndex(1)}
-                    className={`absolute right-2 top-1/2 transform -translate-y-1/2 w-3 h-3 rounded-full transition-all duration-300 ${
-                      currentImageIndex === 1 ? 'bg-white' : 'bg-white/50 hover:bg-white/75'
-                    }`}
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-all duration-300 backdrop-blur-sm"
                     aria-label="Ir para imagem 2"
-                  />
+                  >
+                    <ArrowRight className="h-5 w-5" />
+                  </button>
+                  
+                  {/* Indicadores de posição mais visíveis */}
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2">
+                    <button
+                      onClick={() => setCurrentImageIndex(0)}
+                      className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                        currentImageIndex === 0 ? 'bg-white scale-125' : 'bg-white/50 hover:bg-white/75'
+                      }`}
+                      aria-label="Ir para imagem 1"
+                    />
+                    <button
+                      onClick={() => setCurrentImageIndex(1)}
+                      className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                        currentImageIndex === 1 ? 'bg-white scale-125' : 'bg-white/50 hover:bg-white/75'
+                      }`}
+                      aria-label="Ir para imagem 2"
+                    />
+                  </div>
+                </div>
+                
+                {/* Indicativo de tempo - só no desktop */}
+                <div className="hidden md:block text-center mt-3">
+                  <div className="inline-flex items-center gap-2 text-gray-400 text-sm bg-black/20 rounded-full px-3 py-1">
+                    <Clock className="h-4 w-4" />
+                    <span>Troca automática a cada 5 segundos • Clique nas setas para navegar</span>
+                  </div>
                 </div>
               </div>
 
