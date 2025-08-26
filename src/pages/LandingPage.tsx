@@ -246,11 +246,11 @@ const LandingPage = () => {
     setOnlineUsers(getRandomUsers());
   }, []);
 
-  // Carrossel automático - troca de imagem a cada 5 segundos
+  // Carrossel automático - troca de imagem a cada 10 segundos
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentImageIndex((prevIndex) => (prevIndex === 0 ? 1 : 0));
-    }, 5000);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, []);
@@ -386,15 +386,15 @@ const LandingPage = () => {
                   >
                     <div className="w-full flex-shrink-0">
                       <img
-                        src="/A1.png"
-                        alt="Imagem A1"
+                        src="/A2.png"
+                        alt="Imagem A2"
                         className="w-full h-auto hover:scale-105 transition-transform duration-300"
                       />
                     </div>
                     <div className="w-full flex-shrink-0">
                       <img
-                        src="/A2.png"
-                        alt="Imagem A2"
+                        src="/A1.png"
+                        alt="Imagem A1"
                         className="w-full h-auto hover:scale-105 transition-transform duration-300"
                       />
                     </div>
@@ -439,7 +439,7 @@ const LandingPage = () => {
                 <div className="hidden md:block text-center mt-3">
                   <div className="inline-flex items-center gap-2 text-gray-400 text-sm bg-black/20 rounded-full px-3 py-1">
                     <Clock className="h-4 w-4" />
-                    <span>Troca automática a cada 5 segundos • Clique nas setas para navegar</span>
+                    <span>Troca automática a cada 10 segundos • Clique nas setas para navegar</span>
                   </div>
                 </div>
               </div>

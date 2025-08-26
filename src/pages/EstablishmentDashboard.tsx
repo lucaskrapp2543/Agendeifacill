@@ -180,6 +180,7 @@ const EstablishmentDashboard = () => {
   // Estados básicos
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('appointments');
+  const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [isEstablishmentLoading, setIsEstablishmentLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -4779,15 +4780,45 @@ const EstablishmentDashboard = () => {
                     <p className="text-sm text-gray-500 mb-4">
                       Configure taxas específicas para cada bandeira de cartão. Estas taxas serão aplicadas quando o cliente escolher uma bandeira específica.
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    
+                    {/* Grid responsivo para mobile */}
+                    <div className="grid grid-cols-1 gap-4">
                       {Object.entries(cardBrandTaxes).map(([brand, tax]) => (
-                        <div key={brand} className="flex items-center gap-2">
-                          <label className="text-sm text-gray-300 min-w-[120px] capitalize">
-                            {brand === 'american_express' ? 'Amex' : 
-                             brand === 'outros' ? 'Outros' : 
-                             brand.charAt(0).toUpperCase() + brand.slice(1)}:
-                          </label>
-                          <div className="flex items-center gap-1 flex-1">
+                        <div key={brand} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-[#1a1b1c] rounded-lg border border-gray-700">
+                          {/* Logo e nome da bandeira */}
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            {brand === 'outros' ? (
+                              <div className="w-8 h-6 sm:w-10 sm:h-8 bg-gray-600 rounded flex items-center justify-center flex-shrink-0">
+                                <span className="text-xs text-gray-300 font-medium">N/A</span>
+                              </div>
+                            ) : (
+                              <img
+                                src={`/${brand}.png`}
+                                alt={brand}
+                                className="w-8 h-6 sm:w-10 sm:h-8 object-contain flex-shrink-0"
+                                onError={(e) => {
+                                  const target = e.currentTarget as HTMLImageElement;
+                                  target.style.display = 'none';
+                                }}
+                              />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <label className="text-sm sm:text-base font-medium text-gray-300 capitalize block">
+                                {brand === 'american_express' ? 'American Express' : 
+                                 brand === 'outros' ? 'Outros' : 
+                                 brand === 'visa' ? 'Visa' :
+                                 brand === 'mastercard' ? 'Mastercard' :
+                                 brand === 'elo' ? 'Elo' :
+                                 brand === 'hipercard' ? 'Hipercard' :
+                                 brand === 'jcb' ? 'JCB' :
+                                 brand === 'discover' ? 'Discover' :
+                                 brand.charAt(0).toUpperCase() + brand.slice(1)}
+                              </label>
+                            </div>
+                          </div>
+                          
+                          {/* Input da taxa */}
+                          <div className="flex items-center gap-2 min-w-0">
                             <input
                               type="number"
                               step="0.1"
@@ -4799,9 +4830,10 @@ const EstablishmentDashboard = () => {
                                 newTaxes[brand] = parseFloat(e.target.value) || 0;
                                 setCardBrandTaxes(newTaxes);
                               }}
-                              className="w-full px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
+                              className="w-20 sm:w-24 px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
+                              placeholder="0.0"
                             />
-                            <span className="text-white text-sm">%</span>
+                            <span className="text-white text-sm font-medium">%</span>
                           </div>
                         </div>
                       ))}
@@ -6183,15 +6215,101 @@ const EstablishmentDashboard = () => {
               {/* Taxas por Bandeira - Mês */}
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Taxas por Bandeira - Mês Atual</h3>
+                
+                {/* Dropdown Bandeiras Disponíveis */}
+                <div className="mb-6">
+                  <div className="relative">
+                    <button
+                      onClick={() => setOpenDropdowns(prev => ({ ...prev, bandeiras: !prev.bandeiras }))}
+                      className="w-full flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      <span className="text-md font-medium text-gray-700">Bandeiras Disponíveis</span>
+                      <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns.bandeiras ? 'rotate-180' : ''}`} />
+                    </button>
+                    
+                    {openDropdowns.bandeiras && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                        <div className="p-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {/* Visa */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/visa.png" alt="Visa" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Visa</span>
+                            </div>
+                            
+                            {/* Mastercard */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/mastercard.png" alt="Mastercard" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Mastercard</span>
+                            </div>
+                            
+                            {/* Elo */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/elo.png" alt="Elo" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Elo</span>
+                            </div>
+                            
+                            {/* Hipercard */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/hipercard.png" alt="Hipercard" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Hipercard</span>
+                            </div>
+                            
+                            {/* JCB */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/jcb.png" alt="JCB" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">JCB</span>
+                            </div>
+                            
+                            {/* Discover */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/discover.png" alt="Discover" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Discover</span>
+                            </div>
+                            
+                            {/* Sem Bandeira */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <div className="w-10 h-6 bg-gray-200 rounded flex items-center justify-center mb-1">
+                                <span className="text-xs text-gray-500 font-medium">N/A</span>
+                              </div>
+                              <span className="text-xs font-medium text-gray-700">Sem Bandeira</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <div className="space-y-3">
                   {Object.entries(taxesReport.monthly).map(([brand, data]: [string, any]) => (
                     <div key={brand} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
                       <div className="flex items-center gap-3 mb-2 sm:mb-0">
-                        <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gray-400 rounded-full flex-shrink-0"></div>
+                        {brand === 'sem_bandeira' ? (
+                          <div className="w-8 h-6 sm:w-10 sm:h-8 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs text-gray-500 font-medium">N/A</span>
+                          </div>
+                        ) : (
+                          <img
+                            src={`/${brand}.png`}
+                            alt={brand}
+                            className="w-8 h-6 sm:w-10 sm:h-8 object-contain flex-shrink-0"
+                            onError={(e) => {
+                              // Fallback para ícone genérico se a imagem não carregar
+                              const target = e.currentTarget as HTMLImageElement;
+                              target.style.display = 'none';
+                            }}
+                          />
+                        )}
                         <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
                           <span className="font-medium capitalize text-gray-900 text-sm sm:text-base">
                             {brand === 'american_express' ? 'American Express' :
                              brand === 'sem_bandeira' ? 'Sem Bandeira' :
+                             brand === 'visa' ? 'Visa' :
+                             brand === 'mastercard' ? 'Mastercard' :
+                             brand === 'elo' ? 'Elo' :
+                             brand === 'hipercard' ? 'Hipercard' :
+                             brand === 'jcb' ? 'JCB' :
+                             brand === 'discover' ? 'Discover' :
                              brand.charAt(0).toUpperCase() + brand.slice(1)}
                           </span>
                           <span className="text-xs sm:text-sm text-gray-500">({data.count} serviços)</span>
@@ -6210,15 +6328,101 @@ const EstablishmentDashboard = () => {
               {/* Taxas por Bandeira - Ano */}
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Taxas por Bandeira - Ano Atual</h3>
+                
+                {/* Dropdown Bandeiras Disponíveis */}
+                <div className="mb-6">
+                  <div className="relative">
+                    <button
+                      onClick={() => setOpenDropdowns(prev => ({ ...prev, bandeirasAno: !prev.bandeirasAno }))}
+                      className="w-full flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      <span className="text-md font-medium text-gray-700">Bandeiras Disponíveis</span>
+                      <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-300 ${openDropdowns.bandeirasAno ? 'rotate-180' : ''}`} />
+                    </button>
+                    
+                    {openDropdowns.bandeirasAno && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                        <div className="p-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {/* Visa */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/visa.png" alt="Visa" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Visa</span>
+                            </div>
+                            
+                            {/* Mastercard */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/mastercard.png" alt="Mastercard" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Mastercard</span>
+                            </div>
+                            
+                            {/* Elo */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/elo.png" alt="Elo" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Elo</span>
+                            </div>
+                            
+                            {/* Hipercard */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/hipercard.png" alt="Hipercard" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Hipercard</span>
+                            </div>
+                            
+                            {/* JCB */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/jcb.png" alt="JCB" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">JCB</span>
+                            </div>
+                            
+                            {/* Discover */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <img src="/discover.png" alt="Discover" className="w-10 h-6 object-contain mb-1" />
+                              <span className="text-xs font-medium text-gray-700">Discover</span>
+                            </div>
+                            
+                            {/* Sem Bandeira */}
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer">
+                              <div className="w-10 h-6 bg-gray-200 rounded flex items-center justify-center mb-1">
+                                <span className="text-xs text-gray-500 font-medium">N/A</span>
+                              </div>
+                              <span className="text-xs font-medium text-gray-700">Sem Bandeira</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <div className="space-y-3">
                   {Object.entries(taxesReport.yearly).map(([brand, data]: [string, any]) => (
                     <div key={brand} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
                       <div className="flex items-center gap-3 mb-2 sm:mb-0">
-                        <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gray-400 rounded-full flex-shrink-0"></div>
+                        {brand === 'sem_bandeira' ? (
+                          <div className="w-8 h-6 sm:w-10 sm:h-8 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs text-gray-500 font-medium">N/A</span>
+                          </div>
+                        ) : (
+                          <img
+                            src={`/${brand}.png`}
+                            alt={brand}
+                            className="w-8 h-6 sm:w-10 sm:h-8 object-contain flex-shrink-0"
+                            onError={(e) => {
+                              // Fallback para ícone genérico se a imagem não carregar
+                              const target = e.currentTarget as HTMLImageElement;
+                              target.style.display = 'none';
+                            }}
+                          />
+                        )}
                         <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
                           <span className="font-medium capitalize text-gray-900 text-sm sm:text-base">
                             {brand === 'american_express' ? 'American Express' :
                              brand === 'sem_bandeira' ? 'Sem Bandeira' :
+                             brand === 'visa' ? 'Visa' :
+                             brand === 'mastercard' ? 'Mastercard' :
+                             brand === 'elo' ? 'Elo' :
+                             brand === 'hipercard' ? 'Hipercard' :
+                             brand === 'jcb' ? 'JCB' :
+                             brand === 'discover' ? 'Discover' :
                              brand.charAt(0).toUpperCase() + brand.slice(1)}
                           </span>
                           <span className="text-xs sm:text-sm text-gray-500">({data.count} serviços)</span>
