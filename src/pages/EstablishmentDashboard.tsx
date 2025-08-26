@@ -88,7 +88,7 @@ interface Establishment {
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'taxes';
 
 interface AdditionalProduct {
   name: string;
@@ -322,6 +322,10 @@ const EstablishmentDashboard = () => {
   const [openExtraProductsDropdown, setOpenExtraProductsDropdown] = useState<string | null>(null);
   const [openDailyRevenueDropdown, setOpenDailyRevenueDropdown] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
+  
+  // Estados para relatório de taxas
+  const [taxesReport, setTaxesReport] = useState<any>(null);
+  const [isLoadingTaxes, setIsLoadingTaxes] = useState(false);
 
 
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -1182,6 +1186,9 @@ const EstablishmentDashboard = () => {
   useEffect(() => {
     if (establishment && activeTab === 'financial-dashboard') {
       fetchPremiumSubscribers();
+    }
+    if (establishment && activeTab === 'taxes') {
+      calculateTaxesReport();
     }
   }, [establishment, activeTab]);
 
@@ -2752,6 +2759,75 @@ const EstablishmentDashboard = () => {
         return establishment?.debit_card_tax_percentage || 2.5;
       default:
         return 0;
+    }
+  };
+
+  // Função para calcular relatório de taxas
+  const calculateTaxesReport = async () => {
+    if (!establishment) return;
+    
+    setIsLoadingTaxes(true);
+    try {
+      const currentDate = new Date();
+      const monthStart = startOfMonth(currentDate);
+      const monthEnd = endOfMonth(currentDate);
+      const startOfYear = new Date(currentDate.getFullYear(), 0, 1);
+      const endOfYear = new Date(currentDate.getFullYear(), 11, 31);
+
+      // Buscar agendamentos do mês e ano
+      const { data: monthlyAppointments } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .gte('appointment_date', monthStart.toISOString().split('T')[0])
+        .lte('appointment_date', monthEnd.toISOString().split('T')[0])
+        .in('payment_method', ['credito', 'debito']);
+
+      const { data: yearlyAppointments } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .gte('appointment_date', startOfYear.toISOString().split('T')[0])
+        .lte('appointment_date', endOfYear.toISOString().split('T')[0])
+        .in('payment_method', ['credito', 'debito']);
+
+      // Calcular taxas por bandeira
+      const calculateTaxesByBrand = (appointments: any[]) => {
+        const taxesByBrand: Record<string, { totalTax: number; count: number }> = {};
+        
+        appointments.forEach(appointment => {
+          const baseValue = appointment.total_price || appointment.price || 0;
+          const taxRate = getPaymentMethodTax(appointment.payment_method, appointment.card_brand);
+          const taxAmount = (baseValue * taxRate) / 100;
+          
+          const brand = appointment.card_brand || 'sem_bandeira';
+          
+          if (!taxesByBrand[brand]) {
+            taxesByBrand[brand] = { totalTax: 0, count: 0 };
+          }
+          
+          taxesByBrand[brand].totalTax += taxAmount;
+          taxesByBrand[brand].count += 1;
+        });
+        
+        return taxesByBrand;
+      };
+
+      const monthlyTaxes = calculateTaxesByBrand(monthlyAppointments || []);
+      const yearlyTaxes = calculateTaxesByBrand(yearlyAppointments || []);
+
+      setTaxesReport({
+        monthly: monthlyTaxes,
+        yearly: yearlyTaxes,
+        totalMonthlyTax: Object.values(monthlyTaxes).reduce((sum, item) => sum + item.totalTax, 0),
+        totalYearlyTax: Object.values(yearlyTaxes).reduce((sum, item) => sum + item.totalTax, 0)
+      });
+
+    } catch (error) {
+      console.error('Erro ao calcular relatório de taxas:', error);
+      toast('Erro ao calcular relatório de taxas', 'error');
+    } finally {
+      setIsLoadingTaxes(false);
     }
   };
 
@@ -6073,6 +6149,92 @@ const EstablishmentDashboard = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Tab de Minhas Taxas */}
+      {activeTab === 'taxes' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Minhas Taxas</h2>
+          
+          {isLoadingTaxes ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+              <p className="text-gray-600 mt-2">Calculando taxas...</p>
+            </div>
+          ) : taxesReport ? (
+            <div className="space-y-6">
+              {/* Resumo Geral */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <h3 className="text-lg font-semibold text-blue-900 mb-2">Taxas do Mês</h3>
+                  <p className="text-2xl font-bold text-blue-700">
+                    {formatCurrency(taxesReport.totalMonthlyTax)}
+                  </p>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                  <h3 className="text-lg font-semibold text-green-900 mb-2">Taxas do Ano</h3>
+                  <p className="text-2xl font-bold text-green-700">
+                    {formatCurrency(taxesReport.totalYearlyTax)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Taxas por Bandeira - Mês */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Taxas por Bandeira - Mês Atual</h3>
+                <div className="space-y-3">
+                  {Object.entries(taxesReport.monthly).map(([brand, data]: [string, any]) => (
+                    <div key={brand} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-4 h-4 bg-gray-400 rounded-full"></div>
+                        <span className="font-medium capitalize text-gray-900">
+                          {brand === 'american_express' ? 'American Express' :
+                           brand === 'sem_bandeira' ? 'Sem Bandeira' :
+                           brand.charAt(0).toUpperCase() + brand.slice(1)}
+                        </span>
+                        <span className="text-sm text-gray-500">({data.count} serviços)</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-gray-900">
+                          Total gasto com taxa: {formatCurrency(data.totalTax)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Taxas por Bandeira - Ano */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Taxas por Bandeira - Ano Atual</h3>
+                <div className="space-y-3">
+                  {Object.entries(taxesReport.yearly).map(([brand, data]: [string, any]) => (
+                    <div key={brand} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-4 h-4 bg-gray-400 rounded-full"></div>
+                        <span className="font-medium capitalize text-gray-900">
+                          {brand === 'american_express' ? 'American Express' :
+                           brand === 'sem_bandeira' ? 'Sem Bandeira' :
+                           brand.charAt(0).toUpperCase() + brand.slice(1)}
+                        </span>
+                        <span className="text-sm text-gray-500">({data.count} serviços)</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-gray-900">
+                          Total gasto com taxa: {formatCurrency(data.totalTax)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-gray-600">Nenhum dado de taxa encontrado</p>
+            </div>
+          )}
         </div>
       )}
 

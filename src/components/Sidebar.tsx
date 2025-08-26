@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Menu,
   Shuffle,
-  Link
+  Link,
+  Receipt
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -151,6 +152,13 @@ const Sidebar: React.FC<SidebarProps> = ({
          }
        }),
        isActive: activeTab === 'financial-dashboard'
+     },
+         {
+       id: 'taxes',
+       label: 'Minhas Taxas',
+       icon: Receipt,
+       onClick: () => handleItemClick(() => onTabChange('taxes')),
+       isActive: activeTab === 'taxes'
      },
          {
        id: 'config',
