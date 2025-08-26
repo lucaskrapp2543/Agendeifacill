@@ -6185,18 +6185,20 @@ const EstablishmentDashboard = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Taxas por Bandeira - Mês Atual</h3>
                 <div className="space-y-3">
                   {Object.entries(taxesReport.monthly).map(([brand, data]: [string, any]) => (
-                    <div key={brand} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 bg-gray-400 rounded-full"></div>
-                        <span className="font-medium capitalize text-gray-900">
-                          {brand === 'american_express' ? 'American Express' :
-                           brand === 'sem_bandeira' ? 'Sem Bandeira' :
-                           brand.charAt(0).toUpperCase() + brand.slice(1)}
-                        </span>
-                        <span className="text-sm text-gray-500">({data.count} serviços)</span>
+                    <div key={brand} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-3 mb-2 sm:mb-0">
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gray-400 rounded-full flex-shrink-0"></div>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+                          <span className="font-medium capitalize text-gray-900 text-sm sm:text-base">
+                            {brand === 'american_express' ? 'American Express' :
+                             brand === 'sem_bandeira' ? 'Sem Bandeira' :
+                             brand.charAt(0).toUpperCase() + brand.slice(1)}
+                          </span>
+                          <span className="text-xs sm:text-sm text-gray-500">({data.count} serviços)</span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">
+                      <div className="text-left sm:text-right">
+                        <p className="font-semibold text-gray-900 text-sm sm:text-base">
                           Total gasto com taxa: {formatCurrency(data.totalTax)}
                         </p>
                       </div>
@@ -6210,18 +6212,20 @@ const EstablishmentDashboard = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Taxas por Bandeira - Ano Atual</h3>
                 <div className="space-y-3">
                   {Object.entries(taxesReport.yearly).map(([brand, data]: [string, any]) => (
-                    <div key={brand} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 bg-gray-400 rounded-full"></div>
-                        <span className="font-medium capitalize text-gray-900">
-                          {brand === 'american_express' ? 'American Express' :
-                           brand === 'sem_bandeira' ? 'Sem Bandeira' :
-                           brand.charAt(0).toUpperCase() + brand.slice(1)}
-                        </span>
-                        <span className="text-sm text-gray-500">({data.count} serviços)</span>
+                    <div key={brand} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-3 mb-2 sm:mb-0">
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gray-400 rounded-full flex-shrink-0"></div>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+                          <span className="font-medium capitalize text-gray-900 text-sm sm:text-base">
+                            {brand === 'american_express' ? 'American Express' :
+                             brand === 'sem_bandeira' ? 'Sem Bandeira' :
+                             brand.charAt(0).toUpperCase() + brand.slice(1)}
+                          </span>
+                          <span className="text-xs sm:text-sm text-gray-500">({data.count} serviços)</span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">
+                      <div className="text-left sm:text-right">
+                        <p className="font-semibold text-gray-900 text-sm sm:text-base">
                           Total gasto com taxa: {formatCurrency(data.totalTax)}
                         </p>
                       </div>
