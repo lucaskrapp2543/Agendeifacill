@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { useToast } from '../components/ui/Toaster';
+import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 import { 
   Building2, 
   Calendar, 
@@ -14,7 +15,9 @@ import {
   LogOut,
   Search,
   Filter,
-  Trash2
+  Trash2,
+  Lock,
+  Unlock
 } from 'lucide-react';
 
 interface Establishment {
@@ -28,31 +31,50 @@ interface Establishment {
   payment_due_date: string;
   owner_email?: string;
   is_deleted?: boolean;
+  is_blocked?: boolean;
 }
 
 const AdminDashboard = () => {
   const { user, signOut } = useAuth();
-  const toast = useToast();
+  const navigate = useNavigate();
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [deletedEstablishments, setDeletedEstablishments] = useState<Establishment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
   const [filterPlan, setFilterPlan] = useState<'all' | 'monthly' | 'annual'>('all');
+  const [showDeleted, setShowDeleted] = useState(false);
 
   // Verificar se é a conta de suporte
   const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
 
+  // Função de logout personalizada que redireciona
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      toast.success('Logout realizado com sucesso!');
+      navigate('/'); // Redireciona para a página inicial
+    } catch (error) {
+      console.error('Erro ao fazer logout:', error);
+      toast.error('Erro ao fazer logout');
+    }
+  };
+
   useEffect(() => {
-    if (!user) return; // Aguardar o usuário carregar
+    if (!user) {
+      // Se não há usuário, redirecionar para login
+      navigate('/login');
+      return;
+    }
     
     if (!isSupportAccount) {
       toast.error('Acesso negado. Apenas conta de suporte pode acessar esta página.');
+      navigate('/');
       return;
     }
     
     fetchEstablishments();
-  }, [user, isSupportAccount]);
+  }, [user, isSupportAccount, navigate]);
 
     const fetchEstablishments = async () => {
     try {
@@ -86,13 +108,16 @@ const AdminDashboard = () => {
       // Combinar dados dos estabelecimentos ativos
       const establishmentsWithEmails = establishmentsData.map(establishment => {
         const profile = profilesData.find(p => p.id === establishment.owner_id);
-        return {
+        const processedEstablishment = {
           ...establishment,
           owner_email: profile?.name || 'Email não encontrado',
           payment_status: establishment.payment_status || 'unpaid',
           plan_type: establishment.plan_type || 'monthly',
-          payment_due_date: establishment.payment_due_date || establishment.created_at
+          payment_due_date: establishment.payment_due_date || establishment.created_at,
+          is_blocked: establishment.is_blocked || false
         };
+        
+                 return processedEstablishment;
       });
 
       // Combinar dados dos estabelecimentos excluídos
@@ -103,7 +128,8 @@ const AdminDashboard = () => {
           owner_email: profile?.name || 'Email não encontrado',
           payment_status: establishment.payment_status || 'unpaid',
           plan_type: establishment.plan_type || 'monthly',
-          payment_due_date: establishment.payment_due_date || establishment.created_at
+          payment_due_date: establishment.payment_due_date || establishment.created_at,
+          is_blocked: establishment.is_blocked || false
         };
       });
 
@@ -189,6 +215,70 @@ const AdminDashboard = () => {
     }
   };
 
+  // Função para bloquear/desbloquear estabelecimento
+  const toggleBlockEstablishment = async (establishmentId: string, isBlocked: boolean) => {
+    try {
+      
+      const { data, error } = await supabase
+        .from('establishments')
+        .update({ is_blocked: !isBlocked })
+        .eq('id', establishmentId)
+        .select();
+
+      if (error) {
+        console.error('Erro no Supabase:', error);
+        throw error;
+      }
+
+      setEstablishments(prev => 
+        prev.map(est => 
+          est.id === establishmentId 
+            ? { ...est, is_blocked: !isBlocked }
+            : est
+        )
+      );
+
+      toast.success(isBlocked ? 'Estabelecimento desbloqueado!' : 'Estabelecimento bloqueado!');
+    } catch (error) {
+      console.error('Erro ao alterar status de bloqueio:', error);
+      toast.error('Erro ao alterar status de bloqueio');
+    }
+  };
+
+  // Função para remover para a lixeira (mover para estabelecimentos excluídos)
+  const removeFromList = async (establishmentId: string) => {
+    let establishmentToDelete: Establishment | undefined;
+    
+    try {
+      // Encontrar o estabelecimento para adicionar à lista de excluídos
+      establishmentToDelete = establishments.find(est => est.id === establishmentId);
+      if (establishmentToDelete) {
+        setDeletedEstablishments(prev => [...prev, establishmentToDelete]);
+      }
+      
+      // Remover da lista de estabelecimentos ativos
+      setEstablishments(prev => prev.filter(est => est.id !== establishmentId));
+      
+      // Marcar como excluído no banco de dados
+      const { error } = await supabase
+        .from('establishments')
+        .update({ is_deleted: true })
+        .eq('id', establishmentId);
+
+      if (error) throw error;
+
+      toast.success('Estabelecimento movido para a lixeira!');
+    } catch (error) {
+      console.error('Erro ao mover para lixeira:', error);
+      toast.error('Erro ao mover para lixeira');
+      // Reverter mudanças se deu erro
+      if (establishmentToDelete) {
+        setEstablishments(prev => [...prev, establishmentToDelete]);
+        setDeletedEstablishments(prev => prev.filter(est => est.id !== establishmentId));
+      }
+    }
+  };
+
   const deleteEstablishment = async (establishmentId: string) => {
     try {
       // Encontrar o estabelecimento para adicionar à lista de excluídos
@@ -258,6 +348,7 @@ const AdminDashboard = () => {
   };
 
   const getStatusColor = (establishment: Establishment) => {
+    if (establishment.is_blocked) return 'text-red-600';
     if (establishment.payment_status === 'paid') return 'text-green-600';
     if (establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)) {
       return 'text-red-600';
@@ -266,6 +357,7 @@ const AdminDashboard = () => {
   };
 
   const getStatusIcon = (establishment: Establishment) => {
+    if (establishment.is_blocked) return <Lock className="h-5 w-5 text-red-600" />;
     if (establishment.payment_status === 'paid') return <CheckCircle className="h-5 w-5 text-green-600" />;
     if (establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)) {
       return <XCircle className="h-5 w-5 text-red-600" />;
@@ -325,7 +417,7 @@ const AdminDashboard = () => {
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-600">Suporte</span>
               <button
-                onClick={signOut}
+                onClick={handleSignOut}
                 className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
                 <LogOut className="h-4 w-4" />
@@ -336,9 +428,9 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+             <div className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6">
+                 {/* Stats */}
+         <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <Building2 className="h-8 w-8 text-blue-600" />
@@ -386,54 +478,78 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
+
+                     <div className="bg-white rounded-lg shadow p-6">
+             <div className="flex items-center">
+               <Lock className="h-8 w-8 text-red-600" />
+               <div className="ml-4">
+                 <p className="text-sm font-medium text-gray-600">Bloqueados</p>
+                 <p className="text-2xl font-bold text-gray-900">
+                   {establishments.filter(e => e.is_blocked).length}
+                 </p>
+               </div>
+             </div>
+           </div>
+
+           <div className="bg-white rounded-lg shadow p-6">
+             <div className="flex items-center">
+               <Trash2 className="h-8 w-8 text-gray-600" />
+               <div className="ml-4">
+                 <p className="text-sm font-medium text-gray-600">Na Lixeira</p>
+                 <p className="text-2xl font-bold text-gray-900">
+                   {deletedEstablishments.length}
+                 </p>
+               </div>
+             </div>
+           </div>
         </div>
 
-        {/* Filters */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar por nome, código ou email..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-            
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as any)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">Todos os Status</option>
-              <option value="paid">Pagos</option>
-              <option value="unpaid">Pendentes</option>
-              <option value="expired">Vencidos</option>
-            </select>
-            
-            <select
-              value={filterPlan}
-              onChange={(e) => setFilterPlan(e.target.value as any)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">Todos os Planos</option>
-              <option value="monthly">Mensal</option>
-              <option value="annual">Anual</option>
-            </select>
-            
-            <button
-              onClick={fetchEstablishments}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              <span>Atualizar</span>
-            </button>
-          </div>
-        </div>
+                 {/* Filters */}
+         <div className="bg-white rounded-lg shadow p-4 mb-6">
+           <div className="flex flex-col sm:flex-row gap-3">
+             <div className="flex-1">
+               <div className="relative">
+                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                 <input
+                   type="text"
+                   placeholder="Buscar..."
+                   value={searchTerm}
+                   onChange={(e) => setSearchTerm(e.target.value)}
+                   className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                 />
+               </div>
+             </div>
+             
+             <select
+               value={filterStatus}
+               onChange={(e) => setFilterStatus(e.target.value as any)}
+               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+             >
+               <option value="all">Todos Status</option>
+               <option value="paid">Pagos</option>
+               <option value="unpaid">Pendentes</option>
+               <option value="expired">Vencidos</option>
+             </select>
+             
+             <select
+               value={filterPlan}
+               onChange={(e) => setFilterPlan(e.target.value as any)}
+               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+             >
+               <option value="all">Todos Planos</option>
+               <option value="monthly">Mensal</option>
+               <option value="annual">Anual</option>
+             </select>
+             
+             <button
+               onClick={fetchEstablishments}
+               className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-1 text-sm"
+             >
+               <RefreshCw className="h-4 w-4" />
+               <span>Atualizar</span>
+             </button>
+           </div>
+         </div>
 
         {/* Establishments List */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -454,111 +570,117 @@ const AdminDashboard = () => {
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Estabelecimento
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Código
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Proprietário
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Plano
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Vencimento
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Ações
-                    </th>
-                  </tr>
-                </thead>
+                                 <thead className="bg-gray-50">
+                   <tr>
+                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
+                       Estabelecimento
+                     </th>
+                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                       Código
+                     </th>
+                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                       Status
+                     </th>
+                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                       Plano
+                     </th>
+                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                       Vencimento
+                     </th>
+                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">
+                       Ações
+                     </th>
+                   </tr>
+                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredEstablishments.map((establishment) => (
-                    <tr key={establishment.id} className={isExpired(establishment.payment_due_date) ? 'bg-red-50' : ''}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{establishment.name}</div>
-                        <div className="text-sm text-gray-500">
-                          Criado em {new Date(establishment.created_at).toLocaleDateString('pt-BR')}
-                        </div>
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {establishment.code}
-                        </span>
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {establishment.owner_email}
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          {getStatusIcon(establishment)}
-                          <span className={`ml-2 text-sm font-medium ${getStatusColor(establishment)}`}>
-                            {establishment.payment_status === 'paid' ? 'Pago' : 
-                             establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date) ? 'Vencido' : 'Pendente'}
-                          </span>
-                        </div>
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <select
-                          value={establishment.plan_type}
-                          onChange={(e) => updatePlanType(establishment.id, e.target.value as 'monthly' | 'annual')}
-                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
-                        >
-                          <option value="monthly">Mensal</option>
-                          <option value="annual">Anual</option>
-                        </select>
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <input
-                          type="date"
-                          value={establishment.payment_due_date.split('T')[0]}
-                          onChange={(e) => updatePaymentDueDate(establishment.id, e.target.value)}
-                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
-                        />
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex flex-col space-y-2">
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => updatePaymentStatus(establishment.id, 'paid')}
-                              className="text-green-600 hover:text-green-900 text-xs px-2 py-1 border border-green-300 rounded hover:bg-green-50"
-                            >
-                              Marcar Pago
-                            </button>
-                            <button
-                              onClick={() => updatePaymentStatus(establishment.id, 'unpaid')}
-                              className="text-yellow-600 hover:text-yellow-900 text-xs px-2 py-1 border border-yellow-300 rounded hover:bg-yellow-50"
-                            >
-                              Marcar Pendente
-                            </button>
-                            <button
-                              onClick={() => updatePaymentStatus(establishment.id, 'expired')}
-                              className="text-red-600 hover:text-red-900 text-xs px-2 py-1 border border-red-300 rounded hover:bg-red-50"
-                            >
-                              Marcar Vencido
-                            </button>
-                          </div>
-                          <button
-                            onClick={() => deleteEstablishment(establishment.id)}
-                            className="text-red-600 hover:text-red-900 text-xs px-2 py-1 border border-red-300 rounded hover:bg-red-50 flex items-center space-x-1"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            <span>Excluir</span>
-                          </button>
-                        </div>
+                                     {filteredEstablishments.map((establishment) => (
+                     <tr key={establishment.id} className={isExpired(establishment.payment_due_date) ? 'bg-red-50' : ''}>
+                       <td className="px-3 py-4">
+                         <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
+                         <div className="text-xs text-gray-500">
+                           {new Date(establishment.created_at).toLocaleDateString('pt-BR')}
+                         </div>
+                       </td>
+                       
+                       <td className="px-2 py-4">
+                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                           {establishment.code}
+                         </span>
+                       </td>
+                       
+                       <td className="px-2 py-4">
+                         <div className="flex items-center">
+                           {getStatusIcon(establishment)}
+                           <span className={`ml-1 text-xs font-medium ${getStatusColor(establishment)}`}>
+                             {establishment.is_blocked ? 'Bloqueado' : 
+                              establishment.payment_status === 'paid' ? 'Pago' : 
+                              establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date) ? 'Vencido' : 'Pendente'}
+                           </span>
+                         </div>
+                       </td>
+                       
+                       <td className="px-2 py-4">
+                         <select
+                           value={establishment.plan_type}
+                           onChange={(e) => updatePlanType(establishment.id, e.target.value as 'monthly' | 'annual')}
+                           className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
+                         >
+                           <option value="monthly">Mensal</option>
+                           <option value="annual">Anual</option>
+                         </select>
+                       </td>
+                       
+                       <td className="px-2 py-4">
+                         <input
+                           type="date"
+                           value={establishment.payment_due_date.split('T')[0]}
+                           onChange={(e) => updatePaymentDueDate(establishment.id, e.target.value)}
+                           className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
+                         />
+                       </td>
+                       
+                       <td className="px-3 py-4 text-sm font-medium">
+                                                 <div className="flex flex-wrap gap-1">
+                           <button
+                             onClick={() => updatePaymentStatus(establishment.id, 'paid')}
+                             className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50"
+                             title="Marcar Pago"
+                           >
+                             Pago
+                           </button>
+                           <button
+                             onClick={() => updatePaymentStatus(establishment.id, 'unpaid')}
+                             className="text-yellow-600 hover:text-yellow-900 text-xs px-1 py-0.5 border border-yellow-300 rounded hover:bg-yellow-50"
+                             title="Marcar Pendente"
+                           >
+                             Pend
+                           </button>
+                           <button
+                             onClick={() => updatePaymentStatus(establishment.id, 'expired')}
+                             className="text-red-600 hover:text-red-900 text-xs px-1 py-0.5 border border-red-300 rounded hover:bg-red-50"
+                             title="Marcar Vencido"
+                           >
+                             Venc
+                           </button>
+                           <button
+                             onClick={() => toggleBlockEstablishment(establishment.id, establishment.is_blocked || false)}
+                             className={`text-xs px-1 py-0.5 border rounded flex items-center ${
+                               establishment.is_blocked 
+                                 ? 'text-green-600 border-green-300 hover:bg-green-50 hover:text-green-900' 
+                                 : 'text-red-600 border-red-300 hover:bg-red-50 hover:text-red-900'
+                             }`}
+                             title={establishment.is_blocked ? 'Desbloquear' : 'Bloquear'}
+                           >
+                             {establishment.is_blocked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                           </button>
+                           <button
+                             onClick={() => removeFromList(establishment.id)}
+                             className="text-gray-600 hover:text-gray-900 text-xs px-1 py-0.5 border border-gray-300 rounded hover:bg-gray-50"
+                             title="Remover da Lista"
+                           >
+                             <Trash2 className="h-3 w-3" />
+                           </button>
+                         </div>
                       </td>
                     </tr>
                   ))}
@@ -572,29 +694,51 @@ const AdminDashboard = () => {
                 </div>
               )}
 
-                             {/* Estabelecimentos Excluídos */}
-               {deletedEstablishments.length > 0 && (
-                 <div className="border-t border-gray-200 pt-6">
-                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Estabelecimentos Excluídos ({deletedEstablishments.length})</h3>
-                   <div className="space-y-2">
-                     {deletedEstablishments.map(establishment => (
-                       <div key={establishment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                         <div className="flex items-center space-x-4">
-                           <span className="text-sm font-medium text-gray-900">{establishment.name}</span>
-                           <span className="text-xs text-gray-500">Código: {establishment.code}</span>
-                           <span className="text-xs text-gray-500">{establishment.owner_email}</span>
-                         </div>
-                         <button
-                           onClick={() => restoreEstablishment(establishment.id)}
-                           className="text-blue-600 hover:text-blue-900 text-xs px-2 py-1 border border-blue-300 rounded hover:bg-blue-50"
-                         >
-                           Restaurar
-                         </button>
-                       </div>
-                     ))}
-                   </div>
-                 </div>
-               )}
+                                                           {/* Estabelecimentos Excluídos - Lixeira */}
+                {deletedEstablishments.length > 0 && (
+                  <div className="border-t border-gray-200 pt-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <Trash2 className="h-5 w-5 text-gray-500 mr-2" />
+                        Lixeira ({deletedEstablishments.length})
+                      </h3>
+                      <button
+                        onClick={() => setShowDeleted(!showDeleted)}
+                        className="text-sm text-gray-600 hover:text-gray-900"
+                      >
+                        {showDeleted ? 'Ocultar' : 'Mostrar'} lixeira
+                      </button>
+                    </div>
+                    
+                    {showDeleted && (
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <div className="space-y-3">
+                          {deletedEstablishments.map(establishment => (
+                            <div key={establishment.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+                              <div className="flex items-center space-x-4">
+                                <div>
+                                  <span className="text-sm font-medium text-gray-900">{establishment.name}</span>
+                                  <div className="flex space-x-2 mt-1">
+                                    <span className="text-xs text-gray-500">Código: {establishment.code}</span>
+                                    <span className="text-xs text-gray-500">•</span>
+                                    <span className="text-xs text-gray-500">{establishment.owner_email}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => restoreEstablishment(establishment.id)}
+                                className="text-blue-600 hover:text-blue-900 text-xs px-3 py-1 border border-blue-300 rounded hover:bg-blue-50 flex items-center"
+                              >
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                Restaurar
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
             </div>
           )}
         </div>

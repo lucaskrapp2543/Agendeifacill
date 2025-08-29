@@ -25,6 +25,7 @@ import { NotificationPermission } from '../components/NotificationPermission';
 import { initRealTimeNotifications, stopRealTimeNotifications } from '../utils/realTimeNotifications';
 import { NotificationsPanel } from '../components/NotificationsPanel';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
+import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker';
 import Sidebar from '../components/Sidebar';
 
 interface BusinessHours {
@@ -1107,6 +1108,12 @@ const EstablishmentDashboard = () => {
         .single();
 
       if (error) throw error;
+
+      // Verificar se o estabelecimento está bloqueado
+      if (establishmentData && establishmentData.is_blocked) {
+        navigate('/blocked');
+        return;
+      }
 
       if (establishmentData) {
         setEstablishment(establishmentData);
@@ -3436,6 +3443,20 @@ const EstablishmentDashboard = () => {
                     {filteredAppointments.length} agendamentos encontrados
                   </div>
                 </div>
+
+                {/* Verificador Rápido de Horários Disponíveis */}
+                {selectedProfessional !== 'all' && establishment && (
+                  <div className="mt-4">
+                    <QuickAvailabilityChecker
+                      professionalId={selectedProfessional}
+                      professionalName={getProfessionalName(selectedProfessional)}
+                      services={establishment.services_with_prices || []}
+                      businessHours={establishment.business_hours || {}}
+                      establishmentId={establishment.id}
+                      use15MinuteInterval={establishment.use_15_minute_interval || false}
+                    />
+                  </div>
+                )}
 
               <div className="mb-4">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Agendamentos do Dia</h2>
