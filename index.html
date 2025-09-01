@@ -46,26 +46,67 @@
     
     <!-- Service Worker para controle de cache -->
     <script>
-      // Força atualização automática
-      if ('serviceWorker' in navigator) {
-        // Em desenvolvimento, usar Service Worker simplificado
-        const swPath = window.location.hostname === 'localhost' ? '/sw-dev.js' : '/sw.js';
+      // Sistema de atualização automática mais robusto
+      if ('serviceWorker' in navigator && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        const swPath = '/sw.js';
+        
         navigator.serviceWorker.register(swPath).then(function(registration) {
+          console.log('Service Worker registrado:', registration);
+          
+          // Verificar atualizações imediatamente
           registration.update();
+          
+          // Listener para mudanças no service worker
+          registration.addEventListener('updatefound', () => {
+            console.log('🔄 Nova versão do Service Worker encontrada');
+            
+            const newWorker = registration.installing;
+            if (newWorker) {
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('🔄 Nova versão instalada, aguardando ativação');
+                  
+                  // Notificar o usuário sobre a atualização
+                  if (confirm('Nova versão disponível! Deseja atualizar agora?')) {
+                    newWorker.postMessage({ type: 'SKIP_WAITING' });
+                    window.location.reload();
+                  }
+                }
+              });
+            }
+          });
+          
+          // Listener para quando o service worker assume controle
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            console.log('🔄 Service Worker assumiu controle, recarregando...');
+            window.location.reload();
+          });
+          
         }).catch(function(error) {
           console.log('Service Worker registration failed:', error);
         });
+      } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        console.log('🚫 Service Worker desabilitado em desenvolvimento');
       }
       
-      // Sistema de cache busting SUAVE
-      const timestamp = Date.now();
+      // Sistema de cache busting mais agressivo
+      const buildTimestamp = Date.now();
+      const versionParam = `v=${buildTimestamp}`;
       
-      // Adiciona parâmetro de versão na URL apenas se não existir
+      // Adicionar parâmetro de versão em todos os recursos
       if (!window.location.search.includes('v=')) {
         const url = new URL(window.location.href);
-        url.searchParams.set('v', timestamp.toString());
+        url.searchParams.set('v', buildTimestamp.toString());
         window.history.replaceState({}, '', url.toString());
       }
+      
+      // Forçar atualização de recursos estáticos
+      const links = document.querySelectorAll('link[rel="stylesheet"], script[src]');
+      links.forEach(link => {
+        if (link.href && !link.href.includes('v=')) {
+          link.href = link.href + (link.href.includes('?') ? '&' : '?') + versionParam;
+        }
+      });
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -74,6 +115,15 @@
     
     <!-- Script para forçar atualização de cache -->
     <script src="/force-update.js"></script>
+    <!-- Script para forçar atualização de todos os usuários PWA - APENAS em produção -->
+    <script>
+      // Só carregar em produção
+      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        const script = document.createElement('script');
+        script.src = '/force-update-all.js';
+        document.head.appendChild(script);
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

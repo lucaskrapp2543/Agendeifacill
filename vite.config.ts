@@ -47,7 +47,7 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     sourcemap: false,
-    // Adicionar timestamp único ao build
+    // Configuração para forçar atualizações automáticas
     rollupOptions: {
       output: {
         manualChunks: undefined,
@@ -69,8 +69,10 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true,
+        drop_console: false, // Manter console para debug
       },
     },
+    // Forçar cache busting em todos os assets
+    assetsInlineLimit: 0,
   },
 });

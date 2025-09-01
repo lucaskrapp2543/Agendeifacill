@@ -2,6 +2,7 @@
   "name": "Agendei Fácil - Sistema de Agendamentos",
   "short_name": "Agendei Fácil",
   "description": "Sistema completo de agendamentos para estabelecimentos e clientes",
+  "version": "20241219-v5",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

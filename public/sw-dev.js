@@ -23,13 +23,15 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Interceptação de requisições - apenas para desenvolvimento
+// Interceptação de requisições - APENAS para desenvolvimento
 self.addEventListener('fetch', (event) => {
-  // Em desenvolvimento, não interceptar requisições
-  if (event.request.url.includes('localhost') || event.request.url.includes('127.0.0.1')) {
-    return;
+  // NÃO interceptar requisições externas em desenvolvimento
+  if (event.request.url.startsWith('http://localhost') || 
+      event.request.url.startsWith('https://localhost')) {
+    // Apenas log para debug
+    console.log('Fetch interceptado (dev):', event.request.url);
   }
   
-  // Para outras requisições, apenas log
-  console.log('Fetch interceptado:', event.request.url);
+  // Deixar todas as requisições passarem normalmente
+  return;
 });

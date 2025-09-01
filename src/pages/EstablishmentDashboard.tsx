@@ -27,6 +27,7 @@ import { NotificationsPanel } from '../components/NotificationsPanel';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
 import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker';
 import Sidebar from '../components/Sidebar';
+import { UpdateButton } from '../components/UpdateButton';
 
 interface BusinessHours {
   enabled: boolean;
@@ -6469,6 +6470,9 @@ const EstablishmentDashboard = () => {
 
         </div>
       </div>
+      
+      {/* Botão de Atualização */}
+      <UpdateButton />
     </div>
   );
 };

@@ -1,5 +1,7 @@
 // Service Worker para controle de cache e notificações
-const CACHE_NAME = 'agendei-facil-v4';
+const CACHE_NAME = 'agendei-facil-v5'; // Incrementar versão para forçar atualização
+const APP_VERSION = '20241219-v5'; // Versão do app para controle de cache
+
 const urlsToCache = [
   '/',
   '/index.html',
@@ -10,7 +12,43 @@ const urlsToCache = [
   '/static/css/main.css'
 ];
 
-
+// Função para verificar se há atualizações
+async function checkForUpdates() {
+  try {
+    // Buscar o manifest.json para verificar versão
+    const response = await fetch('/manifest.json?v=' + Date.now(), {
+      cache: 'no-cache'
+    });
+    
+    if (response.ok) {
+      const manifest = await response.json();
+      const currentVersion = manifest.version || APP_VERSION;
+      
+      // Comparar com versão armazenada
+      const storedVersion = await caches.match('/version.txt');
+      if (!storedVersion || storedVersion.text() !== currentVersion) {
+        console.log('🔄 Nova versão detectada:', currentVersion);
+        
+        // Notificar todos os clientes sobre a atualização
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'UPDATE_AVAILABLE',
+            version: currentVersion,
+            timestamp: Date.now()
+          });
+        });
+        
+        // Forçar atualização do cache
+        await caches.delete(CACHE_NAME);
+        return true;
+      }
+    }
+  } catch (error) {
+    console.log('Erro ao verificar atualizações:', error);
+  }
+  return false;
+}
 
 // Instalação do Service Worker
 self.addEventListener('install', (event) => {
@@ -44,25 +82,25 @@ self.addEventListener('activate', (event) => {
     }).then(() => {
       console.log('Service Worker ativado');
       return self.clients.claim();
-      })
+    })
   );
 });
 
-// Interceptação de requisições
+// Interceptação de requisições com estratégia de cache mais inteligente
 self.addEventListener('fetch', (event) => {
   // Ignorar requisições de chrome-extension
   if (event.request.url.startsWith('chrome-extension://')) {
     return;
   }
 
-  // Forçar atualização de ícones e manifest
-  if (event.request.url.includes('manifest.json') || 
-      event.request.url.includes('novo-icone') ||
-      event.request.url.includes('logoagendei')) {
+  // Para arquivos críticos, sempre buscar da rede primeiro
+  if (event.request.url.includes('index.html') || 
+      event.request.url.includes('main.tsx') ||
+      event.request.url.includes('manifest.json')) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          // Sempre atualizar ícones e manifest
+          // Atualizar cache com nova versão
           const responseToCache = response.clone();
           caches.open(CACHE_NAME)
             .then((cache) => {
@@ -77,11 +115,28 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Para outros recursos, usar estratégia cache-first mas com verificação de atualização
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
         // Retorna do cache se disponível
         if (response) {
+          // Em background, verificar se há atualizações
+          fetch(event.request)
+            .then((networkResponse) => {
+              if (networkResponse.ok) {
+                // Atualizar cache silenciosamente
+                const responseToCache = networkResponse.clone();
+                caches.open(CACHE_NAME)
+                  .then((cache) => {
+                    cache.put(event.request, responseToCache);
+                  });
+              }
+            })
+            .catch(() => {
+              // Ignorar erros de rede
+            });
+          
           return response;
         }
         
@@ -110,6 +165,22 @@ self.addEventListener('fetch', (event) => {
           });
       })
   );
+});
+
+// Verificar atualizações periodicamente
+setInterval(async () => {
+  const hasUpdate = await checkForUpdates();
+  if (hasUpdate) {
+    console.log('🔄 Atualização disponível, notificando clientes...');
+  }
+}, 30000); // Verificar a cada 30 segundos
+
+// Listener para mensagens dos clientes
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    console.log('🔄 Cliente solicitou atualização imediata');
+    self.skipWaiting();
+  }
 });
 
 // Sincronização em background
