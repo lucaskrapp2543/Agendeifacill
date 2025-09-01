@@ -18,6 +18,8 @@ interface ProfessionalSelectorProps {
   // Props para controle de autenticação do profissional
   authenticatedProfessionalId?: string | null;
   showPhotoEditButtons?: boolean;
+  // Props para verificar senhas dos profissionais
+  establishment?: any;
 }
 
 export function ProfessionalSelector({
@@ -27,7 +29,8 @@ export function ProfessionalSelector({
   establishmentId,
   onProfessionalUpdate,
   authenticatedProfessionalId = null,
-  showPhotoEditButtons = false
+  showPhotoEditButtons = false,
+  establishment
 }: ProfessionalSelectorProps) {
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -35,6 +38,55 @@ export function ProfessionalSelector({
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [pendingFile, setPendingFile] = useState<{ file: File; professionalId: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Função para verificar se o profissional precisa de senha para alterar foto
+  const checkIfNeedsPassword = async (professionalId: string): Promise<boolean> => {
+    try {
+      // Se já temos os dados do establishment, usar eles
+      if (establishment?.professionals_pins) {
+        const professionalPin = establishment.professionals_pins.find(
+          p => p.professional_id === professionalId
+        );
+        
+        // Se não tem senha configurada, senha está vazia, ou é "0000", NÃO precisa de senha
+        if (!professionalPin?.pin || 
+            professionalPin.pin.length === 0 || 
+            professionalPin.pin === '0000') {
+          return false;
+        }
+        
+        return true; // Precisa de senha
+      }
+      
+      // Se não temos os dados, buscar no banco
+      const { data: establishmentData, error } = await supabase
+        .from('establishments')
+        .select('professionals_pins')
+        .eq('id', establishmentId)
+        .single();
+
+      if (error || !establishmentData) {
+        return false; // Em caso de erro, não pedir senha
+      }
+
+      // Encontrar o PIN do profissional específico
+      const professionalPin = establishmentData.professionals_pins?.find(
+        p => p.professional_id === professionalId
+      );
+
+      // Se não tem senha configurada, senha está vazia, ou é "0000", NÃO precisa de senha
+      if (!professionalPin?.pin || 
+          professionalPin.pin.length === 0 || 
+          professionalPin.pin === '0000') {
+        return false;
+      }
+
+      return true; // Precisa de senha
+    } catch (error) {
+      console.error('Erro ao verificar se precisa de senha:', error);
+      return false; // Em caso de erro, não pedir senha
+    }
+  };
 
   const verifyPin = async (pin: string, professionalId: string): Promise<boolean> => {
     try {
@@ -54,8 +106,10 @@ export function ProfessionalSelector({
         p => p.professional_id === professionalId
       );
 
-      // Se não tem senha configurada, libera o acesso
-      if (!professionalPin?.pin || professionalPin.pin.length === 0) {
+      // Se não tem senha configurada, senha está vazia, ou é "0000", libera o acesso
+      if (!professionalPin?.pin || 
+          professionalPin.pin.length === 0 || 
+          professionalPin.pin === '0000') {
         return true;
       }
 
@@ -132,9 +186,21 @@ export function ProfessionalSelector({
   };
 
   const handlePhotoChange = async (professionalId: string, file: File) => {
-    // Armazenar o arquivo pendente e mostrar modal de PIN
-    setPendingFile({ file, professionalId });
-    setShowPinModal(true);
+    console.log('🔍 DEBUG - handlePhotoChange chamado para profissional:', professionalId);
+    
+    // Verificar se o profissional precisa de senha para alterar foto
+    const needsPassword = await checkIfNeedsPassword(professionalId);
+    
+    if (needsPassword) {
+      console.log('🔒 Profissional precisa de senha, mostrando modal');
+      // Armazenar o arquivo pendente e mostrar modal de PIN
+      setPendingFile({ file, professionalId });
+      setShowPinModal(true);
+    } else {
+      console.log('✅ Profissional não precisa de senha, fazendo upload direto');
+      // Fazer upload direto sem pedir senha
+      await handlePhotoUpload(professionalId, file);
+    }
   };
 
   const handlePinSubmit = async () => {
@@ -173,10 +239,28 @@ export function ProfessionalSelector({
 
   // Função para verificar se o profissional pode editar sua foto
   const canEditPhoto = (professionalId: string): boolean => {
-    // Só pode editar se:
+    // Pode editar se:
     // 1. A opção de edição está habilitada
-    // 2. É o próprio profissional autenticado
-    return showPhotoEditButtons && authenticatedProfessionalId === professionalId;
+    // 2. É o próprio profissional autenticado OU não tem senha configurada
+    if (!showPhotoEditButtons) return false;
+    
+    // Se é o profissional autenticado, pode editar
+    if (authenticatedProfessionalId === professionalId) return true;
+    
+    // Se não tem senha configurada (senha padrão "0000"), pode editar
+    // Precisamos verificar se o profissional tem senha personalizada
+    const professional = professionals.find(p => p.id === professionalId);
+    if (professional) {
+      // Verificar se tem senha personalizada (não "0000")
+      const hasPersonalPassword = establishment?.professionals_pins?.find(
+        p => p.professional_id === professionalId && p.pin !== '0000'
+      );
+      
+      // Se não tem senha personalizada, pode editar
+      if (!hasPersonalPassword) return true;
+    }
+    
+    return false;
   };
 
   return (

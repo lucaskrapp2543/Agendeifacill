@@ -135,6 +135,9 @@ const AdminDashboard = () => {
 
       setEstablishments(establishmentsWithEmails);
       setDeletedEstablishments(deletedWithEmails);
+      
+      // Verificar e atualizar status vencidos automaticamente
+      await checkAndUpdateExpiredStatus();
     } catch (error) {
       console.error('Erro ao buscar estabelecimentos:', error);
       toast.error('Erro ao carregar estabelecimentos');
@@ -145,9 +148,18 @@ const AdminDashboard = () => {
 
   const updatePaymentStatus = async (establishmentId: string, status: 'paid' | 'unpaid' | 'expired') => {
     try {
+      let updateData: any = { payment_status: status };
+      
+      // Se está marcando como PAGO, calcular próximo vencimento
+      if (status === 'paid') {
+        const today = new Date();
+        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+        updateData.payment_due_date = nextMonth.toISOString().split('T')[0];
+      }
+
       const { error } = await supabase
         .from('establishments')
-        .update({ payment_status: status })
+        .update(updateData)
         .eq('id', establishmentId);
 
       if (error) throw error;
@@ -155,7 +167,11 @@ const AdminDashboard = () => {
       setEstablishments(prev => 
         prev.map(est => 
           est.id === establishmentId 
-            ? { ...est, payment_status: status }
+            ? { 
+                ...est, 
+                payment_status: status,
+                payment_due_date: status === 'paid' ? updateData.payment_due_date : est.payment_due_date
+              }
             : est
         )
       );
@@ -345,6 +361,67 @@ const AdminDashboard = () => {
     const today = new Date();
     const due = new Date(dueDate);
     return due < today;
+  };
+
+  // Função para verificar e atualizar status vencidos automaticamente
+  const checkAndUpdateExpiredStatus = async () => {
+    try {
+      const today = new Date();
+      
+      // 1. Verificar estabelecimentos que venceu (não pagos)
+      const expiredEstablishments = establishments.filter(est => {
+        if (est.payment_status === 'paid') return false; // Pulos não podem estar vencidos
+        const dueDate = new Date(est.payment_due_date);
+        return dueDate < today;
+      });
+
+      // 2. Verificar estabelecimentos PAGOS que venceu (deve voltar para unpaid)
+      const paidExpiredEstablishments = establishments.filter(est => {
+        if (est.payment_status !== 'paid') return false; // Só verificar pagos
+        const dueDate = new Date(est.payment_due_date);
+        return dueDate < today;
+      });
+
+      // Atualizar status para vencido no banco (não pagos)
+      for (const est of expiredEstablishments) {
+        await supabase
+          .from('establishments')
+          .update({ payment_status: 'expired' })
+          .eq('id', est.id);
+      }
+
+      // Atualizar status para unpaid no banco (pagos que venceu)
+      for (const est of paidExpiredEstablishments) {
+        await supabase
+          .from('establishments')
+          .update({ payment_status: 'unpaid' })
+          .eq('id', est.id);
+      }
+
+      // Atualizar estado local
+      setEstablishments(prev => 
+        prev.map(est => {
+          const dueDate = new Date(est.payment_due_date);
+          
+          if (est.payment_status === 'paid' && dueDate < today) {
+            // Pagos que venceu → voltar para unpaid
+            return { ...est, payment_status: 'unpaid' };
+          } else if (est.payment_status !== 'paid' && dueDate < today) {
+            // Não pagos que venceu → marcar como expired
+            return { ...est, payment_status: 'expired' };
+          }
+          
+          return est;
+        })
+      );
+
+      const totalUpdated = expiredEstablishments.length + paidExpiredEstablishments.length;
+      if (totalUpdated > 0) {
+        console.log(`🔄 ${expiredEstablishments.length} vencidos, ${paidExpiredEstablishments.length} pagos vencidos = ${totalUpdated} total atualizados`);
+      }
+    } catch (error) {
+      console.error('Erro ao verificar status vencidos:', error);
+    }
   };
 
   const getStatusColor = (establishment: Establishment) => {
@@ -547,6 +624,15 @@ const AdminDashboard = () => {
              >
                <RefreshCw className="h-4 w-4" />
                <span>Atualizar</span>
+             </button>
+             
+             <button
+               onClick={checkAndUpdateExpiredStatus}
+               className="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-1 text-sm"
+               title="Verificar e atualizar status vencidos"
+             >
+               <AlertTriangle className="h-4 w-4" />
+               <span>Verificar Vencidos</span>
              </button>
            </div>
          </div>

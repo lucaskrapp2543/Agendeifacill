@@ -246,7 +246,9 @@ export const createEstablishment = async (establishmentData: any) => {
     has_wifi: establishmentData.has_wifi ?? false,
     has_parking: establishmentData.has_parking ?? false,
     has_accessibility: establishmentData.has_accessibility ?? false,
-    wifi_password: establishmentData.wifi_password || null
+    wifi_password: establishmentData.wifi_password || null,
+    pin_password: establishmentData.pin_password || '0000', // Senha padrão "0000"
+    professionals_pins: [] // Array vazio para pins dos profissionais
   };
 
   console.log('Dados a serem criados:', dataToInsert);

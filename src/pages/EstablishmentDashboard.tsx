@@ -590,9 +590,29 @@ const EstablishmentDashboard = () => {
       console.log('💾 Salvando profissionais:', professionals);
       console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
       
+      // Garantir que todos os profissionais tenham pins (senha padrão "0000" se não tiver)
+      let updatedPins = establishment.professionals_pins || [];
+      
+      // Para cada profissional, verificar se tem pin
+      professionals.forEach(professional => {
+        const existingPin = updatedPins.find(p => p.professional_id === professional.id);
+        if (!existingPin) {
+          // Adicionar pin padrão "0000" se não existir
+          updatedPins.push({
+            professional_id: professional.id,
+            pin: '0000'
+          });
+        }
+      });
+      
+      console.log('🔐 Pins atualizados:', updatedPins);
+      
       const { error } = await supabase
         .from('establishments')
-        .update({ professionals })
+        .update({ 
+          professionals,
+          professionals_pins: updatedPins
+        })
         .eq('id', establishment.id);
 
       if (error) throw error;
@@ -600,10 +620,11 @@ const EstablishmentDashboard = () => {
       // Atualizar o estado local do establishment também
       setEstablishment({
         ...establishment,
-        professionals: professionals
+        professionals: professionals,
+        professionals_pins: updatedPins
       });
       
-      console.log('✅ Profissionais salvos com sucesso!');
+      console.log('✅ Profissionais e pins salvos com sucesso!');
       toast.success('Profissionais atualizados!');
     } catch (error) {
       console.error('❌ Erro ao salvar profissionais:', error);
@@ -2440,8 +2461,10 @@ const EstablishmentDashboard = () => {
 
     // Se for "Todos profissionais", usa a senha das configurações
     if (tempSelectedProfessional === 'all') {
-      if (!establishment.pin_password || establishment.pin_password.length === 0) {
-        // Se não tem senha configurada, libera o acesso
+      if (!establishment.pin_password || 
+          establishment.pin_password.length === 0 || 
+          establishment.pin_password === '0000') {
+        // Se não tem senha configurada ou é "0000", libera o acesso
         setSelectedProfessional(tempSelectedProfessional);
         setShowProfessionalPinModal(false);
         setTempSelectedProfessional(null);
@@ -2462,8 +2485,10 @@ const EstablishmentDashboard = () => {
       p => p.professional_id === tempSelectedProfessional
     );
 
-    // Se não tem senha configurada ou a senha está vazia, libera o acesso
-    if (!professionalPin?.pin || professionalPin.pin.length === 0) {
+    // Se não tem senha configurada, senha está vazia, ou é "0000", libera o acesso
+    if (!professionalPin?.pin || 
+        professionalPin.pin.length === 0 || 
+        professionalPin.pin === '0000') {
       setSelectedProfessional(tempSelectedProfessional);
       setShowProfessionalPinModal(false);
       setTempSelectedProfessional(null);
@@ -2483,27 +2508,62 @@ const EstablishmentDashboard = () => {
 
   // Função para mudar o profissional selecionado
   const handleProfessionalSelect = (professionalId: string) => {
+    console.log('🔍 DEBUG - handleProfessionalSelect chamado:', {
+      professionalId,
+      establishment: establishment?.id,
+      professionalsPins: establishment?.professionals_pins,
+      pinPassword: establishment?.pin_password
+    });
+    
     setTempSelectedProfessional(professionalId);
     
     // Resetar autenticação ao mudar de profissional
     setAuthenticatedProfessionalId(null);
     
-    // Se for "Todos profissionais", só pede senha se tiver configurada
+    // Se for "Todos profissionais", só pede senha se tiver configurada E não for "0000"
     if (professionalId === 'all') {
-      if (establishment?.pin_password && establishment.pin_password.length > 0) {
+      console.log('🔍 DEBUG - Verificando senha para "Todos profissionais":', {
+        pinPassword: establishment?.pin_password,
+        hasPin: !!establishment?.pin_password,
+        pinLength: establishment?.pin_password?.length,
+        shouldAskPassword: establishment?.pin_password && 
+                           establishment.pin_password.length > 0 && 
+                           establishment.pin_password !== '0000'
+      });
+      
+      if (establishment?.pin_password && 
+          establishment.pin_password.length > 0 && 
+          establishment.pin_password !== '0000') {
+        console.log('🔒 PEDINDO SENHA para "Todos profissionais"');
         setShowProfessionalPinModal(true);
       } else {
+        console.log('✅ LIBERANDO ACESSO para "Todos profissionais" - Sem senha ou senha padrão');
         setSelectedProfessional(professionalId);
       }
     } else {
-      // Se for um profissional específico, verifica se tem senha configurada
+      // Se for um profissional específico, verifica se tem senha configurada E não for "0000"
       const professionalPin = establishment?.professionals_pins?.find(
         p => p.professional_id === professionalId
       );
 
-      if (professionalPin?.pin && professionalPin.pin.length > 0) {
-      setShowProfessionalPinModal(true);
+      console.log('🔍 DEBUG - Verificando senha do profissional:', {
+        professionalId,
+        professionalPin,
+        hasPin: !!professionalPin?.pin,
+        pinLength: professionalPin?.pin?.length,
+        pinValue: professionalPin?.pin,
+        shouldAskPassword: professionalPin?.pin && 
+                           professionalPin.pin.length > 0 && 
+                           professionalPin.pin !== '0000'
+      });
+
+      if (professionalPin?.pin && 
+          professionalPin.pin.length > 0 && 
+          professionalPin.pin !== '0000') {
+        console.log('🔒 PEDINDO SENHA para profissional:', professionalId);
+        setShowProfessionalPinModal(true);
       } else {
+        console.log('✅ LIBERANDO ACESSO para profissional:', professionalId, '- Sem senha ou senha padrão');
         setSelectedProfessional(professionalId);
       }
     }
@@ -3320,6 +3380,7 @@ const EstablishmentDashboard = () => {
                           }}
                           authenticatedProfessionalId={authenticatedProfessionalId}
                           showPhotoEditButtons={true}
+                          establishment={establishment}
                         />
                         <div className="mt-2 text-xs text-red-600">
                           filtro ativo: {getProfessionalName(selectedProfessional).toLowerCase()}

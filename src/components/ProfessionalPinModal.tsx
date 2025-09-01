@@ -36,6 +36,11 @@ const ProfessionalPinModal = ({ isOpen, onClose, onValidate, professionalName }:
     }
   };
 
+  // Função para entrar sem senha (senha padrão 0000)
+  const handleEnterWithoutPassword = () => {
+    onValidate('0000');
+  };
+
   const handleClose = () => {
     setPin('');
     onClose();
@@ -71,21 +76,33 @@ const ProfessionalPinModal = ({ isOpen, onClose, onValidate, professionalName }:
             />
           </div>
 
-          <div className="flex gap-2">
+          <div className="space-y-3">
+            {/* Botão para entrar sem senha */}
             <button
               type="button"
-              onClick={handleClose}
-              className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              onClick={handleEnterWithoutPassword}
+              className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             >
-              Voltar
+              🚀 Entrar sem Senha (Padrão: 0000)
             </button>
-            <button
-              type="submit"
-              className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
-              disabled={pin.length !== 4}
-            >
-              Confirmar
-            </button>
+            
+            {/* Botões de ação */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleClose}
+                className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
+                disabled={pin.length !== 4}
+              >
+                Confirmar
+              </button>
+            </div>
           </div>
         </form>
       </div>
