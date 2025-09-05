@@ -11,6 +11,7 @@ import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { PixProofViewer } from './PixProofViewer';
 import { Phone } from 'lucide-react';
 import { ProfessionalSelector } from './ProfessionalSelector';
+import { checkWhatsAppSubscriber } from '../lib/supabase';
 
 interface Service {
   id: string;
@@ -67,6 +68,9 @@ interface AppointmentFormProps {
   existingAppointments?: Appointment[];
   pix_payment_status?: string;
   pix_proof_url?: string;
+  subscriberService?: any; // Serviço de assinante para restringir dias
+  isSubscriberBooking?: boolean; // Indica se é agendamento de assinante
+  onConvertToSubscriber?: (subscriberData: any) => void; // Callback para converter para assinante
 }
 
 export function AppointmentForm({ 
@@ -76,10 +80,32 @@ export function AppointmentForm({
   onSelectDate,
   existingAppointments = [],
   pix_payment_status,
-  pix_proof_url
+  pix_proof_url,
+  subscriberService,
+  isSubscriberBooking = false,
+  onConvertToSubscriber
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
+
+  // Função para verificar se o dia é válido para assinantes
+  const isValidDayForSubscriber = (date: Date, allowedWeekdays: string[]) => {
+    if (!allowedWeekdays || allowedWeekdays.length === 0) return true;
+    
+    const dayInPortuguese = format(date, 'EEEE', { locale: ptBR }).toLowerCase();
+    const weekDayMap: Record<string, string> = {
+      'domingo': 'sunday',
+      'segunda-feira': 'monday',
+      'terça-feira': 'tuesday',
+      'quarta-feira': 'wednesday',
+      'quinta-feira': 'thursday',
+      'sexta-feira': 'friday',
+      'sábado': 'saturday'
+    };
+    
+    const dayInEnglish = weekDayMap[dayInPortuguese];
+    return allowedWeekdays.includes(dayInEnglish);
+  };
 
   console.log('🏗️ AppointmentForm - Dados recebidos:');
   console.log('  - establishment:', establishment);
@@ -116,7 +142,47 @@ export function AppointmentForm({
   const [pixProofUrl, setPixProofUrl] = useState<string | null>(null);
   const [pixPaymentMethod, setPixPaymentMethod] = useState<'pix_now' | 'pix_local' | null>(null);
 
+  // Estados para detecção automática de assinantes
+  const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
+  const [isCheckingSubscriber, setIsCheckingSubscriber] = useState(false);
+  const [showSubscriberNotification, setShowSubscriberNotification] = useState(false);
+
   // Removido useEffect que definia automaticamente o método de pagamento
+
+  // Detectar automaticamente se o WhatsApp é de um assinante
+  useEffect(() => {
+    const checkSubscriber = async () => {
+      if (clientWhatsapp && clientWhatsapp.length >= 10 && !isSubscriberBooking) {
+        setIsCheckingSubscriber(true);
+        try {
+          const { data: subscriberData, error } = await checkWhatsAppSubscriber(
+            clientWhatsapp, 
+            establishment.id
+          );
+          
+          if (subscriberData && !error) {
+            setDetectedSubscriber(subscriberData);
+            setShowSubscriberNotification(true);
+            console.log('🎯 Assinante detectado automaticamente:', subscriberData);
+          } else {
+            setDetectedSubscriber(null);
+            setShowSubscriberNotification(false);
+          }
+        } catch (error) {
+          console.error('Erro ao verificar assinante:', error);
+        } finally {
+          setIsCheckingSubscriber(false);
+        }
+      } else {
+        setDetectedSubscriber(null);
+        setShowSubscriberNotification(false);
+      }
+    };
+
+    // Debounce para evitar muitas verificações
+    const timeoutId = setTimeout(checkSubscriber, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [clientWhatsapp, establishment.id, isSubscriberBooking]);
 
   // Verificar se os dados essenciais existem
   if (!establishment) {
@@ -187,16 +253,19 @@ export function AppointmentForm({
       missingFields.push('nome do cliente');
     }
     
-    if (!selectedService) {
-      missingFields.push('serviço');
+    // Para assinantes, não validar serviço nem forma de pagamento
+    if (!isSubscriberBooking) {
+      if (!selectedService) {
+        missingFields.push('serviço');
+      }
+      
+      if (!selectedPaymentMethod) {
+        missingFields.push('forma de pagamento');
+      }
     }
     
     if (!selectedProfessional) {
       missingFields.push('profissional');
-    }
-    
-    if (!selectedPaymentMethod) {
-      missingFields.push('forma de pagamento');
     }
     
     if (!selectedTime) {
@@ -223,15 +292,15 @@ export function AppointmentForm({
     setIsLoading(true);
     try {
       await onSubmit({
-        client_name: clientName,
+        client_name: isSubscriberBooking ? `${clientName} (ASSINANTE)` : clientName, // Adicionar (ASSINANTE) apenas no envio
         client_whatsapp: whatsappNumbers,
-        service: selectedService.name,
+        service: isSubscriberBooking && subscriberService ? subscriberService.name : selectedService.name,
         professional: selectedProfessional.id,
         appointment_date: format(selectedDate, 'yyyy-MM-dd'),
         appointment_time: selectedTime,
-        duration: selectedService.duration,
-        price: selectedService.price,
-        payment_method: selectedPaymentMethod
+        duration: isSubscriberBooking && subscriberService ? (subscriberService.service_duration || 30) : selectedService.duration, // Usar duração da assinatura
+        price: isSubscriberBooking && subscriberService ? 0 : selectedService.price, // Preço 0 para assinantes
+        payment_method: isSubscriberBooking ? 'assinante' : selectedPaymentMethod
       });
 
       // Só navega após sucesso (REMOVIDO: navigate('/success');)
@@ -304,6 +373,11 @@ export function AppointmentForm({
               Esse é seu nome?
             </p>
           )}
+          {isSubscriberBooking && (
+            <p className="mt-1 text-sm text-green-600 font-medium">
+              📌 O sufixo "(ASSINANTE)" é fixo para identificação do estabelecimento
+            </p>
+          )}
           {isEstablishmentOwner && (
             <p className="mt-1 text-sm text-gray-500">
               Você está fazendo uma reserva como estabelecimento para um cliente.
@@ -333,21 +407,92 @@ export function AppointmentForm({
               Esse é seu WhatsApp?
             </p>
           )}
+          
+          {/* Notificação de assinante detectado */}
+          {showSubscriberNotification && detectedSubscriber && (
+            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium text-green-800">
+                  🎯 Assinante detectado automaticamente!
+                </span>
+              </div>
+              <p className="text-sm text-green-700 mt-1">
+                <strong>Plano:</strong> {detectedSubscriber.subscriptions?.name}
+              </p>
+              <p className="text-sm text-green-700">
+                <strong>Válido até:</strong> {format(new Date(detectedSubscriber.end_date), 'dd/MM/yyyy', { locale: ptBR })}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  // Converter para agendamento de assinante
+                  setShowSubscriberNotification(false);
+                  console.log('🔄 Convertendo para agendamento de assinante:', detectedSubscriber);
+                  
+                  // Chamar callback para o componente pai
+                  if (onConvertToSubscriber) {
+                    onConvertToSubscriber(detectedSubscriber);
+                  }
+                }}
+                className="mt-2 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+              >
+                Usar como Assinante
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSubscriberNotification(false)}
+                className="mt-2 ml-2 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
+              >
+                Continuar Normal
+              </button>
+            </div>
+          )}
+          
+          {/* Indicador de verificação */}
+          {isCheckingSubscriber && (
+            <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
+              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              Verificando se é assinante...
+            </div>
+          )}
         </div>
 
 
 
-        {/* 3. SERVIÇO */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            3. Escolha o Serviço
-          </label>
-          <ServiceList
-            services={establishment.services_with_prices}
-            selectedService={selectedService}
-            onSelectService={setSelectedService}
-          />
-        </div>
+        {/* 3. SERVIÇO - Oculto para assinantes */}
+        {!isSubscriberBooking && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              3. Escolha o Serviço
+            </label>
+            <ServiceList
+              services={establishment.services_with_prices}
+              selectedService={selectedService}
+              onSelectService={setSelectedService}
+            />
+          </div>
+        )}
+
+        {/* Serviço do Assinante - Mostrado apenas para assinantes */}
+        {isSubscriberBooking && subscriberService && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              3. Serviço Incluído
+            </label>
+            <div className="w-full p-4 rounded-lg border border-green-200 bg-green-50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-green-800">{subscriberService.name}</h3>
+                  <p className="text-sm text-green-600">Incluído na sua assinatura</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-lg font-bold text-green-800">GRÁTIS</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 4. PROFISSIONAL */}
         <div>
@@ -370,33 +515,77 @@ export function AppointmentForm({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             5. Escolha a Data
           </label>
-          <DatePicker 
-            selectedDate={selectedDate} 
+                    <DatePicker
+            selectedDate={selectedDate}
             onChange={onSelectDate}
             businessHours={establishment.business_hours}
+            allowedWeekdays={subscriberService?.weekdays}
+            isSubscriberBooking={isSubscriberBooking}
           />
         </div>
 
         {/* 6. HORÁRIO */}
-        {selectedService && (
+        {(selectedService || (isSubscriberBooking && subscriberService)) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               6. Escolha o Horário
             </label>
-            <TimeSlotSelector
-              selectedDate={selectedDate}
-              selectedService={selectedService}
-              existingAppointments={filteredExistingAppointments} // Passar agendamentos filtrados
-              selectedTime={selectedTime}
-              onTimeSelect={setSelectedTime}
-              businessHours={businessHours}
-              use15MinuteInterval={establishment.use_15_minute_interval || false}
-            />
+            
+            {/* Verificar se o dia selecionado é válido para assinantes */}
+            {isSubscriberBooking && subscriberService && !isValidDayForSubscriber(selectedDate, subscriberService.weekdays) ? (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-yellow-800">
+                      Dia não disponível para este serviço
+                    </h3>
+                    <div className="mt-2 text-sm text-yellow-700">
+                      <p>Seus dias de agendamento para <strong>{subscriberService.name}</strong> são:</p>
+                      <p className="mt-1 font-semibold">
+                        {subscriberService.weekdays?.map(day => {
+                          const dayNames = {
+                            'monday': 'Segunda-feira',
+                            'tuesday': 'Terça-feira', 
+                            'wednesday': 'Quarta-feira',
+                            'thursday': 'Quinta-feira',
+                            'friday': 'Sexta-feira',
+                            'saturday': 'Sábado',
+                            'sunday': 'Domingo'
+                          };
+                          return dayNames[day as keyof typeof dayNames] || day;
+                        }).join(', ') || 'Não configurado'}
+                      </p>
+                      <p className="mt-2">Por favor, escolha uma data que corresponda a um desses dias da semana.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <TimeSlotSelector
+                selectedDate={selectedDate}
+                selectedService={isSubscriberBooking && subscriberService ? {
+                  id: subscriberService.id,
+                  name: subscriberService.name,
+                  price: 0, // Preço 0 para assinantes
+                  duration: subscriberService.service_duration || 30 // Usar duração da assinatura
+                } : selectedService}
+                existingAppointments={filteredExistingAppointments} // Passar agendamentos filtrados
+                selectedTime={selectedTime}
+                onTimeSelect={setSelectedTime}
+                businessHours={businessHours}
+                use15MinuteInterval={establishment.use_15_minute_interval || false}
+              />
+            )}
           </div>
         )}
 
-        {/* 7. FORMA DE PAGAMENTO */}
-        {selectedService && (
+        {/* 7. FORMA DE PAGAMENTO - Oculto para assinantes */}
+        {selectedService && !isSubscriberBooking && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               7. Forma de Pagamento
@@ -425,24 +614,52 @@ export function AppointmentForm({
           </div>
         )}
 
+        {/* Pagamento já incluído - Mostrado apenas para assinantes */}
+        {isSubscriberBooking && subscriberService && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              7. Pagamento
+            </label>
+            <div className="w-full p-4 rounded-lg border border-blue-200 bg-blue-50">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-sm">✓</span>
+                </div>
+                <p className="text-blue-800 font-medium">Pagamento já incluído na sua assinatura</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* RESUMO DO AGENDAMENTO */}
-        {selectedService && selectedProfessional && selectedPaymentMethod && selectedTime && (
+        {((selectedService && selectedProfessional && selectedPaymentMethod && selectedTime) || 
+          (isSubscriberBooking && subscriberService && selectedProfessional && selectedTime)) && (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
             <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
             <div className="text-sm text-gray-700 space-y-1">
-              <div><strong>Cliente:</strong> {clientName || 'Não informado'}</div>
+              <div><strong>Cliente:</strong> {isSubscriberBooking ? `${clientName} (ASSINANTE)` : (clientName || 'Não informado')}</div>
               <div><strong>WhatsApp:</strong> {clientWhatsapp || 'Não informado'}</div>
-              <div><strong>Serviço:</strong> {selectedService?.name || ''} - R$ {selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}</div>
+              <div><strong>Serviço:</strong> {
+                isSubscriberBooking && subscriberService 
+                  ? `${subscriberService.name} - GRÁTIS (Incluído na assinatura)`
+                  : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
+              }</div>
               <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
               <div><strong>Pagamento:</strong> {
-                selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
-                selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
-                selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
-                selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod
+                isSubscriberBooking 
+                  ? 'Já incluído na assinatura'
+                  : selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
+                    selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
+                    selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
+                    selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod
               }</div>
               <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
               <div><strong>Horário:</strong> {selectedTime}</div>
-              <div><strong>Duração:</strong> {selectedService?.duration || 30} minutos</div>
+              <div><strong>Duração:</strong> {
+                isSubscriberBooking && subscriberService 
+                  ? `${subscriberService.service_duration || 30} minutos` // Usar duração da assinatura
+                  : `${selectedService?.duration || 30} minutos`
+              }</div>
             </div>
           </div>
         )}

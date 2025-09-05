@@ -34,26 +34,52 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
-    // Tentar recuperar a sessão do localStorage primeiro
-    const savedSession = localStorage.getItem('supabase.auth.token');
-    if (savedSession) {
+    // Função para recuperar sessão
+    const initializeAuth = async () => {
       try {
-        const parsedSession = JSON.parse(savedSession);
-        setSession(parsedSession);
-        setUser(parsedSession?.user ?? null);
-        setUserRole(parsedSession?.user?.user_metadata?.role as UserRole || null);
+        // Primeiro, tenta recuperar do Supabase
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Erro ao recuperar sessão:', error);
+        }
+        
+        if (session) {
+          setSession(session);
+          setUser(session.user);
+          setUserRole(session.user?.user_metadata?.role as UserRole || null);
+          
+          // Salva no localStorage para backup
+          localStorage.setItem('agendafacil_auth_token', JSON.stringify(session));
+        } else {
+          // Se não há sessão ativa, tenta recuperar do localStorage
+          const savedSession = localStorage.getItem('agendafacil_auth_token');
+          if (savedSession) {
+            try {
+              const parsedSession = JSON.parse(savedSession);
+              // Verifica se a sessão não expirou
+              if (parsedSession.expires_at && parsedSession.expires_at > Date.now() / 1000) {
+                setSession(parsedSession);
+                setUser(parsedSession.user);
+                setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
+              } else {
+                // Sessão expirada, remove do localStorage
+                localStorage.removeItem('agendafacil_auth_token');
+              }
+            } catch (error) {
+              console.error('Erro ao recuperar sessão do localStorage:', error);
+              localStorage.removeItem('agendafacil_auth_token');
+            }
+          }
+        }
       } catch (error) {
-        console.error('Erro ao recuperar sessão:', error);
+        console.error('Erro na inicialização da autenticação:', error);
+      } finally {
+        setIsLoading(false);
       }
-    }
+    };
 
-    // Recupera a sessão do Supabase
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setUserRole(session?.user?.user_metadata?.role as UserRole || null);
-      setIsLoading(false);
-    });
+    initializeAuth();
 
     // Inscreve para mudanças na sessão
     const {
@@ -64,13 +90,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUserRole(session?.user?.user_metadata?.role as UserRole || null);
       setIsLoading(false);
 
-      // Salvar a sessão no localStorage (permitindo múltiplas sessões)
+      // Salvar a sessão no localStorage com chave consistente
       if (session) {
-        const sessionKey = `supabase.auth.token.${session.user.id}`;
-        localStorage.setItem(sessionKey, JSON.stringify(session));
-        localStorage.setItem('supabase.auth.token', JSON.stringify(session));
+        localStorage.setItem('agendafacil_auth_token', JSON.stringify(session));
+        console.log('✅ Sessão salva no localStorage para PWA');
       } else {
-        localStorage.removeItem('supabase.auth.token');
+        localStorage.removeItem('agendafacil_auth_token');
+        console.log('🗑️ Sessão removida do localStorage');
       }
     });
 
@@ -93,9 +119,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUserRole(data.user?.user_metadata?.role as UserRole || null);
 
       if (data.session && data.user) {
-        const sessionKey = `supabase.auth.token.${data.user.id}`;
-        localStorage.setItem(sessionKey, JSON.stringify(data.session));
-        localStorage.setItem('supabase.auth.token', JSON.stringify(data.session));
+        localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
+        console.log('✅ Login salvo no localStorage para PWA');
       }
       return { user: data.user, session: data.session }; // Retorna o user e a session
     } catch (error) {
@@ -123,9 +148,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUserRole(data.user?.user_metadata?.role as UserRole || null);
 
       if (data.session && data.user) {
-        const sessionKey = `supabase.auth.token.${data.user.id}`;
-        localStorage.setItem(sessionKey, JSON.stringify(data.session));
-        localStorage.setItem('supabase.auth.token', JSON.stringify(data.session));
+        localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
+        console.log('✅ Cadastro salvo no localStorage para PWA');
       }
       return { user: data.user, session: data.session };
     } catch (error) {
@@ -139,7 +163,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(null);
       setUserRole(null);
       setSession(null);
-      localStorage.removeItem('supabase.auth.token');
+      localStorage.removeItem('agendafacil_auth_token');
+      console.log('🗑️ Logout realizado e localStorage limpo');
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
     }

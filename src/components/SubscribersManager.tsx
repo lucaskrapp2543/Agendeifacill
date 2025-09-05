@@ -47,10 +47,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const [newSubscriptionName, setNewSubscriptionName] = useState('');
   const [newSubscriptionValue, setNewSubscriptionValue] = useState<number>(0);
-  const [newSubscriptionDuration, setNewSubscriptionDuration] = useState<number>(1);
+  const [newSubscriptionDuration, setNewSubscriptionDuration] = useState<number>(30); // Duração em minutos
+  const [newSubscriptionWeekdays, setNewSubscriptionWeekdays] = useState<string[]>([]);
 
   const [selectedSubscriptionToAdd, setSelectedSubscriptionToAdd] = useState<string>('');
   const [selectedClientToAdd, setSelectedClientToAdd] = useState<string>('');
+
+  // Novos campos para adicionar assinante
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientEmail, setNewClientEmail] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   // Funções de fetch
   const fetchSubscriptions = async () => {
@@ -105,7 +113,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Handlers para criação de assinatura
   const handleCreateSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSubscriptionName || !newSubscriptionValue || !newSubscriptionDuration) {
+    if (!newSubscriptionName || !newSubscriptionValue || !newSubscriptionDuration || newSubscriptionWeekdays.length === 0) {
       toast.error('Preencha todos os campos para criar uma assinatura.');
       return;
     }
@@ -114,7 +122,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         establishmentId,
         newSubscriptionName,
         newSubscriptionValue,
-        newSubscriptionDuration
+        1, // Duração fixa de 1 mês (não será mais usada)
+        newSubscriptionWeekdays, // Adicionar os dias da semana
+        newSubscriptionDuration // Adicionar a duração do serviço
       );
       if (error) {
         throw error;
@@ -122,7 +132,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       toast.success('Assinatura criada com sucesso!');
       setNewSubscriptionName('');
       setNewSubscriptionValue(0);
-      setNewSubscriptionDuration(1);
+      setNewSubscriptionDuration(30); // Reset para 30 minutos
+      setNewSubscriptionWeekdays([]);
       fetchSubscriptions(); // Atualiza a lista
     } catch (error: any) {
       console.error('Erro ao criar assinatura:', error);
@@ -130,14 +141,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // Estados para adicionar cliente diretamente
-  const [newClientName, setNewClientName] = useState('');
-  const [newClientPhone, setNewClientPhone] = useState('');
 
   // Handler para adicionar assinante diretamente
   const handleAddClientSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSubscriptionToAdd || !newClientName || !newClientPhone) {
+    if (!selectedSubscriptionToAdd || !newClientName || !newClientPhone || !newClientEmail || !startDate || !endDate) {
       toast('Por favor, preencha todos os campos.', 'error');
       return;
     }
@@ -146,6 +154,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       console.log('✅ Adicionando cliente diretamente:', {
         name: newClientName,
         phone: newClientPhone,
+        email: newClientEmail,
+        startDate,
+        endDate,
         subscriptionId: selectedSubscriptionToAdd
       });
 
@@ -156,11 +167,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
 
-      const endDate = new Date();
-      endDate.setMonth(endDate.getMonth() + subscriptionToAdd.duration_months);
-
+      // Normalizar número de telefone (remover formatação)
+      const normalizedPhone = newClientPhone.replace(/\D/g, '');
+      
       // Gerar ID único para o cliente manual
-      const manualClientId = `manual_${newClientPhone}`;
+      const manualClientId = `manual_${normalizedPhone}`;
 
       const { data, error } = await supabase
         .from('client_subscriptions')
@@ -169,11 +180,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             client_id: manualClientId,
             subscription_id: selectedSubscriptionToAdd,
             establishment_id: establishmentId,
-            start_date: new Date().toISOString().split('T')[0],
-            end_date: endDate.toISOString().split('T')[0],
+            start_date: startDate,
+            end_date: endDate,
             payment_status: 'unpaid',
             last_payment_date: null,
-            client_name_override: newClientName
+            client_name_override: newClientName,
+            client_email: newClientEmail,
+            client_whatsapp: normalizedPhone // Salvar WhatsApp normalizado para reconhecimento automático
           }
         ])
         .select()
@@ -183,9 +196,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Salvar cliente manual no localStorage
       const manualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
-      manualClients[newClientPhone] = {
+      manualClients[normalizedPhone] = {
         name: newClientName,
-        whatsapp: newClientPhone,
+        whatsapp: normalizedPhone,
         id: manualClientId
       };
       localStorage.setItem('manualClients', JSON.stringify(manualClients));
@@ -194,6 +207,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setSelectedSubscriptionToAdd('');
       setNewClientName('');
       setNewClientPhone('');
+      setNewClientEmail('');
+      setStartDate('');
+      setEndDate('');
       
       // Forçar re-fetch dos dados
       await fetchClientSubscriptions();
@@ -440,18 +456,57 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             />
           </div>
           <div>
-            <label htmlFor="subscriptionDuration" className="block text-sm font-medium text-gray-400 mb-1">Duração (meses)</label>
+            <label htmlFor="subscriptionDuration" className="block text-sm font-medium text-gray-400 mb-1">Duração do Serviço (minutos)</label>
             <select
               id="subscriptionDuration"
               value={newSubscriptionDuration}
               onChange={(e) => setNewSubscriptionDuration(Number(e.target.value))}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
               required
             >
-              {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
-                <option key={month} value={month}>{month} {month === 1 ? 'mês' : 'meses'}</option>
-              ))}
+              <option value={15}>15 minutos</option>
+              <option value={30}>30 minutos</option>
+              <option value={45}>45 minutos</option>
+              <option value={60}>1 hora</option>
+              <option value={75}>1 hora e 15 minutos</option>
+              <option value={90}>1 hora e 30 minutos</option>
+              <option value={105}>1 hora e 45 minutos</option>
+              <option value={120}>2 horas</option>
+              <option value={135}>2 horas e 15 minutos</option>
+              <option value={150}>2 horas e 30 minutos</option>
+              <option value={165}>2 horas e 45 minutos</option>
+              <option value={180}>3 horas</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">Dias da Semana</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: 'monday', label: 'Segunda-feira' },
+                { value: 'tuesday', label: 'Terça-feira' },
+                { value: 'wednesday', label: 'Quarta-feira' },
+                { value: 'thursday', label: 'Quinta-feira' },
+                { value: 'friday', label: 'Sexta-feira' },
+                { value: 'saturday', label: 'Sábado' },
+                { value: 'sunday', label: 'Domingo' }
+              ].map((day) => (
+                <label key={day.value} className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newSubscriptionWeekdays.includes(day.value)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setNewSubscriptionWeekdays([...newSubscriptionWeekdays, day.value]);
+                      } else {
+                        setNewSubscriptionWeekdays(newSubscriptionWeekdays.filter(d => d !== day.value));
+                      }
+                    }}
+                    className="w-4 h-4 text-blue-600 bg-[#2a2b2c] border-gray-600 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-300">{day.label}</span>
+                </label>
+              ))}
+            </div>
           </div>
           <button type="submit" className="btn-primary w-full">
             <Plus className="h-5 w-5 mr-2" /> Criar Assinatura
@@ -470,7 +525,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               <div key={sub.id} className="p-3 rounded-lg bg-[#242628] border border-gray-700 flex justify-between items-center">
                 <div>
                   <p className="font-medium text-lg">{sub.name}</p>
-                  <p className="text-gray-400 text-sm">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sub.value)} / {sub.duration_months} {sub.duration_months === 1 ? 'mês' : 'meses'}</p>
+                  <p className="text-gray-400 text-sm">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sub.value)}</p>
+                  {sub.weekdays && sub.weekdays.length > 0 && (
+                    <p className="text-blue-400 text-xs mt-1">
+                      📅 {sub.weekdays.map(day => {
+                        const dayNames = {
+                          'monday': 'Seg',
+                          'tuesday': 'Ter', 
+                          'wednesday': 'Qua',
+                          'thursday': 'Qui',
+                          'friday': 'Sex',
+                          'saturday': 'Sáb',
+                          'sunday': 'Dom'
+                        };
+                        return dayNames[day as keyof typeof dayNames] || day;
+                      }).join(', ')}
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={() => handleDeleteSubscription(sub.id)}
@@ -525,6 +596,40 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               onChange={(e) => setNewClientPhone(e.target.value)}
               className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
               placeholder="Digite o número de telefone"
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="newClientEmail" className="block text-sm font-medium text-gray-400 mb-1">E-mail</label>
+            <input
+              type="email"
+              id="newClientEmail"
+              value={newClientEmail}
+              onChange={(e) => setNewClientEmail(e.target.value)}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              placeholder="Digite o e-mail do cliente"
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="startDate" className="block text-sm font-medium text-gray-400 mb-1">Data de Início</label>
+            <input
+              type="date"
+              id="startDate"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="endDate" className="block text-sm font-medium text-gray-400 mb-1">Data de Término</label>
+            <input
+              type="date"
+              id="endDate"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
               required
             />
           </div>

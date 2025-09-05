@@ -12,6 +12,8 @@ interface DatePickerProps {
     open2: string | null;
     close2: string | null;
   }>;
+  allowedWeekdays?: string[]; // Dias da semana permitidos para assinantes
+  isSubscriberBooking?: boolean; // Indica se é agendamento de assinante
 }
 
 const weekDayMap: Record<string, string> = {
@@ -24,13 +26,25 @@ const weekDayMap: Record<string, string> = {
   'sábado': 'saturday'
 };
 
-export function DatePicker({ selectedDate, onChange, businessHours }: DatePickerProps) {
+export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekdays, isSubscriberBooking = false }: DatePickerProps) {
   const today = startOfDay(new Date());
   const maxDate = addMonths(today, 6); // Permitir agendamento até 6 meses no futuro
 
   const isDayEnabled = (date: Date) => {
+    // Para agendamento de assinante, sempre permitir seleção de datas
+    if (isSubscriberBooking) {
+      return true;
+    }
+    
     const dayInPortuguese = format(date, 'EEEE', { locale: ptBR }).toLowerCase();
     const dayInEnglish = weekDayMap[dayInPortuguese];
+    
+    // Se há restrição de dias para assinantes, verificar se o dia está permitido
+    if (allowedWeekdays && allowedWeekdays.length > 0) {
+      return allowedWeekdays.includes(dayInEnglish);
+    }
+    
+    // Caso contrário, usar a lógica normal de horários de funcionamento
     return businessHours[dayInEnglish]?.enabled ?? true;
   };
 

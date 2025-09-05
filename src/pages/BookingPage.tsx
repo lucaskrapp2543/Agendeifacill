@@ -34,8 +34,45 @@ export default function BookingPage() {
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
   const [showBusinessHours, setShowBusinessHours] = useState(false);
+  
+  // Estados para agendamento assinante
+  const [showSubscriberBooking, setShowSubscriberBooking] = useState(false);
+  const [selectedSubscriberService, setSelectedSubscriberService] = useState<any>(null);
+  const [convertedSubscriberData, setConvertedSubscriberData] = useState<any>(null); // Dados do assinante convertido
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
+
+  // Função para converter agendamento normal para assinante
+  const handleConvertToSubscriber = (subscriberData: any) => {
+    console.log('🔄 Convertendo agendamento para assinante:', subscriberData);
+    
+    // Salvar dados do assinante
+    setConvertedSubscriberData(subscriberData);
+    
+    // Configurar o serviço de assinante
+    const subscriberService = {
+      id: subscriberData.subscriptions.id,
+      name: subscriberData.subscriptions.name,
+      service_duration: subscriberData.subscriptions.service_duration || 30,
+      weekdays: subscriberData.subscriptions.weekdays || []
+    };
+    
+    setSelectedSubscriberService(subscriberService);
+    
+    // Fechar formulário normal e abrir formulário de assinante
+    setShowBookingForm(false);
+    setShowSubscriberBooking(true);
+    
+    // Scroll para a seção de assinante
+    setTimeout(() => {
+      const subscriberSection = document.querySelector('[data-subscriber-booking]');
+      if (subscriberSection) {
+        subscriberSection.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 100);
+    
+    toast.success('Convertido para agendamento de assinante! 🎯');
+  };
 
   const pulseKeyframes = `
     @keyframes pulse-scale {
@@ -498,6 +535,81 @@ export default function BookingPage() {
                 <img src="/calendario.png" alt="Calendário" className="h-6 w-6 absolute right-6" />
               </button>
 
+
+
+              {/* Dropdown SER ASSINANTE */}
+              {subscriptions.length > 0 && (
+                <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 10 }}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
+                    }}
+                    className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center shadow-2xl hover:shadow-3xl border-2 border-gray-300 relative"
+                  >
+                    SER ASSINANTE
+                    <img src="/coroa.png" alt="Coroa" className="h-6 w-6 absolute right-6" />
+                  </button>
+                  
+                  {showSubscriptionsDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-60 overflow-y-auto">
+                      {subscriptions.map((subscription) => (
+                        <div
+                          key={subscription.id}
+                          className="flex items-center justify-between p-3 hover:bg-gray-50 border-b border-gray-200 last:border-b-0"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900 truncate">{subscription.name || 'Assinatura'}</div>
+                            <div className="text-sm text-gray-500">
+                              R$ {(subscription.value || 0).toFixed(2).replace('.', ',')} / {subscription.duration_months || 1} {subscription.duration_months === 1 ? 'mês' : 'meses'}
+                            </div>
+                            {subscription.weekdays && subscription.weekdays.length > 0 && (
+                              <div className="text-xs text-blue-600 mt-1">
+                                📅 {subscription.weekdays.map(day => {
+                                  const dayNames = {
+                                    'monday': 'Seg',
+                                    'tuesday': 'Ter', 
+                                    'wednesday': 'Qua',
+                                    'thursday': 'Qui',
+                                    'friday': 'Sex',
+                                    'saturday': 'Sáb',
+                                    'sunday': 'Dom'
+                                  };
+                                  return dayNames[day as keyof typeof dayNames] || day;
+                                }).join(', ')}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => {
+                              handleSubscribeClick(subscription.name);
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors"
+                          >
+                            Assinar
+                          </button>
+                        </div>
+                      ))}
+                      
+                      {/* Item fixo SABER MAIS */}
+                      <div className="p-3 border-t border-gray-200 bg-gray-50">
+                        <button
+                          onClick={() => {
+                            handleSaberMaisClick();
+                          }}
+                          className="w-full text-center text-blue-600 hover:text-blue-800 font-medium text-sm transition-colors"
+                        >
+                          📞 SABER MAIS
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+
               {/* Botão AVALIE A GENTE */}
               <a
                 href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
@@ -564,71 +676,101 @@ export default function BookingPage() {
                 <img src="/LOCAL.png" alt="Localização" className="h-6 w-6 absolute right-6" />
               </a>
 
-              {/* Dropdown SER ASSINANTE */}
-              {subscriptions.length > 0 && (
-                <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 1000 }}>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
-                    }}
-                    className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center shadow-2xl hover:shadow-3xl border-2 border-gray-300 relative"
-                  >
-                                          SER ASSINANTE
-                      <img src="/coroa.png" alt="Coroa" className="h-6 w-6 absolute right-6" />
-                  </button>
-                  
-                  {showSubscriptionsDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
-                      {subscriptions.map((subscription) => (
-                        <div
-                          key={subscription.id}
-                          className="flex items-center justify-between p-3 hover:bg-gray-50 border-b border-gray-200 last:border-b-0"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-gray-900 truncate">{subscription.name || 'Assinatura'}</div>
-                            <div className="text-sm text-gray-500">
-                              R$ {(subscription.value || 0).toFixed(2).replace('.', ',')} / {subscription.duration_months || 1} {subscription.duration_months === 1 ? 'mês' : 'meses'}
+
+              {/* Tela de Agendamento Assinante - Posicionada após os botões */}
+              {showSubscriberBooking && (
+                <div data-subscriber-booking className="bg-white rounded-lg shadow-md p-6 text-gray-900 mt-4 z-50 relative">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold">Agendamento Assinante</h2>
+                    <button
+                      onClick={() => {
+                        setShowSubscriberBooking(false);
+                        setSelectedSubscriberService(null);
+                      }}
+                      className="text-gray-500 hover:text-gray-700 text-2xl"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {!selectedSubscriberService ? (
+                    // Tela de seleção de serviços
+                    <div>
+                      <p className="text-lg text-gray-700 mb-6">Selecione qual é o seu:</p>
+                      <div className="space-y-4">
+                        {subscriptions.map((subscription) => (
+                          <div key={subscription.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="font-semibold text-gray-900">{subscription.name}</h3>
+                                <p className="text-sm text-gray-600">
+                                  R$ {subscription.value.toFixed(2).replace('.', ',')}
+                                </p>
+                                {subscription.weekdays && subscription.weekdays.length > 0 && (
+                                  <p className="text-xs text-blue-600 mt-1">
+                                    📅 {subscription.weekdays.map(day => {
+                                      const dayNames = {
+                                        'monday': 'Seg',
+                                        'tuesday': 'Ter', 
+                                        'wednesday': 'Qua',
+                                        'thursday': 'Qui',
+                                        'friday': 'Sex',
+                                        'saturday': 'Sáb',
+                                        'sunday': 'Dom'
+                                      };
+                                      return dayNames[day as keyof typeof dayNames] || day;
+                                    }).join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => setSelectedSubscriberService(subscription)}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                              >
+                                Agendar
+                              </button>
                             </div>
                           </div>
-                          <div className="flex gap-2 ml-3 flex-shrink-0">
-                            <button
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                handleSubscribeClick(subscription.name);
-                              }}
-                              className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap"
-                            >
-                              QUERO
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      
-                      {/* Item fixo SABER MAIS */}
-                      <div className="flex items-center justify-between p-3 hover:bg-gray-50 border-t border-gray-200">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-gray-900 truncate">SABER MAIS</div>
-                          <div className="text-sm text-gray-500">
-                            Informações sobre assinaturas
-                          </div>
-                        </div>
-                        <div className="flex gap-2 ml-3 flex-shrink-0">
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleSaberMaisClick();
-                            }}
-                            className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap"
-                          >
-                            QUERO
-                          </button>
-                        </div>
+                        ))}
                       </div>
+                    </div>
+                  ) : (
+                    // Tela de agendamento com restrição de dias
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold">{selectedSubscriberService.name}</h3>
+                        <button
+                          onClick={() => setSelectedSubscriberService(null)}
+                          className="text-gray-500 hover:text-gray-700"
+                        >
+                          ← Voltar
+                        </button>
+                      </div>
+                      
+                      <p className="text-sm text-gray-600 mb-4">
+                        📅 Dias disponíveis: {selectedSubscriberService.weekdays?.map(day => {
+                          const dayNames = {
+                            'monday': 'Segunda',
+                            'tuesday': 'Terça', 
+                            'wednesday': 'Quarta',
+                            'thursday': 'Quinta',
+                            'friday': 'Sexta',
+                            'saturday': 'Sábado',
+                            'sunday': 'Domingo'
+                          };
+                          return dayNames[day as keyof typeof dayNames] || day;
+                        }).join(', ') || 'Não configurado'}
+                      </p>
+
+                      <AppointmentForm
+                        establishment={establishment}
+                        onSubmit={handleSubmit}
+                        selectedDate={selectedDate}
+                        onSelectDate={setSelectedDate}
+                        existingAppointments={existingAppointments}
+                        subscriberService={selectedSubscriberService} // Passar o serviço para restringir dias
+                        isSubscriberBooking={true} // Indica que é agendamento de assinante
+                      />
                     </div>
                   )}
                 </div>
@@ -871,8 +1013,115 @@ export default function BookingPage() {
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
                 existingAppointments={existingAppointments}
+                onConvertToSubscriber={handleConvertToSubscriber}
                 // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
               />
+            </div>
+          )}
+
+          {console.log('🔍 Debug - showSubscriberBooking:', showSubscriberBooking)}
+          {showSubscriberBooking && (
+            <div className="bg-red-100 border-4 border-red-500 rounded-lg shadow-md p-6 text-gray-900 mt-4 z-50 relative">
+              {console.log('🔍 Debug - Renderizando tela de agendamento assinante!')}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold">Agendamento Assinante</h2>
+                <button
+                  onClick={() => {
+                    setShowSubscriberBooking(false);
+                    setSelectedSubscriberService(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {!selectedSubscriberService ? (
+                // Tela de seleção de serviços
+                <div>
+                  <p className="text-lg text-gray-700 mb-6">Selecione qual é o seu:</p>
+                  {console.log('🔍 Debug - Renderizando lista de subscriptions:', subscriptions)}
+                  <div className="space-y-4">
+                    {subscriptions.map((subscription) => {
+                      console.log('🔍 Debug - Renderizando subscription:', subscription);
+                      return (
+                      <div key={subscription.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="font-semibold text-gray-900">{subscription.name}</h3>
+                            <p className="text-sm text-gray-600">
+                              R$ {subscription.value.toFixed(2).replace('.', ',')}
+                            </p>
+                            {subscription.weekdays && subscription.weekdays.length > 0 && (
+                              <p className="text-xs text-blue-600 mt-1">
+                                📅 {subscription.weekdays.map(day => {
+                                  const dayNames = {
+                                    'monday': 'Seg',
+                                    'tuesday': 'Ter', 
+                                    'wednesday': 'Qua',
+                                    'thursday': 'Qui',
+                                    'friday': 'Sex',
+                                    'saturday': 'Sáb',
+                                    'sunday': 'Dom'
+                                  };
+                                  return dayNames[day as keyof typeof dayNames] || day;
+                                }).join(', ')}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => setSelectedSubscriberService(subscription)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                          >
+                            Agendar
+                          </button>
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                // Tela de agendamento com restrição de dias
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold">{selectedSubscriberService.name}</h3>
+                    <button
+                      onClick={() => setSelectedSubscriberService(null)}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      ← Voltar
+                    </button>
+                  </div>
+                  
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <p className="text-sm text-blue-800">
+                      <strong>Dias disponíveis:</strong> {selectedSubscriberService.weekdays?.map(day => {
+                        const dayNames = {
+                          'monday': 'Segunda-feira',
+                          'tuesday': 'Terça-feira', 
+                          'wednesday': 'Quarta-feira',
+                          'thursday': 'Quinta-feira',
+                          'friday': 'Sexta-feira',
+                          'saturday': 'Sábado',
+                          'sunday': 'Domingo'
+                        };
+                        return dayNames[day as keyof typeof dayNames] || day;
+                      }).join(', ') || 'Não configurado'}
+                    </p>
+                  </div>
+
+                  <AppointmentForm
+                    establishment={establishment}
+                    onSubmit={handleSubmit}
+                    selectedDate={selectedDate}
+                    onSelectDate={setSelectedDate}
+                    existingAppointments={existingAppointments}
+                    subscriberService={selectedSubscriberService} // Passar o serviço para restringir dias
+                    isSubscriberBooking={true} // Indica que é agendamento de assinante
+                  />
+                </div>
+              )}
             </div>
           )}
 

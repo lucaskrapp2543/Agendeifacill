@@ -33,7 +33,34 @@ export const supabase: SupabaseClient<Database> = createClient(
       flowType: 'pkce',
       // Configurações para permitir múltiplas sessões
       multiTab: true,
-      debug: false
+      debug: false,
+      // Configurações específicas para PWA
+      storageKey: 'agendafacil_auth_token',
+      // Força o uso do localStorage mesmo em PWAs
+      storage: {
+        getItem: (key: string) => {
+          try {
+            return localStorage.getItem(key);
+          } catch (error) {
+            console.warn('Erro ao acessar localStorage:', error);
+            return null;
+          }
+        },
+        setItem: (key: string, value: string) => {
+          try {
+            localStorage.setItem(key, value);
+          } catch (error) {
+            console.warn('Erro ao salvar no localStorage:', error);
+          }
+        },
+        removeItem: (key: string) => {
+          try {
+            localStorage.removeItem(key);
+          } catch (error) {
+            console.warn('Erro ao remover do localStorage:', error);
+          }
+        }
+      }
     },
     global: {
       headers: { 'x-application-name': 'agendafacil' },
@@ -1039,11 +1066,18 @@ export const loadEstablishmentDirect = async (code: string) => {
 };
 
 // Subscription functions
-export const createSubscription = async (establishmentId: string, name: string, value: number, durationMonths: number) => {
+export const createSubscription = async (establishmentId: string, name: string, value: number, durationMonths: number, weekdays?: string[], serviceDuration?: number) => {
   const { data, error } = await supabase
     .from('subscriptions')
     .insert([
-      { establishment_id: establishmentId, name, value, duration_months: durationMonths }
+      { 
+        establishment_id: establishmentId, 
+        name, 
+        value, 
+        duration_months: durationMonths,
+        weekdays: weekdays || [],
+        service_duration: serviceDuration || 30 // Duração padrão de 30 minutos
+      }
     ])
     .select()
     .single();
@@ -1069,8 +1103,67 @@ export const deleteSubscription = async (subscriptionId: string) => {
   return { data, error };
 };
 
+// Função para normalizar número de telefone (remover formatação)
+const normalizePhoneNumber = (phone: string): string => {
+  return phone.replace(/\D/g, ''); // Remove tudo que não é dígito
+};
+
+// Função para verificar se um WhatsApp é assinante ativo
+export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId: string) => {
+  try {
+    // Normalizar o número de telefone (remover formatação)
+    const normalizedWhatsapp = normalizePhoneNumber(whatsapp);
+    console.log('🔍 Verificando assinante:', { original: whatsapp, normalized: normalizedWhatsapp });
+
+    const { data, error } = await supabase
+      .from('client_subscriptions')
+      .select(`
+        *,
+        subscriptions (
+          id,
+          name,
+          value,
+          duration_months,
+          weekdays,
+          service_duration
+        )
+      `)
+      .eq('establishment_id', establishmentId)
+      .eq('payment_status', 'paid') // Apenas assinantes com pagamento em dia
+      .gte('end_date', new Date().toISOString().split('T')[0]) // Assinatura ainda válida
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Erro ao verificar assinante:', error);
+      return { data: null, error };
+    }
+
+    // Buscar por número normalizado
+    const subscriber = data?.find(sub => {
+      const subscriberPhone = normalizePhoneNumber(sub.client_whatsapp || '');
+      console.log('🔍 Comparando:', { 
+        subscriberPhone, 
+        normalizedWhatsapp, 
+        match: subscriberPhone === normalizedWhatsapp 
+      });
+      return subscriberPhone === normalizedWhatsapp;
+    });
+
+    if (subscriber) {
+      console.log('✅ Assinante encontrado:', subscriber);
+      return { data: subscriber, error: null };
+    }
+
+    console.log('❌ Nenhum assinante encontrado para WhatsApp:', whatsapp);
+    return { data: null, error: null };
+  } catch (error) {
+    console.error('Erro na verificação de assinante:', error);
+    return { data: null, error };
+  }
+};
+
 // Client Subscription functions
-export const addClientSubscription = async (clientId: string, subscriptionId: string, establishmentId: string, startDate: Date) => {
+export const addClientSubscription = async (clientId: string, subscriptionId: string, establishmentId: string, startDate: Date, clientWhatsapp?: string) => {
   const { data: subscriptionData, error: subscriptionError } = await getSubscriptionById(subscriptionId);
 
   if (subscriptionError || !subscriptionData) {
@@ -1089,7 +1182,8 @@ export const addClientSubscription = async (clientId: string, subscriptionId: st
         start_date: startDate.toISOString().split('T')[0],
         end_date: endDate.toISOString().split('T')[0],
         payment_status: 'unpaid', // Inicia como não pago
-        last_payment_date: null
+        last_payment_date: null,
+        client_whatsapp: clientWhatsapp // Salvar o WhatsApp para reconhecimento automático
       }
     ])
     .select()
