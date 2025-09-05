@@ -34,6 +34,7 @@ export function ServiceList({ services, selectedService, onSelectService }: Serv
     return (
       <div className="relative" ref={dropdownRef}>
         <button
+          type="button"
           onClick={() => setIsOpen(!isOpen)}
           className="relative w-full cursor-pointer rounded-lg bg-white border border-gray-300 py-4 pl-4 pr-10 text-left focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary hover:border-primary/50"
         >
@@ -66,6 +67,7 @@ export function ServiceList({ services, selectedService, onSelectService }: Serv
           <div className="absolute z-10 mt-1 w-full overflow-auto rounded-md bg-white border border-gray-300 shadow-lg max-h-60">
             {services.map((service) => (
               <button
+                type="button"
                 key={service.id}
                 onClick={() => {
                   onSelectService(service);
@@ -105,6 +107,7 @@ export function ServiceList({ services, selectedService, onSelectService }: Serv
     <div className="space-y-2">
       {services.map(service => (
         <button
+          type="button"
           key={service.id}
           onClick={() => onSelectService(service)}
           className={`w-full text-left p-4 rounded-lg border transition-colors ${

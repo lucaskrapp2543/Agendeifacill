@@ -25,7 +25,7 @@ import { NotificationPermission } from '../components/NotificationPermission';
 import { initRealTimeNotifications, stopRealTimeNotifications } from '../utils/realTimeNotifications';
 import { NotificationsPanel } from '../components/NotificationsPanel';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
-import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker';
+// import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker';
 import Sidebar from '../components/Sidebar';
 import { UpdateButton } from '../components/UpdateButton';
 
@@ -1376,7 +1376,8 @@ const EstablishmentDashboard = () => {
 
   const calculateDailyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      if (appointment.status !== 'cancelled') {
+      // Só incluir no faturamento se o status for 'completed' (verde - FEITO)
+      if (appointment.status === 'completed') {
         // Excluir do faturamento se for assinante pago (serviço gratuito)
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento
@@ -1389,7 +1390,8 @@ const EstablishmentDashboard = () => {
 
   const calculateMonthlyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      if (appointment.status !== 'cancelled') {
+      // Só incluir no faturamento se o status for 'completed' (verde - FEITO)
+      if (appointment.status === 'completed') {
         // Excluir do faturamento se for assinante pago (serviço gratuito)
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento
@@ -1416,7 +1418,8 @@ const EstablishmentDashboard = () => {
         return total; // Não incluir agendamentos de outros meses
       }
       
-      if (appointment.status !== 'cancelled') {
+      // Só incluir no faturamento se o status for 'completed' (verde - FEITO)
+      if (appointment.status === 'completed') {
         // Excluir do faturamento se for assinante pago (serviço gratuito)
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento

@@ -207,6 +207,7 @@ export function TimeSlotSelector({
 
         return (
           <button
+            type="button"
             key={time}
             onClick={() => !isDisabled && onTimeSelect(time)}
             disabled={isDisabled}

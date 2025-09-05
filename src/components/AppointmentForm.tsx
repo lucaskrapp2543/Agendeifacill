@@ -180,35 +180,41 @@ export function AppointmentForm({
       console.log('💾 Dados do usuário salvos no localStorage:', userData);
     }
 
-    // Validação completa
+    // Validação completa - criar lista do que está faltando
+    const missingFields = [];
+    
     if (!clientName.trim()) {
-      alert('Por favor, informe o nome do cliente');
-      return;
+      missingFields.push('nome do cliente');
     }
     
     if (!selectedService) {
-      alert('Por favor, selecione um serviço');
-      return;
+      missingFields.push('serviço');
     }
     
     if (!selectedProfessional) {
-      alert('Por favor, selecione um profissional');
-      return;
+      missingFields.push('profissional');
     }
     
     if (!selectedPaymentMethod) {
-      alert('Por favor, selecione uma forma de pagamento');
-      return;
+      missingFields.push('forma de pagamento');
     }
     
     if (!selectedTime) {
-      alert('Por favor, selecione um horário');
-      return;
+      missingFields.push('horário');
     }
 
     // Validação específica para PIX
     if (selectedPaymentMethod === 'pix' && pixPaymentMethod === 'pix_now' && !pixProofUrl) {
-      alert('Por favor, envie o comprovante do PIX');
+      missingFields.push('comprovante do PIX');
+    }
+
+    // Se há campos faltando, mostrar mensagem amigável
+    if (missingFields.length > 0) {
+      const message = missingFields.length === 1 
+        ? `Por favor, selecione o ${missingFields[0]}.`
+        : `Por favor, complete os seguintes campos: ${missingFields.join(', ')}.`;
+      
+      alert(message);
       return;
     }
 

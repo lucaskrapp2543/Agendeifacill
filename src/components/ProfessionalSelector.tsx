@@ -273,6 +273,7 @@ export function ProfessionalSelector({
         {/* Opção "Qualquer Profissional" */}
         <div className="flex flex-col items-center">
                      <button
+             type="button"
              onClick={() => onSelectProfessional(null)}
              className={`relative w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 ${
                selectedProfessional === null
@@ -299,6 +300,7 @@ export function ProfessionalSelector({
              <div key={professional.id} className="flex flex-col items-center">
                <div className="relative group">
                  <button
+                   type="button"
                    onClick={() => onSelectProfessional(professional.id)}
                    className={`relative w-16 h-16 rounded-full overflow-hidden transition-all duration-200 ${
                      selectedProfessional === professional.id
@@ -325,6 +327,7 @@ export function ProfessionalSelector({
                 {/* Botão de alterar foto - só aparece se o profissional pode editar */}
                 {canEditPhoto(professional.id) && (
                   <button
+                    type="button"
                     onClick={() => {
                       if (fileInputRef.current) {
                         fileInputRef.current.dataset.professionalId = professional.id;
@@ -358,6 +361,7 @@ export function ProfessionalSelector({
                 <div key={professional.id} className="flex flex-col items-center flex-shrink-0">
                   <div className="relative group">
                                          <button
+                       type="button"
                        onClick={() => onSelectProfessional(professional.id)}
                        className={`relative w-16 h-16 rounded-full overflow-hidden transition-all duration-200 ${
                          selectedProfessional === professional.id
@@ -384,6 +388,7 @@ export function ProfessionalSelector({
                     {/* Botão de alterar foto - só aparece se o profissional pode editar */}
                     {canEditPhoto(professional.id) && (
                       <button
+                        type="button"
                         onClick={() => {
                           if (fileInputRef.current) {
                             fileInputRef.current.dataset.professionalId = professional.id;
@@ -475,21 +480,23 @@ export function ProfessionalSelector({
              />
              
              <div className="flex gap-3 mt-6">
-               <button
-                 onClick={() => {
-                   setShowPinModal(false);
-                   setPin('');
-                   setPendingFile(null);
-                 }}
-                 className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
-               >
+                             <button
+                type="button"
+                onClick={() => {
+                  setShowPinModal(false);
+                  setPin('');
+                  setPendingFile(null);
+                }}
+                className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
+              >
                  Cancelar
                </button>
-               <button
-                 onClick={handlePinSubmit}
-                 disabled={isVerifyingPin || !pin.trim()}
-                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-               >
+                             <button
+                type="button"
+                onClick={handlePinSubmit}
+                disabled={isVerifyingPin || !pin.trim()}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
                  {isVerifyingPin ? 'Verificando...' : 'Confirmar'}
                </button>
              </div>

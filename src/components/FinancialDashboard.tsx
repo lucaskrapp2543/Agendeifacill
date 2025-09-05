@@ -330,10 +330,10 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
     const startDate = startOfMonth(selectedMonth);
     const endDate = endOfMonth(selectedMonth);
 
-    // Filtrar agendamentos do mês
+    // Filtrar agendamentos do mês - só incluir agendamentos com status 'completed' (verde - FEITO)
     const monthAppointments = appointments.filter(app => {
       const appDate = parseISO(app.appointment_date);
-      return appDate >= startDate && appDate <= endDate && app.status !== 'cancelled';
+      return appDate >= startDate && appDate <= endDate && app.status === 'completed';
     });
 
     // Estatísticas por profissional
@@ -386,12 +386,14 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
       ...stats
     }));
 
-    // Receita diária
+    // Receita diária - só incluir agendamentos com status 'completed' (verde - FEITO)
     const dailyMap = new Map();
     monthAppointments.forEach(app => {
-      const date = format(parseISO(app.appointment_date), 'dd/MM');
-      const current = dailyMap.get(date) || 0;
-      dailyMap.set(date, current + (app.total_price || app.price));
+      if (app.status === 'completed') {
+        const date = format(parseISO(app.appointment_date), 'dd/MM');
+        const current = dailyMap.get(date) || 0;
+        dailyMap.set(date, current + (app.total_price || app.price));
+      }
     });
 
     const dailyRev = Array.from(dailyMap.entries()).map(([date, value]) => ({
@@ -399,9 +401,12 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
       revenue: value
     }));
 
-    // Calcular receita total
+    // Calcular receita total - só incluir agendamentos com status 'completed' (verde - FEITO)
     const total = monthAppointments.reduce((sum, app) => {
-      return sum + (app.total_price || app.price);
+      if (app.status === 'completed') {
+        return sum + (app.total_price || app.price);
+      }
+      return sum;
     }, 0);
 
     // Calcular receita mensal dos últimos 12 meses
@@ -414,30 +419,32 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
       };
     });
 
-    // Agrupar agendamentos por mês
+    // Agrupar agendamentos por mês - só incluir agendamentos com status 'completed' (verde - FEITO)
     appointments.forEach(appointment => {
-      const appointmentDate = parseISO(appointment.appointment_date);
-      const monthIndex = last12Months.findIndex(month => 
-        isSameMonth(month.date, appointmentDate)
-      );
-      
-      if (monthIndex !== -1) {
-        // Calcular o valor total incluindo produtos adicionais
-        let totalValue = appointment.price || 0;
+      if (appointment.status === 'completed') {
+        const appointmentDate = parseISO(appointment.appointment_date);
+        const monthIndex = last12Months.findIndex(month => 
+          isSameMonth(month.date, appointmentDate)
+        );
+        
+        if (monthIndex !== -1) {
+          // Calcular o valor total incluindo produtos adicionais
+          let totalValue = appointment.price || 0;
 
-        // Adicionar valores dos produtos adicionais
-        if (appointment.additional_products && appointment.additional_products.length > 0) {
-          const additionalValue = appointment.additional_products.reduce((sum, product) => 
-            sum + (product.price || 0), 0);
-          totalValue += additionalValue;
+          // Adicionar valores dos produtos adicionais
+          if (appointment.additional_products && appointment.additional_products.length > 0) {
+            const additionalValue = appointment.additional_products.reduce((sum, product) => 
+              sum + (product.price || 0), 0);
+            totalValue += additionalValue;
+          }
+
+          // Se já tiver um total_price calculado, usar ele
+          if (appointment.total_price) {
+            totalValue = appointment.total_price;
+          }
+
+          last12Months[monthIndex].revenue += totalValue;
         }
-
-        // Se já tiver um total_price calculado, usar ele
-        if (appointment.total_price) {
-          totalValue = appointment.total_price;
-        }
-
-        last12Months[monthIndex].revenue += totalValue;
       }
     });
 

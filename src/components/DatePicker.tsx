@@ -43,9 +43,8 @@ export function DatePicker({ selectedDate, onChange, businessHours }: DatePicker
       if (isDayEnabled(newDate)) {
         onChange(newDate);
       } else {
-        // Mostrar aviso se o dia está fechado
-        alert('O estabelecimento está fechado neste dia. Por favor, escolha outro dia.');
-        // Resetar para a data atual se inválida
+        // Não mostrar alert, apenas não permitir a seleção
+        // O usuário verá visualmente que o dia está fechado
         e.target.value = format(selectedDate, 'yyyy-MM-dd');
       }
     }
