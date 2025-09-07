@@ -768,7 +768,8 @@ const EstablishmentDashboard = () => {
         professionals: professionals.map(p => ({
           id: p.id,
           name: p.name.trim(),
-          percentage: p.percentage || 100 // Manter o percentual
+          percentage: p.percentage || 100, // Manter o percentual
+          photo_url: (p as any).photo_url // Preservar a foto do profissional
         })).filter(p => p.name),
         services_with_prices: servicesWithPrices.map(s => ({
           id: s.id,
@@ -2615,6 +2616,72 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // Função para alterar foto do profissional
+  const handleProfessionalPhotoChange = async (professionalId: string, file: File | undefined) => {
+    if (!file || !establishment) return;
+
+    try {
+      // Validar tamanho do arquivo (máximo 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('A imagem deve ter no máximo 5MB');
+        return;
+      }
+
+      // Criar nome único para o arquivo
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${professionalId}_${Date.now()}.${fileExt}`;
+      const filePath = `professional-photos/${establishment.id}/${fileName}`;
+
+      // Upload para o Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('establishment-assets')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.error('Erro no upload:', uploadError);
+        toast.error('Erro ao fazer upload da foto');
+        return;
+      }
+
+      // Obter URL pública
+      const { data: { publicUrl } } = supabase.storage
+        .from('establishment-assets')
+        .getPublicUrl(filePath);
+
+      // Atualizar o profissional com a nova foto
+      const updatedProfessionals = professionals.map((professional: any) => {
+        if (professional.id === professionalId) {
+          return { ...professional, photo_url: publicUrl };
+        }
+        return professional;
+      });
+
+      // Salvar no banco de dados
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (updateError) {
+        console.error('Erro ao atualizar profissional:', updateError);
+        toast.error('Erro ao salvar foto do profissional');
+        return;
+      }
+
+      // Atualizar estados locais
+      setProfessionals(updatedProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
+
+      toast.success('Foto do profissional atualizada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao alterar foto do profissional:', error);
+      toast.error('Erro ao alterar foto do profissional');
+    }
+  };
+
   // Função para adicionar produto adicional
   const handleAddAdditionalProduct = async (appointmentId: string, product: AdditionalProduct) => {
     try {
@@ -3509,19 +3576,7 @@ const EstablishmentDashboard = () => {
                   </div>
                 </div>
 
-                {/* Verificador Rápido de Horários Disponíveis */}
-                {selectedProfessional !== 'all' && establishment && (
-                  <div className="mt-4">
-                    <QuickAvailabilityChecker
-                      professionalId={selectedProfessional}
-                      professionalName={getProfessionalName(selectedProfessional)}
-                      services={establishment.services_with_prices || []}
-                      businessHours={establishment.business_hours || {}}
-                      establishmentId={establishment.id}
-                      use15MinuteInterval={establishment.use_15_minute_interval || false}
-                    />
-                  </div>
-                )}
+                {/* Verificador Rápido de Horários Disponíveis - Temporariamente desabilitado */}
 
               <div className="mb-4">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Agendamentos do Dia</h2>
@@ -3681,6 +3736,13 @@ const EstablishmentDashboard = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Alerta sobre contabilização de valores */}
+                <div className="mb-4">
+                  <p className="text-orange-400 text-sm font-medium">
+                    ⚠️ O valor só será contabilizado se colocar como (FEITO) no agendamento
+                  </p>
+                </div>
 
                 {/* Lista de Agendamentos */}
                 {filteredAppointments.length === 0 ? (
@@ -4632,6 +4694,39 @@ const EstablishmentDashboard = () => {
                         >
                             <Trash2 className="h-5 w-5" />
                         </button>
+                        </div>
+                        
+                        {/* Campo de foto do profissional */}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <label className="block text-sm text-gray-400 mb-1">Foto do Profissional</label>
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-600 flex-shrink-0">
+                                <img
+                                  src={(professional as any).photo_url || '/fotopessoa.png'}
+                                  alt={professional.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.src = '/fotopessoa.png';
+                                  }}
+                                />
+                              </div>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
+                                className="hidden"
+                                id={`photo-${professional.id}`}
+                              />
+                              <label
+                                htmlFor={`photo-${professional.id}`}
+                                className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 cursor-pointer transition-colors"
+                              >
+                                Alterar Foto
+                              </label>
+                            </div>
+                          </div>
                         </div>
                         
                         {/* Campo de percentual do profissional */}

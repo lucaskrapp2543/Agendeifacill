@@ -374,10 +374,30 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     // Apenas assinaturas ativas e pagas
     const endDate = parseISO(cs.end_date);
     if (!isPast(endDate) && cs.payment_status === 'paid') {
-      return sum + cs.subscriptions.value;
+      // Compatível com novo e antigo sistema
+      const value = cs.subscriptions?.value || cs.subscription_value || 0;
+      console.log('💰 Calculando valor:', {
+        name: cs.profiles?.full_name,
+        value: value,
+        subscriptionData: cs.subscriptions,
+        paymentStatus: cs.payment_status,
+        endDate: cs.end_date
+      });
+      return sum + value;
     }
     return sum;
   }, 0);
+
+  console.log('📊 Resumo calculado:', {
+    totalArrecadado,
+    totalAssinantes: clientSubscriptions.length,
+    clientSubscriptions: clientSubscriptions.map(cs => ({
+      name: cs.profiles?.full_name,
+      value: cs.subscriptions?.value || cs.subscription_value,
+      paymentStatus: cs.payment_status,
+      endDate: cs.end_date
+    }))
+  });
 
   const totalAssinantes = clientSubscriptions.filter(cs => {
     const endDate = parseISO(cs.end_date);

@@ -4,6 +4,7 @@
  */
 
 import { supabase } from './supabase';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface SubscriberData {
   id: string;
@@ -38,7 +39,7 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
       .from('client_subscriptions')
       .insert([
         {
-          client_id: `subscriber_${data.whatsapp}`, // ID único para assinantes
+          client_id: uuidv4(), // Gerar UUID válido para assinantes
           subscription_id: data.subscription_id,
           establishment_id: data.establishment_id,
           start_date: data.start_date,

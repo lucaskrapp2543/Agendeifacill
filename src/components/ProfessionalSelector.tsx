@@ -324,8 +324,8 @@ export function ProfessionalSelector({
                   )}
                 </button>
                 
-                {/* Botão de alterar foto - só aparece se o profissional pode editar */}
-                {canEditPhoto(professional.id) && (
+                {/* Botão de alterar foto desabilitado - agora é feito nas configurações */}
+                {false && canEditPhoto(professional.id) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -385,8 +385,8 @@ export function ProfessionalSelector({
                       )}
                     </button>
                     
-                    {/* Botão de alterar foto - só aparece se o profissional pode editar */}
-                    {canEditPhoto(professional.id) && (
+                    {/* Botão de alterar foto desabilitado - agora é feito nas configurações */}
+                    {false && canEditPhoto(professional.id) && (
                       <button
                         type="button"
                         onClick={() => {

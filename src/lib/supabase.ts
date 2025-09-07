@@ -386,9 +386,34 @@ export const updateEstablishment = async (id: string, data: any) => {
     const professionals = establishmentData.professionals || [];
     const services_with_prices = establishmentData.services_with_prices || [];
 
+    // Preservar as fotos dos profissionais existentes
+    if (professionals.length > 0) {
+      // Buscar dados atuais do estabelecimento para preservar as fotos
+      const { data: currentData } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', id)
+        .single();
+
+      if (currentData?.professionals) {
+        // Mesclar as fotos existentes com os novos dados
+        const currentProfessionals = currentData.professionals;
+        const updatedProfessionals = professionals.map((newProf: any) => {
+          const existingProf = currentProfessionals.find((curr: any) => curr.id === newProf.id);
+          return {
+            ...newProf,
+            // Preservar a photo_url se existir
+            photo_url: existingProf?.photo_url || newProf.photo_url
+          };
+        });
+        
+        establishmentData.professionals = updatedProfessionals;
+      }
+    }
+
     console.log('Dados a serem atualizados:', {
       ...establishmentData,
-      professionals,
+      professionals: establishmentData.professionals,
       services_with_prices
     });
 
