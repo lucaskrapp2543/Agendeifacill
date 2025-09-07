@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './ui/Toaster';
 import { supabase } from '../lib/supabase'; // Adicionar esta importação
+import { migrateManualClients, cleanupManualClients } from '../utils/migrateManualClients';
+import { ClientRecoveryModal } from './ClientRecoveryModal';
 import { 
   createSubscription, 
   getSubscriptions, 
@@ -59,6 +61,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newClientEmail, setNewClientEmail] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
 
   // Funções de fetch
   const fetchSubscriptions = async () => {
@@ -72,10 +75,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   const fetchClientSubscriptions = async () => {
-    // Buscar clientes manuais do localStorage
-    const manualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
+    // Migrar dados de clientes manuais da chave antiga para a nova
+    migrateManualClients(establishmentId);
     
-    const { data, error } = await getClientSubscriptions(establishmentId, manualClients);
+    // Buscar clientes manuais do localStorage - usar a mesma chave que o EstablishmentDashboard
+    const storageKey = `manual_clients_${establishmentId}`;
+    const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    
+    // Também buscar da chave antiga para compatibilidade
+    const oldManualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
+    const allManualClients = { ...oldManualClients, ...manualClients };
+    
+    const { data, error } = await getClientSubscriptions(establishmentId, allManualClients);
     if (error) {
       console.error('Erro ao buscar assinaturas de clientes:', error);
       toast.error('Erro ao carregar assinantes.');
@@ -107,6 +118,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       fetchSubscriptions();
       fetchClientSubscriptions();
       // fetchClients(); // REMOVIDO
+      
+      // Recuperação automática de clientes na inicialização
+      const autoRecover = async () => {
+        try {
+          const { autoRecoverClients } = await import('../utils/recoverClientsFromAppointments');
+          const result = await autoRecoverClients(establishmentId);
+          
+          if (result.recovered > 0) {
+            console.log(`🔄 Recuperação automática: ${result.recovered} clientes migrados`);
+            // Recarregar dados após recuperação
+            fetchClientSubscriptions();
+            if (onClientUpdated) onClientUpdated();
+          }
+        } catch (error) {
+          console.error('Erro na recuperação automática:', error);
+        }
+      };
+      
+      // Executar recuperação automática após um pequeno delay
+      const timeoutId = setTimeout(autoRecover, 2000);
+      return () => clearTimeout(timeoutId);
     }
   }, [establishmentId]);
 
@@ -194,14 +226,22 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       if (error) throw error;
 
-      // Salvar cliente manual no localStorage
-      const manualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
+      // Salvar cliente manual no localStorage - usar a mesma chave que o EstablishmentDashboard
+      const storageKey = `manual_clients_${establishmentId}`;
+      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
       manualClients[normalizedPhone] = {
         name: newClientName,
         whatsapp: normalizedPhone,
-        id: manualClientId
+        email: newClientEmail || null,
+        id: manualClientId,
+        addedAt: new Date().toISOString()
       };
-      localStorage.setItem('manualClients', JSON.stringify(manualClients));
+      localStorage.setItem(storageKey, JSON.stringify(manualClients));
+      
+      // Também salvar na chave antiga para compatibilidade
+      const oldManualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
+      oldManualClients[normalizedPhone] = manualClients[normalizedPhone];
+      localStorage.setItem('manualClients', JSON.stringify(oldManualClients));
       
       toast(`✅ ${newClientName} adicionado como assinante!`, 'success');
       setSelectedSubscriptionToAdd('');
@@ -558,7 +598,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       {/* Adicionar Assinante */}
       <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
-        <h2 className="text-xl font-semibold mb-4">Adicionar Assinante</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Adicionar Assinante</h2>
+          <button
+            onClick={() => setShowRecoveryModal(true)}
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center gap-2 text-sm"
+            title="Recuperar clientes dos agendamentos"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Recuperar Clientes
+          </button>
+        </div>
         <form onSubmit={handleAddClientSubscription} className="space-y-4">
           <div>
             <label htmlFor="selectSubscription" className="block text-sm font-medium text-gray-400 mb-1">Escolher Serviço/Assinatura</label>
@@ -666,6 +718,39 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <span>Início: {format(parseISO(cs.start_date), 'dd/MM/yyyy', { locale: ptBR })}</span>
                         <span>Fim: {format(parseISO(cs.end_date), 'dd/MM/yyyy', { locale: ptBR })}</span>
                       </div>
+                      {/* Informações de contato */}
+                      <div className={`flex flex-wrap gap-x-4 gap-y-1 text-sm ${textColor}/80 mt-1`}>
+                        {cs.client_whatsapp && cs.client_whatsapp !== 'N/A' && (
+                          <div className="flex items-center gap-1">
+                            <span>📱 WhatsApp: {cs.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}</span>
+                            <a
+                              href={`https://wa.me/${cs.client_whatsapp.replace(/\D/g, '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-green-400 hover:text-green-300 transition-colors"
+                              title="Abrir WhatsApp"
+                            >
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
+                              </svg>
+                            </a>
+                          </div>
+                        )}
+                        {cs.profiles?.email && (
+                          <div className="flex items-center gap-1">
+                            <span>📧 Email: {cs.profiles.email}</span>
+                            <a
+                              href={`mailto:${cs.profiles.email}`}
+                              className="text-blue-400 hover:text-blue-300 transition-colors"
+                              title="Enviar email"
+                            >
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                              </svg>
+                            </a>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -703,6 +788,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
         )}
       </div>
+
+      {/* Modal de Recuperação de Clientes */}
+      <ClientRecoveryModal
+        isOpen={showRecoveryModal}
+        onClose={() => setShowRecoveryModal(false)}
+        establishmentId={establishmentId}
+        onClientsRecovered={() => {
+          fetchClientSubscriptions();
+          if (onClientUpdated) onClientUpdated();
+        }}
+      />
     </div>
   );
 }; 

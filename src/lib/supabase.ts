@@ -1301,6 +1301,7 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
       ...cs,
       profiles: {
         full_name: clientName,
+        email: cs.client_id.startsWith('manual_') ? manualClientsData[cs.client_id.replace('manual_', '')]?.email : null,
         is_subscriber: true // Se está na lista de assinantes, é assinante
       },
       client_whatsapp: clientWhatsapp
