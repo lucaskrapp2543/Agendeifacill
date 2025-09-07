@@ -86,6 +86,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const oldManualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
     const allManualClients = { ...oldManualClients, ...manualClients };
     
+    // A função getClientSubscriptions agora busca automaticamente no banco se não encontrar no localStorage
     const { data, error } = await getClientSubscriptions(establishmentId, allManualClients);
     if (error) {
       console.error('Erro ao buscar assinaturas de clientes:', error);

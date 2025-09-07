@@ -1265,29 +1265,64 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
   console.log('📋 Clientes manuais disponíveis:', manualClientsData);
 
   // Combinar os dados das assinaturas de clientes com os nomes
-  const combinedData = clientSubs.map(cs => {
+  const combinedData = await Promise.all(clientSubs.map(async (cs) => {
     const clientData = clientNamesMap.get(cs.client_id);
     
     // Verificar se é um cliente manual
     let clientName = 'Cliente Desconhecido';
     let clientWhatsapp = 'N/A';
+    let clientEmail = null;
     
-          if (cs.client_id.startsWith('manual_')) {
-        // É um cliente manual - buscar nos dados passados
-        const whatsapp = cs.client_id.replace('manual_', '');
-        const manualClient = manualClientsData[whatsapp];
+    if (cs.client_id.startsWith('manual_')) {
+      // É um cliente manual - buscar nos dados passados primeiro
+      const whatsapp = cs.client_id.replace('manual_', '');
+      const manualClient = manualClientsData[whatsapp];
       
       if (manualClient) {
         clientName = manualClient.name;
         clientWhatsapp = whatsapp;
-        console.log(`✅ Cliente manual encontrado: ${clientName} (${whatsapp})`);
+        clientEmail = manualClient.email;
+        console.log(`✅ Cliente manual encontrado no localStorage: ${clientName} (${whatsapp})`);
       } else {
-        console.log(`❌ Cliente manual não encontrado no localStorage: ${whatsapp}`);
+        // Se não encontrou no localStorage, buscar no banco de dados
+        console.log(`🔍 Cliente manual não encontrado no localStorage, buscando no banco: ${whatsapp}`);
+        try {
+          const { getClientNameFromDatabase, getClientWhatsappFromDatabase } = await import('../utils/databaseClientRecovery');
+          const dbName = await getClientNameFromDatabase(establishmentId, cs.client_id);
+          const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, cs.client_id);
+          
+          if (dbName && dbName !== 'Cliente Desconhecido') {
+            clientName = dbName;
+            clientWhatsapp = dbWhatsapp || whatsapp;
+            console.log(`✅ Cliente manual encontrado no banco: ${clientName} (${clientWhatsapp})`);
+          } else {
+            console.log(`❌ Cliente manual não encontrado no banco: ${whatsapp}`);
+          }
+        } catch (error) {
+          console.error('Erro ao buscar cliente no banco:', error);
+        }
       }
     } else {
       // É um UUID - usar dados do agendamento
       clientName = clientData?.name || 'Cliente Desconhecido';
       clientWhatsapp = clientData?.whatsapp || 'N/A';
+      
+      // Se não encontrou nome, tentar buscar no banco
+      if (clientName === 'Cliente Desconhecido') {
+        try {
+          const { getClientNameFromDatabase, getClientWhatsappFromDatabase } = await import('../utils/databaseClientRecovery');
+          const dbName = await getClientNameFromDatabase(establishmentId, cs.client_id);
+          const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, cs.client_id);
+          
+          if (dbName && dbName !== 'Cliente Desconhecido') {
+            clientName = dbName;
+            clientWhatsapp = dbWhatsapp || clientWhatsapp;
+            console.log(`✅ Cliente UUID encontrado no banco: ${clientName} (${clientWhatsapp})`);
+          }
+        } catch (error) {
+          console.error('Erro ao buscar cliente UUID no banco:', error);
+        }
+      }
     }
     
     console.log(`📋 Cliente ${cs.client_id}:`, {
@@ -1301,12 +1336,12 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
       ...cs,
       profiles: {
         full_name: clientName,
-        email: cs.client_id.startsWith('manual_') ? manualClientsData[cs.client_id.replace('manual_', '')]?.email : null,
+        email: clientEmail,
         is_subscriber: true // Se está na lista de assinantes, é assinante
       },
       client_whatsapp: clientWhatsapp
     };
-  });
+  }));
 
   console.log('✅ Dados combinados finais:', combinedData);
 
