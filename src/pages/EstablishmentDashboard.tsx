@@ -25,7 +25,7 @@ import { NotificationPermission } from '../components/NotificationPermission';
 import { initRealTimeNotifications, stopRealTimeNotifications } from '../utils/realTimeNotifications';
 import { NotificationsPanel } from '../components/NotificationsPanel';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
-// import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker';
+import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker';
 import Sidebar from '../components/Sidebar';
 import { UpdateButton } from '../components/UpdateButton';
 
@@ -3455,6 +3455,19 @@ const EstablishmentDashboard = () => {
                         <div className="mt-2 text-xs text-red-600">
                           filtro ativo: {getProfessionalName(selectedProfessional).toLowerCase()}
                         </div>
+                        
+                        {/* Quick Availability Checker - aparece quando um profissional específico está selecionado */}
+                        {selectedProfessional !== 'all' && establishment && (
+                          <div className="mt-4">
+                            <QuickAvailabilityChecker
+                              professionalId={selectedProfessional}
+                              professionalName={getProfessionalName(selectedProfessional)}
+                              establishmentId={establishment.id}
+                              services={establishment.services_with_prices || []}
+                              businessHours={establishment.business_hours || {}}
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
 
