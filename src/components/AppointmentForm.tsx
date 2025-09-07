@@ -12,6 +12,7 @@ import { PixProofViewer } from './PixProofViewer';
 import { Phone } from 'lucide-react';
 import { ProfessionalSelector } from './ProfessionalSelector';
 import { checkWhatsAppSubscriber } from '../lib/supabase';
+import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 
 interface Service {
   id: string;
@@ -149,24 +150,37 @@ export function AppointmentForm({
 
   // Removido useEffect que definia automaticamente o método de pagamento
 
-  // Detectar automaticamente se o WhatsApp é de um assinante
+  // Detectar automaticamente se o WhatsApp é de um assinante usando o novo sistema
   useEffect(() => {
     const checkSubscriber = async () => {
       if (clientWhatsapp && clientWhatsapp.length >= 10 && !isSubscriberBooking) {
         setIsCheckingSubscriber(true);
         try {
-          const { data: subscriberData, error } = await checkWhatsAppSubscriber(
+          // Primeiro tentar o novo sistema de assinantes
+          const { data: newSubscriberData, error: newError } = await checkNewSubscriber(
             clientWhatsapp, 
             establishment.id
           );
           
-          if (subscriberData && !error) {
-            setDetectedSubscriber(subscriberData);
+          if (newSubscriberData && !newError) {
+            setDetectedSubscriber(newSubscriberData);
             setShowSubscriberNotification(true);
-            console.log('🎯 Assinante detectado automaticamente:', subscriberData);
+            console.log('🎯 Assinante detectado automaticamente (novo sistema):', newSubscriberData);
           } else {
-            setDetectedSubscriber(null);
-            setShowSubscriberNotification(false);
+            // Fallback para o sistema antigo
+            const { data: oldSubscriberData, error: oldError } = await checkWhatsAppSubscriber(
+              clientWhatsapp, 
+              establishment.id
+            );
+            
+            if (oldSubscriberData && !oldError) {
+              setDetectedSubscriber(oldSubscriberData);
+              setShowSubscriberNotification(true);
+              console.log('🎯 Assinante detectado automaticamente (sistema antigo):', oldSubscriberData);
+            } else {
+              setDetectedSubscriber(null);
+              setShowSubscriberNotification(false);
+            }
           }
         } catch (error) {
           console.error('Erro ao verificar assinante:', error);
@@ -418,7 +432,7 @@ export function AppointmentForm({
                 </span>
               </div>
               <p className="text-sm text-green-700 mt-1">
-                <strong>Plano:</strong> {detectedSubscriber.subscriptions?.name}
+                <strong>Plano:</strong> {detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado'}
               </p>
               <p className="text-sm text-green-700">
                 <strong>Válido até:</strong> {format(new Date(detectedSubscriber.end_date), 'dd/MM/yyyy', { locale: ptBR })}

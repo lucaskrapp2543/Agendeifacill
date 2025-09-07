@@ -49,13 +49,15 @@ export default function BookingPage() {
     // Salvar dados do assinante
     setConvertedSubscriberData(subscriberData);
     
-    // Configurar o serviço de assinante
+    // Configurar o serviço de assinante - compatível com novo e antigo sistema
     const subscriberService = {
-      id: subscriberData.subscriptions.id,
-      name: subscriberData.subscriptions.name,
-      service_duration: subscriberData.subscriptions.service_duration || 30,
-      weekdays: subscriberData.subscriptions.weekdays || []
+      id: subscriberData.subscription_id || subscriberData.subscriptions?.id,
+      name: subscriberData.subscription_name || subscriberData.subscriptions?.name,
+      service_duration: subscriberData.subscriptions?.service_duration || 30,
+      weekdays: subscriberData.subscriptions?.weekdays || []
     };
+    
+    console.log('🔧 Serviço de assinante configurado:', subscriberService);
     
     setSelectedSubscriberService(subscriberService);
     

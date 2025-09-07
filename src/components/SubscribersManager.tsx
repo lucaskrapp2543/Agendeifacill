@@ -13,6 +13,12 @@ import {
   deleteSubscription, 
   deleteClientSubscription 
 } from '../lib/supabase';
+import { 
+  createIndependentSubscriber,
+  getEstablishmentSubscribers,
+  updateSubscriberPaymentStatus,
+  removeSubscriber
+} from '../lib/subscriberSystem';
 import { Crown, Plus, Users, Trash2, Edit, Check, X } from 'lucide-react';
 import { format, addMonths, isPast, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -75,24 +81,39 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   const fetchClientSubscriptions = async () => {
-    // Migrar dados de clientes manuais da chave antiga para a nova
-    migrateManualClients(establishmentId);
-    
-    // Buscar clientes manuais do localStorage - usar a mesma chave que o EstablishmentDashboard
-    const storageKey = `manual_clients_${establishmentId}`;
-    const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
-    
-    // Também buscar da chave antiga para compatibilidade
-    const oldManualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
-    const allManualClients = { ...oldManualClients, ...manualClients };
-    
-    // A função getClientSubscriptions agora busca automaticamente no banco se não encontrar no localStorage
-    const { data, error } = await getClientSubscriptions(establishmentId, allManualClients);
-    if (error) {
-      console.error('Erro ao buscar assinaturas de clientes:', error);
+    try {
+      // Usar o novo sistema independente de assinantes
+      const { data: newSubscribers, error: newError } = await getEstablishmentSubscribers(establishmentId);
+      
+      if (newError) {
+        console.error('Erro ao buscar assinantes (novo sistema):', newError);
+        // Fallback para o sistema antigo se necessário
+        const { data: oldData, error: oldError } = await getClientSubscriptions(establishmentId, {});
+        if (oldError) {
+          console.error('Erro ao buscar assinantes (sistema antigo):', oldError);
+          toast.error('Erro ao carregar assinantes.');
+          return;
+        }
+        setClientSubscriptions(oldData || []);
+        return;
+      }
+
+      // Transformar dados do novo sistema para o formato esperado
+      const transformedSubscribers = (newSubscribers || []).map(subscriber => ({
+        ...subscriber,
+        profiles: {
+          full_name: subscriber.subscriber_name || 'Cliente Desconhecido',
+          email: subscriber.subscriber_email || null,
+          is_subscriber: true
+        },
+        client_whatsapp: subscriber.subscriber_whatsapp || 'N/A'
+      }));
+
+      console.log('📋 Assinantes carregados (novo sistema):', transformedSubscribers.length);
+      setClientSubscriptions(transformedSubscribers);
+    } catch (error) {
+      console.error('Erro ao buscar assinantes:', error);
       toast.error('Erro ao carregar assinantes.');
-    } else {
-      setClientSubscriptions(data || []);
     }
   };
 
@@ -175,16 +196,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
 
-  // Handler para adicionar assinante diretamente
+  // Handler para adicionar assinante usando o novo sistema independente
   const handleAddClientSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSubscriptionToAdd || !newClientName || !newClientPhone || !newClientEmail || !startDate || !endDate) {
-      toast('Por favor, preencha todos os campos.', 'error');
+    if (!selectedSubscriptionToAdd || !newClientName || !newClientPhone || !startDate || !endDate) {
+      toast('Por favor, preencha todos os campos obrigatórios.', 'error');
       return;
     }
 
     try {
-      console.log('✅ Adicionando cliente diretamente:', {
+      console.log('✅ Adicionando assinante independente:', {
         name: newClientName,
         phone: newClientPhone,
         email: newClientEmail,
@@ -193,58 +214,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         subscriptionId: selectedSubscriptionToAdd
       });
 
-      // SALVAR DIRETAMENTE NO BANCO
-      const subscriptionToAdd = subscriptions.find(s => s.id === selectedSubscriptionToAdd);
-      if (!subscriptionToAdd) {
-        toast('Assinatura não encontrada', 'error');
-        return;
-      }
-
       // Normalizar número de telefone (remover formatação)
       const normalizedPhone = newClientPhone.replace(/\D/g, '');
       
-      // Gerar ID único para o cliente manual
-      const manualClientId = `manual_${normalizedPhone}`;
-
-      const { data, error } = await supabase
-        .from('client_subscriptions')
-        .insert([
-          {
-            client_id: manualClientId,
-            subscription_id: selectedSubscriptionToAdd,
-            establishment_id: establishmentId,
-            start_date: startDate,
-            end_date: endDate,
-            payment_status: 'unpaid',
-            last_payment_date: null,
-            client_name_override: newClientName,
-            client_email: newClientEmail,
-            client_whatsapp: normalizedPhone // Salvar WhatsApp normalizado para reconhecimento automático
-          }
-        ])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Salvar cliente manual no localStorage - usar a mesma chave que o EstablishmentDashboard
-      const storageKey = `manual_clients_${establishmentId}`;
-      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
-      manualClients[normalizedPhone] = {
+      // Usar o novo sistema independente de assinantes
+      const { data, error } = await createIndependentSubscriber({
         name: newClientName,
         whatsapp: normalizedPhone,
-        email: newClientEmail || null,
-        id: manualClientId,
-        addedAt: new Date().toISOString()
-      };
-      localStorage.setItem(storageKey, JSON.stringify(manualClients));
-      
-      // Também salvar na chave antiga para compatibilidade
-      const oldManualClients = JSON.parse(localStorage.getItem('manualClients') || '{}');
-      oldManualClients[normalizedPhone] = manualClients[normalizedPhone];
-      localStorage.setItem('manualClients', JSON.stringify(oldManualClients));
+        email: newClientEmail || undefined,
+        subscription_id: selectedSubscriptionToAdd,
+        establishment_id: establishmentId,
+        start_date: startDate,
+        end_date: endDate
+      });
+
+      if (error) {
+        throw error;
+      }
       
       toast(`✅ ${newClientName} adicionado como assinante!`, 'success');
+      
+      // Limpar formulário
       setSelectedSubscriptionToAdd('');
       setNewClientName('');
       setNewClientPhone('');
@@ -252,7 +242,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setStartDate('');
       setEndDate('');
       
-      // Forçar re-fetch dos dados
+      // Recarregar lista de assinantes
       await fetchClientSubscriptions();
       
     } catch (error: any) {
@@ -269,25 +259,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
     
     try {
-      const { error } = await updateClientSubscriptionPaymentStatus(
-        clientSubscription.id,
-        newStatus
-      );
+      // Usar o novo sistema de assinantes
+      const { error } = await updateSubscriberPaymentStatus(clientSubscription.id, newStatus);
       if (error) {
         throw error;
-      }
-      
-      // Se mudou para "pago", atualizar a data do último pagamento
-      if (newStatus === 'paid') {
-        const today = new Date().toISOString().split('T')[0];
-        const { error: dateError } = await supabase
-          .from('client_subscriptions')
-          .update({ last_payment_date: today })
-          .eq('id', clientSubscription.id);
-        
-        if (dateError) {
-          console.error('Erro ao atualizar data de pagamento:', dateError);
-        }
       }
       
       toast(`Status alterado para ${newStatus === 'paid' ? 'Pago' : 'Não Pago'}!`, 'success');
@@ -323,41 +298,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         const clientSub = clientSubscriptions.find(cs => cs.id === clientSubscriptionId);
         const clientId = clientSub?.client_id;
         
-        const { error } = await deleteClientSubscription(clientSubscriptionId);
+        // Usar o novo sistema de assinantes
+        const { error } = await removeSubscriber(clientSubscriptionId);
         if (error) {
           throw error;
-        }
-        
-        // Se conseguiu deletar e temos o client_id, verificar se ainda tem outras assinaturas
-        if (clientId) {
-          // Verificar se o cliente ainda tem outras assinaturas ativas neste estabelecimento
-          const { data: remainingSubscriptions, error: checkError } = await supabase
-            .from('client_subscriptions')
-            .select('id')
-            .eq('client_id', clientId)
-            .eq('establishment_id', establishmentId);
-          
-          if (!checkError) {
-            const hasOtherSubscriptions = remainingSubscriptions && remainingSubscriptions.length > 0;
-            
-            // Se não tem mais assinaturas, atualizar is_subscriber para false
-            if (!hasOtherSubscriptions) {
-              const { error: updateError } = await supabase
-                .from('profiles')
-                .update({ is_subscriber: false })
-                .eq('id', clientId);
-              
-              if (updateError) {
-                console.error('Erro ao atualizar status de assinante para false:', updateError);
-              } else {
-                console.log('✅ Status is_subscriber atualizado para false');
-                // Notificar o EstablishmentDashboard para atualizar a lista de clientes
-                if (onClientUpdated) {
-                  onClientUpdated();
-                }
-              }
-            }
-          }
         }
         
         toast('Assinante removido com sucesso!', 'success');
@@ -713,7 +657,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <span className={`font-medium text-lg ${textColor} truncate`}>{cs.profiles?.full_name || 'Cliente Desconhecido'}</span>
                       </div>
                       <div className={`flex flex-wrap gap-x-4 gap-y-1 text-sm ${textColor}/90`}>
-                        <span>Valor: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}</span>
+                        <span>Plano: {cs.subscriptions?.name || 'Plano não identificado'} - {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}</span>
                         <span>Frequência: {cs.subscriptions?.duration_months === 1 ? 'Mensal' : `${cs.subscriptions?.duration_months} meses`}</span>
                         <span>Duração contratada: {cs.subscriptions?.duration_months} {cs.subscriptions?.duration_months === 1 ? 'mês' : 'meses'}</span>
                         <span>Início: {format(parseISO(cs.start_date), 'dd/MM/yyyy', { locale: ptBR })}</span>
