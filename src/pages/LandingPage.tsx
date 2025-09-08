@@ -459,6 +459,20 @@ const LandingPage = () => {
                 </div>
               </div>
 
+              {/* Vídeo do YouTube */}
+              <div className="w-full max-w-4xl mx-auto mt-8 mb-8">
+                <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                  <iframe
+                    src="https://www.youtube.com/embed/tQMWQLLLDPo"
+                    title="Vídeo do Agendei Fácil"
+                    className="absolute top-0 left-0 w-full h-full rounded-lg shadow-lg"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+              </div>
+
               {/* Imagem testeR */}
               <div className="w-full max-w-2xl mx-auto mt-0 mb-0">
                 <img

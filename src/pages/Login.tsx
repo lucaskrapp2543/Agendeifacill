@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
 
@@ -33,9 +34,10 @@ const Login = () => {
         navigate('/'); // Redireciona para a home page como fallback
       }
       toast.success('Login realizado com sucesso!');
+      
     } catch (error: any) {
       console.error('Erro ao fazer login:', error);
-      toast.error(error.message || 'Erro ao fazer login');
+      toast.error(error.message || 'Email ou senha incorretos');
     } finally {
       setIsLoading(false);
     }

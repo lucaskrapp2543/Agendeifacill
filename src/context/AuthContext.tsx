@@ -31,7 +31,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [session, setSession] = useState<Session | null>(null);
+  const [, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
     // Função para recuperar sessão
@@ -127,6 +127,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       throw error;
     }
   };
+
 
   const signUp = async (email: string, password: string, name: string) => {
     try {

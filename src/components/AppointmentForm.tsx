@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useNavigate } from 'react-router-dom';
 import { TimeSlotSelector } from './TimeSlotSelector';
 import { DatePicker } from './DatePicker';
 import { ServiceList } from './ServiceList';
+import { MultiServiceSelector } from './MultiServiceSelector';
 import { useAuth } from '../context/AuthContext';
 import { PixPaymentForm } from './PixPaymentForm';
 import { PaymentMethodSelector } from './PaymentMethodSelector';
-import { PixProofViewer } from './PixProofViewer';
 import { Phone } from 'lucide-react';
 import { ProfessionalSelector } from './ProfessionalSelector';
 import { checkWhatsAppSubscriber } from '../lib/supabase';
@@ -45,6 +44,8 @@ interface Appointment {
 }
 
 interface Establishment {
+  id?: string;
+  establishment_id?: string;
   owner_id: string;
   business_hours: Record<string, { 
     enabled: boolean;
@@ -80,8 +81,6 @@ export function AppointmentForm({
   selectedDate, 
   onSelectDate,
   existingAppointments = [],
-  pix_payment_status,
-  pix_proof_url,
   subscriberService,
   isSubscriberBooking = false,
   onConvertToSubscriber
@@ -134,11 +133,12 @@ export function AppointmentForm({
     }
   }, [user]);
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
+  const [selectedServices, setSelectedServices] = useState<Service[]>([]);
+  const [useMultiService, setUseMultiService] = useState(false);
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
 
   const [pixProofUrl, setPixProofUrl] = useState<string | null>(null);
   const [pixPaymentMethod, setPixPaymentMethod] = useState<'pix_now' | 'pix_local' | null>(null);
@@ -159,7 +159,7 @@ export function AppointmentForm({
           // Primeiro tentar o novo sistema de assinantes
           const { data: newSubscriberData, error: newError } = await checkNewSubscriber(
             clientWhatsapp, 
-            establishment.id
+            establishment.id || establishment.establishment_id || ''
           );
           
           if (newSubscriberData && !newError) {
@@ -170,7 +170,7 @@ export function AppointmentForm({
             // Fallback para o sistema antigo
             const { data: oldSubscriberData, error: oldError } = await checkWhatsAppSubscriber(
               clientWhatsapp, 
-              establishment.id
+              establishment.id || establishment.establishment_id || ''
             );
             
             if (oldSubscriberData && !oldError) {
@@ -196,7 +196,7 @@ export function AppointmentForm({
     // Debounce para evitar muitas verificações
     const timeoutId = setTimeout(checkSubscriber, 1000);
     return () => clearTimeout(timeoutId);
-  }, [clientWhatsapp, establishment.id, isSubscriberBooking]);
+  }, [clientWhatsapp, establishment.id || establishment.establishment_id, isSubscriberBooking]);
 
   // Verificar se os dados essenciais existem
   if (!establishment) {
@@ -219,11 +219,6 @@ export function AppointmentForm({
     return <div>Erro: Horários de funcionamento não configurados</div>;
   }
 
-  const handleTimeSelect = (time: string) => {
-    console.log('⏰ Horário selecionado:', time);
-    setSelectedTime(time);
-    // Apenas definir o horário, sem agendamento automático
-  };
 
   const handlePixComprovantUpload = (url: string) => {
     setPixProofUrl(url);
@@ -269,8 +264,14 @@ export function AppointmentForm({
     
     // Para assinantes, não validar serviço nem forma de pagamento
     if (!isSubscriberBooking) {
-      if (!selectedService) {
-        missingFields.push('serviço');
+      if (useMultiService) {
+        if (selectedServices.length === 0) {
+          missingFields.push('pelo menos um serviço');
+        }
+      } else {
+        if (!selectedService) {
+          missingFields.push('serviço');
+        }
       }
       
       if (!selectedPaymentMethod) {
@@ -305,15 +306,21 @@ export function AppointmentForm({
 
     setIsLoading(true);
     try {
+      // Calcular totais para múltiplos serviços
+      const servicesToUse = useMultiService && selectedServices.length > 0 ? selectedServices : [selectedService];
+      const totalPrice = servicesToUse.reduce((sum, service) => sum + (service?.price || 0), 0);
+      const totalDuration = servicesToUse.reduce((sum, service) => sum + (service?.duration || 0), 0);
+      const serviceNames = servicesToUse.map(service => service?.name).filter(Boolean).join(' + ');
+
       await onSubmit({
         client_name: isSubscriberBooking ? `${clientName} (ASSINANTE)` : clientName, // Adicionar (ASSINANTE) apenas no envio
         client_whatsapp: whatsappNumbers,
-        service: isSubscriberBooking && subscriberService ? subscriberService.name : selectedService.name,
-        professional: selectedProfessional.id,
+        service: isSubscriberBooking && subscriberService ? subscriberService.name : serviceNames,
+        professional: selectedProfessional?.id || '',
         appointment_date: format(selectedDate, 'yyyy-MM-dd'),
         appointment_time: selectedTime,
-        duration: isSubscriberBooking && subscriberService ? (subscriberService.service_duration || 30) : selectedService.duration, // Usar duração da assinatura
-        price: isSubscriberBooking && subscriberService ? 0 : selectedService.price, // Preço 0 para assinantes
+        duration: isSubscriberBooking && subscriberService ? (subscriberService.service_duration || 30) : totalDuration, // Usar duração total
+        price: isSubscriberBooking && subscriberService ? 0 : totalPrice, // Preço total
         payment_method: isSubscriberBooking ? 'assinante' : selectedPaymentMethod
       });
 
@@ -480,11 +487,54 @@ export function AppointmentForm({
             <label className="block text-sm font-medium text-gray-700 mb-2">
               3. Escolha o Serviço
             </label>
-            <ServiceList
-              services={establishment.services_with_prices}
-              selectedService={selectedService}
-              onSelectService={setSelectedService}
-            />
+            
+            {/* Toggle para escolher entre seleção única ou múltipla */}
+            <div className="mb-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setUseMultiService(false);
+                  setSelectedServices([]);
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  !useMultiService 
+                    ? 'bg-primary text-white' 
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                Um Serviço
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUseMultiService(true);
+                  setSelectedService(undefined);
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  useMultiService 
+                    ? 'bg-primary text-white' 
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                Múltiplos Serviços (até 4)
+              </button>
+            </div>
+
+            {/* Renderizar componente apropriado */}
+            {useMultiService ? (
+              <MultiServiceSelector
+                services={establishment.services_with_prices}
+                selectedServices={selectedServices}
+                onSelectServices={setSelectedServices}
+                maxServices={4}
+              />
+            ) : (
+              <ServiceList
+                services={establishment.services_with_prices}
+                selectedService={selectedService}
+                onSelectService={setSelectedService}
+              />
+            )}
           </div>
         )}
 
@@ -520,7 +570,7 @@ export function AppointmentForm({
               const professional = establishment.professionals.find(p => p.id === professionalId);
               setSelectedProfessional(professional);
             }}
-            establishmentId={establishment.id || ''}
+            establishmentId={establishment.id || establishment.establishment_id || ''}
           />
         </div>
 
@@ -539,7 +589,7 @@ export function AppointmentForm({
         </div>
 
         {/* 6. HORÁRIO */}
-        {(selectedService || (isSubscriberBooking && subscriberService)) && (
+        {(selectedService || (useMultiService && selectedServices.length > 0) || (isSubscriberBooking && subscriberService)) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               6. Escolha o Horário
@@ -561,7 +611,7 @@ export function AppointmentForm({
                     <div className="mt-2 text-sm text-yellow-700">
                       <p>Seus dias de agendamento para <strong>{subscriberService.name}</strong> são:</p>
                       <p className="mt-1 font-semibold">
-                        {subscriberService.weekdays?.map(day => {
+                        {subscriberService.weekdays?.map((day: string) => {
                           const dayNames = {
                             'monday': 'Segunda-feira',
                             'tuesday': 'Terça-feira', 
@@ -587,6 +637,11 @@ export function AppointmentForm({
                   name: subscriberService.name,
                   price: 0, // Preço 0 para assinantes
                   duration: subscriberService.service_duration || 30 // Usar duração da assinatura
+                } : useMultiService && selectedServices.length > 0 ? {
+                  id: 'multiple',
+                  name: selectedServices.map(s => s.name).join(' + '),
+                  price: selectedServices.reduce((sum, s) => sum + s.price, 0),
+                  duration: selectedServices.reduce((sum, s) => sum + s.duration, 0)
                 } : selectedService}
                 existingAppointments={filteredExistingAppointments} // Passar agendamentos filtrados
                 selectedTime={selectedTime}
@@ -599,7 +654,7 @@ export function AppointmentForm({
         )}
 
         {/* 7. FORMA DE PAGAMENTO - Oculto para assinantes */}
-        {selectedService && !isSubscriberBooking && (
+        {(selectedService || (useMultiService && selectedServices.length > 0)) && !isSubscriberBooking && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               7. Forma de Pagamento
@@ -617,7 +672,12 @@ export function AppointmentForm({
               <div className="mt-4">
                 <PixPaymentForm
                   establishment={establishment}
-                  selectedService={selectedService}
+                  selectedService={useMultiService && selectedServices.length > 0 ? {
+                    id: 'multiple',
+                    name: selectedServices.map(s => s.name).join(' + '),
+                    price: selectedServices.reduce((sum, s) => sum + s.price, 0),
+                    duration: selectedServices.reduce((sum, s) => sum + s.duration, 0)
+                  } : selectedService || { id: '', name: '', price: 0, duration: 0 }}
                   onPixMethodSelect={handlePixMethodSelect}
                   onPixProofUpload={handlePixComprovantUpload}
                   pixPaymentMethod={pixPaymentMethod}

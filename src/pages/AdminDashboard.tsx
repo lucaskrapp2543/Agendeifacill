@@ -17,7 +17,9 @@ import {
   Filter,
   Trash2,
   Lock,
-  Unlock
+  Unlock,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 interface Establishment {
@@ -44,6 +46,12 @@ const AdminDashboard = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
   const [filterPlan, setFilterPlan] = useState<'all' | 'monthly' | 'annual'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [emailToCheck, setEmailToCheck] = useState('');
+  const [userPassword, setUserPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoadingPassword, setIsLoadingPassword] = useState(false);
+  const [userInfo, setUserInfo] = useState<any>(null);
 
   // Verificar se é a conta de suporte
   const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
@@ -363,6 +371,97 @@ const AdminDashboard = () => {
     return due < today;
   };
 
+  // Função para verificar senha do usuário
+  const checkUserPassword = async () => {
+    if (!emailToCheck.trim()) {
+      toast.error('Digite um email válido');
+      return;
+    }
+
+    setIsLoadingPassword(true);
+    try {
+      // Usar a função RPC para descobrir a senha real
+      const { data: userData, error: userError } = await supabase
+        .rpc('discover_real_password', {
+          user_email: emailToCheck.trim()
+        });
+
+      if (userError || !userData?.success) {
+        console.error('Erro RPC:', userError);
+        toast.error(userData?.error || 'Usuário não encontrado');
+        return;
+      }
+
+      // Mostrar a senha real e informações do usuário
+      setUserPassword(userData.real_password || 'Senha não encontrada');
+      setUserInfo(userData);
+      
+      if (userData.password_found) {
+        toast.success('Usuário encontrado! Senha descoberta!');
+      } else {
+        toast.warning('Usuário encontrado, mas senha não é comum');
+      }
+      
+    } catch (error) {
+      console.error('Erro ao buscar usuário:', error);
+      toast.error('Erro ao buscar usuário');
+    } finally {
+      setIsLoadingPassword(false);
+    }
+  };
+
+  // Função para fechar modal e limpar dados
+  const closePasswordModal = () => {
+    setShowPasswordModal(false);
+    setEmailToCheck('');
+    setUserPassword('');
+    setShowPassword(false);
+    setUserInfo(null);
+  };
+
+  // Função para criar segunda senha
+  const createSecondPassword = async (establishmentId: string, establishmentName: string) => {
+    try {
+      // Gerar senha aleatória
+      const secondPassword = Math.random().toString(36).slice(-8);
+      
+      console.log('🔑 Criando segunda senha:', secondPassword);
+      
+      const { data, error } = await supabase
+        .rpc('set_second_password', {
+          establishment_id: establishmentId,
+          second_password: secondPassword
+        });
+
+      if (error || !data?.success) {
+        console.error('❌ ERRO:', error);
+        toast.error('Erro ao criar segunda senha');
+        return;
+      }
+
+      console.log('✅ SEGUNDA SENHA CRIADA!');
+      console.log('📊 Dados retornados:', data);
+      
+      // Verificar se foi salva
+      const { data: checkData, error: checkError } = await supabase
+        .rpc('get_establishment_second_password', {
+          establishment_id: establishmentId
+        });
+
+      if (checkError) {
+        console.error('❌ ERRO AO VERIFICAR:', checkError);
+      } else {
+        console.log('✅ VERIFICAÇÃO:', checkData);
+      }
+      
+      toast.success(`🔑 Segunda senha criada: ${secondPassword}`);
+      
+    } catch (error) {
+      console.error('💥 ERRO:', error);
+      toast.error(`Erro: ${error.message}`);
+    }
+  };
+
   // Função para verificar e atualizar status vencidos automaticamente
   const checkAndUpdateExpiredStatus = async () => {
     try {
@@ -492,6 +591,13 @@ const AdminDashboard = () => {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Eye className="h-4 w-4" />
+                <span>Ver Senha de Acesso</span>
+              </button>
               <span className="text-sm text-gray-600">Suporte</span>
               <button
                 onClick={handleSignOut}
@@ -727,6 +833,13 @@ const AdminDashboard = () => {
                        
                        <td className="px-3 py-4 text-sm font-medium">
                                                  <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => createSecondPassword(establishment.id, establishment.name)}
+                            className="text-green-600 hover:text-green-900 text-xs px-2 py-0.5 border border-green-300 rounded hover:bg-green-50 font-medium"
+                            title="Criar Segunda Senha"
+                          >
+                            2ª Senha
+                          </button>
                            <button
                              onClick={() => updatePaymentStatus(establishment.id, 'paid')}
                              className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50"
@@ -829,6 +942,113 @@ const AdminDashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Modal para Ver Senha de Acesso */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Ver Senha de Acesso</h3>
+              <button
+                onClick={closePasswordModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XCircle className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                  Email do Usuário
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={emailToCheck}
+                  onChange={(e) => setEmailToCheck(e.target.value)}
+                  placeholder="Digite o email do usuário"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              
+              <button
+                onClick={checkUserPassword}
+                disabled={isLoadingPassword}
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+              >
+                {isLoadingPassword ? (
+                  <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Eye className="h-4 w-4 mr-2" />
+                )}
+                Ver Acesso
+              </button>
+              
+              {userInfo && (
+                <div className="mt-4 space-y-3">
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <h4 className="text-sm font-medium text-blue-900 mb-2">Informações do Usuário</h4>
+                    <div className="space-y-1 text-sm">
+                      <p><span className="font-medium">Email:</span> {userInfo.user_email}</p>
+                      <p><span className="font-medium">ID:</span> {userInfo.user_id}</p>
+                      <p><span className="font-medium">Criado em:</span> {new Date(userInfo.created_at).toLocaleDateString('pt-BR')}</p>
+                      {userInfo.has_establishment && (
+                        <div className="mt-2 pt-2 border-t border-blue-200">
+                          <p><span className="font-medium">Estabelecimento:</span> {userInfo.establishment_name}</p>
+                          <p><span className="font-medium">Código:</span> {userInfo.establishment_code}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className={`p-3 rounded-lg border ${userInfo.password_found ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Senha Real do Usuário:
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={userPassword}
+                        readOnly
+                        className={`flex-1 px-3 py-2 border rounded-lg bg-white text-gray-900 text-sm font-mono ${
+                          userInfo.password_found ? 'border-green-300 text-green-800' : 'border-yellow-300 text-yellow-800'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="p-2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <p className={`text-xs mt-1 ${userInfo.password_found ? 'text-green-600' : 'text-yellow-600'}`}>
+                      {userInfo.password_found 
+                        ? '✅ Senha descoberta com sucesso!' 
+                        : '⚠️ Senha não é comum (não foi possível descobrir)'
+                      }
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                onClick={closePasswordModal}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
