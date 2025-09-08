@@ -459,6 +459,15 @@ const LandingPage = () => {
                 </div>
               </div>
 
+              {/* Imagem testeR */}
+              <div className="w-full max-w-2xl mx-auto mt-0 mb-0">
+                <img
+                  src="/testeR.png"
+                  alt="Teste R"
+                  className="w-full h-auto hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+
               {/* Vídeo do YouTube */}
               <div className="w-full max-w-4xl mx-auto mt-8 mb-8">
                 <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
@@ -471,15 +480,6 @@ const LandingPage = () => {
                     allowFullScreen
                   />
                 </div>
-              </div>
-
-              {/* Imagem testeR */}
-              <div className="w-full max-w-2xl mx-auto mt-0 mb-0">
-                <img
-                  src="/testeR.png"
-                  alt="Teste R"
-                  className="w-full h-auto hover:scale-105 transition-transform duration-300"
-                />
               </div>
 
               {/* Imagem 10 mil abaixo da testeR */}

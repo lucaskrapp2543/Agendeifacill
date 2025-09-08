@@ -10,6 +10,10 @@ import type { Database } from '../types/supabase';
 import { CancelAppointmentButton } from '../components/CancelAppointmentButton';
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationPermission } from '../components/NotificationPermission';
+import { useAppointmentReminders } from '../hooks/useAppointmentReminders';
+import { NotificationStatus } from '../components/NotificationStatus';
+import { ReminderInfo } from '../components/ReminderInfo';
+import { AppDownloadBanner } from '../components/AppDownloadBanner';
 
 type Appointment = {
   id: string;
@@ -33,8 +37,23 @@ const ClientDashboard = () => {
   const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  
+  // Sistema de lembretes automáticos
+  const { notificationPermission } = useAppointmentReminders(appointments);
   const [isLoading, setIsLoading] = useState(true);
   const [showWelcomePopup, setShowWelcomePopup] = useState(false);
+
+  // Função para solicitar permissão de notificação
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        toast.success('🔔 Notificações ativadas! Você receberá lembretes dos seus agendamentos.');
+      } else {
+        toast.error('❌ Permissão de notificação negada. Você não receberá lembretes.');
+      }
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -161,6 +180,15 @@ const ClientDashboard = () => {
             <h1 className="text-2xl font-bold text-white">Meus Agendamentos</h1>
           </div>
 
+          {/* Status das Notificações */}
+          <NotificationStatus 
+            permission={notificationPermission}
+            onRequestPermission={requestNotificationPermission}
+          />
+
+          {/* Informações dos Lembretes */}
+          <ReminderInfo appointments={appointments} />
+
           {appointments.length === 0 ? (
             <div className="text-center py-12">
               <Calendar className="h-12 w-12 text-gray-600 mx-auto mb-4" />
@@ -175,56 +203,71 @@ const ClientDashboard = () => {
                 >
                   <div className="flex justify-between items-start">
                     <div className="space-y-4 w-full">
-                      <div>
-                        <h3 className="text-xl font-medium text-white">
-                          {appointment.establishment_name}
-                        </h3>
-                        
-                        <div className="mt-3 flex items-center gap-4">
-                          <p className="text-lg text-primary font-medium">
-                            {appointment.service_name}
+                      {/* Header com informações principais */}
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="text-xl font-medium text-white mb-2">
+                            🏪 {appointment.establishment_name}
+                          </h3>
+                          <p className="text-gray-400 text-sm">
+                            Pedido feito em: {format(new Date(appointment.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
                           </p>
-                          <span className="text-gray-500">•</span>
-                          <p className="text-lg text-green-500 font-medium">
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl text-green-500 font-bold">
                             R$ {appointment.service_price?.toFixed(2).replace('.', ',')}
                           </p>
                         </div>
-
-                        <p className="text-gray-400 text-sm mt-2">
-                          Pedido feito em: {format(new Date(appointment.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
-                        </p>
                       </div>
 
-                      {appointment.professional_name && (
+                      {/* Grid com informações organizadas */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Serviço */}
                         <div className="bg-[#1F2022] p-4 rounded-lg">
-                          <h4 className="text-white font-medium mb-2">Profissional</h4>
-                          <p className="text-gray-300">
-                            {appointment.professional_name}
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="bg-[#1F2022] p-4 rounded-lg">
-                        <h4 className="text-white font-medium mb-2">Data e Horário</h4>
-                        <div className="space-y-2">
-                          <p className="text-gray-300">
-                            <span className="text-gray-400">Data:</span> {format(parseISO(appointment.appointment_date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
-                          </p>
-                          <p className="text-gray-300">
-                            <span className="text-gray-400">Horário:</span> {appointment.appointment_time}
+                          <h4 className="text-white font-medium mb-2 flex items-center gap-2">
+                            ✂️ Serviço
+                          </h4>
+                          <p className="text-gray-300 text-lg">
+                            {appointment.service_name}
                           </p>
                           {appointment.duration && (
-                            <p className="text-gray-300">
-                              <span className="text-gray-400">Duração:</span> {appointment.duration} minutos
+                            <p className="text-gray-400 text-sm mt-1">
+                              Duração: {appointment.duration} minutos
                             </p>
                           )}
                         </div>
-                      </div>
 
-                      <div className="flex items-center justify-between mt-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-gray-400">Status:</span>
-                          <span className={`font-medium ${
+                        {/* Profissional */}
+                        <div className="bg-[#1F2022] p-4 rounded-lg">
+                          <h4 className="text-white font-medium mb-2 flex items-center gap-2">
+                            👨‍💼 Profissional
+                          </h4>
+                          <p className="text-gray-300 text-lg">
+                            {appointment.professional_name || 'Não especificado'}
+                          </p>
+                        </div>
+
+                        {/* Data e Horário */}
+                        <div className="bg-[#1F2022] p-4 rounded-lg">
+                          <h4 className="text-white font-medium mb-2 flex items-center gap-2">
+                            📅 Data e Horário
+                          </h4>
+                          <div className="space-y-1">
+                            <p className="text-gray-300">
+                              {format(parseISO(appointment.appointment_date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                            </p>
+                            <p className="text-gray-300 text-lg font-medium">
+                              {appointment.appointment_time}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Status */}
+                        <div className="bg-[#1F2022] p-4 rounded-lg">
+                          <h4 className="text-white font-medium mb-2 flex items-center gap-2">
+                            📊 Status
+                          </h4>
+                          <span className={`font-medium text-lg ${
                             appointment.status === 'cancelled' 
                               ? 'text-red-500' 
                               : appointment.status === 'confirmed' 
@@ -232,24 +275,41 @@ const ClientDashboard = () => {
                               : 'text-yellow-500'
                           }`}>
                             {appointment.status === 'cancelled' 
-                              ? 'Cancelado' 
+                              ? '❌ Cancelado' 
                               : appointment.status === 'confirmed' 
-                              ? 'Confirmado' 
-                              : 'Pendente'}
+                              ? '✅ Confirmado' 
+                              : '⏳ Pendente'}
                           </span>
                         </div>
 
-                        {appointment.status !== 'cancelled' && (
-                          <div className="mt-4">
-                            <CancelAppointmentButton
-                              appointmentId={appointment.id}
-                              onCancelled={() => {
-                                fetchAppointments();
-                              }}
-                            />
-                          </div>
-                        )}
+                        {/* Método de Pagamento */}
+                        <div className="bg-[#1F2022] p-4 rounded-lg">
+                          <h4 className="text-white font-medium mb-2 flex items-center gap-2">
+                            💳 Pagamento
+                          </h4>
+                          <p className="text-gray-300 text-lg">
+                            {appointment.payment_method === 'pix' ? '💳 PIX' :
+                             appointment.payment_method === 'credito' ? '💳 Crédito' :
+                             appointment.payment_method === 'debito' ? '💳 Débito' :
+                             appointment.payment_method === 'dinheiro' ? '💵 Dinheiro' :
+                             appointment.payment_method === 'pagar_local' ? '🏪 Pagar no Local' :
+                             appointment.payment_method === 'assinante' ? '👑 Assinante' :
+                             '💳 Não especificado'}
+                          </p>
+                        </div>
                       </div>
+
+                      {/* Botão de Cancelar */}
+                      {appointment.status !== 'cancelled' && (
+                        <div className="mt-4 flex justify-end">
+                          <CancelAppointmentButton
+                            appointmentId={appointment.id}
+                            onCancelled={() => {
+                              fetchAppointments();
+                            }}
+                          />
+                        </div>
+                      )}
 
                       {/* Detalhes do Pagamento PIX */}
                       {appointment.payment_method === 'pix' && (
@@ -343,6 +403,9 @@ const ClientDashboard = () => {
           </div>
         </div>
       )}
+      
+      {/* Banner para baixar o app */}
+      <AppDownloadBanner />
     </div>
   );
 };
