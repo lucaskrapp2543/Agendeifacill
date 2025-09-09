@@ -32,6 +32,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import BlockedPage from './pages/BlockedPage';
 import RecoveryPassword from './pages/RecoveryPassword';
 import ResetPassword from './pages/ResetPassword';
+import Conhecer from './pages/Conhecer';
 
 // Protected Routes
 import ProtectedRoute from './components/ProtectedRoute';
@@ -72,6 +73,7 @@ function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/recovery-password" element={<RecoveryPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/conhecer" element={<Conhecer />} />
               <Route path="/suporte060622" element={<Suporte060622 />} />
       
               <Route path="/verusuariosgratis060622" element={<VerUsuariosGratis060622 />} />
