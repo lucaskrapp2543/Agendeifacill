@@ -326,6 +326,8 @@ const EstablishmentDashboard = () => {
   const [openDailyRevenueDropdown, setOpenDailyRevenueDropdown] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
   const [showReminderPopup, setShowReminderPopup] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   
   // Estados para relatório de taxas
   const [taxesReport, setTaxesReport] = useState<any>(null);
@@ -881,6 +883,19 @@ const EstablishmentDashboard = () => {
     } catch (error) {
       console.error('Erro ao cancelar agendamento:', error);
       toast('Erro ao cancelar agendamento', 'error');
+    }
+  };
+
+  const handleCancelClick = (appointmentId: string) => {
+    setAppointmentToCancel(appointmentId);
+    setShowCancelConfirm(true);
+  };
+
+  const confirmCancel = async () => {
+    if (appointmentToCancel) {
+      await handleCancelAppointment(appointmentToCancel);
+      setShowCancelConfirm(false);
+      setAppointmentToCancel(null);
     }
   };
 
@@ -4130,13 +4145,6 @@ const EstablishmentDashboard = () => {
                                     </button>
                                   )}
 
-                                  <button
-                                    onClick={() => handleCancelAppointment(appointment.id)}
-                                    className="inline-flex items-center px-3 py-1.5 text-sm bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors"
-                                  >
-                                    <X className="h-4 w-4 mr-1" />
-                                    Cancelar
-                                  </button>
 
                                               {/* Botões de Status */}
             <div className="flex items-center gap-1">
@@ -4157,9 +4165,9 @@ const EstablishmentDashboard = () => {
               </button>
 
               <button
-                onClick={() => handleUpdateAppointmentStatus(appointment.id, 'cancelled')}
+                onClick={() => handleCancelClick(appointment.id)}
                 className="px-2 py-1 text-xs font-medium rounded transition-colors bg-red-700 text-white hover:bg-red-800"
-                title="Marcar como CANCELADO"
+                title="Cancelar agendamento"
               >
                 CANCELADO
               </button>
@@ -6697,6 +6705,44 @@ const EstablishmentDashboard = () => {
                 className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
               >
                 Entendi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup de confirmação para cancelar */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <span className="text-red-600 text-xl">❌</span>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Cancelar Agendamento
+              </h3>
+            </div>
+            
+            <p className="text-gray-700 mb-6 leading-relaxed">
+              Tem certeza que deseja cancelar este agendamento? Esta ação não pode ser desfeita.
+            </p>
+            
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowCancelConfirm(false);
+                  setAppointmentToCancel(null);
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+              >
+                Não
+              </button>
+              <button
+                onClick={confirmCancel}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+              >
+                Sim, Cancelar
               </button>
             </div>
           </div>
