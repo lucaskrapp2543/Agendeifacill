@@ -36,7 +36,7 @@ export function NotificationStatus({ permission, onRequestPermission }: Notifica
             </h3>
             <p className="text-gray-400 text-sm">
               {permission === 'granted'
-                ? 'Você receberá lembretes 45 minutos antes dos seus agendamentos!'
+                ? 'Você receberá lembretes 30 minutos antes dos seus agendamentos!'
                 : 'Receba lembretes automáticos dos seus agendamentos'
               }
             </p>

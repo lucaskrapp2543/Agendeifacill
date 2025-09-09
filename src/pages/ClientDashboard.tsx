@@ -213,10 +213,39 @@ const ClientDashboard = () => {
                             Pedido feito em: {format(new Date(appointment.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="text-2xl text-green-500 font-bold">
-                            R$ {appointment.service_price?.toFixed(2).replace('.', ',')}
-                          </p>
+                        <div className="text-right flex items-center gap-3">
+                          {/* Botão CRIAR LEMBRETE - No canto superior direito */}
+                          {appointment.status !== 'cancelled' && (
+                            <button
+                              onClick={() => {
+                                const appointmentDateTime = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
+                                const reminderTime = new Date(appointmentDateTime.getTime() - (30 * 60 * 1000)); // 30 minutos antes
+                                
+                                const reminderTitle = `Lembrete: ${appointment.establishment_name}`;
+                                const reminderDescription = `Você tem um agendamento em ${appointment.establishment_name}\n\nServiço: ${appointment.service_name}\nProfissional: ${appointment.professional_name || 'Não especificado'}\nHorário: ${appointment.appointment_time}`;
+                                
+                                // Criar evento no calendário
+                                const startDate = reminderTime.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                                const endDate = new Date(reminderTime.getTime() + (15 * 60 * 1000)).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'; // 15 min de duração
+                                
+                                const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointment.establishment_name)}`;
+                                
+                                window.open(calendarUrl, '_blank');
+                                
+                                toast('Lembrete criado! Abrindo calendário...', 'success');
+                              }}
+                              className="px-3 py-2 text-sm font-medium rounded-lg transition-colors bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1"
+                              title="Criar lembrete no seu calendário"
+                            >
+                              📅 Lembrete
+                            </button>
+                          )}
+                          
+                          <div>
+                            <p className="text-2xl text-green-500 font-bold">
+                              R$ {appointment.service_price?.toFixed(2).replace('.', ',')}
+                            </p>
+                          </div>
                         </div>
                       </div>
 
@@ -299,9 +328,10 @@ const ClientDashboard = () => {
                         </div>
                       </div>
 
-                      {/* Botão de Cancelar */}
+
+                      {/* Botões de Ação */}
                       {appointment.status !== 'cancelled' && (
-                        <div className="mt-4 flex justify-end">
+                        <div className="mt-4 flex justify-end gap-2">
                           <CancelAppointmentButton
                             appointmentId={appointment.id}
                             onCancelled={() => {
@@ -404,6 +434,7 @@ const ClientDashboard = () => {
         </div>
       )}
       
+
       {/* Banner para baixar o app */}
       <AppDownloadBanner />
     </div>

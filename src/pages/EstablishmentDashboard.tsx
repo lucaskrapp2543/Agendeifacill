@@ -903,7 +903,7 @@ const EstablishmentDashboard = () => {
         'pending': 'Agendamento marcado como PENDENTE',
         'confirmed': 'Agendamento confirmado',
         'cancelled': 'Agendamento cancelado',
-        'completed': 'Agendamento marcado como FEITO'
+        'completed': 'Agendamento marcado como CONCLUÍDO'
       };
 
       toast(statusMessages[newStatus], 'success');
@@ -2726,6 +2726,50 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // Função para remover produto adicional
+  const handleRemoveAdditionalProduct = async (appointmentId: string, productIndex: number) => {
+    try {
+      const appointment = appointments.find(a => a.id === appointmentId);
+      if (!appointment) return;
+
+      const currentAdditionalProducts = appointment.additional_products || [];
+      const updatedAdditionalProducts = currentAdditionalProducts.filter((_, index) => index !== productIndex);
+      
+      // Calcula o novo valor total (preço base + soma dos produtos adicionais)
+      const basePrice = appointment.price || 0;
+      const additionalProductsTotal = updatedAdditionalProducts.reduce((sum, p) => sum + p.price, 0);
+      const newTotalPrice = basePrice + additionalProductsTotal;
+
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          additional_products: updatedAdditionalProducts,
+          total_price: newTotalPrice
+        })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      // Atualiza o estado local
+      setAppointments(prevAppointments => 
+        prevAppointments.map(a => 
+          a.id === appointmentId 
+            ? {
+                ...a,
+                additional_products: updatedAdditionalProducts,
+                total_price: newTotalPrice
+              }
+            : a
+        )
+      );
+
+      toast('Produto adicional removido com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao remover produto:', error);
+      toast('Erro ao remover produto adicional', 'error');
+    }
+  };
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
@@ -3685,30 +3729,83 @@ const EstablishmentDashboard = () => {
                 {/* Legenda das Cores */}
                 <div className="mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
                   <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
-                  <div className="flex flex-col sm:flex-row justify-center gap-2 sm:gap-4">
-                    <button
-                      onClick={() => setShowColorLegend('red')}
-                      className="flex items-center justify-center gap-2 px-2 py-2 sm:px-3 bg-red-600 text-white text-xs sm:text-sm rounded hover:bg-red-700 transition-colors w-full sm:w-auto"
-                    >
-                      <div className="w-3 h-3 sm:w-4 sm:h-4 bg-red-600 border border-white rounded flex-shrink-0"></div>
-                      <span>Vermelho</span>
-                    </button>
+                  
+                  {/* Layout para mobile - 3 colunas */}
+                  <div className="grid grid-cols-3 gap-2 sm:hidden">
+                    <div className="flex flex-col items-center gap-1">
+                      <button
+                        onClick={() => setShowColorLegend('red')}
+                        className="w-full flex items-center justify-center px-2 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                      >
+                        <span className="text-xs">Cancelado</span>
+                      </button>
+                      <span className="text-sm font-bold text-white bg-red-700 px-2 py-1 rounded w-full text-center">
+                        {appointments.filter(apt => apt.status === 'cancelled').length}
+                      </span>
+                    </div>
                     
-                    <button
-                      onClick={() => setShowColorLegend('yellow')}
-                      className="flex items-center justify-center gap-2 px-2 py-2 sm:px-3 bg-yellow-600 text-white text-xs sm:text-sm rounded hover:bg-yellow-700 transition-colors w-full sm:w-auto"
-                    >
-                      <div className="w-3 h-3 sm:w-4 sm:h-4 bg-yellow-600 border border-white rounded flex-shrink-0"></div>
-                      <span>Amarelo</span>
-                    </button>
+                    <div className="flex flex-col items-center gap-1">
+                      <button
+                        onClick={() => setShowColorLegend('yellow')}
+                        className="w-full flex items-center justify-center px-2 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition-colors"
+                      >
+                        <span className="text-xs">Pendente</span>
+                      </button>
+                      <span className="text-sm font-bold text-white bg-yellow-700 px-2 py-1 rounded w-full text-center">
+                        {appointments.filter(apt => apt.status === 'pending').length}
+                      </span>
+                    </div>
                     
-                    <button
-                      onClick={() => setShowColorLegend('green')}
-                      className="flex items-center justify-center gap-2 px-2 py-2 sm:px-3 bg-green-600 text-white text-xs sm:text-sm rounded hover:bg-green-700 transition-colors w-full sm:w-auto"
-                    >
-                      <div className="w-3 h-3 sm:w-4 sm:h-4 bg-green-600 border border-white rounded flex-shrink-0"></div>
-                      <span>Verde</span>
-                    </button>
+                    <div className="flex flex-col items-center gap-1">
+                      <button
+                        onClick={() => setShowColorLegend('green')}
+                        className="w-full flex items-center justify-center px-2 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                      >
+                        <span className="text-xs">Concluído</span>
+                      </button>
+                      <span className="text-sm font-bold text-white bg-green-700 px-2 py-1 rounded w-full text-center">
+                        {appointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Layout para desktop - horizontal */}
+                  <div className="hidden sm:flex justify-center gap-4 sm:gap-6">
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        onClick={() => setShowColorLegend('red')}
+                        className="flex items-center justify-center px-3 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+                      >
+                        <span>Cancelado</span>
+                      </button>
+                      <span className="text-lg font-bold text-white bg-red-700 px-3 py-1 rounded">
+                        {appointments.filter(apt => apt.status === 'cancelled').length}
+                      </span>
+                    </div>
+                    
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        onClick={() => setShowColorLegend('yellow')}
+                        className="flex items-center justify-center px-3 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
+                      >
+                        <span>Pendente</span>
+                      </button>
+                      <span className="text-lg font-bold text-white bg-yellow-700 px-3 py-1 rounded">
+                        {appointments.filter(apt => apt.status === 'pending').length}
+                      </span>
+                    </div>
+                    
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        onClick={() => setShowColorLegend('green')}
+                        className="flex items-center justify-center px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                      >
+                        <span>Concluído</span>
+                      </button>
+                      <span className="text-lg font-bold text-white bg-green-700 px-3 py-1 rounded">
+                        {appointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -3751,9 +3848,10 @@ const EstablishmentDashboard = () => {
                 )}
 
                 {/* Alerta sobre contabilização de valores */}
-                <div className="mb-4">
-                  <p className="text-orange-400 text-sm font-medium">
-                    ⚠️ O valor só será contabilizado se colocar como (FEITO) no agendamento
+                <div className="mb-4 p-3 bg-orange-100 border-l-4 border-orange-500 rounded-r-lg">
+                  <p className="text-orange-800 text-sm font-bold flex items-center gap-2">
+                    <span className="text-orange-600 text-lg">⚠️</span>
+                    O valor só será contabilizado se colocar como <span className="bg-orange-200 px-2 py-1 rounded font-bold">(CONCLUÍDO)</span> no agendamento
                   </p>
                 </div>
 
@@ -3828,121 +3926,36 @@ const EstablishmentDashboard = () => {
                               <div className="flex flex-col gap-1 flex-grow min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="font-medium text-white truncate">{appointment.client_name}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const newDropdowns = { ...subscriberDropdowns };
-                                      newDropdowns[appointment.id] = !newDropdowns[appointment.id];
-                                      setSubscriberDropdowns(newDropdowns);
-                                    }}
-                                    className="ml-2 px-2 py-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-black font-bold rounded transition-colors"
-                                  >
-                                    👑 CLIENTE ASSINANTE?
-                                  </button>
-                                  {subscriberDropdowns[appointment.id] && (
-                                    <div className="absolute z-10 mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-lg">
-                                      <button
-                                        type="button"
-                                        onClick={async () => {
-                                          console.log('Marcando cliente como assinante:', appointment.client_name);
-                                          
-                                          try {
-                                            // SALVAR NO BANCO
-                                            const { error } = await supabase
-                                              .from('appointments')
-                                              .update({ 
-                                                is_subscriber: true,
-                                                price: 0,
-                                                total_price: 0
-                                              })
-                                              .eq('id', appointment.id);
-                                            
-                                            if (error) throw error;
-                                            
-                                            // Atualizar estado local
-                                            const newSubscribers = { ...appointmentSubscribers };
-                                            newSubscribers[appointment.id] = true;
-                                            setAppointmentSubscribers(newSubscribers);
-                                            
-                                            // Fechar dropdown
-                                            const newDropdowns = { ...subscriberDropdowns };
-                                            newDropdowns[appointment.id] = false;
-                                            setSubscriberDropdowns(newDropdowns);
-                                            
-                                            // Recarregar dados para atualizar saldos
-                                            await fetchAppointments();
-                                            await fetchMonthlyAppointments();
-                                            
-                                            toast('Cliente marcado como assinante! Serviço gratuito.', 'success');
-                                          } catch (error) {
-                                            console.error('Erro ao salvar assinante:', error);
-                                            toast('Erro ao salvar. Tente novamente.', 'error');
-                                          }
-                                        }}
-                                        className="w-full px-3 py-2 text-left hover:bg-gray-700 border-b border-gray-600 text-sm text-white"
-                                      >
-                                        ✅ Sim - Serviço já é assinante
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={async () => {
-                                          console.log('Marcando cliente como não assinante:', appointment.client_name);
-                                          
-                                          try {
-                                            // Buscar o preço original do serviço
-                                            const service = establishment?.services_with_prices?.find(s => s.name === appointment.service);
-                                            const originalPrice = service?.price || appointment.price || 0;
-                                            
-                                            // SALVAR NO BANCO
-                                            const { error } = await supabase
-                                              .from('appointments')
-                                              .update({ 
-                                                is_subscriber: false,
-                                                price: originalPrice,
-                                                total_price: originalPrice
-                                              })
-                                              .eq('id', appointment.id);
-                                            
-                                            if (error) throw error;
-                                            
-                                            // Atualizar estado local
-                                            const newSubscribers = { ...appointmentSubscribers };
-                                            newSubscribers[appointment.id] = false;
-                                            setAppointmentSubscribers(newSubscribers);
-                                            
-                                            // Fechar dropdown
-                                            const newDropdowns = { ...subscriberDropdowns };
-                                            newDropdowns[appointment.id] = false;
-                                            setSubscriberDropdowns(newDropdowns);
-                                            
-                                            // Recarregar dados para atualizar saldos
-                                            await fetchAppointments();
-                                            await fetchMonthlyAppointments();
-                                            
-                                            toast('Cliente marcado como não assinante. Preço normal.', 'success');
-                                          } catch (error) {
-                                            console.error('Erro ao salvar não assinante:', error);
-                                            toast('Erro ao salvar. Tente novamente.', 'error');
-                                          }
-                                        }}
-                                        className="w-full px-3 py-2 text-left hover:bg-gray-700 text-sm text-white"
-                                      >
-                                        ❌ Não é assinante
-                                      </button>
-                                    </div>
-                                  )}
                                   {isClientPaidSubscriber(appointment.client_whatsapp) && (
                                     <Crown className="h-5 w-5 text-yellow-400" />
                                   )}
                                   {appointment.client_whatsapp && (
-                                    <a
-                                      href={`https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center text-white hover:text-white/80"
-                                    >
-                                      <img src="/wppicon.png" alt="WhatsApp" className="h-4 w-4" />
-                                    </a>
+                                    <div className="flex items-center gap-2">
+                                      <a
+                                        href={`https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center text-white hover:text-white/80"
+                                        title="Enviar WhatsApp"
+                                      >
+                                        <img src="/wppicon.png" alt="WhatsApp" className="h-4 w-4" />
+                                      </a>
+                                      
+                                      {/* Botão IMPREVISTO */}
+                                      <button
+                                        onClick={() => {
+                                          const establishmentCode = establishment?.code || 'codigo';
+                                          const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
+                                          const whatsappUrl = `https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                                          window.open(whatsappUrl, '_blank');
+                                        }}
+                                        className="px-2 py-1 text-xs font-medium rounded transition-colors bg-orange-600 text-white hover:bg-orange-700"
+                                        title="Enviar mensagem de imprevisto"
+                                      >
+                                        IMPREVISTO
+                                      </button>
+                                      
+                                    </div>
                                   )}
                                 </div>
                                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/90">
@@ -3994,9 +4007,16 @@ const EstablishmentDashboard = () => {
                                     <span className="text-sm text-white/80 mb-1">Produtos/Serviços Adicionais:</span>
                                     <div className="flex flex-wrap gap-2">
                                       {appointment.additional_products.map((product, index) => (
-                                        <span key={index} className="inline-flex items-center px-2 py-1 text-xs bg-white/10 text-white rounded">
-                                          {product.name} - {formatCurrency(product.price)}
-                                        </span>
+                                        <div key={index} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/10 text-white rounded group">
+                                          <span>{product.name} - {formatCurrency(product.price)}</span>
+                                          <button
+                                            onClick={() => handleRemoveAdditionalProduct(appointment.id, index)}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 ml-1"
+                                            title="Remover produto"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        </div>
                                       ))}
                                     </div>
                                   </div>
@@ -4115,9 +4135,9 @@ const EstablishmentDashboard = () => {
               <button
                 onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
                 className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
-                title="Marcar como FEITO"
+                 title="Marcar como CONCLUÍDO"
               >
-                FEITO
+                CONCLUÍDO
               </button>
 
               <button

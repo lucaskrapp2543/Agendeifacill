@@ -42,7 +42,7 @@ export function ReminderInfo({ appointments }: ReminderInfoProps) {
       <div className="space-y-2">
         {futureAppointments.map((appointment) => {
           const appointmentDateTime = parseISO(`${appointment.appointment_date}T${appointment.appointment_time}`);
-          const reminderTime = addMinutes(appointmentDateTime, -45);
+                  const reminderTime = addMinutes(appointmentDateTime, -30);
           
           return (
             <div key={appointment.id} className="flex items-center justify-between text-sm">
@@ -61,7 +61,7 @@ export function ReminderInfo({ appointments }: ReminderInfoProps) {
       </div>
       
       <p className="text-gray-400 text-xs mt-3">
-        💡 Você receberá uma notificação 45 minutos antes de cada agendamento
+        💡 Você receberá uma notificação 30 minutos antes de cada agendamento
       </p>
     </div>
   );
