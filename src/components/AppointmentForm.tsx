@@ -12,6 +12,8 @@ import { Phone } from 'lucide-react';
 import { ProfessionalSelector } from './ProfessionalSelector';
 import { checkWhatsAppSubscriber } from '../lib/supabase';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
+import { validateSubscriberBooking, getAvailableDatesForSubscriber } from '../utils/subscriberBookingValidation';
+import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 
 interface Service {
   id: string;
@@ -146,9 +148,107 @@ export function AppointmentForm({
   // Estados para detecção automática de assinantes
   const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
   const [isCheckingSubscriber, setIsCheckingSubscriber] = useState(false);
+  
+  // Estados para validação de agendamento de assinantes
+  const [subscriberBookingError, setSubscriberBookingError] = useState<string | null>(null);
+  const [isValidatingBooking, setIsValidatingBooking] = useState(false);
   const [showSubscriberNotification, setShowSubscriberNotification] = useState(false);
 
+  // Estados para validação de remarcação no mesmo dia
+  const [sameDayRescheduleError, setSameDayRescheduleError] = useState<string | null>(null);
+  const [isValidatingSameDay, setIsValidatingSameDay] = useState(false);
+
+  // Função para validar agendamento de assinantes
+  const validateSubscriberBookingDate = async (date: Date) => {
+    console.log('🔍 Iniciando validação de agendamento:', {
+      clientWhatsapp,
+      establishmentId: establishment?.id,
+      selectedDate: date.toISOString()
+    });
+
+    if (!clientWhatsapp || !establishment?.id) {
+      console.log('❌ Dados insuficientes para validação');
+      setSubscriberBookingError(null);
+      return;
+    }
+
+    setIsValidatingBooking(true);
+    setSubscriberBookingError(null);
+
+    try {
+      const validation = await validateSubscriberBooking(
+        clientWhatsapp,
+        establishment.id,
+        date
+      );
+
+      console.log('📋 Resultado da validação:', validation);
+
+      if (!validation.canBook) {
+        console.log('❌ Agendamento bloqueado:', validation.message);
+        setSubscriberBookingError(validation.message || 'Agendamento não permitido para esta data.');
+      } else {
+        console.log('✅ Agendamento permitido');
+        setSubscriberBookingError(null);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao validar agendamento de assinante:', error);
+      setSubscriberBookingError(null); // Em caso de erro, permitir agendamento
+    } finally {
+      setIsValidatingBooking(false);
+    }
+  };
+
+  // Função para validar remarcação no mesmo dia
+  const validateSameDayRescheduleDate = async (date: Date) => {
+    console.log('🔍 Iniciando validação de remarcação no mesmo dia:', {
+      clientWhatsapp,
+      establishmentId: establishment?.id,
+      selectedDate: date.toISOString()
+    });
+
+    if (!clientWhatsapp || !establishment?.id) {
+      console.log('❌ Dados insuficientes para validação de remarcação');
+      setSameDayRescheduleError(null);
+      return;
+    }
+
+    setIsValidatingSameDay(true);
+    setSameDayRescheduleError(null);
+
+    try {
+      const validation = await validateSameDayReschedule(
+        clientWhatsapp,
+        establishment.id,
+        date
+      );
+
+      console.log('📋 Resultado da validação de remarcação:', validation);
+
+      if (!validation.canBook) {
+        console.log('❌ Remarcação bloqueada:', validation.message);
+        setSameDayRescheduleError(validation.message || 'Remarcação não permitida para esta data.');
+      } else {
+        console.log('✅ Remarcação permitida');
+        setSameDayRescheduleError(null);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao validar remarcação no mesmo dia:', error);
+      setSameDayRescheduleError(null); // Em caso de erro, permitir agendamento
+    } finally {
+      setIsValidatingSameDay(false);
+    }
+  };
+
   // Removido useEffect que definia automaticamente o método de pagamento
+
+  // Validar agendamento de assinantes quando data ou WhatsApp mudarem
+  useEffect(() => {
+    if (clientWhatsapp && establishment?.id) {
+      validateSubscriberBookingDate(selectedDate);
+      validateSameDayRescheduleDate(selectedDate);
+    }
+  }, [selectedDate, clientWhatsapp, establishment?.id]);
 
   // Detectar automaticamente se o WhatsApp é de um assinante usando o novo sistema
   useEffect(() => {
@@ -290,6 +390,46 @@ export function AppointmentForm({
     // Validação específica para PIX
     if (selectedPaymentMethod === 'pix' && pixPaymentMethod === 'pix_now' && !pixProofUrl) {
       missingFields.push('comprovante do PIX');
+    }
+
+    // VALIDAÇÃO DE ASSINANTE - BLOQUEAR AGENDAMENTO SE FORA DA SEMANA
+    if (subscriberBookingError) {
+      console.log('❌ Agendamento bloqueado para assinante:', subscriberBookingError);
+      
+      // Scroll para a mensagem de erro (que já está visível)
+      setTimeout(() => {
+        const errorElement = document.querySelector('[data-subscriber-error]');
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Destacar a mensagem com uma animação
+          errorElement.classList.add('animate-bounce');
+          setTimeout(() => {
+            errorElement.classList.remove('animate-bounce');
+          }, 1000);
+        }
+      }, 100);
+      
+      return;
+    }
+
+    // VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA - BLOQUEAR SE ASSINANTE CANCELOU HOJE
+    if (sameDayRescheduleError) {
+      console.log('❌ Remarcação bloqueada para assinante:', sameDayRescheduleError);
+      
+      // Scroll para a mensagem de erro (que já está visível)
+      setTimeout(() => {
+        const errorElement = document.querySelector('[data-same-day-error]');
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Destacar a mensagem com uma animação
+          errorElement.classList.add('animate-bounce');
+          setTimeout(() => {
+            errorElement.classList.remove('animate-bounce');
+          }, 1000);
+        }
+      }, 100);
+      
+      return;
     }
 
     // Se há campos faltando, mostrar mensagem amigável
@@ -475,6 +615,90 @@ export function AppointmentForm({
             <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
               <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
               Verificando se é assinante...
+            </div>
+          )}
+          
+          {/* Mensagem de erro para limitação de agendamento de assinantes */}
+          {subscriberBookingError && (
+            <div 
+              data-subscriber-error
+              className="mt-4 p-4 bg-gradient-to-r from-red-50 to-orange-50 border-l-4 border-red-500 rounded-lg shadow-lg animate-pulse"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <span className="text-red-600 text-xl">🚫</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-bold text-red-800 mb-1">
+                      Agendamento Restrito
+                    </h3>
+                    <div className="text-red-500 text-sm font-medium">
+                      ⚠️ Atenção
+                    </div>
+                  </div>
+                  <p className="text-sm text-red-700 leading-relaxed mb-2">
+                    {subscriberBookingError}
+                  </p>
+                  <div className="bg-red-100 rounded-md p-2">
+                    <p className="text-xs text-red-600 font-medium">
+                      💡 Dica: Escolha uma data dentro da semana atual para prosseguir com o agendamento.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Loading de validação */}
+          {isValidatingBooking && (
+            <div className="mt-3 flex items-center gap-2 text-blue-600">
+              <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+              <span className="text-sm">Verificando disponibilidade...</span>
+            </div>
+          )}
+
+          {/* Mensagem de erro para remarcação no mesmo dia */}
+          {sameDayRescheduleError && (
+            <div 
+              data-same-day-error
+              className="mt-4 p-4 bg-gradient-to-r from-orange-50 to-red-50 border-l-4 border-orange-500 rounded-lg shadow-lg animate-pulse"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                    <span className="text-orange-600 text-xl">🚫</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-bold text-orange-800 mb-1">
+                      Remarcação Bloqueada
+                    </h3>
+                    <div className="text-orange-500 text-sm font-medium">
+                      ⚠️ Atenção
+                    </div>
+                  </div>
+                  <p className="text-sm text-orange-700 leading-relaxed mb-2">
+                    {sameDayRescheduleError}
+                  </p>
+                  <div className="bg-orange-100 rounded-md p-2">
+                    <p className="text-xs text-orange-600 font-medium">
+                      💡 Dica: Escolha uma data diferente para prosseguir com o agendamento.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Loading de validação de remarcação */}
+          {isValidatingSameDay && (
+            <div className="mt-3 flex items-center gap-2 text-orange-600">
+              <div className="animate-spin h-4 w-4 border-2 border-orange-600 border-t-transparent rounded-full"></div>
+              <span className="text-sm">Verificando histórico de cancelamentos...</span>
             </div>
           )}
         </div>

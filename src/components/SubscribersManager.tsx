@@ -43,9 +43,14 @@ interface SubscribersManagerProps {
   establishmentId: string;
   clients: Client[]; // Usar Client ao invés de Profile
   onClientUpdated?: () => void; // Nova prop para notificar atualizações
+  establishment?: {
+    limit_subscriber_bookings?: boolean;
+    prevent_same_day_reschedule?: boolean;
+  };
+  onEstablishmentUpdate?: () => void;
 }
 
-export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establishmentId, clients, onClientUpdated }) => {
+export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establishmentId, clients, onClientUpdated, establishment, onEstablishmentUpdate }) => {
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -68,6 +73,96 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  
+  // Estado para controlar limitação de agendamentos de assinantes
+  const [limitSubscriberBookings, setLimitSubscriberBookings] = useState(
+    establishment?.limit_subscriber_bookings || false
+  );
+  const [isUpdatingLimit, setIsUpdatingLimit] = useState(false);
+
+  // Estado para controlar limitação de remarcação no mesmo dia
+  const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(
+    establishment?.prevent_same_day_reschedule || false
+  );
+  const [isUpdatingSameDayLimit, setIsUpdatingSameDayLimit] = useState(false);
+
+  // Sincronizar estado quando establishment mudar
+  useEffect(() => {
+    if (establishment?.limit_subscriber_bookings !== undefined) {
+      setLimitSubscriberBookings(establishment.limit_subscriber_bookings);
+    }
+    if (establishment?.prevent_same_day_reschedule !== undefined) {
+      setPreventSameDayReschedule(establishment.prevent_same_day_reschedule);
+    }
+  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule]);
+
+  // Função para atualizar limitação de agendamentos de assinantes
+  const handleUpdateSubscriberBookingLimit = async (newLimit: boolean) => {
+    setIsUpdatingLimit(true);
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ limit_subscriber_bookings: newLimit })
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.error('Erro ao atualizar limitação de agendamentos:', error);
+        toast.error('Erro ao atualizar configuração de agendamentos.');
+        return;
+      }
+
+      setLimitSubscriberBookings(newLimit);
+      toast.success(
+        newLimit 
+          ? 'Assinantes agora só podem agendar dentro da mesma semana.' 
+          : 'Assinantes podem agendar qualquer data disponível.'
+      );
+      
+      // Notificar o componente pai sobre a atualização
+      if (onEstablishmentUpdate) {
+        onEstablishmentUpdate();
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar limitação de agendamentos:', error);
+      toast.error('Erro ao atualizar configuração de agendamentos.');
+    } finally {
+      setIsUpdatingLimit(false);
+    }
+  };
+
+  // Função para atualizar limitação de remarcação no mesmo dia
+  const handleUpdatePreventSameDayReschedule = async (newLimit: boolean) => {
+    setIsUpdatingSameDayLimit(true);
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ prevent_same_day_reschedule: newLimit })
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.error('Erro ao atualizar limitação de remarcação no mesmo dia:', error);
+        toast.error('Erro ao atualizar configuração de remarcação.');
+        return;
+      }
+
+      setPreventSameDayReschedule(newLimit);
+      toast.success(
+        newLimit 
+          ? 'Assinantes não podem mais remarcar no mesmo dia após cancelar.' 
+          : 'Assinantes podem cancelar e remarcar livremente.'
+      );
+      
+      // Notificar o componente pai sobre a atualização
+      if (onEstablishmentUpdate) {
+        onEstablishmentUpdate();
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar limitação de remarcação no mesmo dia:', error);
+      toast.error('Erro ao atualizar configuração de remarcação.');
+    } finally {
+      setIsUpdatingSameDayLimit(false);
+    }
+  };
 
   // Funções de fetch
   const fetchSubscriptions = async () => {
@@ -428,6 +523,77 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <p className="text-gray-400">Não Pagos:</p>
             <p className="text-2xl font-bold text-red-400">{assinantesNaoPagos}</p>
           </div>
+        </div>
+      </div>
+
+      {/* Configurações de Agendamento para Assinantes */}
+      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
+        <h2 className="text-xl font-semibold mb-4">Configurações de Agendamento</h2>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-[#2a2b2c] rounded-lg border border-gray-600">
+            <div className="flex-1">
+              <h3 className="text-lg font-medium text-white mb-2">Limitar agendamentos de assinantes</h3>
+              <p className="text-sm text-gray-400">
+                Se ativada, os assinantes só poderão agendar dentro da mesma semana.
+                <br />
+                <span className="text-yellow-400">
+                  Exemplo: Se hoje é sexta-feira, o assinante só poderá agendar até domingo.
+                </span>
+              </p>
+            </div>
+            <div className="ml-4">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={limitSubscriberBookings}
+                  onChange={(e) => handleUpdateSubscriberBookingLimit(e.target.checked)}
+                  disabled={isUpdatingLimit}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+          </div>
+          
+          {isUpdatingLimit && (
+            <div className="flex items-center gap-2 text-blue-400">
+              <div className="animate-spin h-4 w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+              <span className="text-sm">Atualizando configuração...</span>
+            </div>
+          )}
+
+          {/* Nova opção: Não permitir remarcação no mesmo dia */}
+          <div className="flex items-center justify-between p-4 bg-[#2a2b2c] rounded-lg border border-gray-600">
+            <div className="flex-1">
+              <h3 className="text-lg font-medium text-white mb-2">Clientes assinantes não podem desmarcar e remarcar no mesmo dia</h3>
+              <p className="text-sm text-gray-400">
+                Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia.
+                <br />
+                <span className="text-yellow-400">
+                  Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
+                </span>
+              </p>
+            </div>
+            <div className="ml-4">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={preventSameDayReschedule}
+                  onChange={(e) => handleUpdatePreventSameDayReschedule(e.target.checked)}
+                  disabled={isUpdatingSameDayLimit}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+          </div>
+
+          {isUpdatingSameDayLimit && (
+            <div className="flex items-center gap-2 text-blue-400">
+              <div className="animate-spin h-4 w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+              <span className="text-sm">Atualizando configuração...</span>
+            </div>
+          )}
         </div>
       </div>
 

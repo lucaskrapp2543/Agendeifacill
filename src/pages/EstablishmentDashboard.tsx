@@ -82,7 +82,9 @@ interface Establishment {
   pix_payment_link?: string;  // Nova coluna
   location_link?: string; // Novo estado para o link do local
   has_wifi?: boolean; // Novo estado para Wi-fi
-  has_parking?: boolean; // Novo estado para Estacionamento
+  has_parking?: boolean;
+  limit_subscriber_bookings?: boolean; // Limitar agendamentos de assinantes
+  prevent_same_day_reschedule?: boolean; // Prevenir remarcação no mesmo dia
   has_accessibility?: boolean; // Novo estado para Acessibilidade
   wifi_password?: string; // Senha do Wi-Fi
   whatsapp?: string; // Novo campo para WhatsApp
@@ -6203,7 +6205,15 @@ const EstablishmentDashboard = () => {
       {activeTab === 'subscribers' && (
         <div className="bg-white rounded-lg p-6 border border-gray-200">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Gerenciar Assinantes</h2>
-          <SubscribersManager establishmentId={establishment.id} />
+          <SubscribersManager 
+            establishmentId={establishment.id} 
+            clients={clients}
+            establishment={establishment}
+            onEstablishmentUpdate={() => {
+              // Recarregar dados do estabelecimento quando houver atualização
+              fetchEstablishment();
+            }}
+          />
         </div>
       )}
 

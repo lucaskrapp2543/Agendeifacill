@@ -1163,15 +1163,20 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
       return { data: null, error };
     }
 
-    // Buscar por número normalizado
+    // Buscar por número normalizado (verificar tanto client_whatsapp quanto subscriber_whatsapp)
     const subscriber = data?.find(sub => {
-      const subscriberPhone = normalizePhoneNumber(sub.client_whatsapp || '');
+      const clientPhone = normalizePhoneNumber(sub.client_whatsapp || '');
+      const subscriberPhone = normalizePhoneNumber(sub.subscriber_whatsapp || '');
+      
       console.log('🔍 Comparando:', { 
-        subscriberPhone, 
+        clientPhone, 
+        subscriberPhone,
         normalizedWhatsapp, 
-        match: subscriberPhone === normalizedWhatsapp 
+        matchClient: clientPhone === normalizedWhatsapp,
+        matchSubscriber: subscriberPhone === normalizedWhatsapp
       });
-      return subscriberPhone === normalizedWhatsapp;
+      
+      return clientPhone === normalizedWhatsapp || subscriberPhone === normalizedWhatsapp;
     });
 
     if (subscriber) {

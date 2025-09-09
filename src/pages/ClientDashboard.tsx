@@ -334,6 +334,7 @@ const ClientDashboard = () => {
                         <div className="mt-4 flex justify-end gap-2">
                           <CancelAppointmentButton
                             appointmentId={appointment.id}
+                            appointment={appointment}
                             onCancelled={() => {
                               fetchAppointments();
                             }}
