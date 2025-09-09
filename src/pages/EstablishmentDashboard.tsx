@@ -325,6 +325,7 @@ const EstablishmentDashboard = () => {
   const [openExtraProductsDropdown, setOpenExtraProductsDropdown] = useState<string | null>(null);
   const [openDailyRevenueDropdown, setOpenDailyRevenueDropdown] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
+  const [showReminderPopup, setShowReminderPopup] = useState(false);
   
   // Estados para relatório de taxas
   const [taxesReport, setTaxesReport] = useState<any>(null);
@@ -3849,10 +3850,17 @@ const EstablishmentDashboard = () => {
 
                 {/* Alerta sobre contabilização de valores */}
                 <div className="mb-4 p-3 bg-orange-100 border-l-4 border-orange-500 rounded-r-lg">
-                  <p className="text-orange-800 text-sm font-bold flex items-center gap-2">
-                    <span className="text-orange-600 text-lg">⚠️</span>
-                    O valor só será contabilizado se colocar como <span className="bg-orange-200 px-2 py-1 rounded font-bold">(CONCLUÍDO)</span> no agendamento
-                  </p>
+                  <div className="text-orange-800 text-sm font-bold flex items-start gap-2">
+                    <span className="text-orange-600 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+                    <div className="flex-1">
+                      <button 
+                        onClick={() => setShowReminderPopup(true)}
+                        className="cursor-pointer hover:underline text-left"
+                      >
+                        Agendamento pendente não conta valor no dashboard
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Lista de Agendamentos */}
@@ -6665,6 +6673,35 @@ const EstablishmentDashboard = () => {
       
       {/* Botão de Atualização */}
       <UpdateButton />
+
+      {/* Popup bonito para explicação */}
+      {showReminderPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                <span className="text-orange-600 text-xl">⚠️</span>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Como contabilizar valores
+              </h3>
+            </div>
+            
+            <p className="text-gray-700 mb-6 leading-relaxed">
+              Coloque seu agendamento como <span className="bg-green-100 text-green-800 px-2 py-1 rounded font-semibold">concluído</span>, para o dashboard reconhecer que você recebeu o valor de fato.
+            </p>
+            
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowReminderPopup(false)}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
+              >
+                Entendi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
