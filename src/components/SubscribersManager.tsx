@@ -527,73 +527,89 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       </div>
 
       {/* Configurações de Agendamento para Assinantes */}
-      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
-        <h2 className="text-xl font-semibold mb-4">Configurações de Agendamento</h2>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-[#2a2b2c] rounded-lg border border-gray-600">
-            <div className="flex-1">
-              <h3 className="text-lg font-medium text-white mb-2">Limitar agendamentos de assinantes</h3>
-              <p className="text-sm text-gray-400">
-                Se ativada, os assinantes só poderão agendar dentro da mesma semana.
-                <br />
-                <span className="text-yellow-400">
-                  Exemplo: Se hoje é sexta-feira, o assinante só poderá agendar até domingo.
-                </span>
-              </p>
-            </div>
-            <div className="ml-4">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={limitSubscriberBookings}
-                  onChange={(e) => handleUpdateSubscriberBookingLimit(e.target.checked)}
-                  disabled={isUpdatingLimit}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
-            </div>
-          </div>
+      <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
+        <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6">Configurações de Agendamento</h2>
+        <div className="space-y-3 sm:space-y-4">
           
-          {isUpdatingLimit && (
-            <div className="flex items-center gap-2 text-blue-400">
-              <div className="animate-spin h-4 w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
-              <span className="text-sm">Atualizando configuração...</span>
+          {/* Primeira opção - Layout melhorado para mobile */}
+          <div className="bg-[#2a2b2c] rounded-lg border border-gray-600 overflow-hidden">
+            <div className="p-3 sm:p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm sm:text-base font-medium text-white mb-2 leading-tight">
+                    Limitar agendamentos de assinantes
+                  </h3>
+                  <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
+                    Se ativada, os assinantes só poderão agendar dentro da mesma semana.
+                  </p>
+                  <p className="text-xs sm:text-sm text-yellow-400 mt-1 leading-relaxed">
+                    Exemplo: Se hoje é sexta-feira, o assinante só poderá agendar até domingo.
+                  </p>
+                </div>
+                <div className="flex-shrink-0">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={limitSubscriberBookings}
+                      onChange={(e) => handleUpdateSubscriberBookingLimit(e.target.checked)}
+                      disabled={isUpdatingLimit}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              </div>
             </div>
-          )}
-
-          {/* Nova opção: Não permitir remarcação no mesmo dia */}
-          <div className="flex items-center justify-between p-4 bg-[#2a2b2c] rounded-lg border border-gray-600">
-            <div className="flex-1">
-              <h3 className="text-lg font-medium text-white mb-2">Clientes assinantes não podem desmarcar e remarcar no mesmo dia</h3>
-              <p className="text-sm text-gray-400">
-                Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia.
-                <br />
-                <span className="text-yellow-400">
-                  Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
-                </span>
-              </p>
-            </div>
-            <div className="ml-4">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={preventSameDayReschedule}
-                  onChange={(e) => handleUpdatePreventSameDayReschedule(e.target.checked)}
-                  disabled={isUpdatingSameDayLimit}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
-            </div>
+            
+            {isUpdatingLimit && (
+              <div className="px-3 sm:px-4 pb-3 sm:pb-4">
+                <div className="flex items-center gap-2 text-blue-400">
+                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                  <span className="text-xs sm:text-sm">Atualizando configuração...</span>
+                </div>
+              </div>
+            )}
           </div>
 
-          {isUpdatingSameDayLimit && (
-            <div className="flex items-center gap-2 text-blue-400">
-              <div className="animate-spin h-4 w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
-              <span className="text-sm">Atualizando configuração...</span>
+          {/* Segunda opção - Layout melhorado para mobile */}
+          <div className="bg-[#2a2b2c] rounded-lg border border-gray-600 overflow-hidden">
+            <div className="p-3 sm:p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm sm:text-base font-medium text-white mb-2 leading-tight">
+                    Clientes assinantes não podem desmarcar e remarcar no mesmo dia
+                  </h3>
+                  <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
+                    Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia.
+                  </p>
+                  <p className="text-xs sm:text-sm text-yellow-400 mt-1 leading-relaxed">
+                    Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
+                  </p>
+                </div>
+                <div className="flex-shrink-0">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preventSameDayReschedule}
+                      onChange={(e) => handleUpdatePreventSameDayReschedule(e.target.checked)}
+                      disabled={isUpdatingSameDayLimit}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              </div>
             </div>
-          )}
+            
+            {isUpdatingSameDayLimit && (
+              <div className="px-3 sm:px-4 pb-3 sm:pb-4">
+                <div className="flex items-center gap-2 text-blue-400">
+                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                  <span className="text-xs sm:text-sm">Atualizando configuração...</span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -823,8 +839,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       </div>
 
       {/* Lista Meus Assinantes */}
-      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
-        <h2 className="text-xl font-semibold mb-4">Meus Assinantes</h2>
+      <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
+        <h2 className="text-lg sm:text-xl font-semibold mb-4">Meus Assinantes</h2>
         {clientSubscriptions.length === 0 ? (
           <p className="text-gray-400 text-center">Nenhum assinante cadastrado ainda.</p>
         ) : (
@@ -833,64 +849,82 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               const isPaid = cs.payment_status === 'paid';
               const cardBg = isPaid ? 'bg-green-600' : 'bg-red-800/90';
               const textColor = 'text-white';
-              const buttonBg = isPaid ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30' : 'bg-green-500/20 text-green-500 hover:bg-green-500/30';
 
               return (
                 <div key={cs.id} className={`${cardBg} rounded-lg p-3 sm:p-4 w-full overflow-hidden`}>
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-2">
-                    <div className="flex flex-col gap-1 flex-grow min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`font-medium text-lg ${textColor} truncate`}>{cs.profiles?.full_name || 'Cliente Desconhecido'}</span>
+                  {/* Nome do cliente */}
+                  <div className="mb-3">
+                    <h3 className={`font-semibold text-base sm:text-lg ${textColor} truncate`}>
+                      {cs.profiles?.full_name || 'Cliente Desconhecido'}
+                    </h3>
+                  </div>
+
+                  {/* Informações do plano - Layout melhorado para mobile */}
+                  <div className="space-y-2 mb-3">
+                    <div className={`text-xs sm:text-sm ${textColor}/90`}>
+                      <span className="font-medium">Plano:</span> {cs.subscriptions?.name || 'Plano não identificado'} - {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}
+                    </div>
+                    <div className={`text-xs sm:text-sm ${textColor}/90`}>
+                      <span className="font-medium">Frequência:</span> {cs.subscriptions?.duration_months === 1 ? 'Mensal' : `${cs.subscriptions?.duration_months} meses`}
+                    </div>
+                    <div className={`text-xs sm:text-sm ${textColor}/90`}>
+                      <span className="font-medium">Duração:</span> {cs.subscriptions?.duration_months} {cs.subscriptions?.duration_months === 1 ? 'mês' : 'meses'}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm">
+                      <div className={`${textColor}/90`}>
+                        <span className="font-medium">Início:</span><br />
+                        {format(parseISO(cs.start_date), 'dd/MM/yyyy', { locale: ptBR })}
                       </div>
-                      <div className={`flex flex-wrap gap-x-4 gap-y-1 text-sm ${textColor}/90`}>
-                        <span>Plano: {cs.subscriptions?.name || 'Plano não identificado'} - {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}</span>
-                        <span>Frequência: {cs.subscriptions?.duration_months === 1 ? 'Mensal' : `${cs.subscriptions?.duration_months} meses`}</span>
-                        <span>Duração contratada: {cs.subscriptions?.duration_months} {cs.subscriptions?.duration_months === 1 ? 'mês' : 'meses'}</span>
-                        <span>Início: {format(parseISO(cs.start_date), 'dd/MM/yyyy', { locale: ptBR })}</span>
-                        <span>Fim: {format(parseISO(cs.end_date), 'dd/MM/yyyy', { locale: ptBR })}</span>
-                      </div>
-                      {/* Informações de contato */}
-                      <div className={`flex flex-wrap gap-x-4 gap-y-1 text-sm ${textColor}/80 mt-1`}>
-                        {cs.client_whatsapp && cs.client_whatsapp !== 'N/A' && (
-                          <div className="flex items-center gap-1">
-                            <span>📱 WhatsApp: {cs.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}</span>
-                            <a
-                              href={`https://wa.me/${cs.client_whatsapp.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-green-400 hover:text-green-300 transition-colors"
-                              title="Abrir WhatsApp"
-                            >
-                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
-                              </svg>
-                            </a>
-                          </div>
-                        )}
-                        {cs.profiles?.email && (
-                          <div className="flex items-center gap-1">
-                            <span>📧 Email: {cs.profiles.email}</span>
-                            <a
-                              href={`mailto:${cs.profiles.email}`}
-                              className="text-blue-400 hover:text-blue-300 transition-colors"
-                              title="Enviar email"
-                            >
-                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
-                              </svg>
-                            </a>
-                          </div>
-                        )}
+                      <div className={`${textColor}/90`}>
+                        <span className="font-medium">Fim:</span><br />
+                        {format(parseISO(cs.end_date), 'dd/MM/yyyy', { locale: ptBR })}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 mt-4 justify-end">
-                    <div className="relative">
+                  {/* Informações de contato - Layout melhorado para mobile */}
+                  <div className="space-y-2 mb-4">
+                    {cs.client_whatsapp && cs.client_whatsapp !== 'N/A' && (
+                      <div className={`flex items-center gap-2 text-xs sm:text-sm ${textColor}/80`}>
+                        <span className="text-lg">📱</span>
+                        <span className="flex-1 truncate">WhatsApp: {cs.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}</span>
+                        <a
+                          href={`https://wa.me/${cs.client_whatsapp.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-green-400 hover:text-green-300 transition-colors flex-shrink-0"
+                          title="Abrir WhatsApp"
+                        >
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
+                          </svg>
+                        </a>
+                      </div>
+                    )}
+                    {cs.profiles?.email && (
+                      <div className={`flex items-center gap-2 text-xs sm:text-sm ${textColor}/80`}>
+                        <span className="text-lg">📧</span>
+                        <span className="flex-1 truncate">Email: {cs.profiles.email}</span>
+                        <a
+                          href={`mailto:${cs.profiles.email}`}
+                          className="text-blue-400 hover:text-blue-300 transition-colors flex-shrink-0"
+                          title="Enviar email"
+                        >
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                          </svg>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Botões de ação - Layout melhorado para mobile */}
+                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                    <div className="relative flex-1">
                       <select
                         value={cs.payment_status}
                         onChange={(e) => handleTogglePaymentStatus(cs, e.target.value as 'paid' | 'unpaid')}
-                        className={`appearance-none px-4 py-2 pr-8 text-sm font-medium rounded-lg border-0 outline-none transition-all cursor-pointer shadow-sm ${
+                        className={`w-full appearance-none px-3 py-2 pr-8 text-xs sm:text-sm font-medium rounded-lg border-0 outline-none transition-all cursor-pointer shadow-sm ${
                           isPaid 
                             ? 'bg-green-600 text-white hover:bg-green-700 focus:bg-green-700' 
                             : 'bg-red-600 text-white hover:bg-red-700 focus:bg-red-700'
@@ -901,16 +935,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </select>
                       {/* Ícone de seta customizado */}
                       <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-3 h-3 sm:w-4 sm:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
                       </div>
                     </div>
                     <button
                       onClick={() => handleDeleteClientSubscription(cs.id, cs.profiles?.full_name || 'Cliente')}
-                      className="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors bg-red-500/20 text-red-500 hover:bg-red-500/30 border border-red-500/30"
+                      className="inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-red-500/20 text-red-500 hover:bg-red-500/30 border border-red-500/30"
                     >
-                      <Trash2 className="h-4 w-4 mr-1" /> Remover
+                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1" /> Remover
                     </button>
                   </div>
                 </div>

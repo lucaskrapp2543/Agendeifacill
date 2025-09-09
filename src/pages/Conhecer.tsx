@@ -72,6 +72,8 @@ const Conhecer = () => {
       ...prev,
       step: 6
     }));
+    // Scroll para o topo da página
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const resetQuiz = () => {
