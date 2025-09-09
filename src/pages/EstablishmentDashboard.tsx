@@ -28,6 +28,7 @@ import { ProfessionalSelector } from '../components/ProfessionalSelector';
 import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker';
 import Sidebar from '../components/Sidebar';
 import { UpdateButton } from '../components/UpdateButton';
+import { ValidityDisplay } from '../components/ValidityDisplay';
 
 interface BusinessHours {
   enabled: boolean;
@@ -4234,20 +4235,25 @@ const EstablishmentDashboard = () => {
 
           {activeTab === 'settings' && (
             <div className="space-y-6 w-full">
-              {/* Vídeo Tutorial */}
+              {/* Validade Agendei Fácil */}
+              {establishment?.id && (
+                <ValidityDisplay establishmentId={establishment.id} />
+              )}
+
+              {/* Vídeo Tutorial - Em Processo de Carregamento */}
               <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
                 <h3 className="text-lg font-medium text-white mb-4">Tutorial de Configurações</h3>
                 <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-                  <iframe
-                    src="https://www.youtube.com/embed/jfHfZxzLoF8"
-                    title="Tutorial de Configurações"
-                    className="absolute top-0 left-0 w-full h-full rounded-lg"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
+                  <div className="absolute top-0 left-0 w-full h-full rounded-lg bg-gray-800 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="animate-spin h-12 w-12 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                      <p className="text-gray-400 text-sm">Vídeo tutorial em processo de carregamento...</p>
+                      <p className="text-gray-500 text-xs mt-2">Em breve você terá acesso ao tutorial completo</p>
+                    </div>
+                  </div>
                 </div>
                 <p className="text-sm text-gray-400 mt-4">
-                  Assista o vídeo acima para aprender como configurar seu estabelecimento corretamente.
+                  O tutorial de configurações estará disponível em breve para te ajudar a configurar seu estabelecimento corretamente.
                 </p>
               </div>
 

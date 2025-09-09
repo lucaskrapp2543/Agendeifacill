@@ -17,7 +17,7 @@ const Conhecer = () => {
     selectedReasons: []
   });
 
-  const totalSteps = 5;
+  const totalSteps = 6;
   const progress = (quizState.step / totalSteps) * 100;
 
   const handleBusinessTypeSelect = (type: string) => {
@@ -64,6 +64,13 @@ const Conhecer = () => {
     setQuizState(prev => ({
       ...prev,
       step: 5
+    }));
+  };
+
+  const handlePresente = () => {
+    setQuizState(prev => ({
+      ...prev,
+      step: 6
     }));
   };
 
@@ -355,17 +362,96 @@ const Conhecer = () => {
 
                  <div className="space-y-3">
                    <button
-                     onClick={() => navigate('/')}
+                     onClick={handlePresente}
                      className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold"
                    >
                      Gostei
                    </button>
                    
                    <button
-                     onClick={() => navigate('/')}
+                     onClick={handlePresente}
                      className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                    >
                      Quero saber quanto é
+                   </button>
+                 </div>
+               </>
+             )}
+
+             {/* Step 6: Presente */}
+             {quizState.step === 6 && (
+               <>
+                 <div className="mb-4">
+                   <div className="mb-1 flex justify-center items-center">
+                     <img 
+                       src="/leonardo.gif" 
+                       alt="Gif Leonardo" 
+                       className="w-[85vw] h-[85vw] max-w-[500px] max-h-[500px] object-contain rounded-xl"
+                     />
+                   </div>
+                   
+                   <h1 className="text-lg sm:text-xl font-bold text-black mb-2 text-center px-4">
+                     Você não achou que eu iria deixar você chegar até aqui sem um <span className="text-red-600">presente</span> né?
+                   </h1>
+                   
+                   <div className="flex justify-center mb-2">
+                     <img
+                       src="/presente.png"
+                       alt="Presente"
+                       className="w-full max-w-xl h-auto rounded-lg"
+                     />
+                   </div>
+                   
+                   <p className="text-xs text-gray-500 text-center px-4 mb-2">
+                     Não se preocupe, esse valor R$ 39,90 não aumenta nunca, é sempre esse valor para você. Caso queira pagar anual, ganha 2 meses grátis.
+                   </p>
+                   
+                   <div className="flex justify-center mb-2">
+                     <img
+                       src="/feedback.png"
+                       alt="Feedback"
+                       className="w-full max-w-lg h-auto rounded-lg"
+                     />
+                   </div>
+                   
+                   <h2 className="text-sm sm:text-base font-bold text-black text-center px-2 mb-3">
+                     COMO FUNCIONA AGENDEI FÁCIL
+                   </h2>
+                   
+                   <div className="w-full max-w-4xl mx-auto mb-4">
+                     <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                       <iframe
+                         src="https://www.youtube.com/embed/tQMWQLLLDPo"
+                         title="Vídeo do Agendei Fácil"
+                         className="absolute top-0 left-0 w-full h-full rounded-lg shadow-lg"
+                         frameBorder="0"
+                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                         allowFullScreen
+                       />
+                     </div>
+                   </div>
+                 </div>
+
+                 <div className="space-y-3">
+                   <button
+                     onClick={() => window.open('https://pay.cakto.com.br/o798qm9_509159?affiliate=jK2AXbTW', '_blank')}
+                     className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold"
+                   >
+                     Quero aproveitar
+                   </button>
+                   
+                   <button
+                     onClick={() => navigate('/')}
+                     className="w-full p-4 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold"
+                   >
+                     Vou deixar pra concorrência
+                   </button>
+                   
+                   <button
+                     onClick={() => window.open('https://wa.me/5511999999999', '_blank')}
+                     className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                   >
+                     Falar com alguém no WhatsApp
                    </button>
                  </div>
                </>
