@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { AppDownloadLinks } from '../components/AppDownloadLinks';
+import { PWADownloadLink } from '../components/PWADownloadLink';
 import { 
   Building2, 
   Calendar, 
@@ -1049,6 +1051,17 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Seção de Links de Download */}
+      <div className="p-6">
+        <div className="max-w-4xl mx-auto space-y-6">
+          {/* PWA Link (App Web) */}
+          <PWADownloadLink />
+          
+          {/* Links de Lojas */}
+          <AppDownloadLinks />
+        </div>
+      </div>
     </div>
   );
 };
