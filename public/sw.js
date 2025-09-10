@@ -1,473 +1,190 @@
-// Service Worker para controle de cache e notificações
-const CACHE_NAME = 'agendei-facil-v5'; // Incrementar versão para forçar atualização
-const APP_VERSION = '20241219-v5'; // Versão do app para controle de cache
+// Service Worker para cache inteligente e atualizações forçadas
+const CACHE_NAME = 'agendafacil-v2.1.0';
+const STATIC_CACHE = 'agendafacil-static-v2.1.0';
+const DYNAMIC_CACHE = 'agendafacil-dynamic-v2.1.0';
 
-const urlsToCache = [
+// Arquivos que devem ser sempre atualizados
+const ALWAYS_UPDATE = [
   '/',
   '/index.html',
-  '/manifest.json',
-  '/novo-icone.png',
-  '/novo-icone-maskable.png',
   '/static/js/bundle.js',
   '/static/css/main.css'
 ];
 
-// Função para verificar se há atualizações
-async function checkForUpdates() {
-  try {
-    // Buscar o manifest.json para verificar versão
-    const response = await fetch('/manifest.json?v=' + Date.now(), {
-      cache: 'no-cache'
-    });
-    
-    if (response.ok) {
-      const manifest = await response.json();
-      const currentVersion = manifest.version || APP_VERSION;
-      
-      // Comparar com versão armazenada
-      const storedVersion = await caches.match('/version.txt');
-      if (!storedVersion || storedVersion.text() !== currentVersion) {
-        console.log('🔄 Nova versão detectada:', currentVersion);
-        
-        // Notificar todos os clientes sobre a atualização
-        const clients = await self.clients.matchAll();
-        clients.forEach(client => {
-          client.postMessage({
-            type: 'UPDATE_AVAILABLE',
-            version: currentVersion,
-            timestamp: Date.now()
-          });
-        });
-        
-        // Forçar atualização do cache
-        await caches.delete(CACHE_NAME);
-        return true;
-      }
-    }
-  } catch (error) {
-    console.log('Erro ao verificar atualizações:', error);
-  }
-  return false;
-}
+// Arquivos que podem ser cacheados por mais tempo
+const STATIC_FILES = [
+  '/static/media/',
+  '/favicon.ico',
+  '/manifest.json'
+];
 
-// Instalação do Service Worker
+// Instalar Service Worker
 self.addEventListener('install', (event) => {
-  console.log('Service Worker instalando...');
+  console.log('🔧 Service Worker instalando...');
+  
   event.waitUntil(
-    caches.open(CACHE_NAME)
+    caches.open(STATIC_CACHE)
       .then((cache) => {
-        console.log('Cache aberto');
-        return cache.addAll(urlsToCache);
+        console.log('📦 Cache estático aberto');
+        return cache.addAll(ALWAYS_UPDATE);
       })
       .then(() => {
-        console.log('Service Worker instalado');
+        console.log('✅ Service Worker instalado');
         return self.skipWaiting();
       })
   );
 });
 
-// Ativação do Service Worker
+// Ativar Service Worker
 self.addEventListener('activate', (event) => {
-  console.log('Service Worker ativando...');
+  console.log('🚀 Service Worker ativando...');
+  
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('Deletando cache antigo:', cacheName);
+          // Remover caches antigos
+          if (cacheName !== STATIC_CACHE && cacheName !== DYNAMIC_CACHE) {
+            console.log('🗑️ Removendo cache antigo:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
     }).then(() => {
-      console.log('Service Worker ativado');
+      console.log('✅ Service Worker ativado');
       return self.clients.claim();
     })
   );
 });
 
-// Interceptação de requisições com estratégia de cache mais inteligente
+// Interceptar requisições
 self.addEventListener('fetch', (event) => {
-  // Ignorar requisições de chrome-extension
-  if (event.request.url.startsWith('chrome-extension://')) {
+  const { request } = event;
+  const url = new URL(request.url);
+  
+  // Ignorar requisições não-HTTP
+  if (!request.url.startsWith('http')) {
     return;
   }
-
-  // Para arquivos críticos, sempre buscar da rede primeiro
-  if (event.request.url.includes('index.html') || 
-      event.request.url.includes('main.tsx') ||
-      event.request.url.includes('manifest.json')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          // Atualizar cache com nova versão
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME)
-            .then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
-          return response;
-        })
-        .catch(() => {
-          return caches.match(event.request);
-        })
-    );
-    return;
-  }
-
-  // Para outros recursos, usar estratégia cache-first mas com verificação de atualização
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Retorna do cache se disponível
-        if (response) {
-          // Em background, verificar se há atualizações
-          fetch(event.request)
-            .then((networkResponse) => {
-              if (networkResponse.ok) {
-                // Atualizar cache silenciosamente
-                const responseToCache = networkResponse.clone();
-                caches.open(CACHE_NAME)
-                  .then((cache) => {
-                    cache.put(event.request, responseToCache);
-                  });
-              }
-            })
-            .catch(() => {
-              // Ignorar erros de rede
-            });
-          
-          return response;
-        }
-        
-        // Se não estiver no cache, busca da rede
-        return fetch(event.request)
-          .then((response) => {
-            // Verifica se a resposta é válida
-            if (!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
-
-            // Clona a resposta para armazenar no cache
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(event.request, responseToCache);
-              });
-
-            return response;
-          })
-          .catch(() => {
-            // Fallback para páginas offline
-            if (event.request.destination === 'document') {
-              return caches.match('/index.html');
-            }
-          });
-      })
-  );
-});
-
-// Verificar atualizações periodicamente
-setInterval(async () => {
-  const hasUpdate = await checkForUpdates();
-  if (hasUpdate) {
-    console.log('🔄 Atualização disponível, notificando clientes...');
-  }
-}, 30000); // Verificar a cada 30 segundos
-
-// Listener para mensagens dos clientes
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('🔄 Cliente solicitou atualização imediata');
-    self.skipWaiting();
-  }
-});
-
-// Sincronização em background
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'background-sync') {
-    event.waitUntil(doBackgroundSync());
-  }
-});
-
-function doBackgroundSync() {
-  // Implementar sincronização de dados offline
-  console.log('Sincronizando dados em background...');
-}
-
-// Manter Service Worker ativo em segundo plano
-let keepAliveInterval;
-
-self.addEventListener('activate', (event) => {
-  console.log('Service Worker ativando...');
   
-  // Manter ativo em segundo plano
-  if (!keepAliveInterval) {
-    keepAliveInterval = setInterval(() => {
-      console.log('🔄 Service Worker mantendo ativo...');
-      
-      // Enviar heartbeat para todos os clientes
-      self.clients.matchAll().then(clients => {
-        clients.forEach(client => {
-          client.postMessage({
-            type: 'KEEP_ALIVE',
-            timestamp: Date.now()
-          });
-        });
-      });
-    }, 5000); // A cada 5 segundos
-  }
-  
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('Deletando cache antigo:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => {
-      console.log('Service Worker ativado');
-      return self.clients.claim();
-    })
-  );
-});
-
-// Notificações push reais (funcionam em segundo plano)
-self.addEventListener('push', (event) => {
-  console.log('📱 Push notification recebida:', event.data);
-  
-  // Gerar tag única para cada notificação
-  const uniqueTag = `agendei-facil-push-${Date.now()}-${Math.random()}`;
-  
-  let notificationData = {
-    title: 'Agendei Fácil',
-    body: 'Novo agendamento disponível!',
-    icon: '/novo-icone.png',
-    badge: '/novo-icone.png',
-    vibrate: [100, 50, 100],
-    silent: false, // Usar som nativo do sistema
-    requireInteraction: false,
-    tag: uniqueTag, // Tag única para não substituir
-    data: {
-      dateOfArrival: Date.now(),
-      primaryKey: 1,
-      type: 'new_appointment',
-      uniqueId: uniqueTag
-    },
-    actions: [
-      {
-        action: 'view',
-        title: 'Ver agendamento',
-        icon: '/novo-icone.png'
-      },
-      {
-        action: 'close',
-        title: 'Fechar',
-        icon: '/novo-icone.png'
-      }
-    ]
-  };
-
-  // Se há dados específicos na notificação
-  if (event.data) {
-    try {
-      const data = event.data.json();
-      console.log('📱 Dados da push notification:', data);
-      
-      if (data.type === 'cancelled_appointment') {
-        notificationData = {
-          ...notificationData,
-          title: 'Agendei Fácil',
-          body: data.message || 'Agendamento cancelado',
-          data: {
-            ...notificationData.data,
-            type: 'cancelled_appointment',
-            appointmentId: data.appointmentId
-          }
-        };
-      } else if (data.type === 'new_appointment') {
-        notificationData = {
-          ...notificationData,
-          title: 'Agendei Fácil',
-          body: data.message || 'Novo agendamento realizado!',
-          data: {
-            ...notificationData.data,
-            type: 'new_appointment',
-            appointmentId: data.appointmentId
-          }
-        };
-      }
-    } catch (error) {
-      console.log('Erro ao processar dados da notificação:', error);
+  // Estratégia para diferentes tipos de arquivos
+  if (request.method === 'GET') {
+    // Arquivos estáticos - Cache First
+    if (STATIC_FILES.some(file => url.pathname.includes(file))) {
+      event.respondWith(cacheFirst(request));
+    }
+    // API calls - Network First
+    else if (url.pathname.includes('/api/') || url.hostname.includes('supabase')) {
+      event.respondWith(networkFirst(request));
+    }
+    // HTML pages - Network First com fallback
+    else if (request.headers.get('accept').includes('text/html')) {
+      event.respondWith(networkFirstWithFallback(request));
+    }
+    // Outros recursos - Stale While Revalidate
+    else {
+      event.respondWith(staleWhileRevalidate(request));
     }
   }
-  
-  console.log('📱 Mostrando notificação:', notificationData);
-  
-  event.waitUntil(
-    self.registration.showNotification(notificationData.title, notificationData)
-  );
 });
 
-// Listener para mensagens do app
-self.addEventListener('message', (event) => {
-  console.log('📱 Mensagem recebida no service worker:', event.data);
-  
-  if (event.data.type === 'SHOW_NOTIFICATION') {
-    const { title, body, type, appointmentId } = event.data.data;
+// Estratégia: Cache First
+async function cacheFirst(request) {
+  try {
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
     
-    console.log('📱 Criando notificação:', { title, body, type, appointmentId });
-    
-    // Gerar tag única para cada notificação
-    const uniqueTag = `agendei-facil-${Date.now()}-${Math.random()}`;
-    
-    const notificationData = {
-      title: title,
-      body: body,
-      icon: '/novo-icone.png',
-      badge: '/novo-icone.png',
-      vibrate: [100, 50, 100],
-      silent: false, // Usar som nativo do sistema
-      requireInteraction: false,
-      tag: uniqueTag, // Tag única para não substituir
-      data: {
-        type: type,
-        appointmentId: appointmentId,
-        timestamp: Date.now(),
-        uniqueId: uniqueTag
-      },
-      actions: [
-        {
-          action: 'view',
-          title: 'Ver detalhes',
-          icon: '/novo-icone.png'
-        },
-        {
-          action: 'close',
-          title: 'Fechar',
-          icon: '/novo-icone.png'
-        }
-      ]
-    };
-    
-    console.log('📱 Mostrando notificação via Service Worker:', notificationData);
-    
-    event.waitUntil(
-      self.registration.showNotification(notificationData.title, notificationData)
-        .then(() => {
-          console.log('📱 Notificação mostrada com sucesso! Tag:', uniqueTag);
-          
-          // Tocar som adicional para garantir
-          setTimeout(() => {
-            try {
-              const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYbXq66hVFApGn+DyvmwfCEqhz+2VQgELTZ/Y7aZeFAsXZLPp56UtBjGM1e/GeScGKnDC7+OPOgUTYrLo66hTEgpJm9+zt3MjCSN6yu3CfC0HKHbH8N2QQwQTYrHo7K1cFApModr+wWUfBS2Cyuy0bSYI');
-              audio.volume = 1.0;
-              audio.play().catch(() => console.log('Som adicional não pôde ser reproduzido'));
-            } catch (error) {
-              console.log('Erro ao tocar som adicional:', error);
-            }
-          }, 100);
-        })
-        .catch((error) => {
-          console.error('📱 Erro ao mostrar notificação:', error);
-        })
-    );
+    const networkResponse = await fetch(request);
+    if (networkResponse.ok) {
+      const cache = await caches.open(STATIC_CACHE);
+      cache.put(request, networkResponse.clone());
+    }
+    return networkResponse;
+  } catch (error) {
+    console.log('Erro em cacheFirst:', error);
+    return new Response('Recurso não disponível offline', { status: 503 });
   }
-});
-
-// Clique em notificação
-self.addEventListener('notificationclick', (event) => {
-  console.log('Notificação clicada:', event.action);
-  
-  event.notification.close();
-
-  if (event.action === 'view') {
-    // Abrir o app na página de agendamentos
-    event.waitUntil(
-      clients.openWindow('/dashboard/establishment')
-    );
-  } else if (event.action === 'close') {
-    // Apenas fechar a notificação
-    return;
-  } else {
-    // Clique padrão - abrir o app
-    event.waitUntil(
-      clients.openWindow('/')
-    );
-  }
-});
-
-// Fechar notificação
-self.addEventListener('notificationclose', (event) => {
-  console.log('Notificação fechada:', event.notification.data);
-});
-
-// Função para enviar notificação manual
-function sendNotification(title, body, type = 'new_appointment') {
-  const notificationData = {
-    title: title || 'Agendei Fácil',
-    body: body || 'Novo agendamento!',
-    icon: '/novo-icone.png',
-    badge: '/novo-icone.png',
-    vibrate: [100, 50, 100],
-    sound: type === 'cancelled_appointment' ? NOTIFICATION_SOUNDS.cancelledAppointment : NOTIFICATION_SOUNDS.newAppointment,
-    data: {
-      dateOfArrival: Date.now(),
-      type: type
-    },
-    actions: [
-      {
-        action: 'view',
-        title: 'Ver detalhes',
-        icon: '/novo-icone.png'
-      },
-      {
-        action: 'close',
-        title: 'Fechar',
-        icon: '/novo-icone.png'
-      }
-    ]
-  };
-
-  // Tocar som de notificação
-  playNotificationSound(type === 'cancelled_appointment' ? 'cancelledAppointment' : 'newAppointment');
-  
-  return self.registration.showNotification(notificationData.title, notificationData);
 }
 
-// Expor função para uso no app
-self.sendNotification = sendNotification;
+// Estratégia: Network First
+async function networkFirst(request) {
+  try {
+    const networkResponse = await fetch(request);
+    if (networkResponse.ok) {
+      const cache = await caches.open(DYNAMIC_CACHE);
+      cache.put(request, networkResponse.clone());
+    }
+    return networkResponse;
+  } catch (error) {
+    console.log('Erro de rede, tentando cache:', error);
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    return new Response('Recurso não disponível offline', { status: 503 });
+  }
+}
 
-// Listener para mensagens do app
-self.addEventListener('message', (event) => {
-  console.log('Mensagem recebida no service worker:', event.data);
+// Estratégia: Network First com Fallback
+async function networkFirstWithFallback(request) {
+  try {
+    const networkResponse = await fetch(request);
+    if (networkResponse.ok) {
+      const cache = await caches.open(DYNAMIC_CACHE);
+      cache.put(request, networkResponse.clone());
+    }
+    return networkResponse;
+  } catch (error) {
+    console.log('Erro de rede, usando cache:', error);
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    // Fallback para index.html para SPAs
+    return caches.match('/index.html');
+  }
+}
+
+// Estratégia: Stale While Revalidate
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(DYNAMIC_CACHE);
+  const cachedResponse = await cache.match(request);
   
-  if (event.data.type === 'SEND_NOTIFICATION') {
-    const { title, body, type, appointmentId } = event.data.data;
-    
-    sendNotification(title, body, type);
+  const fetchPromise = fetch(request).then((networkResponse) => {
+    if (networkResponse.ok) {
+      cache.put(request, networkResponse.clone());
+    }
+    return networkResponse;
+  }).catch(() => {
+    // Se a rede falhar, retornar cache se disponível
+    return cachedResponse;
+  });
+  
+  return cachedResponse || fetchPromise;
+}
+
+// Escutar mensagens do cliente
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
   }
   
-  // Limpar cache quando solicitado
-  if (event.data.type === 'CLEAR_CACHE') {
-    console.log('🗑️ Limpando cache do Service Worker...');
-    
+  if (event.data && event.data.type === 'CLEAR_CACHE') {
     event.waitUntil(
       caches.keys().then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            console.log('🗑️ Deletando cache:', cacheName);
             return caches.delete(cacheName);
           })
         );
-      }).then(() => {
-        console.log('✅ Cache limpo com sucesso!');
-      }).catch((error) => {
-        console.error('❌ Erro ao limpar cache:', error);
       })
     );
   }
 });
+
+// Verificar atualizações periodicamente
+setInterval(() => {
+  self.registration.update();
+}, 15 * 60 * 1000); // 15 minutos

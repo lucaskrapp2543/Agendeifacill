@@ -444,6 +444,50 @@ export const updateEstablishment = async (id: string, data: any) => {
 };
 
 // Appointment functions
+// Função auxiliar para retry de requisições (otimizada para diferentes tipos de conexão)
+const retryRequest = async (fn: () => Promise<any>) => {
+  // Importar dinamicamente para evitar problemas de SSR
+  const { getConnectionInfo } = await import('../utils/connectionDetector');
+  const connectionInfo = getConnectionInfo();
+  
+  const maxRetries = connectionInfo.retries;
+  const timeout = connectionInfo.timeout;
+  const delay = connectionInfo.isSlow ? 3000 : 2000;
+  
+  console.log(`📱 Tipo de conexão detectado: ${connectionInfo.type} (timeout: ${timeout}ms, retries: ${maxRetries})`);
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      // Timeout baseado no tipo de conexão
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout - conexão muito lenta')), timeout);
+      });
+      
+      return await Promise.race([fn(), timeoutPromise]);
+    } catch (error: any) {
+      console.log(`🔄 Tentativa ${i + 1}/${maxRetries} falhou (${connectionInfo.type}):`, error.message);
+      
+      // Se for erro de timeout ou conexão, tentar novamente
+      if (error.message.includes('Timeout') || error.message.includes('Load failed') || error.message.includes('fetch') || error.message.includes('TypeError')) {
+        if (i === maxRetries - 1) {
+          const errorMessage = connectionInfo.isSlow 
+            ? 'Conexão muito lenta. Tente usar Wi-Fi ou aguarde alguns minutos.'
+            : 'Conexão instável. Verifique sua internet e tente novamente.';
+          throw new Error(errorMessage);
+        }
+        
+        // Delay progressivo baseado no tipo de conexão
+        const currentDelay = delay * (i + 1) * (connectionInfo.isSlow ? 2 : 1.5);
+        console.log(`⏳ Aguardando ${currentDelay}ms antes da próxima tentativa...`);
+        await new Promise(resolve => setTimeout(resolve, currentDelay));
+      } else {
+        // Se não for erro de conexão, não tentar novamente
+        throw error;
+      }
+    }
+  }
+};
+
 export const createAppointment = async (appointmentData: any) => {
   console.log('🚀 Criando agendamento:', appointmentData);
   
@@ -451,14 +495,16 @@ export const createAppointment = async (appointmentData: any) => {
     // VALIDAÇÃO DUPLA: Verificar conflitos antes de criar
     console.log('🔍 Verificando conflitos antes de criar agendamento...');
     
-    // Buscar agendamentos existentes no mesmo dia e profissional
-    const { data: existingAppointments, error: fetchError } = await supabase
-      .from('appointments')
-      .select('appointment_time, duration, status')
-      .eq('appointment_date', appointmentData.appointment_date)
-      .eq('professional', appointmentData.professional)
-      .eq('establishment_id', appointmentData.establishment_id)
-      .neq('status', 'cancelled');
+    // Buscar agendamentos existentes no mesmo dia e profissional (com retry)
+    const { data: existingAppointments, error: fetchError } = await retryRequest(async () => {
+      return await supabase
+        .from('appointments')
+        .select('appointment_time, duration, status')
+        .eq('appointment_date', appointmentData.appointment_date)
+        .eq('professional', appointmentData.professional)
+        .eq('establishment_id', appointmentData.establishment_id)
+        .neq('status', 'cancelled');
+    });
 
     if (fetchError) {
       console.error('❌ Erro ao buscar agendamentos existentes:', fetchError);
@@ -487,28 +533,30 @@ export const createAppointment = async (appointmentData: any) => {
 
     console.log('✅ Nenhum conflito detectado, prosseguindo com criação...');
 
-    const { data, error } = await supabase
-      .from('appointments')
-      .insert([appointmentData])
-      .select(`
-        id,
-        client_id,
-        client_name,
-        client_whatsapp,
-        establishment_id,
-        service,
-        professional,
-        appointment_date,
-        appointment_time,
-        status,
-        created_at,
-        is_premium,
-        duration,
-        price,
-        payment_method,
-        pix_payment_status,
-        pix_proof_url
-      `);
+    const { data, error } = await retryRequest(async () => {
+      return await supabase
+        .from('appointments')
+        .insert([appointmentData])
+        .select(`
+          id,
+          client_id,
+          client_name,
+          client_whatsapp,
+          establishment_id,
+          service,
+          professional,
+          appointment_date,
+          appointment_time,
+          status,
+          created_at,
+          is_premium,
+          duration,
+          price,
+          payment_method,
+          pix_payment_status,
+          pix_proof_url
+        `);
+    });
 
     console.log('✅ Agendamento criado - resultado:', data);
     console.log('❌ Erro (se houver):', error);

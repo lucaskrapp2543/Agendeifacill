@@ -57,12 +57,12 @@ export default defineConfig({
           const ext = info[info.length - 1];
           const timestamp = Date.now();
           if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(ext)) {
-            return `assets/[name]-[hash]-${timestamp}.${ext}`;
+            return `assets/[name]-v2.1.0-[hash]-${timestamp}.${ext}`;
           }
-          return `assets/[name]-[hash]-${timestamp}.${ext}`;
+          return `assets/[name]-v2.1.0-[hash]-${timestamp}.${ext}`;
         },
-        chunkFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
-        entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+        chunkFileNames: `assets/[name]-v2.1.0-[hash]-${Date.now()}.js`,
+        entryFileNames: `assets/[name]-v2.1.0-[hash]-${Date.now()}.js`,
       },
     },
     // Configurações anti-cache

@@ -5,6 +5,10 @@ import { AuthProvider } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 import { CacheBuster } from './components/CacheBuster';
 import { EnvironmentError } from './components/EnvironmentError';
+import { ConnectivityChecker } from './components/ConnectivityChecker';
+import { ConnectionStatus } from './components/ConnectionStatus';
+import { UpdateNotification } from './components/UpdateNotification';
+import { registerServiceWorker } from './utils/serviceWorker';
 
 import { PWARedirect } from './components/PWARedirect';
 
@@ -43,6 +47,11 @@ function App() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+  // Registrar Service Worker
+  React.useEffect(() => {
+    registerServiceWorker();
+  }, []);
+
   // Se as variáveis não estão configuradas, mostrar tela de erro
   if (!supabaseUrl || !supabaseAnonKey) {
     return <EnvironmentError />;
@@ -51,6 +60,8 @@ function App() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <CacheBuster />
+      <ConnectionStatus />
+      <UpdateNotification />
       <Toaster 
         position="top-center"
         toastOptions={{
@@ -65,6 +76,7 @@ function App() {
       />
       <SupabaseProvider>
         <AuthProvider>
+          <ConnectivityChecker>
             <Router>
               <PWARedirect />
             <Routes>
@@ -141,7 +153,8 @@ function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
 
-          </Router>
+            </Router>
+          </ConnectivityChecker>
         </AuthProvider>
       </SupabaseProvider>
     </div>

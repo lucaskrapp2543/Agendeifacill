@@ -1,42 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Download, X } from 'lucide-react';
+import { Download, RefreshCw, X, AlertTriangle, CheckCircle } from 'lucide-react';
+import { UpdateInfo, checkForUpdates, applyUpdate } from '../utils/versionManager';
 
 interface UpdateNotificationProps {
-  onUpdate: () => void;
+  className?: string;
 }
 
-export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onUpdate }) => {
-  const [showNotification, setShowNotification] = useState(false);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
+export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ className = '' }) => {
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
-    // Listener para mensagens do Service Worker
-    const handleServiceWorkerMessage = (event: MessageEvent) => {
-      if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
-        console.log('🔄 Atualização disponível:', event.data.version);
-        setUpdateAvailable(true);
-        setShowNotification(true);
+    // Verificar atualizações ao carregar
+    const checkUpdates = () => {
+      const info = checkForUpdates();
+      if (info.hasUpdate) {
+        setUpdateInfo(info);
+        setIsVisible(true);
       }
     };
 
-    // Verificar se há service worker ativo
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
-      
-      // Verificar se há atualizações pendentes
-      navigator.serviceWorker.ready.then((registration) => {
-        if (registration.waiting) {
-          setUpdateAvailable(true);
-          setShowNotification(true);
-        }
-      });
-    }
+    // Verificar imediatamente
+    checkUpdates();
+
+    // Escutar eventos de atualização
+    const handleUpdateAvailable = (event: CustomEvent) => {
+      setUpdateInfo(event.detail);
+      setIsVisible(true);
+    };
+
+    window.addEventListener('app-update-available', handleUpdateAvailable as EventListener);
 
     return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
-      }
+      window.removeEventListener('app-update-available', handleUpdateAvailable as EventListener);
     };
   }, []);
 
@@ -44,86 +41,103 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onUpdate
     setIsUpdating(true);
     
     try {
-      // Forçar atualização do service worker
-      if ('serviceWorker' in navigator) {
-        const registration = await navigator.serviceWorker.ready;
-        
-        if (registration.waiting) {
-          // Enviar mensagem para o service worker em espera
-          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-        }
-        
-        // Forçar atualização
-        await registration.update();
-      }
-      
-      // Aguardar um pouco e recarregar
+      // Mostrar mensagem de atualização
       setTimeout(() => {
-        window.location.reload();
+        applyUpdate();
       }, 1000);
-      
     } catch (error) {
-      console.error('Erro ao atualizar:', error);
-      // Fallback: recarregar diretamente
-      window.location.reload();
+      console.error('Erro ao aplicar atualização:', error);
+      setIsUpdating(false);
     }
   };
 
   const handleDismiss = () => {
-    setShowNotification(false);
+    setIsVisible(false);
+    
+    // Se for atualização forçada, não permitir fechar
+    if (updateInfo?.forceUpdate) {
+      setTimeout(() => {
+        setIsVisible(true);
+      }, 100);
+    }
   };
 
-  if (!showNotification || !updateAvailable) {
+  if (!isVisible || !updateInfo) {
     return null;
   }
 
   return (
-    <div className="fixed top-4 right-4 z-50 bg-white border border-green-200 rounded-lg shadow-lg p-4 max-w-sm animate-slide-in">
-      <div className="flex items-start space-x-3">
-        <div className="flex-shrink-0">
-          <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-            <Download className="w-5 h-5 text-green-600" />
+    <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${className}`}>
+      <div className="bg-white rounded-lg p-6 max-w-md mx-4 text-center shadow-xl">
+        <div className="flex justify-center mb-4">
+          {updateInfo.forceUpdate ? (
+            <AlertTriangle className="text-orange-500" size={48} />
+          ) : (
+            <CheckCircle className="text-green-500" size={48} />
+          )}
+        </div>
+        
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+          {updateInfo.forceUpdate ? 'Atualização Obrigatória' : 'Nova Versão Disponível'}
+        </h3>
+        
+        <p className="text-gray-600 mb-4">
+          {updateInfo.forceUpdate 
+            ? 'Uma atualização importante está disponível e é necessária para o funcionamento correto da aplicação.'
+            : 'Uma nova versão da aplicação está disponível com melhorias e correções.'
+          }
+        </p>
+        
+        <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm">
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">Versão atual:</span>
+            <span className="font-mono text-gray-800">{updateInfo.currentVersion}</span>
+          </div>
+          <div className="flex justify-between items-center mt-1">
+            <span className="text-gray-600">Nova versão:</span>
+            <span className="font-mono text-green-600 font-semibold">{updateInfo.newVersion}</span>
           </div>
         </div>
         
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900">
-            Nova versão disponível!
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            Clique para atualizar e obter as últimas funcionalidades.
-          </p>
+        <div className="space-y-2">
+          <button
+            onClick={handleUpdate}
+            disabled={isUpdating}
+            className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
+              updateInfo.forceUpdate
+                ? 'bg-orange-500 text-white hover:bg-orange-600'
+                : 'bg-primary text-white hover:bg-primary/90'
+            } disabled:opacity-50`}
+          >
+            {isUpdating ? (
+              <>
+                <RefreshCw className="animate-spin" size={16} />
+                Atualizando...
+              </>
+            ) : (
+              <>
+                <Download size={16} />
+                {updateInfo.forceUpdate ? 'Atualizar Agora' : 'Atualizar'}
+              </>
+            )}
+          </button>
+          
+          {!updateInfo.forceUpdate && (
+            <button
+              onClick={handleDismiss}
+              className="w-full py-2 px-4 rounded-lg font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              Atualizar Depois
+            </button>
+          )}
         </div>
         
-        <button
-          onClick={handleDismiss}
-          className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-      
-      <div className="mt-3 flex space-x-2">
-        <button
-          onClick={handleUpdate}
-          disabled={isUpdating}
-          className="flex-1 bg-green-600 text-white text-sm font-medium px-3 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-        >
-          {isUpdating ? (
-            <>
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>Atualizando...</span>
-            </>
-          ) : (
-            <>
-              <Download className="w-4 h-4" />
-              <span>Atualizar Agora</span>
-            </>
-          )}
-        </button>
+        {updateInfo.forceUpdate && (
+          <p className="text-xs text-orange-600 mt-3">
+            Esta atualização é obrigatória para continuar usando a aplicação.
+          </p>
+        )}
       </div>
     </div>
   );
 };
-
-export default UpdateNotification;

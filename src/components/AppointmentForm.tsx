@@ -465,9 +465,25 @@ export function AppointmentForm({
       });
 
       // Só navega após sucesso (REMOVIDO: navigate('/success');)
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Erro ao agendar:', error);
-      alert('Erro ao realizar agendamento. Tente novamente.');
+      
+      // Tratamento específico para diferentes tipos de erro
+      let errorMessage = 'Erro ao realizar agendamento. Tente novamente.';
+      
+      if (error.message?.includes('Load failed') || error.message?.includes('TypeError')) {
+        errorMessage = 'Erro de conexão. Verifique sua internet e tente novamente.';
+      } else if (error.message?.includes('fetch')) {
+        errorMessage = 'Problema de conectividade. Tente novamente em alguns segundos.';
+      } else if (error.message?.includes('RLS') || error.message?.includes('permission')) {
+        errorMessage = 'Erro de permissão. Recarregue a página e tente novamente.';
+      } else if (error.message?.includes('Conflito de horário')) {
+        errorMessage = error.message; // Usar a mensagem específica de conflito
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      alert(errorMessage);
     } finally {
       setIsLoading(false);
     }

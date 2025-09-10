@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { scheduleUpdateCheck } from '../utils/versionManager';
 
 export const CacheBuster = () => {
   useEffect(() => {
@@ -9,34 +10,34 @@ export const CacheBuster = () => {
     }
 
     try {
-      // Verificar atualizações a cada 30 minutos (muito menos agressivo)
+      // Agendar verificação de atualizações
+      scheduleUpdateCheck();
+      
+      // Verificar atualizações a cada 15 minutos (mais frequente para detectar mudanças)
       const interval = setInterval(async () => {
         try {
+          // Verificar atualizações de versão
+          scheduleUpdateCheck();
+          
+          // Verificar service worker
           if ('serviceWorker' in navigator) {
             const registration = await navigator.serviceWorker.ready;
-            
-            // Apenas verificar se há atualizações, sem forçar reload
             await registration.update();
             
-            // Se há atualização disponível, mostrar notificação sutil
+            // Se há atualização disponível, notificar
             if (registration.waiting) {
-              console.log('🔄 Atualização disponível - usuário pode clicar no botão para atualizar');
+              console.log('🔄 Service Worker atualização disponível');
               
-              // Notificação sutil (opcional)
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification('Agendei Fácil', {
-                  body: 'Nova versão disponível! Clique no botão de atualização.',
-                  icon: '/novo-icone.png',
-                  requireInteraction: false,
-                  silent: true
-                });
-              }
+              // Disparar evento de atualização disponível
+              window.dispatchEvent(new CustomEvent('sw-update-available', {
+                detail: { type: 'service-worker' }
+              }));
             }
           }
         } catch (error) {
           console.log('Erro ao verificar atualizações:', error);
         }
-      }, 1800000); // 30 minutos
+      }, 900000); // 15 minutos
 
       return () => clearInterval(interval);
     } catch (error) {
