@@ -171,7 +171,16 @@ const Conhecer = () => {
             {/* Step 1: Seleção do tipo de negócio */}
             {quizState.step === 1 && (
               <>
-                 <div className="mb-1 flex justify-center items-center">
+                 {/* Imagem BRASIL no topo */}
+                 <div className="mb-0 flex justify-center items-center">
+                   <img 
+                     src="/BRASIL.png" 
+                     alt="Brasil" 
+                     className="w-full max-w-sm h-auto rounded-lg"
+                   />
+                 </div>
+                 
+                 <div className="mb-1 flex justify-center items-center -mt-12">
                    <img 
                      src="/pensativo.gif" 
                      alt="Gif pensativo" 
@@ -442,21 +451,21 @@ const Conhecer = () => {
                    </div>
                  </div>
 
-                 <div className="space-y-3">
-                   <button
-                     onClick={handlePresente}
-                     className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold"
-                   >
-                     Gostei
-                   </button>
-                   
-                   <button
-                     onClick={handlePresente}
-                     className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
-                   >
-                     Quero saber quanto é
-                   </button>
-                 </div>
+                  <div className="space-y-3">
+                    <button
+                      onClick={handlePresente}
+                      className="w-full p-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+                    >
+                      Gostei
+                    </button>
+                    
+                    <button
+                      onClick={handlePresente}
+                      className="w-full p-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+                    >
+                      Quero saber quanto é
+                    </button>
+                  </div>
                </>
              )}
 
@@ -475,6 +484,15 @@ const Conhecer = () => {
                    <h1 className="text-lg sm:text-xl font-bold text-black mb-2 text-center px-4">
                      Você não achou que eu iria deixar você chegar até aqui sem um <span className="text-red-600">presente</span> né?
                    </h1>
+                   
+                   {/* Imagem bonus */}
+                   <div className="flex justify-center mb-2">
+                     <img
+                       src="/bonus.png"
+                       alt="Bonus"
+                       className="w-full max-w-lg h-auto rounded-lg"
+                     />
+                   </div>
                    
                    <div className="flex justify-center mb-2">
                      <img
