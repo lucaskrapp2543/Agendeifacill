@@ -60,6 +60,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const [newSubscriptionName, setNewSubscriptionName] = useState('');
   const [newSubscriptionValue, setNewSubscriptionValue] = useState<number>(0);
+  const [newFixedCommissionValue, setNewFixedCommissionValue] = useState<number>(0);
   const [newSubscriptionDuration, setNewSubscriptionDuration] = useState<number>(30); // Duração em minutos
   const [newSubscriptionWeekdays, setNewSubscriptionWeekdays] = useState<string[]>([]);
 
@@ -85,6 +86,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     establishment?.prevent_same_day_reschedule || false
   );
   const [isUpdatingSameDayLimit, setIsUpdatingSameDayLimit] = useState(false);
+
+  // Estados para funcionalidade de Adicionar Atendimento
+  const [showAddAttendanceModal, setShowAddAttendanceModal] = useState(false);
+  const [selectedClientForAttendance, setSelectedClientForAttendance] = useState<ClientSubscription | null>(null);
+  const [attendanceDate, setAttendanceDate] = useState('');
+  const [attendanceProfessional, setAttendanceProfessional] = useState('');
+  const [attendanceValue, setAttendanceValue] = useState<number>(0);
+  const [isSavingAttendance, setIsSavingAttendance] = useState(false);
+  const [subscriberAttendances, setSubscriberAttendances] = useState<any[]>([]);
+  const [professionals, setProfessionals] = useState<any[]>([]);
+  
+  // Estados para modal de visualizar atendimentos
+  const [showViewAttendancesModal, setShowViewAttendancesModal] = useState(false);
+  const [selectedClientForView, setSelectedClientForView] = useState<ClientSubscription | null>(null);
+  
+  // Estado para barra de pesquisa
+  const [searchTerm, setSearchTerm] = useState('');
+
 
   // Sincronizar estado quando establishment mudar
   useEffect(() => {
@@ -164,6 +183,147 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+
+
+
+  // Função para buscar profissionais do estabelecimento
+  const fetchProfessionals = async () => {
+    try {
+      console.log('🔍 Buscando profissionais do estabelecimento:', establishmentId);
+      
+      // Buscar o estabelecimento com os profissionais
+      const { data: establishmentData, error: establishmentError } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishmentId)
+        .single();
+
+      if (establishmentError) {
+        console.error('Erro ao buscar estabelecimento:', establishmentError);
+        setProfessionals([]);
+        return;
+      }
+
+      console.log('🏢 Estabelecimento encontrado:', establishmentData);
+      console.log('👥 Profissionais do estabelecimento:', establishmentData.professionals);
+
+      // Os profissionais estão em establishment.professionals como array JSONB
+      const professionals = (establishmentData.professionals || []).map((prof: any) => ({
+        id: prof.id || prof.name, // Usar id se existir, senão usar name como id
+        full_name: prof.name
+      }));
+
+      console.log('✅ Profissionais mapeados:', professionals);
+      setProfessionals(professionals);
+
+    } catch (error) {
+      console.error('Erro ao buscar profissionais:', error);
+      setProfessionals([]);
+    }
+  };
+
+  // Função para buscar atendimentos de assinantes
+  const fetchSubscriberAttendances = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('subscriber_attendances')
+        .select(`
+          id,
+          professional_name,
+          attendance_date,
+          repass_value,
+          created_at,
+          client_subscription_id
+        `)
+        .eq('establishment_id', establishmentId)
+        .order('attendance_date', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao buscar atendimentos de assinantes:', error);
+        return;
+      }
+
+      console.log('📋 Atendimentos encontrados:', data);
+      setSubscriberAttendances(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar atendimentos de assinantes:', error);
+    }
+  };
+
+  // Função para buscar atendimentos de um cliente específico
+  const getClientAttendances = (clientSubscriptionId: string) => {
+    return subscriberAttendances.filter(attendance => 
+      attendance.client_subscription_id === clientSubscriptionId
+    );
+  };
+
+  // Função para agrupar atendimentos por profissional
+  const getClientAttendancesByProfessional = (clientSubscriptionId: string) => {
+    const attendances = getClientAttendances(clientSubscriptionId);
+    const grouped = attendances.reduce((acc, attendance) => {
+      const professional = attendance.professional_name;
+      if (!acc[professional]) {
+        acc[professional] = {
+          count: 0,
+          totalValue: 0,
+          attendances: []
+        };
+      }
+      acc[professional].count++;
+      acc[professional].totalValue += parseFloat(attendance.repass_value) || 0;
+      acc[professional].attendances.push(attendance);
+      return acc;
+    }, {} as { [key: string]: { count: number; totalValue: number; attendances: any[] } });
+    
+    return grouped;
+  };
+
+  // Função para adicionar atendimento
+  const handleAddAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedClientForAttendance || !attendanceDate || !attendanceProfessional || !attendanceValue) {
+      toast.error('Preencha todos os campos para adicionar o atendimento.');
+      return;
+    }
+
+    setIsSavingAttendance(true);
+    try {
+      const { error } = await supabase
+        .from('subscriber_attendances')
+        .insert({
+          establishment_id: establishmentId,
+          client_subscription_id: selectedClientForAttendance.id,
+          professional_name: attendanceProfessional,
+          attendance_date: attendanceDate,
+          repass_value: attendanceValue,
+          created_by: user?.id
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success(`Atendimento adicionado: ${attendanceProfessional} atendeu ${selectedClientForAttendance.profiles?.full_name} no dia ${new Date(attendanceDate).toLocaleDateString('pt-BR')} e recebeu ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(attendanceValue)}.`);
+      
+      // Limpar formulário
+      setAttendanceDate('');
+      setAttendanceProfessional('');
+      setAttendanceValue(0);
+      setShowAddAttendanceModal(false);
+      setSelectedClientForAttendance(null);
+      
+      // Recarregar dados
+      await fetchSubscriberAttendances();
+      
+    } catch (error: any) {
+      console.error('Erro ao adicionar atendimento:', error);
+      toast.error(error.message || 'Erro ao adicionar atendimento.');
+    } finally {
+      setIsSavingAttendance(false);
+    }
+  };
+
   // Funções de fetch
   const fetchSubscriptions = async () => {
     const { data, error } = await getSubscriptions(establishmentId);
@@ -234,6 +394,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (establishmentId) {
       fetchSubscriptions();
       fetchClientSubscriptions();
+      fetchProfessionals();
+      fetchSubscriberAttendances();
       // fetchClients(); // REMOVIDO
       
       // Recuperação automática de clientes na inicialização
@@ -259,6 +421,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   }, [establishmentId]);
 
+
   // Handlers para criação de assinatura
   const handleCreateSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,7 +436,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         newSubscriptionValue,
         1, // Duração fixa de 1 mês (não será mais usada)
         newSubscriptionWeekdays, // Adicionar os dias da semana
-        newSubscriptionDuration // Adicionar a duração do serviço
+        newSubscriptionDuration, // Adicionar a duração do serviço
+        newFixedCommissionValue // Valor fixo de comissão por serviço diário
       );
       if (error) {
         throw error;
@@ -281,6 +445,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       toast.success('Assinatura criada com sucesso!');
       setNewSubscriptionName('');
       setNewSubscriptionValue(0);
+      setNewFixedCommissionValue(0);
       setNewSubscriptionDuration(30); // Reset para 30 minutos
       setNewSubscriptionWeekdays([]);
       fetchSubscriptions(); // Atualiza a lista
@@ -483,6 +648,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return sum;
   }, 0);
 
+  // Calcular total de repasses (Lucro Líquido = Lucro Bruto - Repasses)
+  const totalRepasses = subscriberAttendances.reduce((sum, attendance) => {
+    return sum + (parseFloat(attendance.repass_value) || 0);
+  }, 0);
+
+  const lucroBruto = totalArrecadado;
+  const lucroLiquido = lucroBruto - totalRepasses;
+
   console.log('📊 Resumo calculado:', {
     totalArrecadado,
     totalAssinantes: clientSubscriptions.length,
@@ -505,25 +678,83 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return !isPast(endDate) && cs.payment_status === 'unpaid'; // Ativos e não pagos
   }).length;
 
+  // Filtrar assinantes pela pesquisa
+  const filteredClientSubscriptions = clientSubscriptions.filter(cs => {
+    if (!searchTerm.trim()) return true;
+    
+    const searchLower = searchTerm.toLowerCase();
+    const clientName = cs.profiles?.full_name?.toLowerCase() || '';
+    const clientEmail = cs.profiles?.email?.toLowerCase() || '';
+    const clientWhatsapp = cs.client_whatsapp?.toLowerCase() || '';
+    const subscriptionName = cs.subscriptions?.name?.toLowerCase() || '';
+    
+    return (
+      clientName.includes(searchLower) ||
+      clientEmail.includes(searchLower) ||
+      clientWhatsapp.includes(searchLower) ||
+      subscriptionName.includes(searchLower)
+    );
+  });
+
 
   return (
     <div className="space-y-6">
-      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
-        <h2 className="text-xl font-semibold mb-4">Resumo de Assinaturas</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <p className="text-gray-400">Total Arrecadado (Ativo):</p>
-            <p className="text-2xl font-bold text-primary">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalArrecadado)}</p>
+      <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
+        <h2 className="text-lg sm:text-xl font-semibold mb-4">Resumo de Assinaturas</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="text-center sm:text-left">
+            <p className="text-xs sm:text-sm text-gray-400">Lucro Bruto:</p>
+            <p className="text-lg sm:text-2xl font-bold text-green-400">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lucroBruto)}</p>
           </div>
-          <div>
-            <p className="text-gray-400">Total de Assinantes:</p>
-            <p className="text-2xl font-bold text-primary">{totalAssinantes}</p>
+          <div className="text-center sm:text-left">
+            <p className="text-xs sm:text-sm text-gray-400">Lucro Líquido:</p>
+            <p className="text-lg sm:text-2xl font-bold text-blue-400">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lucroLiquido)}</p>
           </div>
-          <div>
-            <p className="text-gray-400">Não Pagos:</p>
-            <p className="text-2xl font-bold text-red-400">{assinantesNaoPagos}</p>
+          <div className="text-center sm:text-left">
+            <p className="text-xs sm:text-sm text-gray-400">Total de Assinantes:</p>
+            <p className="text-lg sm:text-2xl font-bold text-primary">{totalAssinantes}</p>
+          </div>
+          <div className="text-center sm:text-left">
+            <p className="text-xs sm:text-sm text-gray-400">Não Pagos:</p>
+            <p className="text-lg sm:text-2xl font-bold text-red-400">{assinantesNaoPagos}</p>
           </div>
         </div>
+        
+        {/* Controle por Profissional */}
+        {subscriberAttendances.length > 0 && (
+          <div className="mt-6 pt-6 border-t border-gray-700">
+            <h3 className="text-lg font-semibold mb-4">Controle por Profissional</h3>
+            <div className="space-y-3">
+              {Object.entries(
+                subscriberAttendances.reduce((acc, attendance) => {
+                  const professional = attendance.professional_name;
+                  if (!acc[professional]) {
+                    acc[professional] = 0;
+                  }
+                  acc[professional] += parseFloat(attendance.repass_value) || 0;
+                  return acc;
+                }, {} as { [key: string]: number })
+              ).map(([professional, totalValue]) => (
+                <div key={professional} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">{professional}</p>
+                    <p className="text-xs text-gray-400">Valor total acumulado do mês</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-green-400">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 p-3 bg-[#2a2b2c] rounded-lg border border-gray-600">
+              <p className="text-xs text-gray-400 text-center">
+                Aqui irá mostrar quanto cada profissional receberá por atendimento assinante.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Configurações de Agendamento para Assinantes */}
@@ -613,6 +844,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         </div>
       </div>
 
+
       {/* Criação de Assinatura */}
       <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
         <h2 className="text-xl font-semibold mb-4">Criar Novo Tipo de Assinatura</h2>
@@ -641,6 +873,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               min="0"
               required
             />
+          </div>
+          <div>
+            <label htmlFor="fixedCommissionValue" className="block text-sm font-medium text-gray-400 mb-1">
+              Valor fixo de comissão por serviço diário dessa assinatura (R$)
+            </label>
+            <input
+              type="number"
+              id="fixedCommissionValue"
+              value={newFixedCommissionValue}
+              onChange={(e) => setNewFixedCommissionValue(Number(e.target.value))}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              step="0.01"
+              min="0"
+              placeholder="Ex: 20, 30, 50 (deixe 0 se quiser preencher manualmente)"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Este valor será usado automaticamente ao adicionar atendimentos. Exemplos: R$ 20, 30, 50
+            </p>
           </div>
           <div>
             <label htmlFor="subscriptionDuration" className="block text-sm font-medium text-gray-400 mb-1">Duração do Serviço (minutos)</label>
@@ -840,12 +1090,47 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       {/* Lista Meus Assinantes */}
       <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
-        <h2 className="text-lg sm:text-xl font-semibold mb-4">Meus Assinantes</h2>
+        <div className="mb-4">
+          <h2 className="text-lg sm:text-xl font-semibold">Meus Assinantes</h2>
+        </div>
+
+        {/* Barra de Pesquisa - Melhorada para mobile */}
+        <div className="mb-4 sm:mb-6">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Pesquisar assinantes..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-3 sm:px-4 py-2 sm:py-3 pl-8 sm:pl-10 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400 text-sm sm:text-base"
+            />
+            <div className="absolute inset-y-0 left-0 flex items-center pl-2 sm:pl-3">
+              <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute inset-y-0 right-0 flex items-center pr-2 sm:pr-3 text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+            )}
+          </div>
+          {searchTerm && (
+            <p className="text-xs text-gray-400 mt-1 sm:mt-2">
+              {filteredClientSubscriptions.length} de {clientSubscriptions.length} assinante(s) encontrado(s)
+            </p>
+          )}
+        </div>
         {clientSubscriptions.length === 0 ? (
           <p className="text-gray-400 text-center">Nenhum assinante cadastrado ainda.</p>
+        ) : filteredClientSubscriptions.length === 0 ? (
+          <p className="text-gray-400 text-center">Nenhum assinante encontrado para "{searchTerm}".</p>
         ) : (
           <div className="space-y-3">
-            {clientSubscriptions.map((cs) => {
+            {filteredClientSubscriptions.map((cs) => {
               const isPaid = cs.payment_status === 'paid';
               const cardBg = isPaid ? 'bg-green-600' : 'bg-red-800/90';
               const textColor = 'text-white';
@@ -859,18 +1144,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </h3>
                   </div>
 
-                  {/* Informações do plano - Layout melhorado para mobile */}
+                  {/* Informações do plano - Layout otimizado para mobile */}
                   <div className="space-y-2 mb-3">
-                    <div className={`text-xs sm:text-sm ${textColor}/90`}>
-                      <span className="font-medium">Plano:</span> {cs.subscriptions?.name || 'Plano não identificado'} - {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}
+                    <div className={`text-xs sm:text-sm ${textColor}/90 leading-relaxed`}>
+                      <span className="font-medium">Plano:</span><br className="sm:hidden" />
+                      <span className="sm:inline">{cs.subscriptions?.name || 'Plano não identificado'}</span><br className="sm:hidden" />
+                      <span className="sm:inline sm:ml-1">- {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}</span>
                     </div>
                     <div className={`text-xs sm:text-sm ${textColor}/90`}>
                       <span className="font-medium">Frequência:</span> {cs.subscriptions?.duration_months === 1 ? 'Mensal' : `${cs.subscriptions?.duration_months} meses`}
                     </div>
-                    <div className={`text-xs sm:text-sm ${textColor}/90`}>
-                      <span className="font-medium">Duração:</span> {cs.subscriptions?.duration_months} {cs.subscriptions?.duration_months === 1 ? 'mês' : 'meses'}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
                       <div className={`${textColor}/90`}>
                         <span className="font-medium">Início:</span><br />
                         {format(parseISO(cs.start_date), 'dd/MM/yyyy', { locale: ptBR })}
@@ -918,9 +1202,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     )}
                   </div>
 
-                  {/* Botões de ação - Layout melhorado para mobile */}
-                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-                    <div className="relative flex-1">
+                  {/* Botões de ação - Layout otimizado para mobile */}
+                  <div className="space-y-2 sm:space-y-0">
+                    {/* Dropdown de status de pagamento */}
+                    <div className="relative">
                       <select
                         value={cs.payment_status}
                         onChange={(e) => handleTogglePaymentStatus(cs, e.target.value as 'paid' | 'unpaid')}
@@ -933,16 +1218,47 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <option value="paid" className="bg-white text-green-700">✓ Pago</option>
                         <option value="unpaid" className="bg-white text-red-700">✗ Não Pago</option>
                       </select>
-                      {/* Ícone de seta customizado */}
                       <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
                         <svg className="w-3 h-3 sm:w-4 sm:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
                       </div>
                     </div>
+                    
+                    {/* Botões de ação em grid para mobile */}
+                    <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3">
+                      <button
+                        onClick={() => {
+                          setSelectedClientForView(cs);
+                          setShowViewAttendancesModal(true);
+                        }}
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-green-600 text-white hover:bg-green-700 border border-green-600 shadow-md"
+                      >
+                        <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                        <span className="hidden sm:inline">Atendimentos</span>
+                        <span className="sm:hidden">Ver</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedClientForAttendance(cs);
+                          // Preencher automaticamente com valor fixo se disponível
+                          const subscription = subscriptions.find(sub => sub.id === cs.subscription_id);
+                          const fixedCommission = subscription?.fixed_commission_value;
+                          setAttendanceValue(fixedCommission && fixedCommission > 0 ? fixedCommission : 0);
+                          setShowAddAttendanceModal(true);
+                        }}
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-blue-600 text-white hover:bg-blue-700 border border-blue-600 shadow-md"
+                      >
+                        <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                        <span className="hidden sm:inline">Atendimento</span>
+                        <span className="sm:hidden">Add</span>
+                      </button>
+                    </div>
+                    
+                    {/* Botão remover em linha separada */}
                     <button
                       onClick={() => handleDeleteClientSubscription(cs.id, cs.profiles?.full_name || 'Cliente')}
-                      className="inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-red-500/20 text-red-500 hover:bg-red-500/30 border border-red-500/30"
+                      className="w-full inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-red-500/20 text-red-500 hover:bg-red-500/30 border border-red-500/30"
                     >
                       <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1" /> Remover
                     </button>
@@ -964,6 +1280,242 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           if (onClientUpdated) onClientUpdated();
         }}
       />
+
+      {/* Modal para Adicionar Atendimento */}
+      {showAddAttendanceModal && selectedClientForAttendance && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md border border-gray-800">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Adicionar Atendimento</h3>
+              <button
+                onClick={() => {
+                  setShowAddAttendanceModal(false);
+                  setSelectedClientForAttendance(null);
+                  setAttendanceDate('');
+                  setAttendanceProfessional('');
+                  setAttendanceValue(0);
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-[#2a2b2c] rounded-lg">
+              <p className="text-sm text-gray-400">Cliente:</p>
+              <p className="text-white font-medium">{selectedClientForAttendance.profiles?.full_name}</p>
+            </div>
+
+            <form onSubmit={handleAddAttendance} className="space-y-4">
+              <div>
+                <label htmlFor="attendanceDate" className="block text-sm font-medium text-gray-400 mb-1">
+                  Data do Atendimento
+                </label>
+                <input
+                  type="date"
+                  id="attendanceDate"
+                  value={attendanceDate}
+                  onChange={(e) => setAttendanceDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="attendanceProfessional" className="block text-sm font-medium text-gray-400 mb-1">
+                  Profissional que Atendeu
+                </label>
+                <select
+                  id="attendanceProfessional"
+                  value={attendanceProfessional}
+                  onChange={(e) => setAttendanceProfessional(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  required
+                >
+                  <option value="">Selecione o profissional</option>
+                  {professionals.map((professional) => (
+                    <option key={professional.id} value={professional.full_name}>
+                      {professional.full_name}
+                    </option>
+                  ))}
+                </select>
+                {professionals.length === 0 && (
+                  <p className="text-xs text-yellow-400 mt-1">
+                    ⚠️ Nenhum profissional encontrado. Execute o SQL primeiro ou adicione profissionais.
+                  </p>
+                )}
+                {professionals.length > 0 && (
+                  <p className="text-xs text-green-400 mt-1">
+                    ✅ {professionals.length} profissional(is) encontrado(s)
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="attendanceValue" className="block text-sm font-medium text-gray-400 mb-1">
+                  Valor Repassado ao Profissional (R$)
+                </label>
+                {(() => {
+                  const clientSubscription = selectedClientForAttendance;
+                  const subscription = subscriptions.find(sub => sub.id === clientSubscription.subscription_id);
+                  const fixedCommission = subscription?.fixed_commission_value;
+                  
+                  if (fixedCommission && fixedCommission > 0) {
+                    // Se tem valor fixo, campo vem preenchido e desabilitado
+                    return (
+                      <>
+                        <input
+                          type="number"
+                          id="attendanceValue"
+                          value={fixedCommission}
+                          onChange={(e) => setAttendanceValue(Number(e.target.value))}
+                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                          step="0.01"
+                          min="0"
+                          required
+                          disabled
+                        />
+                        <div className="mt-2 p-2 bg-green-900/20 border border-green-600/30 rounded-lg">
+                          <p className="text-xs text-green-400">
+                            ✅ Valor fixo configurado: R$ {fixedCommission.toFixed(2).replace('.', ',')} (não editável)
+                          </p>
+                        </div>
+                      </>
+                    );
+                  } else {
+                    // Se não tem valor fixo, campo normal para preenchimento manual
+                    return (
+                      <>
+                        <input
+                          type="number"
+                          id="attendanceValue"
+                          value={attendanceValue}
+                          onChange={(e) => setAttendanceValue(Number(e.target.value))}
+                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                          step="0.01"
+                          min="0"
+                          required
+                        />
+                        <div className="mt-2 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded-lg">
+                          <p className="text-xs text-yellow-400">
+                            ⚠️ Nenhum valor fixo configurado para esta assinatura. Preencha manualmente.
+                          </p>
+                        </div>
+                      </>
+                    );
+                  }
+                })()}
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddAttendanceModal(false);
+                    setSelectedClientForAttendance(null);
+                    setAttendanceDate('');
+                    setAttendanceProfessional('');
+                    setAttendanceValue(0);
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingAttendance}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isSavingAttendance ? 'Salvando...' : 'Salvar Atendimento'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para visualizar atendimentos do cliente */}
+      {showViewAttendancesModal && selectedClientForView && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-2xl border border-gray-800 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Atendimentos do Cliente</h3>
+              <button
+                onClick={() => {
+                  setShowViewAttendancesModal(false);
+                  setSelectedClientForView(null);
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-[#2a2b2c] rounded-lg">
+              <p className="text-sm text-gray-400">Cliente:</p>
+              <p className="text-white font-medium">{selectedClientForView.profiles?.full_name}</p>
+            </div>
+
+            {(() => {
+              const clientAttendances = getClientAttendances(selectedClientForView.id);
+              const attendancesByProfessional = getClientAttendancesByProfessional(selectedClientForView.id);
+              
+              if (clientAttendances.length === 0) {
+                return (
+                  <div className="text-center text-gray-400 py-8">
+                    <p className="text-sm">Nenhum atendimento registrado para este cliente.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4">
+                  <div className="bg-[#2a2b2c] rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-white mb-3">Resumo por Profissional</h4>
+                    <div className="space-y-3">
+                      {Object.entries(attendancesByProfessional).map(([professional, data]) => (
+                        <div key={professional} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
+                          <div>
+                            <p className="text-sm font-medium text-white">{professional}</p>
+                            <p className="text-xs text-gray-400">{data.count} atendimento(s)</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-green-400">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.totalValue)}
+                            </p>
+                            <p className="text-xs text-gray-400">Total repassado</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-[#2a2b2c] rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-white mb-3">Detalhamento dos Atendimentos</h4>
+                    <div className="space-y-2">
+                      {clientAttendances.map((attendance, index) => (
+                        <div key={index} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
+                          <div>
+                            <p className="text-sm font-medium text-white">{attendance.professional_name}</p>
+                            <p className="text-xs text-gray-400">
+                              {new Date(attendance.attendance_date).toLocaleDateString('pt-BR')}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-blue-400">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(attendance.repass_value)}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }; 

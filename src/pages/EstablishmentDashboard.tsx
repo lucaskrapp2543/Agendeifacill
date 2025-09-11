@@ -161,6 +161,7 @@ interface Subscription {
   name: string;
   value: number;
   duration_months: number;
+  fixed_commission_value?: number;
 }
 
 interface ClientSubscription {
