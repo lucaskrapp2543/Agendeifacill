@@ -2019,8 +2019,20 @@ const EstablishmentDashboard = () => {
   };
 
   const getLoyalWhatsAppLink = (whatsapp: string) => {
-    const cleanNumber = whatsapp.replace(/\D/g, '');
-    return `https://wa.me/55${cleanNumber}`;
+    let cleanNumber = whatsapp.replace(/\D/g, '');
+    
+    // Garantir que tenha código do país (55 para Brasil)
+    if (cleanNumber.length === 11 && !cleanNumber.startsWith('55')) {
+      cleanNumber = '55' + cleanNumber;
+    } else if (cleanNumber.length === 10) {
+      cleanNumber = '55' + cleanNumber;
+    } else if (cleanNumber.length === 13 && cleanNumber.startsWith('55')) {
+      // Já tem código do país, manter
+    } else if (cleanNumber.length < 10) {
+      // Número muito curto, não formatar
+    }
+    
+    return `https://wa.me/${cleanNumber}`;
   };
 
   // Carregar clientes fiéis quando o modal abrir
@@ -3959,7 +3971,7 @@ const EstablishmentDashboard = () => {
                                   {appointment.client_whatsapp && (
                                     <div className="flex items-center gap-2">
                                       <a
-                                        href={`https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}`}
+                                        href={`https://wa.me/55${appointment.client_whatsapp.replace(/\D/g, '')}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="inline-flex items-center text-white hover:text-white/80"
@@ -3973,7 +3985,7 @@ const EstablishmentDashboard = () => {
                                         onClick={() => {
                                           const establishmentCode = establishment?.code || 'codigo';
                                           const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
-                                          const whatsappUrl = `https://wa.me/${appointment.client_whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                                          const whatsappUrl = `https://wa.me/55${appointment.client_whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
                                           window.open(whatsappUrl, '_blank');
                                         }}
                                         className="px-2 py-1 text-xs font-medium rounded transition-colors bg-orange-600 text-white hover:bg-orange-700"
@@ -5628,7 +5640,7 @@ const EstablishmentDashboard = () => {
                         </div>
                         
                         <a
-                          href={`https://wa.me/${client.whatsapp}`}
+                          href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
@@ -5918,7 +5930,7 @@ const EstablishmentDashboard = () => {
                     
                     {/* Botão WhatsApp */}
                     <a
-                      href={`https://wa.me/${client.whatsapp}`}
+                        href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
@@ -6288,7 +6300,7 @@ const EstablishmentDashboard = () => {
                   
                   {/* Botão WhatsApp */}
                   <a
-                    href={`https://wa.me/${client.whatsapp}`}
+                        href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"

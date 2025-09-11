@@ -147,8 +147,20 @@ const LoyalCustomers: React.FC<LoyalCustomersProps> = ({ establishmentId }) => {
   };
 
   const getWhatsAppLink = (whatsapp: string) => {
-    const cleanNumber = whatsapp.replace(/\D/g, '');
-    return `https://wa.me/55${cleanNumber}`;
+    let cleanNumber = whatsapp.replace(/\D/g, '');
+    
+    // Garantir que tenha código do país (55 para Brasil)
+    if (cleanNumber.length === 11 && !cleanNumber.startsWith('55')) {
+      cleanNumber = '55' + cleanNumber;
+    } else if (cleanNumber.length === 10) {
+      cleanNumber = '55' + cleanNumber;
+    } else if (cleanNumber.length === 13 && cleanNumber.startsWith('55')) {
+      // Já tem código do país, manter
+    } else if (cleanNumber.length < 10) {
+      // Número muito curto, não formatar
+    }
+    
+    return `https://wa.me/${cleanNumber}`;
   };
 
   return (
