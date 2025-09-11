@@ -324,6 +324,33 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // Função para remover atendimento
+  const handleRemoveAttendance = async (attendanceId: string, professionalName: string, attendanceDate: string, repassValue: number) => {
+    if (!confirm(`Tem certeza que deseja remover o atendimento de ${professionalName} em ${new Date(attendanceDate).toLocaleDateString('pt-BR')} (${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValue)})?`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('subscriber_attendances')
+        .delete()
+        .eq('id', attendanceId);
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success('Atendimento removido com sucesso!');
+      
+      // Recarregar dados
+      await fetchSubscriberAttendances();
+      
+    } catch (error: any) {
+      console.error('Erro ao remover atendimento:', error);
+      toast.error(error.message || 'Erro ao remover atendimento.');
+    }
+  };
+
   // Funções de fetch
   const fetchSubscriptions = async () => {
     const { data, error } = await getSubscriptions(establishmentId);
@@ -1495,16 +1522,30 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     <div className="space-y-2">
                       {clientAttendances.map((attendance, index) => (
                         <div key={index} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
-                          <div>
+                          <div className="flex-1">
                             <p className="text-sm font-medium text-white">{attendance.professional_name}</p>
                             <p className="text-xs text-gray-400">
                               {new Date(attendance.attendance_date).toLocaleDateString('pt-BR')}
                             </p>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm font-bold text-blue-400">
-                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(attendance.repass_value)}
-                            </p>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-blue-400">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(attendance.repass_value)}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveAttendance(
+                                attendance.id, 
+                                attendance.professional_name, 
+                                attendance.attendance_date, 
+                                attendance.repass_value
+                              )}
+                              className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
+                              title="Remover atendimento"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
                       ))}
