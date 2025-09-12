@@ -4668,9 +4668,20 @@ const EstablishmentDashboard = () => {
                             className="w-full h-full object-cover"
                           />
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setCustomPhoto1(null);
                               setCustomPhoto1Preview(null);
+                              // Salvar a remoção no banco imediatamente
+                              if (establishment) {
+                                try {
+                                  await supabase
+                                    .from('establishments')
+                                    .update({ custom_photo_1_url: null })
+                                    .eq('id', establishment.id);
+                                } catch (error) {
+                                  console.error('Erro ao remover foto 1:', error);
+                                }
+                              }
                             }}
                             className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
                           >
@@ -4703,9 +4714,20 @@ const EstablishmentDashboard = () => {
                             className="w-full h-full object-cover"
                           />
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setCustomPhoto2(null);
                               setCustomPhoto2Preview(null);
+                              // Salvar a remoção no banco imediatamente
+                              if (establishment) {
+                                try {
+                                  await supabase
+                                    .from('establishments')
+                                    .update({ custom_photo_2_url: null })
+                                    .eq('id', establishment.id);
+                                } catch (error) {
+                                  console.error('Erro ao remover foto 2:', error);
+                                }
+                              }
                             }}
                             className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
                           >
@@ -4738,9 +4760,20 @@ const EstablishmentDashboard = () => {
                             className="w-full h-full object-cover"
                           />
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setCustomPhoto3(null);
                               setCustomPhoto3Preview(null);
+                              // Salvar a remoção no banco imediatamente
+                              if (establishment) {
+                                try {
+                                  await supabase
+                                    .from('establishments')
+                                    .update({ custom_photo_3_url: null })
+                                    .eq('id', establishment.id);
+                                } catch (error) {
+                                  console.error('Erro ao remover foto 3:', error);
+                                }
+                              }
                             }}
                             className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
                           >
@@ -4773,9 +4806,20 @@ const EstablishmentDashboard = () => {
                             className="w-full h-full object-cover"
                           />
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setCustomPhoto4(null);
                               setCustomPhoto4Preview(null);
+                              // Salvar a remoção no banco imediatamente
+                              if (establishment) {
+                                try {
+                                  await supabase
+                                    .from('establishments')
+                                    .update({ custom_photo_4_url: null })
+                                    .eq('id', establishment.id);
+                                } catch (error) {
+                                  console.error('Erro ao remover foto 4:', error);
+                                }
+                              }
                             }}
                             className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
                           >
@@ -4808,9 +4852,20 @@ const EstablishmentDashboard = () => {
                             className="w-full h-full object-cover"
                           />
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setCustomPhoto5(null);
                               setCustomPhoto5Preview(null);
+                              // Salvar a remoção no banco imediatamente
+                              if (establishment) {
+                                try {
+                                  await supabase
+                                    .from('establishments')
+                                    .update({ custom_photo_5_url: null })
+                                    .eq('id', establishment.id);
+                                } catch (error) {
+                                  console.error('Erro ao remover foto 5:', error);
+                                }
+                              }
                             }}
                             className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
                           >
@@ -4843,9 +4898,20 @@ const EstablishmentDashboard = () => {
                             className="w-full h-full object-cover"
                           />
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setCustomPhoto6(null);
                               setCustomPhoto6Preview(null);
+                              // Salvar a remoção no banco imediatamente
+                              if (establishment) {
+                                try {
+                                  await supabase
+                                    .from('establishments')
+                                    .update({ custom_photo_6_url: null })
+                                    .eq('id', establishment.id);
+                                } catch (error) {
+                                  console.error('Erro ao remover foto 6:', error);
+                                }
+                              }
                             }}
                             className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
                           >
@@ -4878,9 +4944,20 @@ const EstablishmentDashboard = () => {
                             className="w-full h-full object-cover"
                           />
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setCustomPhoto7(null);
                               setCustomPhoto7Preview(null);
+                              // Salvar a remoção no banco imediatamente
+                              if (establishment) {
+                                try {
+                                  await supabase
+                                    .from('establishments')
+                                    .update({ custom_photo_7_url: null })
+                                    .eq('id', establishment.id);
+                                } catch (error) {
+                                  console.error('Erro ao remover foto 7:', error);
+                                }
+                              }
                             }}
                             className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
                           >
