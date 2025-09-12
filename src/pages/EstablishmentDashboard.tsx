@@ -73,6 +73,10 @@ interface Establishment {
   custom_photo_1_url?: string;
   custom_photo_2_url?: string;
   custom_photo_3_url?: string;
+  custom_photo_4_url?: string;
+  custom_photo_5_url?: string;
+  custom_photo_6_url?: string;
+  custom_photo_7_url?: string;
   pix_key_type?: string;
   pix_key?: string;
   pin_password?: string;
@@ -89,6 +93,7 @@ interface Establishment {
   wifi_password?: string; // Senha do Wi-Fi
   whatsapp?: string; // Novo campo para WhatsApp
   credit_card_tax_percentage?: number; // Taxa do cartão de crédito (%)
+  carousel_position?: 'behind' | 'below'; // Posição do carrossel: atrás ou embaixo do perfil
   debit_card_tax_percentage?: number; // Taxa do cartão de débito (%)
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
 }
@@ -255,6 +260,7 @@ const EstablishmentDashboard = () => {
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
+  const [carouselPosition, setCarouselPosition] = useState<'behind' | 'below'>('behind'); // Posição do carrossel
   const [cardBrandTaxes, setCardBrandTaxes] = useState<Record<string, number>>({
     visa: 3.5,
     mastercard: 3.5,
@@ -284,9 +290,17 @@ const EstablishmentDashboard = () => {
   const [customPhoto1, setCustomPhoto1] = useState<File | null>(null);
   const [customPhoto2, setCustomPhoto2] = useState<File | null>(null);
   const [customPhoto3, setCustomPhoto3] = useState<File | null>(null);
+  const [customPhoto4, setCustomPhoto4] = useState<File | null>(null);
+  const [customPhoto5, setCustomPhoto5] = useState<File | null>(null);
+  const [customPhoto6, setCustomPhoto6] = useState<File | null>(null);
+  const [customPhoto7, setCustomPhoto7] = useState<File | null>(null);
   const [customPhoto1Preview, setCustomPhoto1Preview] = useState<string | null>(null);
   const [customPhoto2Preview, setCustomPhoto2Preview] = useState<string | null>(null);
   const [customPhoto3Preview, setCustomPhoto3Preview] = useState<string | null>(null);
+  const [customPhoto4Preview, setCustomPhoto4Preview] = useState<string | null>(null);
+  const [customPhoto5Preview, setCustomPhoto5Preview] = useState<string | null>(null);
+  const [customPhoto6Preview, setCustomPhoto6Preview] = useState<string | null>(null);
+  const [customPhoto7Preview, setCustomPhoto7Preview] = useState<string | null>(null);
   
   // Estados de horários e profissionais
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
@@ -492,7 +506,7 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleCustomPhotoChange = (photoNumber: 1 | 2 | 3, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCustomPhotoChange = (photoNumber: 1 | 2 | 3 | 4 | 5 | 6 | 7, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
@@ -509,6 +523,18 @@ const EstablishmentDashboard = () => {
       } else if (photoNumber === 3) {
         setCustomPhoto3(file);
         setCustomPhoto3Preview(URL.createObjectURL(file));
+      } else if (photoNumber === 4) {
+        setCustomPhoto4(file);
+        setCustomPhoto4Preview(URL.createObjectURL(file));
+      } else if (photoNumber === 5) {
+        setCustomPhoto5(file);
+        setCustomPhoto5Preview(URL.createObjectURL(file));
+      } else if (photoNumber === 6) {
+        setCustomPhoto6(file);
+        setCustomPhoto6Preview(URL.createObjectURL(file));
+      } else if (photoNumber === 7) {
+        setCustomPhoto7(file);
+        setCustomPhoto7Preview(URL.createObjectURL(file));
       }
     }
   };
@@ -789,6 +815,10 @@ const EstablishmentDashboard = () => {
         custom_photo_1: customPhoto1,
         custom_photo_2: customPhoto2,
         custom_photo_3: customPhoto3,
+        custom_photo_4: customPhoto4,
+        custom_photo_5: customPhoto5,
+        custom_photo_6: customPhoto6,
+        custom_photo_7: customPhoto7,
         pix_key_type: pixKeyType,
         pix_key: pixKey,
         review_link: reviewLink.trim(),       // Atualiza o link de avaliação
@@ -802,6 +832,7 @@ const EstablishmentDashboard = () => {
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
         show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
+        carousel_position: carouselPosition, // Posição do carrossel
       };
       
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -949,7 +980,10 @@ const EstablishmentDashboard = () => {
       if (error) {
         console.error('❌ ERRO AO EXCLUIR DO BANCO:', error);
         // Se der erro, volta o agendamento na lista
-        setAppointments(prev => [...prev, appointments.find(app => app.id === appointmentId)].filter(Boolean));
+        setAppointments(prev => {
+          const appointmentToRestore = appointments.find(app => app.id === appointmentId);
+          return appointmentToRestore ? [...prev, appointmentToRestore] : prev;
+        });
         toast('Erro ao excluir do banco', 'error');
         return;
       }
@@ -1179,6 +1213,7 @@ const EstablishmentDashboard = () => {
         setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
+        setCarouselPosition(establishmentData.carousel_position || 'behind'); // Posição do carrossel
         
         // Carrega as taxas por bandeira de cartão
         if (establishmentData.card_brand_taxes) {
@@ -1219,6 +1254,18 @@ const EstablishmentDashboard = () => {
         }
         if (establishmentData.custom_photo_3_url) {
           setCustomPhoto3Preview(establishmentData.custom_photo_3_url);
+        }
+        if (establishmentData.custom_photo_4_url) {
+          setCustomPhoto4Preview(establishmentData.custom_photo_4_url);
+        }
+        if (establishmentData.custom_photo_5_url) {
+          setCustomPhoto5Preview(establishmentData.custom_photo_5_url);
+        }
+        if (establishmentData.custom_photo_6_url) {
+          setCustomPhoto6Preview(establishmentData.custom_photo_6_url);
+        }
+        if (establishmentData.custom_photo_7_url) {
+          setCustomPhoto7Preview(establishmentData.custom_photo_7_url);
         }
         setProfileImagePreview(establishmentData.profile_image_url || null);
       }
@@ -4374,6 +4421,7 @@ const EstablishmentDashboard = () => {
                 </div>
               </div>
 
+
               {/* Seção de Comodidades */}
               <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                 <h3 className="text-lg font-medium text-white mb-4">Comodidades</h3>
@@ -4561,15 +4609,54 @@ const EstablishmentDashboard = () => {
               <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                 <h3 className="text-lg font-medium text-white mb-4">Fotos do Estabelecimento</h3>
                 <p className="text-sm text-gray-400 mb-2">
-                  Adicione até 3 fotos do seu estabelecimento que serão exibidas para os clientes
+                  Adicione até 7 fotos do seu estabelecimento que serão exibidas para os clientes
                 </p>
+                
+                {/* Configuração do Carrossel */}
+                <div className="mb-6 p-4 bg-[#2a2b2c] rounded-lg border border-gray-700">
+                  <h4 className="text-md font-medium text-white mb-3">Configuração do Carrossel</h4>
+                  <p className="text-sm text-gray-400 mb-4">
+                    Escolha onde o carrossel de fotos deve aparecer na página de agendamentos:
+                  </p>
+                  <div className="space-y-3">
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="carouselPosition"
+                        value="behind"
+                        checked={carouselPosition === 'behind'}
+                        onChange={(e) => setCarouselPosition(e.target.value as 'behind' | 'below')}
+                        className="form-radio h-4 w-4 text-primary bg-[#2a2b2c] border-gray-600"
+                      />
+                      <div>
+                        <span className="text-white font-medium text-sm">Atrás do perfil</span>
+                        <p className="text-xs text-gray-400">O carrossel aparece como fundo atrás da logo e informações do estabelecimento</p>
+                      </div>
+                    </label>
+                    
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="carouselPosition"
+                        value="below"
+                        checked={carouselPosition === 'below'}
+                        onChange={(e) => setCarouselPosition(e.target.value as 'behind' | 'below')}
+                        className="form-radio h-4 w-4 text-primary bg-[#2a2b2c] border-gray-600"
+                      />
+                      <div>
+                        <span className="text-white font-medium text-sm">Embaixo do perfil</span>
+                        <p className="text-xs text-gray-400">O carrossel aparece como uma seção separada abaixo das informações do estabelecimento</p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
                 <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4 mb-6">
                   <p className="text-yellow-500 text-sm">
                     ⚠️ Caso a imagem não aparecer, ou ficar mal otimizada é porque o tamanho da sua imagem está errado. Envie para nós no whatsapp, que iremos ajustar para você ⚠️
                   </p>
                 </div>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {/* Foto 1 */}
                   <div>
                     <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
@@ -4668,6 +4755,146 @@ const EstablishmentDashboard = () => {
                             type="file"
                             accept="image/*"
                             onChange={(e) => handleCustomPhotoChange(3, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Foto 4 */}
+                  <div>
+                    <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                      {customPhoto4Preview ? (
+                        <div className="relative h-full">
+                          <img
+                            src={customPhoto4Preview}
+                            alt="Foto 4"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            onClick={() => {
+                              setCustomPhoto4(null);
+                              setCustomPhoto4Preview(null);
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4 text-white" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                          <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                          <span className="text-sm text-gray-400">Foto 4</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleCustomPhotoChange(4, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Foto 5 */}
+                  <div>
+                    <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                      {customPhoto5Preview ? (
+                        <div className="relative h-full">
+                          <img
+                            src={customPhoto5Preview}
+                            alt="Foto 5"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            onClick={() => {
+                              setCustomPhoto5(null);
+                              setCustomPhoto5Preview(null);
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4 text-white" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                          <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                          <span className="text-sm text-gray-400">Foto 5</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleCustomPhotoChange(5, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Foto 6 */}
+                  <div>
+                    <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                      {customPhoto6Preview ? (
+                        <div className="relative h-full">
+                          <img
+                            src={customPhoto6Preview}
+                            alt="Foto 6"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            onClick={() => {
+                              setCustomPhoto6(null);
+                              setCustomPhoto6Preview(null);
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4 text-white" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                          <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                          <span className="text-sm text-gray-400">Foto 6</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleCustomPhotoChange(6, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Foto 7 */}
+                  <div>
+                    <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                      {customPhoto7Preview ? (
+                        <div className="relative h-full">
+                          <img
+                            src={customPhoto7Preview}
+                            alt="Foto 7"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            onClick={() => {
+                              setCustomPhoto7(null);
+                              setCustomPhoto7Preview(null);
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4 text-white" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                          <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                          <span className="text-sm text-gray-400">Foto 7</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleCustomPhotoChange(7, e)}
                             className="hidden"
                           />
                         </label>

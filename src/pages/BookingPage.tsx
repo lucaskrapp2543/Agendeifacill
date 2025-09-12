@@ -7,7 +7,7 @@ import { supabase, getSubscriptions } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { AppointmentForm } from '../components/AppointmentForm';
 import { PhotoCarousel } from '../components/PhotoCarousel';
-import { ChevronLeft, ChevronDown } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
 import { LogOut } from 'lucide-react';
@@ -34,6 +34,47 @@ export default function BookingPage() {
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
   const [showBusinessHours, setShowBusinessHours] = useState(false);
+  const [duplicateCarouselIndex, setDuplicateCarouselIndex] = useState(0);
+  
+  // Funções para o carrossel duplicado - Filtrar apenas fotos selecionadas
+  const duplicatePhotos = [
+    establishment?.custom_photo_1_url,
+    establishment?.custom_photo_2_url,
+    establishment?.custom_photo_3_url,
+    establishment?.custom_photo_4_url,
+    establishment?.custom_photo_5_url,
+    establishment?.custom_photo_6_url,
+    establishment?.custom_photo_7_url,
+  ].filter(Boolean); // Remove valores undefined/null
+
+  // Debug: verificar se as fotos estão sendo carregadas
+  console.log('🔍 DEBUG FOTOS:');
+  console.log('📸 Fotos do carrossel:', duplicatePhotos);
+  console.log('📸 Total de fotos:', duplicatePhotos.length);
+  console.log('🏢 Estabelecimento:', establishment);
+  console.log('📸 Fotos individuais:', {
+    photo1: establishment?.custom_photo_1_url,
+    photo2: establishment?.custom_photo_2_url,
+    photo3: establishment?.custom_photo_3_url,
+    photo4: establishment?.custom_photo_4_url,
+    photo5: establishment?.custom_photo_5_url,
+    photo6: establishment?.custom_photo_6_url,
+    photo7: establishment?.custom_photo_7_url,
+  });
+
+  const goToPreviousDuplicate = () => {
+    setDuplicateCarouselIndex((prevIndex) => 
+      prevIndex === 0 ? duplicatePhotos.length - 1 : prevIndex - 1
+    );
+  };
+
+  const goToNextDuplicate = () => {
+    setDuplicateCarouselIndex((prevIndex) => (prevIndex + 1) % duplicatePhotos.length);
+  };
+
+  const goToSlideDuplicate = (index: number) => {
+    setDuplicateCarouselIndex(index);
+  };
   
   // Estados para agendamento assinante
   const [showSubscriberBooking, setShowSubscriberBooking] = useState(false);
@@ -187,18 +228,23 @@ export default function BookingPage() {
       }
       
       console.log('🎯 Buscando especificamente pelo código:', id);
-      const { data, error } = await supabase
-        .from('establishments')
-        .select(`
-          *,
-          pix_payment_link,
-          review_link,
-          social_media_link,
-          pix_key,
-          whatsapp
-        `)
-        .eq('code', id)
-        .single();
+        const { data, error } = await supabase
+          .from('establishments')
+          .select(`
+            *,
+            pix_payment_link,
+            review_link,
+            social_media_link,
+            pix_key,
+            whatsapp,
+            custom_photo_4_url,
+            custom_photo_5_url,
+            custom_photo_6_url,
+            custom_photo_7_url,
+            carousel_position
+          `)
+          .eq('code', id)
+          .single();
 
       if (error) {
         console.error('❌ Erro ao buscar estabelecimento:', error);
@@ -500,21 +546,102 @@ export default function BookingPage() {
 
 
 
-          {/* Carrossel de Fotos */}
-          <div className="rounded-lg overflow-hidden">
-            <PhotoCarousel 
-              photos={[
-                establishment?.custom_photo_1_url || '/barbeiro ft 1.png',
-                establishment?.custom_photo_2_url || '/barbeiro ft 2.png',
-                establishment?.custom_photo_3_url || '/barbeiro ft 3.png'
-              ]}
-              logoUrl={establishment?.logo_url}
-              establishmentName={establishment?.name}
-            />
-          </div>
+
+          {/* Carrossel atrás do perfil (se configurado) */}
+          {establishment?.carousel_position === 'behind' && (
+            <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-visible bg-gray-100 mb-6 border-2 border-gray-300 shadow-lg">
+              {/* Imagem atual */}
+              <div className="relative w-full h-full">
+                <img
+                  src={duplicatePhotos[duplicateCarouselIndex]}
+                  alt={`Foto ${duplicateCarouselIndex + 1}`}
+                  className="w-full h-full object-cover transition-opacity duration-500"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
+                    target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
+                  }}
+                />
+                
+                {/* Overlay escuro para melhor contraste dos botões */}
+                <div className="absolute inset-0 bg-black bg-opacity-20"></div>
+              </div>
+
+              {/* Botão Anterior */}
+              <button
+                onClick={goToPreviousDuplicate}
+                className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+                aria-label="Foto anterior"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+
+              {/* Botão Próximo */}
+              <button
+                onClick={goToNextDuplicate}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+                aria-label="Próxima foto"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+
+              {/* Indicadores (bolinhas) - No lado esquerdo */}
+              <div className="absolute left-4 top-1/2 transform -translate-y-1/2 flex flex-col space-y-2 z-10">
+                {duplicatePhotos.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => goToSlideDuplicate(index)}
+                    className={`w-3 h-3 rounded-full transition-all duration-200 ${
+                      index === duplicateCarouselIndex
+                        ? 'bg-white'
+                        : 'bg-white bg-opacity-50 hover:bg-opacity-75'
+                    }`}
+                    aria-label={`Ir para foto ${index + 1}`}
+                  />
+                ))}
+              </div>
+
+              {/* Contador */}
+              <div className="absolute top-4 right-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-full text-sm z-10">
+                {duplicateCarouselIndex + 1} / {duplicatePhotos.length}
+              </div>
+
+              {/* Logo do Estabelecimento - Sobreposta para fora do carrossel */}
+              <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 z-20">
+                <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-2xl bg-white">
+                  <img
+                    src={establishment?.logo_url || '/fotopessoa.png'}
+                    alt={establishment?.name || 'Logo'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = '/fotopessoa.png';
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Logo do Estabelecimento - Só aparece quando carrossel não está atrás */}
+          {establishment?.carousel_position !== 'behind' && (
+            <div className="flex justify-center mb-6">
+              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-gray-300 shadow-2xl">
+                <img
+                  src={establishment?.logo_url || '/fotopessoa.png'}
+                  alt={establishment?.name || 'Logo'}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = '/fotopessoa.png';
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Informações do Estabelecimento */}
-          <div className="text-center space-y-2">
+          <div className="text-center space-y-2 relative z-30 mt-32">
             <h1 className="text-2xl font-bold text-gray-900">{establishment?.name}</h1>
             {establishment?.description && (
               <p className="text-gray-600">
@@ -527,33 +654,41 @@ export default function BookingPage() {
             )}
 
             {/* Botões de Ação Principal */}
-            <div className="mt-6 flex flex-col space-y-4">
+            <div className="mt-6 flex flex-col space-y-4 relative z-10">
               {/* Botão AGENDAR */}
-              <button
-                onClick={handleAgendarClick}
-                className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center shadow-2xl hover:shadow-3xl border-2 border-gray-300 relative"
-              >
-                AGENDAR
-                <img src="/calendario.png" alt="Calendário" className="h-6 w-6 absolute right-6" />
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handleAgendarClick}
+                  className="flex-1 bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 shadow-2xl hover:shadow-3xl border-2 border-gray-300"
+                >
+                  QUERO AGENDAR
+                </button>
+                <div className="w-16 h-16 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white shadow-2xl">
+                  <img src="/calendario.png" alt="Calendário" className="h-6 w-6" />
+                </div>
+              </div>
 
 
 
               {/* Dropdown SER ASSINANTE */}
               {subscriptions.length > 0 && (
                 <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 10 }}>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
-                    }}
-                    className="w-full bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center shadow-2xl hover:shadow-3xl border-2 border-gray-300 relative"
-                  >
-                    SER ASSINANTE
-                    <img src="/coroa.png" alt="Coroa" className="h-6 w-6 absolute right-6" />
-                  </button>
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
+                      }}
+                      className="flex-1 bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 shadow-2xl hover:shadow-3xl border-2 border-gray-300"
+                    >
+                      SER ASSINANTE
+                    </button>
+                    <div className="w-16 h-16 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white shadow-2xl">
+                      <img src="/coroa.png" alt="Coroa" className="h-6 w-6" />
+                    </div>
+                  </div>
                   
                   {showSubscriptionsDropdown && (
                     <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-60 overflow-y-auto">
@@ -613,71 +748,99 @@ export default function BookingPage() {
 
 
               {/* Botão AVALIE A GENTE */}
-              <a
-                href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center justify-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 relative ${
-                  establishment?.review_link 
-                    ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
-                }`}
-              >
-                AVALIE A GENTE
-                <img src="/google.png" alt="Google" className="h-6 w-6 absolute right-6" />
-              </a>
+              <div className="flex items-center gap-4">
+                <a
+                  href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex-1 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                    establishment?.review_link 
+                      ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
+                  }`}
+                >
+                  AVALIE A GENTE
+                </a>
+                <div className="w-16 h-16 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white shadow-2xl">
+                  <img src="/google.png" alt="Google" className="h-6 w-6" />
+                </div>
+              </div>
 
-              {/* Botão INSTAGRAM */}
-              <a
-                href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center justify-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 relative ${
-                  establishment?.social_media_link 
-                    ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
-                }`}
-              >
-                INSTAGRAM
-                <img src="/INST.png" alt="Instagram" className="h-6 w-6 absolute right-6" />
-              </a>
-
-              {/* Botão PAGAR PIX */}
-              <button
-                onClick={() => {
-                  if (establishment?.pix_key) {
-                    navigator.clipboard.writeText(establishment.pix_key);
-                    toast.success('Chave PIX copiada com sucesso!');
-                  } else {
-                    toast.error('Chave PIX não disponível.');
-                  }
-                }}
-                disabled={!establishment?.pix_key}
-                className={`flex items-center justify-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 relative ${
-                  establishment?.pix_key 
-                    ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
-                }`}
-              >
-                PAGAR PIX
-                <img src="/PIX.png" alt="PIX" className="h-6 w-6 absolute right-6" />
-              </button>
 
               {/* Botão COMO CHEGAR */}
-              <a
-                href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center justify-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 relative ${
-                  establishment?.location_link 
-                    ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
-                }`}
-              >
-                COMO CHEGAR
-                <img src="/LOCAL.png" alt="Localização" className="h-6 w-6 absolute right-6" />
-              </a>
+              <div className="flex items-center gap-4">
+                <a
+                  href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex-1 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                    establishment?.location_link 
+                      ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
+                  }`}
+                >
+                  COMO CHEGAR
+                </a>
+                <div className="w-16 h-16 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white shadow-2xl">
+                  <img src="/LOCAL.png" alt="Localização" className="h-6 w-6" />
+                </div>
+              </div>
 
+              {/* Imagens INSTAGRAM, PIX e WHATSAPP lado a lado */}
+              <div className="flex items-center justify-center gap-6 relative my-6">
+                {/* Linha esquerda - vai da borda até antes do Instagram com distância */}
+                <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{width: 'calc(50% - 120px)'}}></div>
+                
+                {/* Linha direita - vai depois do WhatsApp até a borda com distância */}
+                <div className="absolute right-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{width: 'calc(50% - 120px)'}}></div>
+                {/* Instagram */}
+                <a
+                  href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`transition-all duration-200 ${
+                    establishment?.social_media_link 
+                      ? 'hover:opacity-80 cursor-pointer' 
+                      : 'opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <img src="/INST.png" alt="Instagram" className="h-12 w-12" />
+                </a>
+
+                {/* PIX */}
+                <button
+                  onClick={() => {
+                    if (establishment?.pix_key) {
+                      navigator.clipboard.writeText(establishment.pix_key);
+                      toast.success('Chave PIX copiada com sucesso!');
+                    } else {
+                      toast.error('Chave PIX não disponível.');
+                    }
+                  }}
+                  disabled={!establishment?.pix_key}
+                  className={`transition-all duration-200 ${
+                    establishment?.pix_key 
+                      ? 'hover:opacity-80 cursor-pointer' 
+                      : 'opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <img src="/PIX.png" alt="PIX" className="h-12 w-12" />
+                </button>
+
+                {/* WhatsApp */}
+                <a
+                  href={establishment?.whatsapp ? `https://wa.me/${establishment.whatsapp}` : '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`transition-all duration-200 ${
+                    establishment?.whatsapp 
+                      ? 'hover:opacity-80 cursor-pointer' 
+                      : 'opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <img src="/wppicon.png" alt="WhatsApp" className="h-12 w-12" />
+                </a>
+              </div>
 
               {/* Tela de Agendamento Assinante - Posicionada após os botões */}
               {showSubscriberBooking && (
@@ -778,6 +941,71 @@ export default function BookingPage() {
                 </div>
               )}
 
+              {/* Carrossel de Fotos embaixo (se configurado ou padrão) */}
+              {(establishment?.carousel_position === 'below' || !establishment?.carousel_position) && (
+                <div className="mt-8 mb-6 rounded-lg overflow-hidden">
+                <div className="relative">
+                  <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100">
+                    {/* Imagem atual */}
+                    <div className="relative w-full h-full">
+                      <img
+                        src={duplicatePhotos[duplicateCarouselIndex]}
+                        alt={`Foto ${duplicateCarouselIndex + 1}`}
+                        className="w-full h-full object-cover transition-opacity duration-500"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
+                          target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
+                        }}
+                      />
+                      
+                      {/* Overlay escuro para melhor contraste dos botões */}
+                      <div className="absolute inset-0 bg-black bg-opacity-20"></div>
+                    </div>
+
+                    {/* Botão Anterior */}
+                    <button
+                      onClick={goToPreviousDuplicate}
+                      className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+                      aria-label="Foto anterior"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+
+                    {/* Botão Próximo */}
+                    <button
+                      onClick={goToNextDuplicate}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+                      aria-label="Próxima foto"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+
+                    {/* Indicadores (bolinhas) - No lado esquerdo */}
+                    <div className="absolute left-4 top-1/2 transform -translate-y-1/2 flex flex-col space-y-2 z-10">
+                      {duplicatePhotos.map((_, index) => (
+                        <button
+                          key={index}
+                          onClick={() => goToSlideDuplicate(index)}
+                          className={`w-3 h-3 rounded-full transition-all duration-200 ${
+                            index === duplicateCarouselIndex
+                              ? 'bg-white'
+                              : 'bg-white bg-opacity-50 hover:bg-opacity-75'
+                          }`}
+                          aria-label={`Ir para foto ${index + 1}`}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Contador */}
+                    <div className="absolute top-4 right-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-full text-sm z-10">
+                      {duplicateCarouselIndex + 1} / {duplicatePhotos.length}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              )}
+
               {/* Seção de Comodidades */}
               <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
@@ -825,7 +1053,13 @@ export default function BookingPage() {
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Profissionais</h3>
                   {establishment.professionals.length <= 3 ? (
                     // Layout normal para 3 ou menos profissionais
-                    <div className="flex flex-wrap gap-4">
+                    <div className={`flex flex-wrap gap-4 ${
+                      establishment.professionals.length === 1 
+                        ? 'justify-center' 
+                        : establishment.professionals.length === 2 
+                        ? 'justify-center' 
+                        : ''
+                    }`}>
                       {establishment.professionals.map((professional: any) => (
                         <div key={professional.id} className="flex flex-col items-center">
                           <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-gray-200 shadow-md">
@@ -873,20 +1107,6 @@ export default function BookingPage() {
                 </div>
               )}
 
-              {/* Botão de WhatsApp */}
-              <a
-                href={establishment?.whatsapp ? `https://wa.me/${establishment.whatsapp}` : '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center justify-center gap-2 text-center font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
-                  establishment?.whatsapp 
-                    ? 'bg-gradient-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white shadow-lg hover:shadow-xl' 
-                    : 'bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-50'
-                }`}
-              >
-                ENTRAR EM CONTATO
-                <img src="/wppicon.png" alt="WhatsApp" className="h-5 w-5" />
-              </a>
 
               {/* Seção de Horário de Atendimento */}
               <div className="mt-8 mb-6 bg-white rounded-lg p-6 shadow-md border border-gray-200">

@@ -124,6 +124,10 @@ export const createEstablishment = async (establishmentData: any) => {
   let customPhoto1Url = null;
   let customPhoto2Url = null;
   let customPhoto3Url = null;
+  let customPhoto4Url = null;
+  let customPhoto5Url = null;
+  let customPhoto6Url = null;
+  let customPhoto7Url = null;
 
   // Upload profile image if exists
   if (establishmentData.profile_image) {
@@ -211,16 +215,108 @@ export const createEstablishment = async (establishmentData: any) => {
     customPhoto3Url = publicUrl;
   }
 
+  if (establishmentData.custom_photo_4) {
+    const file = establishmentData.custom_photo_4;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const filePath = `establishments/${fileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('custom-photos')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('custom-photos')
+      .getPublicUrl(filePath);
+
+    customPhoto4Url = publicUrl;
+  }
+
+  if (establishmentData.custom_photo_5) {
+    const file = establishmentData.custom_photo_5;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const filePath = `establishments/${fileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('custom-photos')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('custom-photos')
+      .getPublicUrl(filePath);
+
+    customPhoto5Url = publicUrl;
+  }
+
+  if (establishmentData.custom_photo_6) {
+    const file = establishmentData.custom_photo_6;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const filePath = `establishments/${fileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('custom-photos')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('custom-photos')
+      .getPublicUrl(filePath);
+
+    customPhoto6Url = publicUrl;
+  }
+
+  if (establishmentData.custom_photo_7) {
+    const file = establishmentData.custom_photo_7;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const filePath = `establishments/${fileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('custom-photos')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('custom-photos')
+      .getPublicUrl(filePath);
+
+    customPhoto7Url = publicUrl;
+  }
+
   // Remove the file objects and add the URLs
   delete establishmentData.profile_image;
   delete establishmentData.custom_photo_1;
   delete establishmentData.custom_photo_2;
   delete establishmentData.custom_photo_3;
+  delete establishmentData.custom_photo_4;
+  delete establishmentData.custom_photo_5;
+  delete establishmentData.custom_photo_6;
+  delete establishmentData.custom_photo_7;
   
   establishmentData.profile_image_url = profileImageUrl;
   establishmentData.custom_photo_1_url = customPhoto1Url;
   establishmentData.custom_photo_2_url = customPhoto2Url;
   establishmentData.custom_photo_3_url = customPhoto3Url;
+  establishmentData.custom_photo_4_url = customPhoto4Url;
+  establishmentData.custom_photo_5_url = customPhoto5Url;
+  establishmentData.custom_photo_6_url = customPhoto6Url;
+  establishmentData.custom_photo_7_url = customPhoto7Url;
 
   // Configurações padrão para novos estabelecimentos
   const defaultBusinessHours = {
@@ -350,6 +446,10 @@ export const updateEstablishment = async (id: string, data: any) => {
     custom_photo_1, 
     custom_photo_2, 
     custom_photo_3, 
+    custom_photo_4, 
+    custom_photo_5, 
+    custom_photo_6, 
+    custom_photo_7, 
     ...establishmentData 
   } = data;
   
@@ -380,6 +480,22 @@ export const updateEstablishment = async (id: string, data: any) => {
     
     if (custom_photo_3 instanceof File) {
       establishmentData.custom_photo_3_url = await uploadCustomPhoto(custom_photo_3, id, 3);
+    }
+    
+    if (custom_photo_4 instanceof File) {
+      establishmentData.custom_photo_4_url = await uploadCustomPhoto(custom_photo_4, id, 4);
+    }
+    
+    if (custom_photo_5 instanceof File) {
+      establishmentData.custom_photo_5_url = await uploadCustomPhoto(custom_photo_5, id, 5);
+    }
+    
+    if (custom_photo_6 instanceof File) {
+      establishmentData.custom_photo_6_url = await uploadCustomPhoto(custom_photo_6, id, 6);
+    }
+    
+    if (custom_photo_7 instanceof File) {
+      establishmentData.custom_photo_7_url = await uploadCustomPhoto(custom_photo_7, id, 7);
     }
 
     // Garantir que os arrays não sejam undefined
