@@ -706,7 +706,7 @@ export default function BookingPage() {
                   </button>
                   
                   {showSubscriptionsDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-60 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
                       {subscriptions.map((subscription) => (
                         <div
                           key={subscription.id}
@@ -763,7 +763,7 @@ export default function BookingPage() {
 
 
               {/* Botões NOS AVALIE e LOCAL lado a lado */}
-              <div className="flex gap-3">
+              <div className="flex gap-3 relative z-0">
                 {/* Botão NOS AVALIE */}
                 <a
                   href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
