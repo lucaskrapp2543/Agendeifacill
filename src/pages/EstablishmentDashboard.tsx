@@ -508,34 +508,48 @@ const EstablishmentDashboard = () => {
 
   const handleCustomPhotoChange = (photoNumber: 1 | 2 | 3 | 4 | 5 | 6 | 7, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    console.log(`📸 Upload foto ${photoNumber}:`, file);
+    
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
         toast('A imagem deve ter no máximo 5MB', 'error');
         return;
       }
       
-      if (photoNumber === 1) {
-        setCustomPhoto1(file);
-        setCustomPhoto1Preview(URL.createObjectURL(file));
-      } else if (photoNumber === 2) {
-        setCustomPhoto2(file);
-        setCustomPhoto2Preview(URL.createObjectURL(file));
-      } else if (photoNumber === 3) {
-        setCustomPhoto3(file);
-        setCustomPhoto3Preview(URL.createObjectURL(file));
-      } else if (photoNumber === 4) {
-        setCustomPhoto4(file);
-        setCustomPhoto4Preview(URL.createObjectURL(file));
-      } else if (photoNumber === 5) {
-        setCustomPhoto5(file);
-        setCustomPhoto5Preview(URL.createObjectURL(file));
-      } else if (photoNumber === 6) {
-        setCustomPhoto6(file);
-        setCustomPhoto6Preview(URL.createObjectURL(file));
-      } else if (photoNumber === 7) {
-        setCustomPhoto7(file);
-        setCustomPhoto7Preview(URL.createObjectURL(file));
+      try {
+        const previewUrl = URL.createObjectURL(file);
+        console.log(`✅ Preview criado para foto ${photoNumber}:`, previewUrl);
+        
+        if (photoNumber === 1) {
+          setCustomPhoto1(file);
+          setCustomPhoto1Preview(previewUrl);
+        } else if (photoNumber === 2) {
+          setCustomPhoto2(file);
+          setCustomPhoto2Preview(previewUrl);
+        } else if (photoNumber === 3) {
+          setCustomPhoto3(file);
+          setCustomPhoto3Preview(previewUrl);
+        } else if (photoNumber === 4) {
+          setCustomPhoto4(file);
+          setCustomPhoto4Preview(previewUrl);
+        } else if (photoNumber === 5) {
+          setCustomPhoto5(file);
+          setCustomPhoto5Preview(previewUrl);
+        } else if (photoNumber === 6) {
+          setCustomPhoto6(file);
+          setCustomPhoto6Preview(previewUrl);
+        } else if (photoNumber === 7) {
+          setCustomPhoto7(file);
+          setCustomPhoto7Preview(previewUrl);
+        }
+        
+        toast(`Foto ${photoNumber} selecionada com sucesso!`, 'success');
+      } catch (error) {
+        console.error(`❌ Erro ao processar foto ${photoNumber}:`, error);
+        toast(`Erro ao processar foto ${photoNumber}`, 'error');
       }
+    } else {
+      console.log(`❌ Nenhum arquivo selecionado para foto ${photoNumber}`);
     }
   };
 
@@ -4656,6 +4670,27 @@ const EstablishmentDashboard = () => {
                   </p>
                 </div>
                 
+                <div className="mb-4 flex justify-end">
+                  <button
+                    onClick={() => {
+                      // Limpar cache do PWA
+                      if ('caches' in window) {
+                        caches.keys().then(names => {
+                          names.forEach(name => {
+                            caches.delete(name);
+                          });
+                        });
+                      }
+                      // Limpar localStorage
+                      localStorage.clear();
+                      // Recarregar página
+                      window.location.reload();
+                    }}
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm transition-colors"
+                  >
+                    🔄 Limpar Cache Mobile
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {/* Foto 1 */}
                   <div>
