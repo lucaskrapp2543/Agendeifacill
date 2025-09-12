@@ -373,6 +373,15 @@ export default function BookingPage() {
         });
         setShowBookingForm(false); // Esconder formulário após agendamento demonstrativo
         setShowDemoSuccessModal(true); // Exibir modal de sucesso de demonstração
+        
+        // REDIRECIONAMENTO ESPECÍFICO: APENAS para /booking/3814
+        if (id === '3814') {
+          // Aguardar um pouco para o usuário ver a mensagem de sucesso
+          setTimeout(() => {
+            navigate('/conhecer');
+          }, 2000); // 2 segundos de delay
+        }
+        
         return; // Sair da função para não salvar no banco
       }
 
