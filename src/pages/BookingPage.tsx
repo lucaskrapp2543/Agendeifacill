@@ -644,7 +644,7 @@ export default function BookingPage() {
           )}
 
           {/* Informações do Estabelecimento */}
-          <div className="text-center space-y-2 relative z-30" style={{ marginTop: '80px' }}>
+          <div className="text-center space-y-2 relative z-30" style={{ marginTop: establishment?.carousel_position === 'behind' ? '80px' : '20px' }}>
             <h1 className="text-2xl font-bold text-gray-900">{establishment?.name}</h1>
             {establishment?.description && (
               <p className="text-gray-600">
@@ -658,40 +658,52 @@ export default function BookingPage() {
 
             {/* Botões de Ação Principal */}
             <div className="mt-6 flex flex-col space-y-4 relative z-10">
-              {/* Botão AGENDAR */}
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={handleAgendarClick}
-                  className="flex-1 bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 shadow-2xl hover:shadow-3xl border-2 border-gray-300"
-                >
-                  QUERO AGENDAR
-                </button>
-                <div className="w-16 h-16 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white shadow-2xl">
-                  <img src="/calendario.png" alt="Calendário" className="h-6 w-6" />
-                </div>
-              </div>
+              {/* Botão AGENDAR - Pill com Sombra Interna */}
+              <button
+                onClick={handleAgendarClick}
+                className="w-full font-bold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-gray-700"
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '30px',
+                  boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1)',
+                  border: '1px solid #e5e7eb',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}
+              >
+                <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                <img src="/calendario.png" alt="Calendário" className="h-6 w-6 relative z-10" />
+                <span className="relative z-10">QUERO AGENDAR</span>
+              </button>
 
 
 
               {/* Dropdown SER ASSINANTE */}
               {subscriptions.length > 0 && (
                 <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 10 }}>
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
-                      }}
-                      className="flex-1 bg-white hover:bg-gray-50 text-gray-800 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 shadow-2xl hover:shadow-3xl border-2 border-gray-300"
-                    >
-                      SER ASSINANTE
-                    </button>
-                    <div className="w-16 h-16 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white shadow-2xl">
-                      <img src="/coroa.png" alt="Coroa" className="h-6 w-6" />
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
+                    }}
+                    className="w-full font-bold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-gray-700"
+                    style={{
+                      background: '#ffffff',
+                      borderRadius: '30px',
+                      boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1)',
+                      border: '1px solid #e5e7eb',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    <img src="/coroa.png" alt="Coroa" className="h-6 w-6 relative z-10" />
+                    <span className="relative z-10">SER ASSINANTE</span>
+                  </button>
                   
                   {showSubscriptionsDropdown && (
                     <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-60 overflow-y-auto">
@@ -750,43 +762,65 @@ export default function BookingPage() {
               )}
 
 
-              {/* Botão AVALIE A GENTE */}
-              <div className="flex items-center gap-4">
+              {/* Botões NOS AVALIE e LOCAL lado a lado */}
+              <div className="flex gap-3">
+                {/* Botão NOS AVALIE */}
                 <a
                   href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex-1 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${
                     establishment?.review_link 
-                      ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
+                      ? 'text-gray-700' 
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
                   }`}
+                  style={establishment?.review_link ? {
+                    background: '#ffffff',
+                    borderRadius: '30px',
+                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e5e7eb',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  } : {}}
                 >
-                  AVALIE A GENTE
+                  {establishment?.review_link && (
+                    <>
+                      <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    </>
+                  )}
+                  <img src="/google.png" alt="Google" className="h-5 w-5 relative z-10" />
+                  <span className="relative z-10">AVALIE-NOS</span>
                 </a>
-                <div className="w-16 h-16 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white shadow-2xl">
-                  <img src="/google.png" alt="Google" className="h-6 w-6" />
-                </div>
-              </div>
 
-
-              {/* Botão COMO CHEGAR */}
-              <div className="flex items-center gap-4">
+                {/* Botão LOCAL */}
                 <a
                   href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex-1 font-bold py-4 px-6 rounded-lg text-base uppercase tracking-wide transition-all duration-200 ${
+                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${
                     establishment?.location_link 
-                      ? 'bg-white hover:bg-gray-50 text-gray-800 shadow-2xl hover:shadow-3xl border-2 border-gray-300' 
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50 border-2 border-gray-300'
+                      ? 'text-gray-700' 
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
                   }`}
+                  style={establishment?.location_link ? {
+                    background: '#ffffff',
+                    borderRadius: '30px',
+                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e5e7eb',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  } : {}}
                 >
-                  COMO CHEGAR
+                  {establishment?.location_link && (
+                    <>
+                      <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    </>
+                  )}
+                  <img src="/LOCAL.png" alt="Localização" className="h-5 w-5 relative z-10" />
+                  <span className="relative z-10">LOCAL</span>
                 </a>
-                <div className="w-16 h-16 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white shadow-2xl">
-                  <img src="/LOCAL.png" alt="Localização" className="h-6 w-6" />
-                </div>
               </div>
 
               {/* Imagens INSTAGRAM, PIX e WHATSAPP lado a lado */}
@@ -813,10 +847,44 @@ export default function BookingPage() {
                 {/* PIX */}
                 <button
                   onClick={() => {
+                    console.log('🔍 PIX Click - establishment:', establishment);
+                    console.log('🔍 PIX Click - pix_key:', establishment?.pix_key);
+                    
                     if (establishment?.pix_key) {
-                      navigator.clipboard.writeText(establishment.pix_key);
-                      toast.success('Chave PIX copiada com sucesso!');
+                      // Método que funciona no mobile e desktop
+                      const copyToClipboard = (text: string) => {
+                        // Criar um input temporário
+                        const input = document.createElement('input');
+                        input.value = text;
+                        input.style.position = 'fixed';
+                        input.style.opacity = '0';
+                        input.style.left = '-9999px';
+                        document.body.appendChild(input);
+                        
+                        // Selecionar e copiar
+                        input.select();
+                        input.setSelectionRange(0, 99999); // Para mobile
+                        
+                        try {
+                          const successful = document.execCommand('copy');
+                          if (successful) {
+                            console.log('✅ PIX copiado com sucesso:', text);
+                            toast.success('Chave PIX copiada com sucesso!');
+                          } else {
+                            throw new Error('Falha na cópia');
+                          }
+                        } catch (err) {
+                          console.error('❌ Erro ao copiar PIX:', err);
+                          toast.error('Erro ao copiar chave PIX. Tente novamente.');
+                        } finally {
+                          // Remover o input temporário
+                          document.body.removeChild(input);
+                        }
+                      };
+                      
+                      copyToClipboard(establishment.pix_key);
                     } else {
+                      console.log('❌ PIX não disponível');
                       toast.error('Chave PIX não disponível.');
                     }
                   }}
@@ -946,7 +1014,7 @@ export default function BookingPage() {
 
               {/* Carrossel de Fotos embaixo (se configurado ou padrão) */}
               {(establishment?.carousel_position === 'below' || !establishment?.carousel_position) && (
-                <div className="mt-8 mb-6 rounded-lg overflow-hidden">
+                <div className="mt-4 mb-2 rounded-lg overflow-hidden">
                 <div className="relative">
                   <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100">
                     {/* Imagem atual */}
@@ -1052,7 +1120,7 @@ export default function BookingPage() {
 
               {/* Seção de Profissionais */}
               {establishment?.professionals && establishment.professionals.length > 0 && (
-                <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
+                <div className="mt-8 mb-6">
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Profissionais</h3>
                   {establishment.professionals.length <= 3 ? (
                     // Layout normal para 3 ou menos profissionais
@@ -1118,7 +1186,7 @@ export default function BookingPage() {
                   className="w-full flex items-center justify-between gap-3 mb-4 hover:bg-gray-50 p-2 rounded-lg transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                    <div className="w-6 h-6 bg-gray-500 rounded-full flex items-center justify-center">
                       <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
                       </svg>

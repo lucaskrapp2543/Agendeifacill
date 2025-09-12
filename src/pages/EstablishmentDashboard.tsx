@@ -302,6 +302,20 @@ const EstablishmentDashboard = () => {
   const [customPhoto6Preview, setCustomPhoto6Preview] = useState<string | null>(null);
   const [customPhoto7Preview, setCustomPhoto7Preview] = useState<string | null>(null);
   
+  // Force update state para mobile
+  const [forceUpdate, setForceUpdate] = useState(0);
+  
+  // Listener para forçar update no mobile
+  useEffect(() => {
+    const handlePhotoUploaded = () => {
+      console.log('🔄 Forçando update no mobile...');
+      setForceUpdate(prev => prev + 1);
+    };
+    
+    window.addEventListener('photoUploaded', handlePhotoUploaded);
+    return () => window.removeEventListener('photoUploaded', handlePhotoUploaded);
+  }, []);
+  
   // Estados de horários e profissionais
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
     monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
@@ -535,30 +549,53 @@ const EstablishmentDashboard = () => {
         const previewUrl = URL.createObjectURL(file);
         console.log(`✅ Preview criado para foto ${photoNumber}:`, previewUrl);
         
-        if (photoNumber === 1) {
-          setCustomPhoto1(file);
-          setCustomPhoto1Preview(previewUrl);
-        } else if (photoNumber === 2) {
-          setCustomPhoto2(file);
-          setCustomPhoto2Preview(previewUrl);
-        } else if (photoNumber === 3) {
-          setCustomPhoto3(file);
-          setCustomPhoto3Preview(previewUrl);
-        } else if (photoNumber === 4) {
-          setCustomPhoto4(file);
-          setCustomPhoto4Preview(previewUrl);
-        } else if (photoNumber === 5) {
-          setCustomPhoto5(file);
-          setCustomPhoto5Preview(previewUrl);
-        } else if (photoNumber === 6) {
-          setCustomPhoto6(file);
-          setCustomPhoto6Preview(previewUrl);
-        } else if (photoNumber === 7) {
-          setCustomPhoto7(file);
-          setCustomPhoto7Preview(previewUrl);
+        // Função para atualizar o estado
+        const updatePhotoState = () => {
+          if (photoNumber === 1) {
+            setCustomPhoto1(file);
+            setCustomPhoto1Preview(previewUrl);
+          } else if (photoNumber === 2) {
+            setCustomPhoto2(file);
+            setCustomPhoto2Preview(previewUrl);
+          } else if (photoNumber === 3) {
+            setCustomPhoto3(file);
+            setCustomPhoto3Preview(previewUrl);
+          } else if (photoNumber === 4) {
+            setCustomPhoto4(file);
+            setCustomPhoto4Preview(previewUrl);
+          } else if (photoNumber === 5) {
+            setCustomPhoto5(file);
+            setCustomPhoto5Preview(previewUrl);
+          } else if (photoNumber === 6) {
+            setCustomPhoto6(file);
+            setCustomPhoto6Preview(previewUrl);
+          } else if (photoNumber === 7) {
+            setCustomPhoto7(file);
+            setCustomPhoto7Preview(previewUrl);
+          }
+          
+          // Force update no mobile
+          if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            setTimeout(() => {
+              window.dispatchEvent(new Event('resize'));
+            }, 100);
+          }
+          
+          toast(`Foto ${photoNumber} selecionada com sucesso!`, 'success');
+        };
+        
+        // No mobile, usar setTimeout para dar tempo ao React
+        if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+          setTimeout(updatePhotoState, 50);
+          // Força re-render adicional no mobile
+          setTimeout(() => {
+            const event = new CustomEvent('photoUploaded', { detail: { photoNumber, previewUrl } });
+            window.dispatchEvent(event);
+          }, 200);
+        } else {
+          updatePhotoState();
         }
         
-        toast(`Foto ${photoNumber} selecionada com sucesso!`, 'success');
       } catch (error) {
         console.error(`❌ Erro ao processar foto ${photoNumber}:`, error);
         toast(`Erro ao processar foto ${photoNumber}: ${error.message}`, 'error');
@@ -4715,7 +4752,7 @@ const EstablishmentDashboard = () => {
                   <div>
                     <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
                       {customPhoto1Preview ? (
-                        <div className="relative h-full">
+                        <div className="relative h-full" key={`photo1-${forceUpdate}`}>
                           <img
                             src={customPhoto1Preview}
                             alt="Foto 1"
@@ -4853,7 +4890,7 @@ const EstablishmentDashboard = () => {
                   <div>
                     <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
                       {customPhoto4Preview ? (
-                        <div className="relative h-full">
+                        <div className="relative h-full" key={`photo4-${forceUpdate}`}>
                           <img
                             src={customPhoto4Preview}
                             alt="Foto 4"
@@ -4899,7 +4936,7 @@ const EstablishmentDashboard = () => {
                   <div>
                     <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
                       {customPhoto5Preview ? (
-                        <div className="relative h-full">
+                        <div className="relative h-full" key={`photo5-${forceUpdate}`}>
                           <img
                             src={customPhoto5Preview}
                             alt="Foto 5"
@@ -4945,7 +4982,7 @@ const EstablishmentDashboard = () => {
                   <div>
                     <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
                       {customPhoto6Preview ? (
-                        <div className="relative h-full">
+                        <div className="relative h-full" key={`photo6-${forceUpdate}`}>
                           <img
                             src={customPhoto6Preview}
                             alt="Foto 6"
@@ -4991,7 +5028,7 @@ const EstablishmentDashboard = () => {
                   <div>
                     <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
                       {customPhoto7Preview ? (
-                        <div className="relative h-full">
+                        <div className="relative h-full" key={`photo7-${forceUpdate}`}>
                           <img
                             src={customPhoto7Preview}
                             alt="Foto 7"
