@@ -497,8 +497,8 @@ const EstablishmentDashboard = () => {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast('A imagem deve ter no máximo 5MB', 'error');
+      if (file.size > 100 * 1024 * 1024) {
+        toast('A imagem deve ter no máximo 100MB', 'error');
         return;
       }
       setProfileImage(file);
@@ -520,8 +520,8 @@ const EstablishmentDashboard = () => {
         lastModified: file.lastModified
       });
       
-      if (file.size > 5 * 1024 * 1024) {
-        toast('A imagem deve ter no máximo 5MB', 'error');
+      if (file.size > 100 * 1024 * 1024) {
+        toast('A imagem deve ter no máximo 100MB', 'error');
         return;
       }
       
@@ -4749,7 +4749,6 @@ const EstablishmentDashboard = () => {
                           <input
                             type="file"
                             accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(1, e)}
                             className="hidden"
                           />
@@ -4888,7 +4887,6 @@ const EstablishmentDashboard = () => {
                           <input
                             type="file"
                             accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(4, e)}
                             className="hidden"
                           />
@@ -4935,7 +4933,6 @@ const EstablishmentDashboard = () => {
                           <input
                             type="file"
                             accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(5, e)}
                             className="hidden"
                           />
@@ -4982,7 +4979,6 @@ const EstablishmentDashboard = () => {
                           <input
                             type="file"
                             accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(6, e)}
                             className="hidden"
                           />
@@ -5029,7 +5025,6 @@ const EstablishmentDashboard = () => {
                           <input
                             type="file"
                             accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(7, e)}
                             className="hidden"
                           />
