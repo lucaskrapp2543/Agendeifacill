@@ -366,6 +366,11 @@ export const createEstablishment = async (establishmentData: any) => {
     custom_photo_1_url: customPhoto1Url,
     custom_photo_2_url: customPhoto2Url,
     custom_photo_3_url: customPhoto3Url,
+    custom_photo_4_url: customPhoto4Url,
+    custom_photo_5_url: customPhoto5Url,
+    custom_photo_6_url: customPhoto6Url,
+    custom_photo_7_url: customPhoto7Url,
+    carousel_position: 'below', // PADRÃO: Carrossel embaixo do perfil
     has_wifi: establishmentData.has_wifi ?? false,
     has_parking: establishmentData.has_parking ?? false,
     has_accessibility: establishmentData.has_accessibility ?? false,
