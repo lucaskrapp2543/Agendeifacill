@@ -549,65 +549,68 @@ export default function BookingPage() {
 
           {/* Carrossel atrás do perfil (se configurado) */}
           {establishment?.carousel_position === 'behind' && (
-            <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-visible bg-gray-100 mb-6 border-2 border-gray-300 shadow-lg">
-              {/* Imagem atual */}
-              <div className="relative w-full h-full">
-                <img
-                  src={duplicatePhotos[duplicateCarouselIndex]}
-                  alt={`Foto ${duplicateCarouselIndex + 1}`}
-                  className="w-full h-full object-cover transition-opacity duration-500"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
-                    target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
-                  }}
-                />
-                
-                {/* Overlay escuro para melhor contraste dos botões */}
-                <div className="absolute inset-0 bg-black bg-opacity-20"></div>
-              </div>
-
-              {/* Botão Anterior */}
-              <button
-                onClick={goToPreviousDuplicate}
-                className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
-                aria-label="Foto anterior"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-
-              {/* Botão Próximo */}
-              <button
-                onClick={goToNextDuplicate}
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
-                aria-label="Próxima foto"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-
-              {/* Indicadores (bolinhas) - No lado esquerdo */}
-              <div className="absolute left-4 top-1/2 transform -translate-y-1/2 flex flex-col space-y-2 z-10">
-                {duplicatePhotos.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={() => goToSlideDuplicate(index)}
-                    className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                      index === duplicateCarouselIndex
-                        ? 'bg-white'
-                        : 'bg-white bg-opacity-50 hover:bg-opacity-75'
-                    }`}
-                    aria-label={`Ir para foto ${index + 1}`}
+            <div className="relative mb-12">
+              {/* Container do carrossel */}
+              <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100 border-2 border-gray-300 shadow-lg">
+                {/* Imagem atual */}
+                <div className="relative w-full h-full">
+                  <img
+                    src={duplicatePhotos[duplicateCarouselIndex]}
+                    alt={`Foto ${duplicateCarouselIndex + 1}`}
+                    className="w-full h-full object-cover transition-opacity duration-500"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
+                      target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
+                    }}
                   />
-                ))}
-              </div>
+                  
+                  {/* Overlay escuro para melhor contraste dos botões */}
+                  <div className="absolute inset-0 bg-black bg-opacity-20"></div>
+                </div>
 
-              {/* Contador */}
-              <div className="absolute top-4 right-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-full text-sm z-10">
-                {duplicateCarouselIndex + 1} / {duplicatePhotos.length}
+                {/* Botão Anterior */}
+                <button
+                  onClick={goToPreviousDuplicate}
+                  className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+                  aria-label="Foto anterior"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+
+                {/* Botão Próximo */}
+                <button
+                  onClick={goToNextDuplicate}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+                  aria-label="Próxima foto"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+
+                {/* Indicadores (bolinhas) - No lado esquerdo */}
+                <div className="absolute left-4 top-1/2 transform -translate-y-1/2 flex flex-col space-y-2 z-10">
+                  {duplicatePhotos.map((_, index) => (
+                    <button
+                      key={index}
+                      onClick={() => goToSlideDuplicate(index)}
+                      className={`w-3 h-3 rounded-full transition-all duration-200 ${
+                        index === duplicateCarouselIndex
+                          ? 'bg-white'
+                          : 'bg-white bg-opacity-50 hover:bg-opacity-75'
+                      }`}
+                      aria-label={`Ir para foto ${index + 1}`}
+                    />
+                  ))}
+                </div>
+
+                {/* Contador */}
+                <div className="absolute top-4 right-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-full text-sm z-10">
+                  {duplicateCarouselIndex + 1} / {duplicatePhotos.length}
+                </div>
               </div>
 
               {/* Logo do Estabelecimento - Sobreposta para fora do carrossel */}
-              <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 z-20">
+              <div className="absolute -bottom-16 left-1/2 transform -translate-x-1/2 z-20">
                 <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-2xl bg-white">
                   <img
                     src={establishment?.logo_url || '/fotopessoa.png'}
@@ -641,7 +644,7 @@ export default function BookingPage() {
           )}
 
           {/* Informações do Estabelecimento */}
-          <div className="text-center space-y-2 relative z-30 mt-32">
+          <div className="text-center space-y-2 relative z-30" style={{ marginTop: '80px' }}>
             <h1 className="text-2xl font-bold text-gray-900">{establishment?.name}</h1>
             {establishment?.description && (
               <p className="text-gray-600">
