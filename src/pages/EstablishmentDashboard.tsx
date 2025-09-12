@@ -509,10 +509,25 @@ const EstablishmentDashboard = () => {
   const handleCustomPhotoChange = (photoNumber: 1 | 2 | 3 | 4 | 5 | 6 | 7, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     console.log(`📸 Upload foto ${photoNumber}:`, file);
+    console.log(`📱 User Agent:`, navigator.userAgent);
+    console.log(`📱 É mobile:`, /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
     
     if (file) {
+      console.log(`📄 Detalhes do arquivo:`, {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified
+      });
+      
       if (file.size > 5 * 1024 * 1024) {
         toast('A imagem deve ter no máximo 5MB', 'error');
+        return;
+      }
+      
+      // Verificar se é uma imagem válida
+      if (!file.type.startsWith('image/')) {
+        toast('Por favor, selecione apenas imagens', 'error');
         return;
       }
       
@@ -546,11 +561,15 @@ const EstablishmentDashboard = () => {
         toast(`Foto ${photoNumber} selecionada com sucesso!`, 'success');
       } catch (error) {
         console.error(`❌ Erro ao processar foto ${photoNumber}:`, error);
-        toast(`Erro ao processar foto ${photoNumber}`, 'error');
+        toast(`Erro ao processar foto ${photoNumber}: ${error.message}`, 'error');
       }
     } else {
       console.log(`❌ Nenhum arquivo selecionado para foto ${photoNumber}`);
+      toast('Nenhum arquivo selecionado', 'error');
     }
+    
+    // Limpar o input para permitir selecionar o mesmo arquivo novamente
+    e.target.value = '';
   };
 
   const handleBusinessHoursChange = (
@@ -4379,7 +4398,7 @@ const EstablishmentDashboard = () => {
                           <Plus className="h-4 w-4 text-white" />
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
                             onChange={handleLogoChange}
                             className="hidden"
                           />
@@ -4729,7 +4748,8 @@ const EstablishmentDashboard = () => {
                           <span className="text-sm text-gray-400">Foto 1</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(1, e)}
                             className="hidden"
                           />
@@ -4775,7 +4795,7 @@ const EstablishmentDashboard = () => {
                           <span className="text-sm text-gray-400">Foto 2</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
                             onChange={(e) => handleCustomPhotoChange(2, e)}
                             className="hidden"
                           />
@@ -4821,7 +4841,7 @@ const EstablishmentDashboard = () => {
                           <span className="text-sm text-gray-400">Foto 3</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
                             onChange={(e) => handleCustomPhotoChange(3, e)}
                             className="hidden"
                           />
@@ -4867,7 +4887,8 @@ const EstablishmentDashboard = () => {
                           <span className="text-sm text-gray-400">Foto 4</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(4, e)}
                             className="hidden"
                           />
@@ -4913,7 +4934,8 @@ const EstablishmentDashboard = () => {
                           <span className="text-sm text-gray-400">Foto 5</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(5, e)}
                             className="hidden"
                           />
@@ -4959,7 +4981,8 @@ const EstablishmentDashboard = () => {
                           <span className="text-sm text-gray-400">Foto 6</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(6, e)}
                             className="hidden"
                           />
@@ -5005,7 +5028,8 @@ const EstablishmentDashboard = () => {
                           <span className="text-sm text-gray-400">Foto 7</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                            capture="environment"
                             onChange={(e) => handleCustomPhotoChange(7, e)}
                             className="hidden"
                           />
@@ -5123,7 +5147,7 @@ const EstablishmentDashboard = () => {
                               </div>
                               <input
                                 type="file"
-                                accept="image/*"
+                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
                                 onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
                                 className="hidden"
                                 id={`photo-${professional.id}`}
