@@ -332,7 +332,14 @@ export default function BookingPage() {
     }
 
     const message = `Quero ser assinante ${subscriptionName.toLowerCase()}`;
-    const whatsappUrl = `https://wa.me/${establishment.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+    let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
+    
+    // Adicionar código do país se não tiver
+    if (!phoneNumber.startsWith('55')) {
+      phoneNumber = '55' + phoneNumber;
+    }
+    
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
     
     window.open(whatsappUrl, '_blank');
     setShowSubscriptionsDropdown(false);
@@ -345,7 +352,14 @@ export default function BookingPage() {
     }
 
     const message = 'Quero informações sobre Assinantes.';
-    const whatsappUrl = `https://wa.me/${establishment.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+    let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
+    
+    // Adicionar código do país se não tiver
+    if (!phoneNumber.startsWith('55')) {
+      phoneNumber = '55' + phoneNumber;
+    }
+    
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
     
     window.open(whatsappUrl, '_blank');
     setShowSubscriptionsDropdown(false);
@@ -909,7 +923,13 @@ export default function BookingPage() {
 
                 {/* WhatsApp */}
                 <a
-                  href={establishment?.whatsapp ? `https://wa.me/${establishment.whatsapp}` : '#'}
+                  href={establishment?.whatsapp ? (() => {
+                    let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
+                    if (!phoneNumber.startsWith('55')) {
+                      phoneNumber = '55' + phoneNumber;
+                    }
+                    return `https://wa.me/${phoneNumber}`;
+                  })() : '#'}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`transition-all duration-200 ${
