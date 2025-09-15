@@ -95,7 +95,8 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
     const result = data?.[0];
     console.log('📋 Resultado da verificação:', result);
 
-    if (result?.is_subscriber && result?.subscriber_data) {
+    // Retornar dados se existe subscriber_data, independente do status (ativo ou vencido)
+    if (result?.subscriber_data) {
       console.log('✅ Assinante encontrado:', result.subscriber_data);
       return { data: result.subscriber_data, error: null };
     }

@@ -101,6 +101,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [showViewAttendancesModal, setShowViewAttendancesModal] = useState(false);
   const [selectedClientForView, setSelectedClientForView] = useState<ClientSubscription | null>(null);
   
+  // Estados para modal de edição de data de término
+  const [showEditEndDateModal, setShowEditEndDateModal] = useState(false);
+  const [selectedClientForEdit, setSelectedClientForEdit] = useState<ClientSubscription | null>(null);
+  const [newEndDate, setNewEndDate] = useState('');
+  const [isSavingEndDate, setIsSavingEndDate] = useState(false);
+  
   // Estado para barra de pesquisa
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -600,6 +606,167 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // Handler para atualizar data de término
+  const handleUpdateEndDate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedClientForEdit || !newEndDate) {
+      toast.error('Data de término é obrigatória.');
+      return;
+    }
+
+    setIsSavingEndDate(true);
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const endDate = new Date(newEndDate);
+      endDate.setHours(0, 0, 0, 0);
+
+      // Determinar novo status baseado na data
+      const newStatus = endDate < today ? 'unpaid' : 'paid';
+      
+      // Log da alteração para auditoria
+      const logData = {
+        subscriber_id: selectedClientForEdit.id,
+        subscriber_name: selectedClientForEdit.profiles?.full_name || 'Cliente Desconhecido',
+        old_end_date: selectedClientForEdit.end_date,
+        new_end_date: newEndDate,
+        old_status: selectedClientForEdit.payment_status,
+        new_status: newStatus,
+        changed_by: user?.id,
+        changed_at: new Date().toISOString(),
+        establishment_id: establishmentId
+      };
+
+      // Atualizar no banco de dados
+      const { error } = await supabase
+        .from('client_subscriptions')
+        .update({ 
+          end_date: newEndDate,
+          payment_status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedClientForEdit.id);
+
+      if (error) {
+        throw error;
+      }
+
+      // Registrar log de auditoria
+      await logAuditChange(logData);
+
+      // Determinar mensagem de sucesso baseada no status
+      const statusMessage = newStatus === 'paid' ? 'ativo/pago' : 'vencido';
+      const dateFormatted = new Date(newEndDate).toLocaleDateString('pt-BR');
+      
+      toast.success(`Data de término atualizada para ${dateFormatted}. Status: ${statusMessage}`);
+      
+      // Fechar modal e limpar dados
+      setShowEditEndDateModal(false);
+      setSelectedClientForEdit(null);
+      setNewEndDate('');
+      
+      // Recarregar dados
+      await fetchClientSubscriptions();
+      
+    } catch (error: any) {
+      console.error('Erro ao atualizar data de término:', error);
+      toast.error(error.message || 'Erro ao atualizar data de término.');
+    } finally {
+      setIsSavingEndDate(false);
+    }
+  };
+
+  // Função para abrir modal de edição
+  const openEditEndDateModal = (clientSubscription: ClientSubscription) => {
+    setSelectedClientForEdit(clientSubscription);
+    setNewEndDate(clientSubscription.end_date);
+    setShowEditEndDateModal(true);
+  };
+
+  // Função para registrar logs de auditoria
+  const logAuditChange = async (logData: {
+    subscriber_id: string;
+    subscriber_name: string;
+    old_end_date: string;
+    new_end_date: string;
+    old_status: string;
+    new_status: string;
+    changed_by: string;
+    establishment_id: string;
+  }) => {
+    try {
+      // Criar uma tabela de logs se não existir (opcional)
+      // Por enquanto, vamos apenas logar no console e salvar no localStorage para auditoria local
+      const auditLog = {
+        ...logData,
+        timestamp: new Date().toISOString(),
+        action: 'end_date_update'
+      };
+
+      // Salvar no localStorage para auditoria local
+      const existingLogs = JSON.parse(localStorage.getItem('subscriber_audit_logs') || '[]');
+      existingLogs.push(auditLog);
+      
+      // Manter apenas os últimos 100 logs para não sobrecarregar o localStorage
+      if (existingLogs.length > 100) {
+        existingLogs.splice(0, existingLogs.length - 100);
+      }
+      
+      localStorage.setItem('subscriber_audit_logs', JSON.stringify(existingLogs));
+      
+      console.log('📝 Log de auditoria registrado:', auditLog);
+      
+      // Aqui você pode implementar o envio para uma tabela de logs no banco se necessário
+      // await supabase.from('audit_logs').insert(auditLog);
+      
+    } catch (error) {
+      console.error('❌ Erro ao registrar log de auditoria:', error);
+    }
+  };
+
+  // Função para checagem diária automática de vencimento
+  const checkDailyExpiration = async () => {
+    if (clientSubscriptions.length === 0) return;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let hasChanges = false;
+
+    console.log('🔍 Iniciando checagem diária de vencimento...');
+
+    for (const cs of clientSubscriptions) {
+      const endDate = parseISO(cs.end_date);
+      endDate.setHours(0, 0, 0, 0);
+      
+      // Se a data de término já passou e o status ainda não foi atualizado
+      if (endDate < today && cs.payment_status === 'paid') {
+        try {
+          console.log(`⚠️ Assinante ${cs.profiles?.full_name} venceu em ${endDate.toLocaleDateString('pt-BR')}, atualizando status...`);
+          
+          await supabase
+            .from('client_subscriptions')
+            .update({ 
+              payment_status: 'unpaid',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', cs.id);
+
+          hasChanges = true;
+          console.log(`✅ Status atualizado para ${cs.profiles?.full_name}: VENCIDO`);
+        } catch (error) {
+          console.error(`❌ Erro ao atualizar status de ${cs.profiles?.full_name}:`, error);
+        }
+      }
+    }
+    
+    // Recarregar dados se houve mudanças
+    if (hasChanges) {
+      console.log('🔄 Recarregando dados após atualizações...');
+      await fetchClientSubscriptions();
+    }
+  };
+
   // Lógica para resetar status de pagamento baseado na duração do plano
   useEffect(() => {
     const checkAndResetPayments = async () => {
@@ -648,13 +815,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }
     };
 
-    // Executar apenas uma vez ao carregar o componente inicial
-    const timeoutId = setTimeout(() => {
-      checkAndResetPayments();
+    // Executar checagem diária e reset de pagamentos
+    const timeoutId = setTimeout(async () => {
+      await checkDailyExpiration(); // Nova função de checagem diária
+      await checkAndResetPayments(); // Função existente
     }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [establishmentId]); // Apenas quando establishmentId muda
+  }, [establishmentId, clientSubscriptions.length]); // Incluir clientSubscriptions.length para reagir a mudanças
 
   // Resumo Financeiro
   const totalArrecadado = clientSubscriptions.reduce((sum, cs) => {
@@ -1159,16 +1327,31 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           <div className="space-y-3">
             {filteredClientSubscriptions.map((cs) => {
               const isPaid = cs.payment_status === 'paid';
-              const cardBg = isPaid ? 'bg-green-600' : 'bg-red-800/90';
+              const endDate = parseISO(cs.end_date);
+              const isExpired = isPast(endDate);
+              
+              // Lógica de status: vencido se data passou OU se não está pago
+              const isVencido = isExpired || !isPaid;
+              
+              // Estilo visual baseado no status
+              const cardBg = isVencido ? 'bg-red-800/90' : 'bg-green-600';
               const textColor = 'text-white';
+              const borderStyle = isVencido ? 'border-red-500' : 'border-green-500';
 
               return (
-                <div key={cs.id} className={`${cardBg} rounded-lg p-3 sm:p-4 w-full overflow-hidden`}>
+                <div key={cs.id} className={`${cardBg} rounded-lg p-3 sm:p-4 w-full overflow-hidden border-2 ${borderStyle}`}>
                   {/* Nome do cliente */}
                   <div className="mb-3">
-                    <h3 className={`font-semibold text-base sm:text-lg ${textColor} truncate`}>
-                      {cs.profiles?.full_name || 'Cliente Desconhecido'}
-                    </h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className={`font-semibold text-base sm:text-lg ${textColor} truncate`}>
+                        {cs.profiles?.full_name || 'Cliente Desconhecido'}
+                      </h3>
+                      {isVencido && (
+                        <span className="bg-red-600 text-white text-xs px-2 py-1 rounded-full font-medium">
+                          VENCIDO
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Informações do plano - Layout otimizado para mobile */}
@@ -1288,7 +1471,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </div>
                     
                     {/* Botões de ação em grid para mobile */}
-                    <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
                       <button
                         onClick={() => {
                           setSelectedClientForView(cs);
@@ -1314,6 +1497,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
                         <span className="hidden sm:inline">Atendimento</span>
                         <span className="sm:hidden">Add</span>
+                      </button>
+                      <button
+                        onClick={() => openEditEndDateModal(cs)}
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-purple-600 text-white hover:bg-purple-700 border border-purple-600 shadow-md"
+                        title="Editar data de término"
+                      >
+                        <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                        <span className="hidden sm:inline">Editar Data</span>
+                        <span className="sm:hidden">Data</span>
                       </button>
                     </div>
                     
@@ -1489,6 +1681,101 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {isSavingAttendance ? 'Salvando...' : 'Salvar Atendimento'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para editar data de término */}
+      {showEditEndDateModal && selectedClientForEdit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md border border-gray-800">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Editar Data de Término</h3>
+              <button
+                onClick={() => {
+                  setShowEditEndDateModal(false);
+                  setSelectedClientForEdit(null);
+                  setNewEndDate('');
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-[#2a2b2c] rounded-lg">
+              <p className="text-sm text-gray-400">Cliente:</p>
+              <p className="text-white font-medium">{selectedClientForEdit.profiles?.full_name}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Data atual: {format(parseISO(selectedClientForEdit.end_date), 'dd/MM/yyyy', { locale: ptBR })}
+              </p>
+            </div>
+
+            <form onSubmit={handleUpdateEndDate} className="space-y-4">
+              <div>
+                <label htmlFor="newEndDate" className="block text-sm font-medium text-gray-400 mb-1">
+                  Nova Data de Término
+                </label>
+                <input
+                  type="date"
+                  id="newEndDate"
+                  value={newEndDate}
+                  onChange={(e) => setNewEndDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  required
+                />
+              </div>
+
+              {/* Informações sobre o impacto da mudança */}
+              {newEndDate && (() => {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const endDate = new Date(newEndDate);
+                endDate.setHours(0, 0, 0, 0);
+                const isFuture = endDate > today;
+                const isToday = endDate.getTime() === today.getTime();
+                
+                return (
+                  <div className={`p-3 rounded-lg border ${
+                    isFuture 
+                      ? 'bg-green-900/20 border-green-600/30' 
+                      : 'bg-red-900/20 border-red-600/30'
+                  }`}>
+                    <p className={`text-xs ${
+                      isFuture ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {isFuture 
+                        ? `✅ Plano ficará ATIVO até ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })}`
+                        : isToday
+                        ? `⚠️ Plano ficará VENCIDO hoje (${format(endDate, 'dd/MM/yyyy', { locale: ptBR })})`
+                        : `❌ Plano ficará VENCIDO (venceu em ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })})`
+                      }
+                    </p>
+                  </div>
+                );
+              })()}
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditEndDateModal(false);
+                    setSelectedClientForEdit(null);
+                    setNewEndDate('');
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEndDate}
+                  className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isSavingEndDate ? 'Salvando...' : 'Salvar Data'}
                 </button>
               </div>
             </form>

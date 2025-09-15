@@ -2,11 +2,11 @@ import { checkWhatsAppSubscriber } from '../lib/supabase';
 import { supabase } from '../lib/supabase';
 
 /**
- * Verifica se um cliente é assinante ativo de um estabelecimento
+ * Verifica se um cliente é assinante ativo de um estabelecimento (não vencido)
  */
 export const isClientSubscriber = async (clientWhatsapp: string, establishmentId: string): Promise<boolean> => {
   try {
-    console.log('🔍 Verificando se é assinante:', { clientWhatsapp, establishmentId });
+    console.log('🔍 Verificando se é assinante ativo:', { clientWhatsapp, establishmentId });
     
     const { data: subscriber, error } = await checkWhatsAppSubscriber(clientWhatsapp, establishmentId);
     
@@ -15,10 +15,27 @@ export const isClientSubscriber = async (clientWhatsapp: string, establishmentId
       return false;
     }
 
-    const isSubscriber = !!subscriber;
-    console.log('👤 Resultado da verificação:', { isSubscriber, subscriber });
+    if (!subscriber) {
+      console.log('👤 Não é assinante');
+      return false;
+    }
+
+    // Verificar se o assinante está vencido
+    const isExpired = subscriber.is_expired || 
+      (new Date(subscriber.end_date) < new Date()) || 
+      subscriber.payment_status === 'unpaid';
     
-    return isSubscriber;
+    const isActiveSubscriber = !isExpired;
+    
+    console.log('👤 Resultado da verificação:', { 
+      isSubscriber: isActiveSubscriber, 
+      isExpired,
+      endDate: subscriber.end_date,
+      paymentStatus: subscriber.payment_status,
+      subscriber 
+    });
+    
+    return isActiveSubscriber;
   } catch (error) {
     console.error('❌ Erro ao verificar assinante:', error);
     return false;

@@ -263,9 +263,25 @@ export function AppointmentForm({
           );
           
           if (newSubscriberData && !newError) {
-            setDetectedSubscriber(newSubscriberData);
-            setShowSubscriberNotification(true);
-            console.log('🎯 Assinante detectado automaticamente (novo sistema):', newSubscriberData);
+            // Verificar se o assinante está vencido
+            const isExpired = newSubscriberData.is_expired || 
+              (new Date(newSubscriberData.end_date) < new Date()) || 
+              newSubscriberData.payment_status === 'unpaid';
+            
+            if (isExpired) {
+              console.log('⚠️ Assinante vencido detectado:', newSubscriberData);
+              setDetectedSubscriber({
+                ...newSubscriberData,
+                is_expired: true,
+                expiration_message: newSubscriberData.expiration_message || 
+                  `Seu plano venceu em ${new Date(newSubscriberData.end_date).toLocaleDateString('pt-BR')}. Renove para continuar agendando.`
+              });
+              setShowSubscriberNotification(true);
+            } else {
+              setDetectedSubscriber(newSubscriberData);
+              setShowSubscriberNotification(true);
+              console.log('🎯 Assinante ativo detectado (novo sistema):', newSubscriberData);
+            }
           } else {
             // Fallback para o sistema antigo
             const { data: oldSubscriberData, error: oldError } = await checkWhatsAppSubscriber(
@@ -274,9 +290,22 @@ export function AppointmentForm({
             );
             
             if (oldSubscriberData && !oldError) {
-              setDetectedSubscriber(oldSubscriberData);
+              // Verificar se o assinante está vencido no sistema antigo
+              const isExpired = (new Date(oldSubscriberData.end_date) < new Date()) || 
+                oldSubscriberData.payment_status === 'unpaid';
+              
+              if (isExpired) {
+                console.log('⚠️ Assinante vencido detectado (sistema antigo):', oldSubscriberData);
+                setDetectedSubscriber({
+                  ...oldSubscriberData,
+                  is_expired: true,
+                  expiration_message: `Seu plano venceu em ${new Date(oldSubscriberData.end_date).toLocaleDateString('pt-BR')}. Renove para continuar agendando.`
+                });
+              } else {
+                setDetectedSubscriber(oldSubscriberData);
+                console.log('🎯 Assinante ativo detectado (sistema antigo):', oldSubscriberData);
+              }
               setShowSubscriberNotification(true);
-              console.log('🎯 Assinante detectado automaticamente (sistema antigo):', oldSubscriberData);
             } else {
               setDetectedSubscriber(null);
               setShowSubscriberNotification(false);
@@ -587,42 +616,90 @@ export function AppointmentForm({
           
           {/* Notificação de assinante detectado */}
           {showSubscriberNotification && detectedSubscriber && (
-            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className={`mt-3 p-3 border rounded-lg ${
+              detectedSubscriber.is_expired 
+                ? 'bg-red-50 border-red-200' 
+                : 'bg-green-50 border-green-200'
+            }`}>
               <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium text-green-800">
-                  🎯 Assinante detectado automaticamente!
+                <div className={`w-2 h-2 rounded-full ${
+                  detectedSubscriber.is_expired 
+                    ? 'bg-red-500' 
+                    : 'bg-green-500 animate-pulse'
+                }`}></div>
+                <span className={`text-sm font-medium ${
+                  detectedSubscriber.is_expired 
+                    ? 'text-red-800' 
+                    : 'text-green-800'
+                }`}>
+                  {detectedSubscriber.is_expired ? '⚠️ Plano Vencido Detectado!' : '🎯 Assinante detectado automaticamente!'}
                 </span>
               </div>
-              <p className="text-sm text-green-700 mt-1">
+              
+              <p className={`text-sm mt-1 ${
+                detectedSubscriber.is_expired 
+                  ? 'text-red-700' 
+                  : 'text-green-700'
+              }`}>
                 <strong>Plano:</strong> {detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado'}
               </p>
-              <p className="text-sm text-green-700">
+              
+              <p className={`text-sm ${
+                detectedSubscriber.is_expired 
+                  ? 'text-red-700' 
+                  : 'text-green-700'
+              }`}>
                 <strong>Válido até:</strong> {format(new Date(detectedSubscriber.end_date), 'dd/MM/yyyy', { locale: ptBR })}
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  // Converter para agendamento de assinante
-                  setShowSubscriberNotification(false);
-                  console.log('🔄 Convertendo para agendamento de assinante:', detectedSubscriber);
-                  
-                  // Chamar callback para o componente pai
-                  if (onConvertToSubscriber) {
-                    onConvertToSubscriber(detectedSubscriber);
-                  }
-                }}
-                className="mt-2 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
-              >
-                Usar como Assinante
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSubscriberNotification(false)}
-                className="mt-2 ml-2 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
-              >
-                Continuar Normal
-              </button>
+              
+              {detectedSubscriber.is_expired && (
+                <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded">
+                  <p className="text-sm text-red-800 font-medium">
+                    {detectedSubscriber.expiration_message || 'Seu plano venceu. Renove para continuar agendando.'}
+                  </p>
+                </div>
+              )}
+              
+              {!detectedSubscriber.is_expired ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Converter para agendamento de assinante
+                      setShowSubscriberNotification(false);
+                      console.log('🔄 Convertendo para agendamento de assinante:', detectedSubscriber);
+                      
+                      // Chamar callback para o componente pai
+                      if (onConvertToSubscriber) {
+                        onConvertToSubscriber(detectedSubscriber);
+                      }
+                    }}
+                    className="mt-2 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                  >
+                    Usar como Assinante
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSubscriberNotification(false)}
+                    className="mt-2 ml-2 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
+                  >
+                    Continuar Normal
+                  </button>
+                </>
+              ) : (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-sm text-red-700 font-medium">
+                    Para agendar, você precisa renovar seu plano.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowSubscriberNotification(false)}
+                    className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                  >
+                    Fechar e Renovar
+                  </button>
+                </div>
+              )}
             </div>
           )}
           
