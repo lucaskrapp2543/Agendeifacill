@@ -22,6 +22,7 @@ const Conhecer = () => {
 
   const totalSteps = 8;
   const progress = (quizState.step / totalSteps) * 100;
+  const adjustedProgress = quizState.step === 1 ? 12.9 : progress;
 
   const handleBusinessTypeSelect = (type: string) => {
     setQuizState(prev => ({
@@ -146,10 +147,10 @@ const Conhecer = () => {
         <div className="relative">
         <div 
             className="bg-blue-600 h-4 transition-all duration-500 ease-out relative"
-          style={{ width: `${progress}%` }}
+          style={{ width: `${adjustedProgress}%` }}
           >
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-white text-xs font-bold">
-              {Math.round(progress)}%
+              {quizState.step === 1 ? '12.9%' : `${Math.round(progress)}%`}
             </div>
           </div>
         </div>
@@ -716,9 +717,11 @@ const Conhecer = () => {
              {quizState.step === 8 && (
                <>
                  <div className="mb-4">
-                   <h1 className="text-lg sm:text-xl font-bold text-black mb-2 text-center px-4">
-                     Você não achou que eu iria deixar você chegar até aqui sem um <span className="text-red-600">presente</span> né?
-                   </h1>
+                   <div className="bg-green-600 border-l-4 border-green-700 p-4 rounded-lg mb-4">
+                     <p className="text-sm sm:text-base font-bold text-white text-center leading-relaxed">
+                       Você não achou que eu iria deixar você chegar até aqui sem um <span className="text-green-200">presente né</span>?
+                     </p>
+                   </div>
                    
                    <div className="mb-1 flex justify-center items-center">
                      <div className="w-[85vw] h-[85vw] max-w-[500px] max-h-[500px] rounded-2xl overflow-hidden">
