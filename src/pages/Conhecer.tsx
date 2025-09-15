@@ -510,9 +510,9 @@ const Conhecer = () => {
                   <div className="space-y-3">
                     <button
                       onClick={handleGostei}
-                      className="w-full p-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+                      className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                     >
-                      Opa, quero ver como é
+                      To gostando mostra mais 👀
                     </button>
                   </div>
                </>
@@ -522,6 +522,25 @@ const Conhecer = () => {
              {quizState.step === 7 && (
                <>
                  <div className="mb-6">
+                   {/* Texto destacado sobre a página do cliente */}
+                   <div className="bg-green-600 border-l-4 border-green-700 p-4 rounded-lg mb-4">
+                     <p className="text-sm font-bold text-white text-center">
+                       <span className="text-green-200">Seu cliente ao entrar no seu link Agendei Fácil, irá para uma página como essa abaixo</span>
+                     </p>
+                     <p className="text-xs text-green-100 mt-2 text-center">
+                       Você ganha uma página personalizada e editável, onde seu cliente agenda em poucos cliques. 🔥
+                     </p>
+                   </div>
+                   
+                   {/* Imagem areacliente */}
+                   <div className="flex justify-center mb-4">
+                     <img
+                       src="/areacliente.png"
+                       alt="Área do cliente"
+                       className="w-full max-w-lg h-auto rounded-lg"
+                     />
+                   </div>
+
                    {/* Texto destacado */}
                    <div className="text-center mb-4 px-4">
                      <p className="text-base sm:text-lg font-bold leading-relaxed text-gray-900">
