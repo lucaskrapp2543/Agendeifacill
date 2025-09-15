@@ -728,8 +728,14 @@ const Conhecer = () => {
                      />
                    </div>
                    
-                   <p className="text-xs text-gray-500 text-center px-4 mb-2">
-                     Não se preocupe, esse valor R$ 39,90 não aumenta nunca, é sempre esse valor para você. Caso queira pagar anual, ganha 2 meses grátis.
+                   <div className="bg-green-600 border-l-4 border-green-700 p-4 rounded-lg mb-4">
+                     <p className="text-sm font-bold text-white text-center">
+                       Não se preocupe, esse valor <span className="text-green-200 text-lg">R$ 39,90</span> não aumenta nunca, é sempre esse valor para você. Caso queira pagar anual, ganha 2 meses grátis.
+                     </p>
+                   </div>
+                   
+                   <p className="text-xs text-gray-500 mb-3 text-center">
+                     Se liga em alguns dos milhares de feedbacks de quem já tá com a gente 🚀
                    </p>
                    
                    {/* Carrossel de imagens */}
