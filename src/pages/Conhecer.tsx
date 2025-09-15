@@ -716,6 +716,10 @@ const Conhecer = () => {
              {quizState.step === 8 && (
                <>
                  <div className="mb-4">
+                   <h1 className="text-lg sm:text-xl font-bold text-black mb-2 text-center px-4">
+                     Você não achou que eu iria deixar você chegar até aqui sem um <span className="text-red-600">presente</span> né?
+                   </h1>
+                   
                    <div className="mb-1 flex justify-center items-center">
                      <div className="w-[85vw] h-[85vw] max-w-[500px] max-h-[500px] rounded-2xl overflow-hidden">
                      <img 
@@ -725,10 +729,6 @@ const Conhecer = () => {
                      />
                      </div>
                    </div>
-                   
-                   <h1 className="text-lg sm:text-xl font-bold text-black mb-2 text-center px-4">
-                     Você não achou que eu iria deixar você chegar até aqui sem um <span className="text-red-600">presente</span> né?
-                   </h1>
                    
                    {/* Imagem bonus */}
                    <div className="flex justify-center mb-2">
