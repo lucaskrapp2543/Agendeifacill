@@ -1752,7 +1752,13 @@ const EstablishmentDashboard = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <a
-                            href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
+                            href={(() => {
+                              let phoneNumber = client.whatsapp.replace(/\D/g, '');
+                              if (!phoneNumber.startsWith('55')) {
+                                phoneNumber = '55' + phoneNumber;
+                              }
+                              return `https://wa.me/${phoneNumber}`;
+                            })()}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn-primary flex items-center gap-2 text-sm"

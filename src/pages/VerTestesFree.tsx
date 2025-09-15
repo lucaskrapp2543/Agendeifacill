@@ -105,7 +105,13 @@ const VerTestesFree = () => {
                 <p className="flex items-center">
                   <span className="text-gray-400 mr-2">WhatsApp:</span>
                   <a 
-                    href={`https://wa.me/${trial.whatsapp.replace(/\D/g, '')}`}
+                    href={(() => {
+                      let phoneNumber = trial.whatsapp.replace(/\D/g, '');
+                      if (!phoneNumber.startsWith('55')) {
+                        phoneNumber = '55' + phoneNumber;
+                      }
+                      return `https://wa.me/${phoneNumber}`;
+                    })()}
                     target="_blank"
                     rel="noopener noreferrer" 
                     className="text-blue-400 hover:text-blue-300"

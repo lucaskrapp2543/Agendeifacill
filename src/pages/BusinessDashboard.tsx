@@ -75,7 +75,13 @@ const BusinessDashboard: React.FC = () => {
                         Cancelar
                       </button>
                       <button
-                        onClick={() => window.open(`https://wa.me/${appointment.clientWhatsApp}`, '_blank')}
+                        onClick={() => {
+                          let phoneNumber = appointment.clientWhatsApp.replace(/\D/g, '');
+                          if (!phoneNumber.startsWith('55')) {
+                            phoneNumber = '55' + phoneNumber;
+                          }
+                          window.open(`https://wa.me/${phoneNumber}`, '_blank');
+                        }}
                         className="btn-primary text-sm py-1"
                       >
                         WhatsApp
@@ -101,7 +107,13 @@ const BusinessDashboard: React.FC = () => {
                       Desde {format(new Date(client.startDate), 'dd/MM/yyyy')}
                     </p>
                     <button
-                      onClick={() => window.open(`https://wa.me/${client.whatsApp}`, '_blank')}
+                      onClick={() => {
+                        let phoneNumber = client.whatsApp.replace(/\D/g, '');
+                        if (!phoneNumber.startsWith('55')) {
+                          phoneNumber = '55' + phoneNumber;
+                        }
+                        window.open(`https://wa.me/${phoneNumber}`, '_blank');
+                      }}
                       className="btn-primary text-sm py-1 mt-2"
                     >
                       WhatsApp

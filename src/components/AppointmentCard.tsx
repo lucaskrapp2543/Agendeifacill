@@ -38,7 +38,13 @@ export const AppointmentCard = ({
             <h3 className="font-medium text-gray-200">{appointment.client_name}</h3>
             {appointment.client_whatsapp && (
               <a 
-                href={`https://wa.me/55${appointment.client_whatsapp.replace(/\D/g, '')}`}
+                href={(() => {
+                  let phoneNumber = appointment.client_whatsapp.replace(/\D/g, '');
+                  if (!phoneNumber.startsWith('55')) {
+                    phoneNumber = '55' + phoneNumber;
+                  }
+                  return `https://wa.me/${phoneNumber}`;
+                })()}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:opacity-80 transition-opacity"

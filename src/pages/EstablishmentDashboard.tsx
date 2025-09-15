@@ -4088,7 +4088,13 @@ const EstablishmentDashboard = () => {
                                   {appointment.client_whatsapp && (
                                     <div className="flex items-center gap-2">
                                       <a
-                                        href={`https://wa.me/55${appointment.client_whatsapp.replace(/\D/g, '')}`}
+                                        href={(() => {
+                                          let phoneNumber = appointment.client_whatsapp.replace(/\D/g, '');
+                                          if (!phoneNumber.startsWith('55')) {
+                                            phoneNumber = '55' + phoneNumber;
+                                          }
+                                          return `https://wa.me/${phoneNumber}`;
+                                        })()}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="inline-flex items-center text-white hover:text-white/80"
@@ -4102,7 +4108,11 @@ const EstablishmentDashboard = () => {
                                         onClick={() => {
                                           const establishmentCode = establishment?.code || 'codigo';
                                           const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
-                                          const whatsappUrl = `https://wa.me/55${appointment.client_whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                                          let phoneNumber = appointment.client_whatsapp.replace(/\D/g, '');
+                                          if (!phoneNumber.startsWith('55')) {
+                                            phoneNumber = '55' + phoneNumber;
+                                          }
+                                          const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
                                           window.open(whatsappUrl, '_blank');
                                         }}
                                         className="px-2 py-1 text-xs font-medium rounded transition-colors bg-orange-600 text-white hover:bg-orange-700"
@@ -6035,7 +6045,13 @@ const EstablishmentDashboard = () => {
                         </div>
                         
                         <a
-                          href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
+                          href={(() => {
+                            let phoneNumber = client.whatsapp.replace(/\D/g, '');
+                            if (!phoneNumber.startsWith('55')) {
+                              phoneNumber = '55' + phoneNumber;
+                            }
+                            return `https://wa.me/${phoneNumber}`;
+                          })()}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
@@ -6325,7 +6341,13 @@ const EstablishmentDashboard = () => {
                     
                     {/* Botão WhatsApp */}
                     <a
-                        href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
+                        href={(() => {
+                          let phoneNumber = client.whatsapp.replace(/\D/g, '');
+                          if (!phoneNumber.startsWith('55')) {
+                            phoneNumber = '55' + phoneNumber;
+                          }
+                          return `https://wa.me/${phoneNumber}`;
+                        })()}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
@@ -6404,7 +6426,13 @@ const EstablishmentDashboard = () => {
                     {/* Botões de ação */}
                     <div className="flex gap-2">
                       <a
-                        href={`https://wa.me/${client!.whatsapp}`}
+                        href={(() => {
+                          let phoneNumber = client!.whatsapp.replace(/\D/g, '');
+                          if (!phoneNumber.startsWith('55')) {
+                            phoneNumber = '55' + phoneNumber;
+                          }
+                          return `https://wa.me/${phoneNumber}`;
+                        })()}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
@@ -6695,7 +6723,13 @@ const EstablishmentDashboard = () => {
                   
                   {/* Botão WhatsApp */}
                   <a
-                        href={`https://wa.me/55${client.whatsapp.replace(/\D/g, '')}`}
+                        href={(() => {
+                          let phoneNumber = client.whatsapp.replace(/\D/g, '');
+                          if (!phoneNumber.startsWith('55')) {
+                            phoneNumber = '55' + phoneNumber;
+                          }
+                          return `https://wa.me/${phoneNumber}`;
+                        })()}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"

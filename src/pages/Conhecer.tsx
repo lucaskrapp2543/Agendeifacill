@@ -89,7 +89,7 @@ const Conhecer = () => {
   };
 
 
-  const images = ['/feedback.png', '/VS1.png', '/VS2.png'];
+  const images = ['/feedback.png', '/VS1.png', '/s1.png', '/s2.png'];
 
   const nextImage = () => {
     setCurrentImageIndex((prev) => (prev + 1) % images.length);
@@ -316,11 +316,11 @@ const Conhecer = () => {
                    <p className="text-sm sm:text-base text-gray-500 mb-3 text-center">
                      Nos ajude a te entender melhor
                    </p>
-                   <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 mb-3 text-center leading-tight px-2">
-                     O que te traz para o<br className="sm:hidden" /> Agendei Fácil?
+                   <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 mb-2 text-center leading-tight px-2 bg-yellow-100 p-4 rounded-lg border-l-4 border-yellow-500">
+                     Qual vacilo do outro sistema fez você chegar até aqui? 👀
                    </h1>
-                   <p className="text-sm sm:text-base font-semibold text-blue-600 mb-4 flex items-center justify-center gap-2 text-center px-2">
-                     🤔 O que outro sistema tá<br className="sm:hidden" /> incomodando? conta pra nós
+                   <p className="text-xs text-gray-400 mb-4 text-center">
+                     Selecione uma ou mais opções
                    </p>
                  </div>
 
@@ -801,12 +801,9 @@ const Conhecer = () => {
                      Quero aproveitar AGORA!
                    </button>
                    
-                   <button
-                     onClick={() => navigate('/')}
-                     className="w-full p-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold text-sm sm:text-base"
-                   >
-                     Vou deixar pra concorrência
-                   </button>
+                   <p className="text-sm text-gray-600 mb-3 text-center">
+                     Ficou alguma dúvida? Clique abaixo
+                   </p>
                    
                    <button
                      onClick={() => window.open('https://wa.me/554891265320?text=Quero%20mais%20informações%20do%20Agendei%20Fácil,%20vim%20pelo%20Quiz!', '_blank')}

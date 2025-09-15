@@ -1846,7 +1846,13 @@ const EstablishmentDashboard = () => {
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <button
-                                    onClick={() => window.open(`https://wa.me/${client.client_phone.replace(/\D/g, '')}`, '_blank')}
+                                    onClick={() => {
+                                      let phoneNumber = client.client_phone.replace(/\D/g, '');
+                                      if (!phoneNumber.startsWith('55')) {
+                                        phoneNumber = '55' + phoneNumber;
+                                      }
+                                      window.open(`https://wa.me/${phoneNumber}`, '_blank');
+                                    }}
                                     className="btn-outline text-sm px-3 py-1"
                                   >
                                     WhatsApp
