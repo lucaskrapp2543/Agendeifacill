@@ -10,14 +10,63 @@ export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [cpf, setCpf] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Função para formatar CPF
+  const formatCPF = (value: string) => {
+    const numbers = value.replace(/\D/g, '');
+    return numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  };
+
+  // Função para formatar WhatsApp
+  const formatWhatsApp = (value: string) => {
+    const numbers = value.replace(/\D/g, '');
+    if (numbers.length <= 11) {
+      return numbers.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+    }
+    return value;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      await signUp(email, password, name);
+      // Verificar se todos os campos obrigatórios estão preenchidos
+      if (!firstName.trim() || !lastName.trim() || !cpf.trim() || !whatsapp.trim()) {
+        toast.error('Por favor, preencha todos os campos obrigatórios');
+        return;
+      }
+
+      // Validar CPF (formato básico)
+      const cpfNumbers = cpf.replace(/\D/g, '');
+      if (cpfNumbers.length !== 11) {
+        toast.error('CPF deve ter 11 dígitos');
+        return;
+      }
+
+      // Validar WhatsApp (formato básico)
+      const whatsappNumbers = whatsapp.replace(/\D/g, '');
+      if (whatsappNumbers.length < 10 || whatsappNumbers.length > 11) {
+        toast.error('WhatsApp deve ter 10 ou 11 dígitos');
+        return;
+      }
+
+      // Criar nome completo
+      const fullName = `${firstName.trim()} ${lastName.trim()}`;
+      
+      await signUp(email, password, fullName, {
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        cpf: cpfNumbers,
+        whatsapp: whatsappNumbers,
+        is_new_client: true
+      });
+      
       const returnUrl = location.state?.returnUrl || '/';
       navigate(returnUrl);
       toast.success('Conta criada com sucesso!');
@@ -53,25 +102,81 @@ export default function Register() {
           </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-md shadow-sm -space-y-px">
+          <div className="space-y-4">
+            {/* Nome e Sobrenome */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                  Nome *
+                </label>
+                <input
+                  id="firstName"
+                  name="firstName"
+                  type="text"
+                  required
+                  className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                  placeholder="Seu nome"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
+                  Sobrenome *
+                </label>
+                <input
+                  id="lastName"
+                  name="lastName"
+                  type="text"
+                  required
+                  className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                  placeholder="Seu sobrenome"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* CPF */}
             <div>
-              <label htmlFor="name" className="sr-only">
-                Nome
+              <label htmlFor="cpf" className="block text-sm font-medium text-gray-700 mb-1">
+                CPF *
               </label>
               <input
-                id="name"
-                name="name"
+                id="cpf"
+                name="cpf"
                 type="text"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm"
-                placeholder="Nome completo"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                maxLength={14}
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                placeholder="000.000.000-00"
+                value={cpf}
+                onChange={(e) => setCpf(formatCPF(e.target.value))}
               />
             </div>
+
+            {/* WhatsApp */}
             <div>
-              <label htmlFor="email-address" className="sr-only">
-                Email
+              <label htmlFor="whatsapp" className="block text-sm font-medium text-gray-700 mb-1">
+                WhatsApp *
+              </label>
+              <input
+                id="whatsapp"
+                name="whatsapp"
+                type="tel"
+                required
+                maxLength={15}
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                placeholder="(00) 00000-0000"
+                value={whatsapp}
+                onChange={(e) => setWhatsapp(formatWhatsApp(e.target.value))}
+              />
+            </div>
+
+            {/* Email */}
+            <div>
+              <label htmlFor="email-address" className="block text-sm font-medium text-gray-700 mb-1">
+                E-mail *
               </label>
               <input
                 id="email-address"
@@ -79,15 +184,17 @@ export default function Register() {
                 type="email"
                 autoComplete="email"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm"
-                placeholder="Email"
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                placeholder="seu@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
+
+            {/* Senha */}
             <div>
-              <label htmlFor="password" className="sr-only">
-                Senha
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                Senha *
               </label>
               <input
                 id="password"
@@ -95,8 +202,8 @@ export default function Register() {
                 type="password"
                 autoComplete="new-password"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm"
-                placeholder="Senha"
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                placeholder="Sua senha"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />

@@ -129,7 +129,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
 
-  const signUp = async (email: string, password: string, name: string) => {
+  const signUp = async (email: string, password: string, name: string, additionalData?: any) => {
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -138,6 +138,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           data: {
             name,
             role: 'client', // Role padrão para novos usuários
+            ...additionalData, // Incluir dados adicionais (first_name, last_name, cpf, whatsapp, is_new_client)
           },
         },
       });

@@ -10,7 +10,7 @@ import { PixPaymentForm } from './PixPaymentForm';
 import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { Phone } from 'lucide-react';
 import { ProfessionalSelector } from './ProfessionalSelector';
-import { checkWhatsAppSubscriber } from '../lib/supabase';
+import { checkWhatsAppSubscriber, getClientProfileData, isNewClient, testMigration, getClientDataFromAuth } from '../lib/supabase';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { validateSubscriberBooking, getAvailableDatesForSubscriber } from '../utils/subscriberBookingValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
@@ -114,26 +114,108 @@ export function AppointmentForm({
   console.log('  - services_with_prices:', establishment?.services_with_prices);
   console.log('  - professionals:', establishment?.professionals);
   console.log('  - business_hours:', establishment?.business_hours);
+  console.log('  - user logado:', user);
+  console.log('  - user.id:', user?.id);
 
   const [clientName, setClientName] = useState('');
   const [clientWhatsapp, setClientWhatsapp] = useState('');
   
-  // Auto-preenchimento com últimos dados do usuário
+  // Estados para dados do perfil do cliente
+  const [clientProfileData, setClientProfileData] = useState<any>(null);
+  const [isNewClientUser, setIsNewClientUser] = useState(false);
+  const [profileDataLoaded, setProfileDataLoaded] = useState(false);
+  
+  console.log('🔍 DEBUG - Estados iniciais:', { profileDataLoaded, isNewClientUser, clientProfileData });
+  
+  // Reset profileDataLoaded quando o usuário muda
   useEffect(() => {
     if (user) {
-      // Buscar últimos dados salvos no localStorage
-      const lastUserData = localStorage.getItem('lastUserBookingData');
-      if (lastUserData) {
-        try {
-          const { name, whatsapp } = JSON.parse(lastUserData);
-          setClientName(name || '');
-          setClientWhatsapp(whatsapp || '');
-        } catch (error) {
-          console.error('Erro ao carregar dados salvos:', error);
-        }
-      }
+      console.log('🔍 DEBUG - Usuário mudou, resetando profileDataLoaded');
+      setProfileDataLoaded(false);
     }
-  }, [user]);
+  }, [user?.id]);
+  
+  // Teste de migração
+  useEffect(() => {
+    const testMigrationStatus = async () => {
+      await testMigration();
+    };
+    testMigrationStatus();
+  }, []);
+  
+  // Carregar dados do perfil do cliente
+  useEffect(() => {
+    const loadClientProfile = async () => {
+      console.log('🔍 DEBUG - loadClientProfile iniciado:', { user: !!user, profileDataLoaded, userId: user?.id });
+      
+      if (user && !profileDataLoaded) {
+        console.log('🔍 DEBUG - Entrando no bloco de carregamento de perfil');
+        try {
+          console.log('🔍 DEBUG - Verificando se é novo cliente para user:', user.id);
+          
+          // Primeiro, tentar buscar dados dos metadados de autenticação
+          const authData = await getClientDataFromAuth();
+          if (authData) {
+            console.log('🔍 DEBUG - Dados encontrados via autenticação:', authData);
+            setIsNewClientUser(true);
+            setClientProfileData(authData);
+            const fullName = `${authData.first_name || ''} ${authData.last_name || ''}`.trim();
+            console.log('🔍 DEBUG - Nome completo gerado:', fullName);
+            console.log('🔍 DEBUG - WhatsApp do perfil:', authData.whatsapp);
+            setClientName(fullName);
+            setClientWhatsapp(authData.whatsapp || '');
+            setProfileDataLoaded(true);
+            return;
+          }
+          
+          // Se não encontrou nos metadados, verificar na tabela profiles
+          const isNew = await isNewClient(user.id);
+          console.log('🔍 DEBUG - É novo cliente?', isNew);
+          setIsNewClientUser(isNew);
+          
+          if (isNew) {
+            console.log('🔍 DEBUG - Carregando dados do perfil para novo cliente');
+            const { data: profileData, error } = await getClientProfileData(user.id);
+            console.log('🔍 DEBUG - Dados do perfil:', profileData, 'Erro:', error);
+            
+            if (profileData) {
+              setClientProfileData(profileData);
+              // Preencher automaticamente com dados do perfil
+              const fullName = `${profileData.first_name || ''} ${profileData.last_name || ''}`.trim();
+              console.log('🔍 DEBUG - Nome completo gerado:', fullName);
+              console.log('🔍 DEBUG - WhatsApp do perfil:', profileData.whatsapp);
+              
+              setClientName(fullName);
+              setClientWhatsapp(profileData.whatsapp || '');
+            }
+          } else {
+            console.log('🔍 DEBUG - Cliente antigo, carregando dados do localStorage');
+            // Para clientes antigos, usar o sistema atual
+            const lastUserData = localStorage.getItem('lastUserBookingData');
+            if (lastUserData) {
+              try {
+                const { name, whatsapp } = JSON.parse(lastUserData);
+                setClientName(name || '');
+                setClientWhatsapp(whatsapp || '');
+              } catch (error: any) {
+                console.error('Erro ao carregar dados salvos:', error);
+              }
+            }
+          }
+          setProfileDataLoaded(true);
+        } catch (error) {
+          console.error('Erro ao carregar perfil do cliente:', error);
+          setProfileDataLoaded(true);
+        }
+      } else {
+        console.log('🔍 DEBUG - Condições não atendidas:', { user: !!user, profileDataLoaded, userId: user?.id });
+        console.log('🔍 DEBUG - Motivo:', !user ? 'Usuário não logado' : 'Dados já carregados');
+      }
+    };
+
+    console.log('🔍 DEBUG - Executando loadClientProfile...');
+    loadClientProfile();
+  }, [user, profileDataLoaded]);
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [useMultiService, setUseMultiService] = useState(false);
@@ -565,14 +647,20 @@ export function AppointmentForm({
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             {isEstablishmentOwner ? '1. Nome do Cliente (Reserva pelo Estabelecimento)' : '1. Nome do Cliente'}
+            {isNewClientUser && !isEstablishmentOwner && (
+              <span className="text-xs text-gray-500 ml-2">(Dados fixos do cadastro)</span>
+            )}
           </label>
           <input
             type="text"
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
-            className="w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary bg-white text-gray-900 placeholder-gray-400"
+            className={`w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 ${
+              isNewClientUser && !isEstablishmentOwner ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+            }`}
             placeholder="Digite seu nome"
             required
+            readOnly={isNewClientUser && !isEstablishmentOwner}
           />
           {user && clientName && (
             <p className="mt-1 text-sm text-blue-600 italic">
@@ -597,16 +685,22 @@ export function AppointmentForm({
             <div className="flex items-center gap-2">
             <Phone className="w-4 h-4" />
               <span>2. WhatsApp</span>
+              {isNewClientUser && !isEstablishmentOwner && (
+                <span className="text-xs text-gray-500 ml-2">(Dados fixos do cadastro)</span>
+              )}
             </div>
           </label>
           <input
             type="tel"
             value={clientWhatsapp}
             onChange={handleWhatsappChange}
-            className="w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary bg-white text-gray-900 placeholder-gray-400"
+            className={`w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 ${
+              isNewClientUser && !isEstablishmentOwner ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+            }`}
             placeholder="(00) 00000-0000"
             required
             maxLength={15}
+            readOnly={isNewClientUser && !isEstablishmentOwner}
           />
           {user && clientWhatsapp && (
             <p className="mt-1 text-sm text-blue-600 italic">
@@ -963,6 +1057,7 @@ export function AppointmentForm({
                 existingAppointments={filteredExistingAppointments} // Passar agendamentos filtrados
                 selectedTime={selectedTime}
                 onTimeSelect={setSelectedTime}
+                filterPastTimes={user && !isEstablishmentOwner} // Filtrar horários passados apenas para clientes logados
                 businessHours={businessHours}
                 use15MinuteInterval={establishment.use_15_minute_interval || false}
               />

@@ -5,7 +5,7 @@ import { ptBR } from 'date-fns/locale';
 import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle, Menu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
-import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal } from '../lib/supabase';
+import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal, getClientProfileData, isNewClient } from '../lib/supabase';
 import { getEstablishmentAppointments, createEstablishment, updateEstablishment, getEstablishmentPremiumSubscribers, removePremiumSubscriber } from '../lib/supabase';
 import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
@@ -364,6 +364,9 @@ const EstablishmentDashboard = () => {
   // Estados para relatório de taxas
   const [taxesReport, setTaxesReport] = useState<any>(null);
   const [isLoadingTaxes, setIsLoadingTaxes] = useState(false);
+  
+  // Estados para novos clientes
+  const [newClientsInfo, setNewClientsInfo] = useState<Record<string, boolean>>({});
 
 
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -1180,7 +1183,23 @@ const EstablishmentDashboard = () => {
 
       if (error) throw error;
       
-      setAppointments(data as Appointment[] || []);
+      const appointmentsData = data as Appointment[] || [];
+      setAppointments(appointmentsData);
+
+      // Verificar quais clientes são novos
+      const newClientsMap: Record<string, boolean> = {};
+      for (const appointment of appointmentsData) {
+        if (appointment.client_id && !newClientsMap[appointment.client_id]) {
+          try {
+            const isNew = await isNewClient(appointment.client_id);
+            newClientsMap[appointment.client_id] = isNew;
+        } catch (error: any) {
+          console.error('Erro ao verificar se cliente é novo:', error);
+          newClientsMap[appointment.client_id] = false;
+        }
+        }
+      }
+      setNewClientsInfo(newClientsMap);
     } catch (error: any) {
       console.error('Error fetching appointments:', error);
       toast(error.message || 'Erro ao carregar agendamentos', 'error');
@@ -4043,9 +4062,16 @@ const EstablishmentDashboard = () => {
                               <span className="text-white text-sm">
                                 {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
                               </span>
-                              <span className="text-white text-sm truncate">
-                                {appointment.client_name}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-white text-sm truncate">
+                                  {appointment.client_name}
+                                </span>
+                                {appointment.client_id && newClientsInfo[appointment.client_id] && (
+                                  <span className="px-1 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                                    Novo
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             
                             {/* Lado direito: Horário e Valor */}
@@ -4085,11 +4111,16 @@ const EstablishmentDashboard = () => {
                                   {isClientPaidSubscriber(appointment.client_whatsapp) && (
                                     <Crown className="h-5 w-5 text-yellow-400" />
                                   )}
+                                  {appointment.client_id && newClientsInfo[appointment.client_id] && (
+                                    <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                                      Novo Cliente
+                                    </span>
+                                  )}
                                   {appointment.client_whatsapp && (
                                     <div className="flex items-center gap-2">
                                       <a
                                         href={(() => {
-                                          let phoneNumber = appointment.client_whatsapp.replace(/\D/g, '');
+                                          let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
                                           if (!phoneNumber.startsWith('55')) {
                                             phoneNumber = '55' + phoneNumber;
                                           }

@@ -16,12 +16,16 @@ import { Phone } from 'lucide-react'; // Certifique-se de que Phone está import
 import { AlertCircle } from 'lucide-react'; // Corrigido de ExclamationCircle para AlertCircle
 import { Crown } from 'lucide-react';
 import ReadMore from '../components/ReadMore';
+import { LoginRequiredModal } from '../components/LoginRequiredModal';
 
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut } = useAuth();
+  
+  console.log('🔍 DEBUG - BookingPage - user:', user);
+  console.log('🔍 DEBUG - BookingPage - user.id:', user?.id);
   
   const [establishment, setEstablishment] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,6 +84,7 @@ export default function BookingPage() {
   const [showSubscriberBooking, setShowSubscriberBooking] = useState(false);
   const [selectedSubscriberService, setSelectedSubscriberService] = useState<any>(null);
   const [convertedSubscriberData, setConvertedSubscriberData] = useState<any>(null); // Dados do assinante convertido
+  const [showLoginModal, setShowLoginModal] = useState(false); // Estado para controlar o modal de login
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
@@ -442,9 +447,8 @@ export default function BookingPage() {
     }
 
     if (!user) {
-      // Salvar a URL atual para redirecionamento após o login
-      const returnUrl = location.pathname;
-      navigate('/login', { state: { returnUrl } });
+      // Mostrar modal amigável em vez de redirecionar
+      setShowLoginModal(true);
       return;
     }
     
@@ -742,7 +746,7 @@ export default function BookingPage() {
                             </div>
                             {subscription.weekdays && subscription.weekdays.length > 0 && (
                               <div className="text-xs text-blue-600 mt-1">
-                                📅 {subscription.weekdays.map(day => {
+                                📅 {subscription.weekdays.map((day: string) => {
                                   const dayNames = {
                                     'monday': 'Seg',
                                     'tuesday': 'Ter', 
@@ -973,7 +977,7 @@ export default function BookingPage() {
                                 </p>
                                 {subscription.weekdays && subscription.weekdays.length > 0 && (
                                   <p className="text-xs text-blue-600 mt-1">
-                                    📅 {subscription.weekdays.map(day => {
+                                    📅 {subscription.weekdays.map((day: string) => {
                                       const dayNames = {
                                         'monday': 'Seg',
                                         'tuesday': 'Ter', 
@@ -1013,7 +1017,7 @@ export default function BookingPage() {
                       </div>
                       
                       <p className="text-sm text-gray-600 mb-4">
-                        📅 Dias disponíveis: {selectedSubscriberService.weekdays?.map(day => {
+                        📅 Dias disponíveis: {selectedSubscriberService.weekdays?.map((day: string) => {
                           const dayNames = {
                             'monday': 'Segunda',
                             'tuesday': 'Terça', 
@@ -1341,10 +1345,8 @@ export default function BookingPage() {
             </div>
           )}
 
-          {console.log('🔍 Debug - showSubscriberBooking:', showSubscriberBooking)}
           {showSubscriberBooking && (
             <div className="bg-red-100 border-4 border-red-500 rounded-lg shadow-md p-6 text-gray-900 mt-4 z-50 relative">
-              {console.log('🔍 Debug - Renderizando tela de agendamento assinante!')}
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold">Agendamento Assinante</h2>
                 <button
@@ -1362,11 +1364,8 @@ export default function BookingPage() {
                 // Tela de seleção de serviços
                 <div>
                   <p className="text-lg text-gray-700 mb-6">Selecione qual é o seu:</p>
-                  {console.log('🔍 Debug - Renderizando lista de subscriptions:', subscriptions)}
                   <div className="space-y-4">
-                    {subscriptions.map((subscription) => {
-                      console.log('🔍 Debug - Renderizando subscription:', subscription);
-                      return (
+                    {subscriptions.map((subscription) => (
                       <div key={subscription.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
                         <div className="flex items-center justify-between">
                           <div>
@@ -1376,7 +1375,7 @@ export default function BookingPage() {
                             </p>
                             {subscription.weekdays && subscription.weekdays.length > 0 && (
                               <p className="text-xs text-blue-600 mt-1">
-                                📅 {subscription.weekdays.map(day => {
+                                📅 {subscription.weekdays.map((day: string) => {
                                   const dayNames = {
                                     'monday': 'Seg',
                                     'tuesday': 'Ter', 
@@ -1399,8 +1398,7 @@ export default function BookingPage() {
                           </button>
                         </div>
                       </div>
-                      );
-                    })}
+                    ))}
                   </div>
                 </div>
               ) : (
@@ -1418,7 +1416,7 @@ export default function BookingPage() {
                   
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                     <p className="text-sm text-blue-800">
-                      <strong>Dias disponíveis:</strong> {selectedSubscriberService.weekdays?.map(day => {
+                      <strong>Dias disponíveis:</strong> {selectedSubscriberService.weekdays?.map((day: string) => {
                         const dayNames = {
                           'monday': 'Segunda-feira',
                           'tuesday': 'Terça-feira', 
@@ -1465,6 +1463,13 @@ export default function BookingPage() {
           )}
         </div>
       </div>
+
+      {/* Modal de Login Necessário */}
+      <LoginRequiredModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        establishmentName={establishment?.name || 'este estabelecimento'}
+      />
     </div>
   );
 } 

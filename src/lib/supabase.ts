@@ -28,14 +28,11 @@ export const supabase: SupabaseClient<Database> = createClient(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
-      storage: localStorage,
       storageKey: 'agendafacil_auth_token',
       flowType: 'pkce',
       // Configurações para permitir múltiplas sessões
       multiTab: true,
       debug: false,
-      // Configurações específicas para PWA
-      storageKey: 'agendafacil_auth_token',
       // Força o uso do localStorage mesmo em PWAs
       storage: {
         getItem: (key: string) => {
@@ -85,7 +82,12 @@ export const signUp = async (email: string, password: string, userRole: string, 
       options: {
         data: {
           role: userRole,
-          full_name: meta.full_name || email.split('@')[0]
+          full_name: meta.full_name || email.split('@')[0],
+          first_name: meta.first_name,
+          last_name: meta.last_name,
+          cpf: meta.cpf,
+          whatsapp: meta.whatsapp,
+          is_new_client: meta.is_new_client
         }
       }
     });
@@ -1631,4 +1633,167 @@ export const getExpensesTotal = async (establishmentId: string) => {
   
   if (error) throw error;
   return data || 0;
+};
+
+// Função para verificar se um usuário é um novo cliente e buscar seus dados
+export const getClientProfileData = async (userId: string) => {
+  try {
+    console.log('🔍 DEBUG - getClientProfileData chamada para userId:', userId);
+    
+    // Primeiro, verificar se o usuário existe na tabela profiles
+    const { data: userExists, error: existsError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    console.log('🔍 DEBUG - Usuário existe?', { userExists, existsError });
+
+    if (existsError) {
+      console.error('Erro ao verificar se usuário existe:', existsError);
+      return { data: null, error: existsError };
+    }
+
+    if (!userExists) {
+      console.log('🔍 DEBUG - Usuário não encontrado na tabela profiles');
+      return { data: null, error: { message: 'Usuário não encontrado na tabela profiles' } };
+    }
+
+    // Agora buscar os dados completos
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('first_name, last_name, whatsapp, is_new_client, name, type, is_premium')
+      .eq('id', userId)
+      .maybeSingle();
+
+    console.log('🔍 DEBUG - getClientProfileData resultado:', { data, error });
+
+    if (error) {
+      console.error('Erro ao buscar dados do perfil:', error);
+      return { data: null, error };
+    }
+
+    // Se não encontrou dados, retornar estrutura vazia
+    if (!data) {
+      console.log('🔍 DEBUG - Nenhum dado encontrado para o usuário');
+      return { 
+        data: {
+          first_name: null,
+          last_name: null,
+          whatsapp: null,
+          is_new_client: false
+        }, 
+        error: null 
+      };
+    }
+
+    return { data, error: null };
+  } catch (error) {
+    console.error('Erro ao buscar dados do perfil:', error);
+    return { data: null, error };
+  }
+};
+
+// Função para verificar se um usuário é um novo cliente
+export const isNewClient = async (userId: string): Promise<boolean> => {
+  try {
+    console.log('🔍 DEBUG - isNewClient chamada para userId:', userId);
+    
+    // Primeiro, verificar se o usuário tem dados de autenticação que indicam que é novo cliente
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError) {
+      console.error('Erro ao buscar dados de autenticação:', authError);
+    } else if (user) {
+      console.log('🔍 DEBUG - Dados de autenticação do usuário:', {
+        id: user.id,
+        email: user.email,
+        metadata: user.user_metadata,
+        app_metadata: user.app_metadata
+      });
+      
+      // Verificar se o usuário foi criado com is_new_client = true
+      if (user.user_metadata?.is_new_client === true) {
+        console.log('🔍 DEBUG - Usuário identificado como novo cliente via metadata');
+        return true;
+      }
+    }
+    
+    // Se não encontrou nos metadados, verificar na tabela profiles
+    const { data, error } = await getClientProfileData(userId);
+    console.log('🔍 DEBUG - isNewClient resultado:', { data, error });
+    const isNew = data?.is_new_client === true;
+    console.log('🔍 DEBUG - isNewClient retornando:', isNew);
+    return isNew;
+  } catch (error) {
+    console.error('Erro ao verificar se é novo cliente:', error);
+    return false;
+  }
+};
+
+// Função para buscar dados do cliente dos metadados de autenticação
+export const getClientDataFromAuth = async () => {
+  try {
+    console.log('🔍 DEBUG - Buscando dados do cliente via autenticação...');
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    if (error) {
+      console.error('Erro ao buscar dados de autenticação:', error);
+      return null;
+    }
+    
+    if (!user) {
+      console.log('🔍 DEBUG - Nenhum usuário logado');
+      return null;
+    }
+    
+    console.log('🔍 DEBUG - Dados de autenticação encontrados:', {
+      id: user.id,
+      email: user.email,
+      metadata: user.user_metadata
+    });
+    
+    // Verificar se é um novo cliente e tem os dados necessários
+    if (user.user_metadata?.is_new_client === true) {
+      const clientData = {
+        first_name: user.user_metadata.first_name,
+        last_name: user.user_metadata.last_name,
+        whatsapp: user.user_metadata.whatsapp,
+        is_new_client: true
+      };
+      
+      console.log('🔍 DEBUG - Dados do novo cliente encontrados:', clientData);
+      return clientData;
+    }
+    
+    console.log('🔍 DEBUG - Usuário não é um novo cliente ou não tem dados');
+    return null;
+  } catch (error) {
+    console.error('Erro ao buscar dados do cliente via autenticação:', error);
+    return null;
+  }
+};
+
+// Função de teste para verificar se a migração foi executada
+export const testMigration = async () => {
+  try {
+    console.log('🔍 DEBUG - Testando se a migração foi executada...');
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('first_name, last_name, whatsapp, is_new_client')
+      .limit(1);
+    
+    console.log('🔍 DEBUG - Teste de migração:', { data, error });
+    
+    if (error) {
+      console.log('❌ MIGRAÇÃO NÃO EXECUTADA - Erro:', error.message);
+      return false;
+    } else {
+      console.log('✅ MIGRAÇÃO EXECUTADA - Colunas existem');
+      return true;
+    }
+  } catch (error) {
+    console.log('❌ MIGRAÇÃO NÃO EXECUTADA - Erro:', error);
+    return false;
+  }
 };

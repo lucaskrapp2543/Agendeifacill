@@ -36,6 +36,7 @@ interface TimeSlotSelectorProps {
     close2: string | null;
   };
   use15MinuteInterval?: boolean; // Nova prop para configuração de intervalo
+  filterPastTimes?: boolean; // Nova prop para filtrar horários passados
 }
 
 export function TimeSlotSelector({
@@ -45,7 +46,8 @@ export function TimeSlotSelector({
   selectedTime,
   onTimeSelect,
   businessHours,
-  use15MinuteInterval = false // Valor padrão false (15 em 15 min)
+  use15MinuteInterval = false, // Valor padrão false (15 em 15 min)
+  filterPastTimes = false // Valor padrão false (não filtrar horários passados)
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -54,10 +56,40 @@ export function TimeSlotSelector({
     return hours * 60 + minutes;
   };
 
+  // Função para verificar se um horário já passou
+  const isTimeInPast = (timeString: string): boolean => {
+    if (!filterPastTimes) return false;
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const selectedDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+    
+    // Se não é hoje, não filtrar
+    if (selectedDay.getTime() !== today.getTime()) {
+      return false;
+    }
+    
+    // Se é hoje, verificar se o horário já passou
+    const [hours, minutes] = timeString.split(':').map(Number);
+    const slotTime = new Date(today.getTime() + hours * 60 * 60 * 1000 + minutes * 60 * 1000);
+    
+    const isPast = slotTime <= now;
+    
+    // Log de debug
+    if (isPast) {
+      console.log(`🕒 TimeSlotSelector - Horário ${timeString} já passou (agora: ${now.toLocaleTimeString()})`);
+    }
+    
+    return isPast;
+  };
+
   // Função para gerar os horários disponíveis
   const generateTimeSlots = (): TimeSlot[] => {
     const slots: TimeSlot[] = [];
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
+    
+    // Log de debug
+    console.log(`🕒 TimeSlotSelector - Gerando horários com filtro de horários passados: ${filterPastTimes}`);
     
     // Se não houver horários de funcionamento ou não estiver habilitado, retornar array vazio
     if (!businessHours || !businessHours.enabled || !selectedService) {
@@ -124,6 +156,12 @@ export function TimeSlotSelector({
           conflictReason = 'Serviço ultrapassaria horário';
         }
 
+        // Verificar se o horário já passou (apenas para clientes logados)
+        if (isTimeInPast(timeString)) {
+          isAvailable = false;
+          conflictReason = 'Horário já passou';
+        }
+
         slots.push({
           time: timeString,
           isAvailable,
@@ -176,6 +214,12 @@ export function TimeSlotSelector({
           conflictReason = 'Serviço ultrapassaria horário';
         }
 
+        // Verificar se o horário já passou (apenas para clientes logados)
+        if (isTimeInPast(timeString)) {
+          isAvailable = false;
+          conflictReason = 'Horário já passou';
+        }
+
         slots.push({
           time: timeString,
           isAvailable,
@@ -203,7 +247,8 @@ export function TimeSlotSelector({
         const isSelected = selectedTime === time;
         const isReserved = reason === 'Horário Reservado';
         const isUltrapassedTime = reason === 'Serviço ultrapassaria horário';
-        const isDisabled = !isAvailable || isReserved || isUltrapassedTime;
+        const isPastTime = reason === 'Horário já passou';
+        const isDisabled = !isAvailable || isReserved || isUltrapassedTime || isPastTime;
 
         return (
           <button
@@ -229,6 +274,9 @@ export function TimeSlotSelector({
               )}
               {isUltrapassedTime && (
                 <span className="text-xs mt-1 text-white">Serviço ultrapassaria horário</span>
+              )}
+              {isPastTime && (
+                <span className="text-xs mt-1 text-white">Horário já passou</span>
               )}
             </div>
           </button>
