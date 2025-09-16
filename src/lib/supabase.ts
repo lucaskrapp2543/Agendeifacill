@@ -1309,8 +1309,10 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
   try {
     // Normalizar o número de telefone (remover formatação)
     const normalizedWhatsapp = normalizePhoneNumber(whatsapp);
-    console.log('🔍 Verificando assinante:', { original: whatsapp, normalized: normalizedWhatsapp });
+    console.log('🔍 Verificando assinante (sistema antigo):', { original: whatsapp, normalized: normalizedWhatsapp });
 
+    // CORREÇÃO: Verificar se o client_id existe em auth.users (evitar registros órfãos)
+    // Buscar TODOS os assinantes (ativos e vencidos) para detectar vencidos
     const { data, error } = await supabase
       .from('client_subscriptions')
       .select(`
@@ -1325,8 +1327,7 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
         )
       `)
       .eq('establishment_id', establishmentId)
-      .eq('payment_status', 'paid') // Apenas assinantes com pagamento em dia
-      .gte('end_date', new Date().toISOString().split('T')[0]) // Assinatura ainda válida
+      .not('client_id', 'like', 'manual_%') // Excluir registros manuais órfãos
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -1351,8 +1352,24 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
     });
 
     if (subscriber) {
-      console.log('✅ Assinante encontrado:', subscriber);
-      return { data: subscriber, error: null };
+      // Verificar se o assinante está vencido
+      const isExpired = (new Date(subscriber.end_date) < new Date()) || 
+        subscriber.payment_status === 'unpaid';
+      
+      if (isExpired) {
+        console.log('⚠️ Assinante vencido encontrado (sistema antigo):', subscriber);
+        return { 
+          data: {
+            ...subscriber,
+            is_expired: true,
+            expiration_message: `Seu plano venceu em ${new Date(subscriber.end_date).toLocaleDateString('pt-BR')}. Renove para continuar agendando.`
+          }, 
+          error: null 
+        };
+      } else {
+        console.log('✅ Assinante ativo encontrado (sistema antigo):', subscriber);
+        return { data: subscriber, error: null };
+      }
     }
 
     console.log('❌ Nenhum assinante encontrado para WhatsApp:', whatsapp);

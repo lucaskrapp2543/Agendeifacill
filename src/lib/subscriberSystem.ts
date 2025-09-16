@@ -81,24 +81,57 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
     // Normalizar o número (remover caracteres não numéricos)
     const normalizedWhatsapp = whatsapp.replace(/\D/g, '');
     
+    // CORREÇÃO: Buscar diretamente na tabela premium_subscriptions
+    // Buscar TODOS os assinantes (ativos e vencidos) para detectar vencidos
     const { data, error } = await supabase
-      .rpc('is_whatsapp_subscriber', {
-        p_whatsapp: normalizedWhatsapp,
-        p_establishment_id: establishmentId
-      });
+      .from('premium_subscriptions')
+      .select(`
+        id,
+        display_name,
+        whatsapp,
+        end_date,
+        weekdays,
+        subscription_id,
+        created_at,
+        establishment_id,
+        is_active
+      `)
+      .eq('whatsapp', normalizedWhatsapp)
+      .eq('establishment_id', establishmentId)
+      .order('created_at', { ascending: false })
+      .limit(1);
 
     if (error) {
       console.error('❌ Erro ao verificar assinante:', error);
       return { data: null, error };
     }
 
-    const result = data?.[0];
-    console.log('📋 Resultado da verificação:', result);
+    console.log('📋 Resultado da verificação:', data);
 
-    // Retornar dados se existe subscriber_data, independente do status (ativo ou vencido)
-    if (result?.subscriber_data) {
-      console.log('✅ Assinante encontrado:', result.subscriber_data);
-      return { data: result.subscriber_data, error: null };
+    // Se encontrou assinante
+    if (data && data.length > 0) {
+      const subscriber = data[0];
+      
+      // Verificar se o assinante está vencido
+      const isExpired = !subscriber.is_active || 
+        (subscriber.end_date && new Date(subscriber.end_date) < new Date());
+      
+      if (isExpired) {
+        console.log('⚠️ Assinante vencido encontrado (sistema novo):', subscriber);
+        return { 
+          data: {
+            ...subscriber,
+            is_expired: true,
+            expiration_message: subscriber.end_date 
+              ? `Seu plano venceu em ${new Date(subscriber.end_date).toLocaleDateString('pt-BR')}. Renove para continuar agendando.`
+              : 'Seu plano está inativo. Renove para continuar agendando.'
+          }, 
+          error: null 
+        };
+      } else {
+        console.log('✅ Assinante ativo encontrado (sistema novo):', subscriber);
+        return { data: subscriber, error: null };
+      }
     }
 
     console.log('❌ Nenhum assinante encontrado para WhatsApp:', whatsapp);

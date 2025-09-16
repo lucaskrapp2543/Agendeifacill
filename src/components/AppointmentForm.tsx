@@ -785,13 +785,36 @@ export function AppointmentForm({
                   <p className="text-sm text-red-700 font-medium">
                     Para agendar, você precisa renovar seu plano.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowSubscriberNotification(false)}
-                    className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
-                  >
-                    Fechar e Renovar
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowSubscriberNotification(false)}
+                      className="flex-1 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
+                    >
+                      Agendamento Normal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Redirecionar para WhatsApp do estabelecimento
+                        const establishmentWhatsapp = establishment?.whatsapp;
+                        const subscriptionName = detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado';
+                        
+                        if (establishmentWhatsapp) {
+                          const message = `Quero renovar minha assinatura: ${subscriptionName}`;
+                          const whatsappUrl = `https://wa.me/${establishmentWhatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                          window.open(whatsappUrl, '_blank');
+                        } else {
+                          console.error('WhatsApp do estabelecimento não encontrado');
+                        }
+                        
+                        setShowSubscriberNotification(false);
+                      }}
+                      className="flex-1 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                    >
+                      Renovar Assinatura
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
