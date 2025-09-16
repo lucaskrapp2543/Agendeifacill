@@ -6,20 +6,23 @@ interface LoginRequiredModalProps {
   isOpen: boolean;
   onClose: () => void;
   establishmentName: string;
+  returnUrl?: string;
 }
 
-export function LoginRequiredModal({ isOpen, onClose, establishmentName }: LoginRequiredModalProps) {
+export function LoginRequiredModal({ isOpen, onClose, establishmentName, returnUrl }: LoginRequiredModalProps) {
   const navigate = useNavigate();
 
   if (!isOpen) return null;
 
   const handleCreateAccount = () => {
-    navigate('/register');
+    console.log('🔄 LoginRequiredModal - Criar conta, returnUrl:', returnUrl);
+    navigate('/register', { state: { returnUrl } });
     onClose();
   };
 
   const handleLogin = () => {
-    navigate('/login');
+    console.log('🔄 LoginRequiredModal - Login, returnUrl:', returnUrl);
+    navigate('/login', { state: { returnUrl } });
     onClose();
   };
 

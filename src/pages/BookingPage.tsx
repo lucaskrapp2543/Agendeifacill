@@ -1469,6 +1469,7 @@ export default function BookingPage() {
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
         establishmentName={establishment?.name || 'este estabelecimento'}
+        returnUrl={location.pathname}
       />
     </div>
   );

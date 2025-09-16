@@ -10,7 +10,7 @@ type AuthContextType = {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ user: User | null; session: Session | null }>;
   signOut: () => Promise<void>;
-  signUp: (email: string, password: string, name: string) => Promise<{ user: User | null; session: Session | null }>;
+  signUp: (email: string, password: string, name: string, additionalData?: any) => Promise<{ user: User | null; session: Session | null }>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -138,7 +138,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           data: {
             name,
             role: 'client', // Role padrão para novos usuários
-            ...additionalData, // Incluir dados adicionais (first_name, last_name, cpf, whatsapp, is_new_client)
+            ...additionalData, // Incluir dados adicionais (first_name, last_name, whatsapp, is_new_client)
           },
         },
       });

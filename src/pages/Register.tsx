@@ -9,18 +9,11 @@ export default function Register() {
   const { signUp } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [cpf, setCpf] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Função para formatar CPF
-  const formatCPF = (value: string) => {
-    const numbers = value.replace(/\D/g, '');
-    return numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-  };
 
   // Função para formatar WhatsApp
   const formatWhatsApp = (value: string) => {
@@ -37,15 +30,8 @@ export default function Register() {
 
     try {
       // Verificar se todos os campos obrigatórios estão preenchidos
-      if (!firstName.trim() || !lastName.trim() || !cpf.trim() || !whatsapp.trim()) {
+      if (!firstName.trim() || !lastName.trim() || !whatsapp.trim()) {
         toast.error('Por favor, preencha todos os campos obrigatórios');
-        return;
-      }
-
-      // Validar CPF (formato básico)
-      const cpfNumbers = cpf.replace(/\D/g, '');
-      if (cpfNumbers.length !== 11) {
-        toast.error('CPF deve ter 11 dígitos');
         return;
       }
 
@@ -62,12 +48,13 @@ export default function Register() {
       await signUp(email, password, fullName, {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
-        cpf: cpfNumbers,
         whatsapp: whatsappNumbers,
         is_new_client: true
       });
       
       const returnUrl = location.state?.returnUrl || '/';
+      console.log('🔄 Register - Redirecionando para:', returnUrl);
+      console.log('🔄 Register - location.state:', location.state);
       navigate(returnUrl);
       toast.success('Conta criada com sucesso!');
     } catch (error: any) {
@@ -137,23 +124,6 @@ export default function Register() {
               </div>
             </div>
 
-            {/* CPF */}
-            <div>
-              <label htmlFor="cpf" className="block text-sm font-medium text-gray-700 mb-1">
-                CPF *
-              </label>
-              <input
-                id="cpf"
-                name="cpf"
-                type="text"
-                required
-                maxLength={14}
-                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
-                placeholder="000.000.000-00"
-                value={cpf}
-                onChange={(e) => setCpf(formatCPF(e.target.value))}
-              />
-            </div>
 
             {/* WhatsApp */}
             <div>

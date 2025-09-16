@@ -85,7 +85,6 @@ export const signUp = async (email: string, password: string, userRole: string, 
           full_name: meta.full_name || email.split('@')[0],
           first_name: meta.first_name,
           last_name: meta.last_name,
-          cpf: meta.cpf,
           whatsapp: meta.whatsapp,
           is_new_client: meta.is_new_client
         }
