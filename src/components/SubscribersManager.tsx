@@ -101,10 +101,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [showViewAttendancesModal, setShowViewAttendancesModal] = useState(false);
   const [selectedClientForView, setSelectedClientForView] = useState<ClientSubscription | null>(null);
   
-  // Estados para modal de edição de data de término
+  // Estados para modal de edição de datas
   const [showEditEndDateModal, setShowEditEndDateModal] = useState(false);
   const [selectedClientForEdit, setSelectedClientForEdit] = useState<ClientSubscription | null>(null);
   const [newEndDate, setNewEndDate] = useState('');
+  const [newStartDate, setNewStartDate] = useState('');
   const [isSavingEndDate, setIsSavingEndDate] = useState(false);
   
   // Estado para barra de pesquisa
@@ -552,13 +553,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
     
     try {
-      // Usar o novo sistema de assinantes
-      const { error } = await updateSubscriberPaymentStatus(clientSubscription.id, newStatus);
+      console.log('🔥 FORÇANDO atualização do status:', { 
+        id: clientSubscription.id, 
+        newStatus,
+        currentStatus: clientSubscription.payment_status 
+      });
+      
+      // FORÇAR atualização direta no banco - SEM lógica automática
+      const { error } = await supabase
+        .from('client_subscriptions')
+        .update({ 
+          payment_status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', clientSubscription.id);
+        
       if (error) {
         throw error;
       }
       
-      toast(`Status alterado para ${newStatus === 'paid' ? 'Pago' : 'Não Pago'}!`, 'success');
+      console.log('✅ Status FORÇADO para:', newStatus);
+      toast(`Status FORÇADO para ${newStatus === 'paid' ? 'Pago' : 'Não Pago'}!`, 'success');
       fetchClientSubscriptions(); // Atualiza a lista
     } catch (error: any) {
       console.error('Erro ao atualizar status de pagamento:', error);
@@ -610,8 +625,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const handleUpdateEndDate = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedClientForEdit || !newEndDate) {
-      toast.error('Data de término é obrigatória.');
+    if (!selectedClientForEdit || !newEndDate || !newStartDate) {
+      toast.error('Datas de início e término são obrigatórias.');
       return;
     }
 
@@ -642,6 +657,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const { error } = await supabase
         .from('client_subscriptions')
         .update({ 
+          start_date: newStartDate,
           end_date: newEndDate,
           payment_status: newStatus,
           updated_at: new Date().toISOString()
@@ -657,14 +673,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Determinar mensagem de sucesso baseada no status
       const statusMessage = newStatus === 'paid' ? 'ativo/pago' : 'vencido';
-      const dateFormatted = new Date(newEndDate).toLocaleDateString('pt-BR');
+      const startDateFormatted = new Date(newStartDate).toLocaleDateString('pt-BR');
+      const endDateFormatted = new Date(newEndDate).toLocaleDateString('pt-BR');
       
-      toast.success(`Data de término atualizada para ${dateFormatted}. Status: ${statusMessage}`);
+      toast.success(`Datas atualizadas: ${startDateFormatted} a ${endDateFormatted}. Status: ${statusMessage}`);
       
       // Fechar modal e limpar dados
       setShowEditEndDateModal(false);
       setSelectedClientForEdit(null);
       setNewEndDate('');
+      setNewStartDate('');
       
       // Recarregar dados
       await fetchClientSubscriptions();
@@ -681,6 +699,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const openEditEndDateModal = (clientSubscription: ClientSubscription) => {
     setSelectedClientForEdit(clientSubscription);
     setNewEndDate(clientSubscription.end_date);
+    setNewStartDate(clientSubscription.start_date);
     setShowEditEndDateModal(true);
   };
 
@@ -767,7 +786,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // Lógica para resetar status de pagamento baseado na duração do plano
+  // Lógica para resetar status de pagamento baseado na DATA DE FIM
   useEffect(() => {
     const checkAndResetPayments = async () => {
       if (clientSubscriptions.length === 0) return;
@@ -777,48 +796,52 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       let hasChanges = false;
 
       for (const cs of clientSubscriptions) {
-        const subscriptionDuration = cs.subscriptions.duration_months;
-        const startDate = new Date(cs.start_date);
+        const endDate = new Date(cs.end_date);
+        endDate.setHours(0, 0, 0, 0);
         
-        // Calcular a data de vencimento baseada na data de início + duração
-        const dueDate = addMonths(startDate, subscriptionDuration);
-        dueDate.setHours(0, 0, 0, 0);
-        
-        // Calcular quando deve resetar (1 dia após o vencimento)
-        const resetDate = new Date(dueDate);
-        resetDate.setDate(resetDate.getDate() + 1);
-        
-        console.log(`📅 Cliente ${cs.profiles.full_name}:`, {
-          startDate: startDate.toLocaleDateString('pt-BR'),
-          dueDate: dueDate.toLocaleDateString('pt-BR'),
-          resetDate: resetDate.toLocaleDateString('pt-BR'),
+        console.log(`📅 Cliente ${cs.profiles?.full_name || 'Desconhecido'}:`, {
+          endDate: endDate.toLocaleDateString('pt-BR'),
           today: today.toLocaleDateString('pt-BR'),
           currentStatus: cs.payment_status,
-          shouldReset: today >= resetDate && cs.payment_status === 'paid'
+          isExpired: today > endDate
         });
 
-        // Se hoje é igual ou após a data de reset E está pago, resetar para 'unpaid'
-        if (today >= resetDate && cs.payment_status === 'paid') {
+        // Se a data de fim passou E está marcado como 'paid', marcar como 'unpaid'
+        if (today > endDate && cs.payment_status === 'paid') {
           try {
-            await updateClientSubscriptionPaymentStatus(cs.id, 'unpaid');
-            hasChanges = true;
-            console.log(`🔄 Resetado pagamento para ${cs.profiles.full_name} - Plano de ${subscriptionDuration} meses venceu em ${dueDate.toLocaleDateString('pt-BR')}`);
+            console.log(`🔄 Cliente ${cs.profiles?.full_name || 'Desconhecido'} venceu em ${endDate.toLocaleDateString('pt-BR')} - Marcando como não pago`);
+            
+            // Atualizar diretamente no banco
+            const { error } = await supabase
+              .from('client_subscriptions')
+              .update({ 
+                payment_status: 'unpaid',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', cs.id);
+              
+            if (error) {
+              console.error(`Erro ao marcar como não pago:`, error);
+            } else {
+              hasChanges = true;
+            }
           } catch (error) {
-            console.error(`Erro ao resetar pagamento para ${cs.profiles.full_name}:`, error);
+            console.error(`Erro ao resetar pagamento para ${cs.profiles?.full_name || 'Desconhecido'}:`, error);
           }
         }
       }
       
       // Só re-fetch se houve mudanças para evitar loop infinito
       if (hasChanges) {
+        console.log('🔄 Recarregando dados após mudanças de status por data de fim');
         fetchClientSubscriptions();
       }
     };
 
-    // Executar checagem diária e reset de pagamentos
+    // Executar checagem diária e reset baseado na data de fim
     const timeoutId = setTimeout(async () => {
       await checkDailyExpiration(); // Nova função de checagem diária
-      await checkAndResetPayments(); // Função existente
+      await checkAndResetPayments(); // Nova lógica baseada na data de fim
     }, 1000);
 
     return () => clearTimeout(timeoutId);
@@ -1330,8 +1353,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               const endDate = parseISO(cs.end_date);
               const isExpired = isPast(endDate);
               
-              // Lógica de status: vencido se data passou OU se não está pago
-              const isVencido = isExpired || !isPaid;
+              // Lógica de status: vencido APENAS se data passou (independente do pagamento)
+              const isVencido = isExpired;
               
               // Estilo visual baseado no status
               const cardBg = isVencido ? 'bg-red-800/90' : 'bg-green-600';
@@ -1360,9 +1383,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <span className="font-medium">Plano:</span><br className="sm:hidden" />
                       <span className="sm:inline">{cs.subscriptions?.name || 'Plano não identificado'}</span><br className="sm:hidden" />
                       <span className="sm:inline sm:ml-1">- {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}</span>
-                    </div>
-                    <div className={`text-xs sm:text-sm ${textColor}/90`}>
-                      <span className="font-medium">Frequência:</span> {cs.subscriptions?.duration_months === 1 ? 'Mensal' : `${cs.subscriptions?.duration_months} meses`}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
                       <div className={`${textColor}/90`}>
@@ -1693,12 +1713,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md border border-gray-800">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Editar Data de Término</h3>
+              <h3 className="text-lg font-semibold text-white">Editar Datas do Plano</h3>
               <button
                 onClick={() => {
                   setShowEditEndDateModal(false);
                   setSelectedClientForEdit(null);
                   setNewEndDate('');
+                  setNewStartDate('');
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
@@ -1710,11 +1731,28 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               <p className="text-sm text-gray-400">Cliente:</p>
               <p className="text-white font-medium">{selectedClientForEdit.profiles?.full_name}</p>
               <p className="text-xs text-gray-400 mt-1">
-                Data atual: {format(parseISO(selectedClientForEdit.end_date), 'dd/MM/yyyy', { locale: ptBR })}
+                Início atual: {format(parseISO(selectedClientForEdit.start_date), 'dd/MM/yyyy', { locale: ptBR })}
+              </p>
+              <p className="text-xs text-gray-400">
+                Término atual: {format(parseISO(selectedClientForEdit.end_date), 'dd/MM/yyyy', { locale: ptBR })}
               </p>
             </div>
 
             <form onSubmit={handleUpdateEndDate} className="space-y-4">
+              <div>
+                <label htmlFor="newStartDate" className="block text-sm font-medium text-gray-400 mb-1">
+                  Nova Data de Início
+                </label>
+                <input
+                  type="date"
+                  id="newStartDate"
+                  value={newStartDate}
+                  onChange={(e) => setNewStartDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  required
+                />
+              </div>
+              
               <div>
                 <label htmlFor="newEndDate" className="block text-sm font-medium text-gray-400 mb-1">
                   Nova Data de Término
@@ -1730,26 +1768,32 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
 
               {/* Informações sobre o impacto da mudança */}
-              {newEndDate && (() => {
+              {newStartDate && newEndDate && (() => {
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
+                const startDate = new Date(newStartDate);
                 const endDate = new Date(newEndDate);
+                startDate.setHours(0, 0, 0, 0);
                 endDate.setHours(0, 0, 0, 0);
-                const isFuture = endDate > today;
-                const isToday = endDate.getTime() === today.getTime();
+                
+                const isStartValid = startDate <= endDate;
+                const isEndFuture = endDate > today;
+                const isEndToday = endDate.getTime() === today.getTime();
                 
                 return (
                   <div className={`p-3 rounded-lg border ${
-                    isFuture 
+                    isStartValid && isEndFuture
                       ? 'bg-green-900/20 border-green-600/30' 
                       : 'bg-red-900/20 border-red-600/30'
                   }`}>
                     <p className={`text-xs ${
-                      isFuture ? 'text-green-400' : 'text-red-400'
+                      isStartValid && isEndFuture ? 'text-green-400' : 'text-red-400'
                     }`}>
-                      {isFuture 
-                        ? `✅ Plano ficará ATIVO até ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })}`
-                        : isToday
+                      {!isStartValid 
+                        ? `❌ Data de início deve ser anterior à data de término`
+                        : isEndFuture 
+                        ? `✅ Plano ficará ATIVO de ${format(startDate, 'dd/MM/yyyy', { locale: ptBR })} até ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })}`
+                        : isEndToday
                         ? `⚠️ Plano ficará VENCIDO hoje (${format(endDate, 'dd/MM/yyyy', { locale: ptBR })})`
                         : `❌ Plano ficará VENCIDO (venceu em ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })})`
                       }
@@ -1765,6 +1809,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     setShowEditEndDateModal(false);
                     setSelectedClientForEdit(null);
                     setNewEndDate('');
+                    setNewStartDate('');
                   }}
                   className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
                 >
@@ -1775,7 +1820,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   disabled={isSavingEndDate}
                   className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
                 >
-                  {isSavingEndDate ? 'Salvando...' : 'Salvar Data'}
+                  {isSavingEndDate ? 'Salvando...' : 'Salvar Datas'}
                 </button>
               </div>
             </form>
