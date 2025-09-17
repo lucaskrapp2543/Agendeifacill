@@ -27,6 +27,7 @@ interface BusinessHoursSelectorProps {
   selectedProfessional?: string;
   selectedServiceDuration?: number;
   professionalAbsences?: string[]; // Dias de ausência do profissional
+  professionalBlockedHours?: string[]; // Horários bloqueados do profissional
 }
 
 const weekDayMap: Record<string, string> = {
@@ -48,7 +49,8 @@ export function BusinessHoursSelector({
   existingAppointments = [],
   selectedProfessional = '',
   selectedServiceDuration = 30,
-  professionalAbsences = []
+  professionalAbsences = [],
+  professionalBlockedHours = []
 }: BusinessHoursSelectorProps) {
   const dayOfWeek = format(selectedDate, 'EEEE', { locale: ptBR });
   const dayKey = dayOfWeek.toLowerCase() as keyof typeof businessHours;
@@ -83,6 +85,7 @@ export function BusinessHoursSelector({
         selectedTime={value}
         businessHours={businessHoursForDay}
         professionalAbsences={professionalAbsences}
+        professionalBlockedHours={professionalBlockedHours}
       />
     </div>
   );

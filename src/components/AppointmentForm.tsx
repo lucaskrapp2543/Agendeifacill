@@ -1085,6 +1085,7 @@ export function AppointmentForm({
                 use15MinuteInterval={establishment.use_15_minute_interval || false}
                 selectedProfessional={selectedProfessional?.id}
                 professionalAbsences={selectedProfessional ? (selectedProfessional as any).absences || [] : []}
+                professionalBlockedHours={selectedProfessional ? (selectedProfessional as any).blocked_hours?.[selectedDate.toISOString().split('T')[0]] || [] : []}
               />
             )}
           </div>

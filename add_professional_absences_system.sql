@@ -88,3 +88,4 @@ COMMENT ON FUNCTION is_professional_absent(uuid, text, text) IS 'Verifica se um 
 -- SELECT is_professional_absent('uuid-do-estabelecimento', 'id-do-profissional', '2025-01-20');
 
 RAISE NOTICE 'Sistema de ausências dos profissionais implementado com sucesso!';
+

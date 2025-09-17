@@ -374,6 +374,13 @@ const EstablishmentDashboard = () => {
   const [professionalAbsences, setProfessionalAbsences] = useState<Record<string, string[]>>({});
   const [absenceModalCurrentMonth, setAbsenceModalCurrentMonth] = useState(new Date());
 
+  // Estados para gerenciar bloqueio de horários dos profissionais
+  const [showBlockTimeModal, setShowBlockTimeModal] = useState(false);
+  const [selectedProfessionalForBlock, setSelectedProfessionalForBlock] = useState<string | null>(null);
+  const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
+  const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
+
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pinPassword, setPinPassword] = useState('');
   const [showPinModal, setShowPinModal] = useState(false);
@@ -2979,6 +2986,96 @@ const EstablishmentDashboard = () => {
     return (professional as any).absences.includes(date);
   };
 
+  // Funções para gerenciar bloqueio de horários dos profissionais
+  const handleOpenBlockTimeModal = (professionalId: string) => {
+    setSelectedProfessionalForBlock(professionalId);
+    
+    // Carregar horários bloqueados existentes do profissional
+    const professional = professionals.find(p => p.id === professionalId);
+    if (professional && (professional as any).blocked_hours) {
+      setBlockedHours(prev => ({
+        ...prev,
+        [professionalId]: (professional as any).blocked_hours
+      }));
+      
+      // Carregar horários bloqueados para a data atual
+      const today = new Date().toISOString().split('T')[0];
+      setSelectedBlockedHours((professional as any).blocked_hours[today] || []);
+    } else {
+      setSelectedBlockedHours([]);
+    }
+    
+    setShowBlockTimeModal(true);
+  };
+
+  const handleCloseBlockTimeModal = () => {
+    setShowBlockTimeModal(false);
+    setSelectedProfessionalForBlock(null);
+    setSelectedBlockedHours([]);
+    setBlockTimeDate(new Date().toISOString().split('T')[0]);
+  };
+
+  const handleToggleBlockedHour = (hour: string) => {
+    setSelectedBlockedHours(prev => {
+      const isSelected = prev.includes(hour);
+      if (isSelected) {
+        return prev.filter(h => h !== hour);
+      } else {
+        return [...prev, hour].sort();
+      }
+    });
+  };
+
+  const handleSaveBlockedHours = async () => {
+    if (!selectedProfessionalForBlock || !establishment) return;
+    
+    try {
+      const updatedProfessionals = professionals.map((professional: any) => {
+        if (professional.id === selectedProfessionalForBlock) {
+          const currentBlockedHours = professional.blocked_hours || {};
+          const updatedBlockedHours = {
+            ...currentBlockedHours,
+            [blockTimeDate]: selectedBlockedHours
+          };
+          
+          return { ...professional, blocked_hours: updatedBlockedHours };
+        }
+        return professional;
+      });
+
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (updateError) {
+        console.error('Erro ao atualizar horários bloqueados:', updateError);
+        toast.error('Erro ao salvar horários bloqueados');
+        return;
+      }
+
+      setProfessionals(updatedProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
+
+      toast.success('Horários bloqueados salvos com sucesso!');
+      handleCloseBlockTimeModal();
+    } catch (error) {
+      console.error('Erro ao salvar horários bloqueados:', error);
+      toast.error('Erro ao salvar horários bloqueados');
+    }
+  };
+
+  // Função para verificar se um horário está bloqueado para um profissional
+  const isHourBlocked = (professionalId: string, date: string, hour: string): boolean => {
+    const professional = professionals.find(p => p.id === professionalId);
+    if (!professional || !(professional as any).blocked_hours) return false;
+    const blockedHoursForDate = (professional as any).blocked_hours[date];
+    return blockedHoursForDate && blockedHoursForDate.includes(hour);
+  };
+
   // Função para adicionar produto adicional
   const handleAddAdditionalProduct = async (appointmentId: string, product: AdditionalProduct) => {
     try {
@@ -5414,6 +5511,20 @@ const EstablishmentDashboard = () => {
                           </div>
                           <span className="text-sm text-gray-400">Configurar dias ausente</span>
                         </div>
+
+                        {/* Campo de Bloquear Horário */}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <button
+                              onClick={() => handleOpenBlockTimeModal(professional.id)}
+                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                            >
+                              <span>🔒</span>
+                              <span>Bloquear Horário</span>
+                            </button>
+                          </div>
+                          <span className="text-sm text-gray-400">Bloquear horários específicos</span>
+                        </div>
                     </div>
                   ))}
                   {professionals.length === 0 && (
@@ -6405,6 +6516,189 @@ const EstablishmentDashboard = () => {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Salvar Ausências
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Bloqueio de Horários */}
+      {showBlockTimeModal && selectedProfessionalForBlock && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-semibold text-white">
+                  Bloquear Horários - {professionals.find(p => p.id === selectedProfessionalForBlock)?.name}
+                </h3>
+                <button
+                  onClick={handleCloseBlockTimeModal}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-gray-300 text-sm mb-4">
+                  Selecione a data e os horários que deseja bloquear. Estes horários ficarão indisponíveis para novos agendamentos.
+                </p>
+                
+                {/* Seleção de Data */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Data
+                  </label>
+                  <input
+                    type="date"
+                    value={blockTimeDate}
+                    onChange={(e) => {
+                      setBlockTimeDate(e.target.value);
+                      // Carregar horários bloqueados para a nova data
+                      const professional = professionals.find(p => p.id === selectedProfessionalForBlock);
+                      if (professional && (professional as any).blocked_hours) {
+                        setSelectedBlockedHours((professional as any).blocked_hours[e.target.value] || []);
+                      } else {
+                        setSelectedBlockedHours([]);
+                      }
+                    }}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-4 py-2 bg-[#242628] border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Seleção de Horários */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">
+                    Horários Disponíveis para Bloqueio
+                  </label>
+                  
+                  {/* Gerar horários baseado nos horários de funcionamento */}
+                  <div className="grid grid-cols-6 gap-2 max-h-60 overflow-y-auto">
+                    {(() => {
+                      const professional = professionals.find(p => p.id === selectedProfessionalForBlock);
+                      if (!professional) return [];
+                      
+                      const selectedDate = new Date(blockTimeDate + 'T00:00:00');
+                      const dayName = selectedDate.toLocaleDateString('pt-BR', { weekday: 'long' }).toLowerCase();
+                      const dayMap: Record<string, string> = {
+                        'domingo': 'sunday',
+                        'segunda-feira': 'monday',
+                        'terça-feira': 'tuesday',
+                        'quarta-feira': 'wednesday',
+                        'quinta-feira': 'thursday',
+                        'sexta-feira': 'friday',
+                        'sábado': 'saturday'
+                      };
+                      
+                      const englishDay = dayMap[dayName];
+                      const businessHours = establishment?.business_hours?.[englishDay];
+                      
+                      if (!businessHours || !businessHours.enabled) {
+                        return (
+                          <div className="col-span-6 text-center text-gray-400 py-4">
+                            Estabelecimento fechado neste dia
+                          </div>
+                        );
+                      }
+                      
+                      const slots = [];
+                      const interval = 15; // 15 minutos
+                      
+                      // Primeiro período
+                      const startMinutes = parseInt(businessHours.open1.split(':')[0]) * 60 + parseInt(businessHours.open1.split(':')[1]);
+                      const endMinutes = parseInt(businessHours.close1.split(':')[0]) * 60 + parseInt(businessHours.close1.split(':')[1]);
+                      
+                      for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
+                        const hours = Math.floor(minutes / 60);
+                        const mins = minutes % 60;
+                        const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                        const isSelected = selectedBlockedHours.includes(timeString);
+                        
+                        slots.push(
+                          <button
+                            key={timeString}
+                            onClick={() => handleToggleBlockedHour(timeString)}
+                            className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+                              isSelected 
+                                ? 'bg-red-600 text-white hover:bg-red-700' 
+                                : 'bg-gray-700 text-white hover:bg-gray-600'
+                            }`}
+                          >
+                            {timeString}
+                          </button>
+                        );
+                      }
+                      
+                      // Segundo período (se existir)
+                      if (businessHours.open2 && businessHours.close2) {
+                        const startMinutes2 = parseInt(businessHours.open2.split(':')[0]) * 60 + parseInt(businessHours.open2.split(':')[1]);
+                        const endMinutes2 = parseInt(businessHours.close2.split(':')[0]) * 60 + parseInt(businessHours.close2.split(':')[1]);
+                        
+                        for (let minutes = startMinutes2; minutes < endMinutes2; minutes += interval) {
+                          const hours = Math.floor(minutes / 60);
+                          const mins = minutes % 60;
+                          const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                          const isSelected = selectedBlockedHours.includes(timeString);
+                          
+                          slots.push(
+                            <button
+                              key={timeString}
+                              onClick={() => handleToggleBlockedHour(timeString)}
+                              className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+                                isSelected 
+                                  ? 'bg-red-600 text-white hover:bg-red-700' 
+                                  : 'bg-gray-700 text-white hover:bg-gray-600'
+                              }`}
+                            >
+                              {timeString}
+                            </button>
+                          );
+                        }
+                      }
+                      
+                      return slots;
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Lista de horários selecionados */}
+              {selectedBlockedHours.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="text-lg font-medium text-white mb-3">Horários Selecionados para Bloqueio:</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedBlockedHours.map(hour => (
+                      <div key={hour} className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded-lg text-sm">
+                        <span>{hour}</span>
+                        <button
+                          onClick={() => handleToggleBlockedHour(hour)}
+                          className="hover:text-red-200 transition-colors"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Botões */}
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={handleCloseBlockTimeModal}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveBlockedHours}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Salvar Horários Bloqueados
                 </button>
               </div>
             </div>

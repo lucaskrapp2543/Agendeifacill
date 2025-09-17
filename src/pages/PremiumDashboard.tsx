@@ -1119,6 +1119,7 @@ const PremiumDashboard = () => {
                               }}
                               selectedProfessional={establishment.professionals.find(p => p.name === professional)?.id}
                               professionalAbsences={establishment.professionals.find(p => p.name === professional) ? (establishment.professionals.find(p => p.name === professional) as any).absences || [] : []}
+                              professionalBlockedHours={establishment.professionals.find(p => p.name === professional) ? (establishment.professionals.find(p => p.name === professional) as any).blocked_hours?.[appointmentDate] || [] : []}
                             />
                           </div>
                         )}

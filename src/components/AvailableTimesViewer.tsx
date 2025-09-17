@@ -149,6 +149,7 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
             onSelectTime={() => {}} // Não faz nada ao clicar, apenas visualização
             businessHours={getBusinessHoursForDay(selectedDate)}
             professionalAbsences={(selectedProfessional as any).absences || []}
+            professionalBlockedHours={(selectedProfessional as any).blocked_hours?.[selectedDate.toISOString().split('T')[0]] || []}
           />
         </div>
       )}

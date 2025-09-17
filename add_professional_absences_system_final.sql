@@ -156,3 +156,4 @@ WHERE professionals IS NOT NULL AND array_length(professionals, 1) > 0;
 RAISE NOTICE 'Sistema de ausências dos profissionais implementado com sucesso!';
 RAISE NOTICE 'Funções criadas: is_professional_absent() e get_professional_absences()';
 RAISE NOTICE 'Campo absences adicionado a todos os profissionais existentes';
+

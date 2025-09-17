@@ -40,6 +40,7 @@ interface TimeSlotSelectorProps {
   filterPastTimes?: boolean; // Nova prop para filtrar horários passados
   selectedProfessional?: string; // Profissional selecionado
   professionalAbsences?: string[]; // Dias de ausência do profissional
+  professionalBlockedHours?: string[]; // Horários bloqueados do profissional para a data selecionada
 }
 
 export function TimeSlotSelector({
@@ -53,7 +54,8 @@ export function TimeSlotSelector({
   use15MinuteInterval = false, // Valor padrão false (15 em 15 min)
   filterPastTimes = false, // Valor padrão false (não filtrar horários passados)
   selectedProfessional,
-  professionalAbsences = []
+  professionalAbsences = [],
+  professionalBlockedHours = []
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -155,21 +157,29 @@ export function TimeSlotSelector({
           continue;
         }
 
-        // Verificar conflitos com agendamentos existentes
-        for (const appointment of relevantAppointments) {
-          const aptStartMinutes = timeToMinutes(appointment.appointment_time);
-          const aptEndMinutes = aptStartMinutes + appointment.duration;
-          
-          // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
-          if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
-            isAvailable = false;
-            conflictReason = 'Horário Reservado';
-            break;
+        // Verificar se o horário está bloqueado pelo profissional
+        if (professionalBlockedHours.includes(timeString)) {
+          isAvailable = false;
+          conflictReason = 'Horário Fechado';
+        }
+
+        // Verificar conflitos com agendamentos existentes (apenas se não estiver bloqueado)
+        if (isAvailable) {
+          for (const appointment of relevantAppointments) {
+            const aptStartMinutes = timeToMinutes(appointment.appointment_time);
+            const aptEndMinutes = aptStartMinutes + appointment.duration;
+            
+            // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
+            if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
+              isAvailable = false;
+              conflictReason = 'Horário Reservado';
+              break;
+            }
           }
         }
 
         // Verificar se o serviço não ultrapassa o horário de funcionamento
-        if (slotEndMinutes > endMinutes) {
+        if (isAvailable && slotEndMinutes > endMinutes) {
           isAvailable = false;
           conflictReason = 'Serviço ultrapassaria horário';
         }
@@ -215,20 +225,28 @@ export function TimeSlotSelector({
           continue;
         }
 
-        // Verificar conflitos com agendamentos existentes
-        for (const appointment of relevantAppointments) {
-          const aptStartMinutes = timeToMinutes(appointment.appointment_time);
-          const aptEndMinutes = aptStartMinutes + appointment.duration;
-          
-          // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
-          if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
-            isAvailable = false;
-            conflictReason = 'Horário Reservado';
-            break;
+        // Verificar se o horário está bloqueado pelo profissional
+        if (professionalBlockedHours.includes(timeString)) {
+          isAvailable = false;
+          conflictReason = 'Horário Fechado';
+        }
+
+        // Verificar conflitos com agendamentos existentes (apenas se não estiver bloqueado)
+        if (isAvailable) {
+          for (const appointment of relevantAppointments) {
+            const aptStartMinutes = timeToMinutes(appointment.appointment_time);
+            const aptEndMinutes = aptStartMinutes + appointment.duration;
+            
+            // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
+            if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
+              isAvailable = false;
+              conflictReason = 'Horário Reservado';
+              break;
+            }
           }
         }
 
-        if (slotEndMinutes > endMinutes) {
+        if (isAvailable && slotEndMinutes > endMinutes) {
           isAvailable = false;
           conflictReason = 'Serviço ultrapassaria horário';
         }
@@ -265,9 +283,10 @@ export function TimeSlotSelector({
       {timeSlots.map(({ time, isAvailable, reason }) => {
         const isSelected = selectedTime === time;
         const isReserved = reason === 'Horário Reservado';
+        const isBlocked = reason === 'Horário Fechado';
         const isUltrapassedTime = reason === 'Serviço ultrapassaria horário';
         const isPastTime = reason === 'Horário já passou';
-        const isDisabled = !isAvailable || isReserved || isUltrapassedTime || isPastTime;
+        const isDisabled = !isAvailable || isReserved || isBlocked || isUltrapassedTime || isPastTime;
 
         return (
           <button
@@ -290,6 +309,9 @@ export function TimeSlotSelector({
               <span>{time}</span>
               {isReserved && (
                 <span className="text-xs mt-1 text-white">Horário Reservado</span>
+              )}
+              {isBlocked && (
+                <span className="text-xs mt-1 text-white">Horário Fechado</span>
               )}
               {isUltrapassedTime && (
                 <span className="text-xs mt-1 text-white">Serviço ultrapassaria horário</span>
