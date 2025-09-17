@@ -44,6 +44,7 @@ interface Professional {
   specialties: string[];
   percentage?: number; // Campo para percentual do profissional (opcional)
   photo_url?: string; // Campo para foto do profissional
+  offers_child_service?: boolean; // Campo para indicar se oferece serviço infantil
 }
 
 interface ProfessionalPin {
@@ -127,6 +128,8 @@ interface Appointment {
   additional_products?: AdditionalProduct[];
   total_price?: number;
   is_subscriber?: boolean;
+  observation?: string;
+  is_child_service?: boolean;
 }
 
 interface PremiumSubscriber {
@@ -380,6 +383,10 @@ const EstablishmentDashboard = () => {
   const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
+
+  // Estados para modal de observação
+  const [showObservationModal, setShowObservationModal] = useState(false);
+  const [selectedObservation, setSelectedObservation] = useState<string>('');
 
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pinPassword, setPinPassword] = useState('');
@@ -698,6 +705,46 @@ const EstablishmentDashboard = () => {
     });
     
     // Removido salvamento automático para evitar loops
+  };
+
+  // Função para alternar serviço infantil do profissional
+  const handleToggleChildService = async (professionalId: string, offersChildService: boolean) => {
+    console.log('🔄 Alternando serviço infantil:', { professionalId, offersChildService });
+    
+    // Atualizar o estado local
+    setProfessionals(prev => {
+      const updated = prev.map(p => 
+        p.id === professionalId ? { ...p, offers_child_service: offersChildService } : p
+      );
+      console.log('👶 Profissionais após atualização serviço infantil:', updated);
+      return updated;
+    });
+
+    // Salvar no banco de dados
+    if (!establishment) return;
+
+    try {
+      const updatedProfessionals = professionals.map(p => 
+        p.id === professionalId ? { ...p, offers_child_service: offersChildService } : p
+      );
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar serviço infantil:', error);
+        toast('Erro ao salvar configuração de serviço infantil', 'error');
+        return;
+      }
+
+      console.log('✅ Serviço infantil salvo com sucesso');
+      toast(`Serviço infantil ${offersChildService ? 'ativado' : 'desativado'} com sucesso`, 'success');
+    } catch (error) {
+      console.error('❌ Erro ao salvar serviço infantil:', error);
+      toast('Erro ao salvar configuração de serviço infantil', 'error');
+    }
   };
 
   // Função para salvar profissionais no banco de dados
@@ -1184,6 +1231,8 @@ const EstablishmentDashboard = () => {
           card_brand,
           pix_payment_status,
           pix_proof_url,
+          observation,
+          is_child_service,
           additional_products,
           total_price
         `)
@@ -3076,6 +3125,17 @@ const EstablishmentDashboard = () => {
     return blockedHoursForDate && blockedHoursForDate.includes(hour);
   };
 
+  // Funções para gerenciar modal de observação
+  const handleOpenObservationModal = (observation: string) => {
+    setSelectedObservation(observation);
+    setShowObservationModal(true);
+  };
+
+  const handleCloseObservationModal = () => {
+    setShowObservationModal(false);
+    setSelectedObservation('');
+  };
+
   // Função para adicionar produto adicional
   const handleAddAdditionalProduct = async (appointmentId: string, product: AdditionalProduct) => {
     try {
@@ -4548,6 +4608,29 @@ const EstablishmentDashboard = () => {
 
                                               {/* Botões de Status */}
             <div className="flex items-center gap-1">
+              {appointment.observation && (
+                <button
+                  onClick={() => handleOpenObservationModal(appointment.observation || '')}
+                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                  title="Ver observação do cliente"
+                >
+                  Ver Observação
+                </button>
+              )}
+              
+              {appointment.is_child_service !== undefined && (
+                <button
+                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                    appointment.is_child_service 
+                      ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                      : 'bg-gray-600 text-white hover:bg-gray-700'
+                  }`}
+                  title={`Serviço infantil: ${appointment.is_child_service ? 'Sim' : 'Não'}`}
+                >
+                  {appointment.is_child_service ? '👶 Infantil' : '👤 Adulto'}
+                </button>
+              )}
+              
               <button
                 onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
                 className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
@@ -5524,6 +5607,28 @@ const EstablishmentDashboard = () => {
                             </button>
                           </div>
                           <span className="text-sm text-gray-400">Bloquear horários específicos</span>
+                        </div>
+
+                        {/* Campo de Serviço Infantil */}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                              <div className="flex items-center gap-2">
+                                <span>👶</span>
+                                <span className="text-white">Serviço Infantil</span>
+                              </div>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={professional.offers_child_service || false}
+                                  onChange={(e) => handleToggleChildService(professional.id, e.target.checked)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                              </label>
+                            </div>
+                          </div>
+                          <span className="text-sm text-gray-400">Oferecer corte infantil</span>
                         </div>
                     </div>
                   ))}
@@ -6699,6 +6804,53 @@ const EstablishmentDashboard = () => {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Salvar Horários Bloqueados
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Observação */}
+      {showObservationModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-md w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">
+                  Observação do Cliente
+                </h3>
+                <button
+                  onClick={handleCloseObservationModal}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="bg-blue-500/10 border border-blue-400/30 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <svg className="w-6 h-6 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-white text-sm leading-relaxed italic">
+                      "{selectedObservation}"
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={handleCloseObservationModal}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Fechar
                 </button>
               </div>
             </div>

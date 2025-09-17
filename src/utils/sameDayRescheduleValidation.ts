@@ -54,7 +54,7 @@ export const isClientSubscriber = async (clientWhatsapp: string, establishmentId
 };
 
 /**
- * Verifica se um assinante cancelou um agendamento no mesmo dia
+ * Verifica se um cliente cancelou um agendamento no mesmo dia
  */
 export const hasSubscriberCancelledToday = async (
   clientWhatsapp: string, 
@@ -62,7 +62,7 @@ export const hasSubscriberCancelledToday = async (
   selectedDate: Date
 ): Promise<boolean> => {
   try {
-    console.log('🔍 Verificando se assinante cancelou hoje:', {
+    console.log('🔍 Verificando se cliente cancelou hoje:', {
       clientWhatsapp,
       establishmentId,
       selectedDate: selectedDate.toISOString()
@@ -91,7 +91,7 @@ export const hasSubscriberCancelledToday = async (
       return appointmentPhone === normalizedWhatsapp;
     }) || false;
 
-    console.log('📅 Assinante cancelou hoje?', hasCancelledToday);
+    console.log('📅 Cliente cancelou hoje?', hasCancelledToday);
     console.log('📋 Agendamentos cancelados encontrados:', cancelledAppointments?.length || 0);
 
     return hasCancelledToday;
@@ -102,7 +102,7 @@ export const hasSubscriberCancelledToday = async (
 };
 
 /**
- * Valida se um assinante pode agendar em uma data específica (considerando cancelamentos do mesmo dia)
+ * Valida se um cliente pode agendar em uma data específica (considerando cancelamentos do mesmo dia)
  */
 export const validateSameDayReschedule = async (
   clientWhatsapp: string, 

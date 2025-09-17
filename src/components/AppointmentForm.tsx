@@ -222,6 +222,8 @@ export function AppointmentForm({
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
+  const [observation, setObservation] = useState<string>('');
+  const [isChildService, setIsChildService] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const [pixProofUrl, setPixProofUrl] = useState<string | null>(null);
@@ -281,13 +283,21 @@ export function AppointmentForm({
     }
   };
 
-  // Função para validar remarcação no mesmo dia
+  // Função para validar remarcação no mesmo dia (APENAS PARA ASSINANTES)
   const validateSameDayRescheduleDate = async (date: Date) => {
     console.log('🔍 Iniciando validação de remarcação no mesmo dia:', {
       clientWhatsapp,
       establishmentId: establishment?.id,
-      selectedDate: date.toISOString()
+      selectedDate: date.toISOString(),
+      isSubscriberBooking
     });
+
+    // APENAS aplicar validação se for agendamento de assinante
+    if (!isSubscriberBooking) {
+      console.log('✅ Não é assinante, pular validação de remarcação');
+      setSameDayRescheduleError(null);
+      return;
+    }
 
     if (!clientWhatsapp || !establishment?.id) {
       console.log('❌ Dados insuficientes para validação de remarcação');
@@ -330,7 +340,7 @@ export function AppointmentForm({
       validateSubscriberBookingDate(selectedDate);
       validateSameDayRescheduleDate(selectedDate);
     }
-  }, [selectedDate, clientWhatsapp, establishment?.id]);
+  }, [selectedDate, clientWhatsapp, establishment?.id, isSubscriberBooking]);
 
   // Detectar automaticamente se o WhatsApp é de um assinante usando o novo sistema
   useEffect(() => {
@@ -453,7 +463,9 @@ export function AppointmentForm({
       selectedPaymentMethod,
       pixPaymentMethod,
       pixProofUrl,
-      selectedDate: format(selectedDate, 'yyyy-MM-dd')
+      selectedDate: format(selectedDate, 'yyyy-MM-dd'),
+      observation,
+      isChildService
     });
 
     // Salvar dados do usuário no localStorage para auto-preenchimento futuro
@@ -496,6 +508,11 @@ export function AppointmentForm({
     
     if (!selectedTime) {
       missingFields.push('horário');
+    }
+    
+    // Validação obrigatória do serviço infantil (só se profissional oferece)
+    if (selectedProfessional && (selectedProfessional as any).offers_child_service && isChildService === null) {
+      missingFields.push('informação se é serviço infantil');
     }
 
     // Validação específica para PIX
@@ -572,7 +589,9 @@ export function AppointmentForm({
         appointment_time: selectedTime,
         duration: isSubscriberBooking && subscriberService ? (subscriberService.service_duration || 30) : totalDuration, // Usar duração total
         price: isSubscriberBooking && subscriberService ? 0 : totalPrice, // Preço total
-        payment_method: isSubscriberBooking ? 'assinante' : selectedPaymentMethod
+        payment_method: isSubscriberBooking ? 'assinante' : selectedPaymentMethod,
+        observation: observation.trim() || null, // Adicionar observação (null se vazia)
+        is_child_service: isChildService || false // Adicionar serviço infantil (garantir boolean)
       });
 
       // Só navega após sucesso (REMOVIDO: navigate('/success');)
@@ -1091,6 +1110,35 @@ export function AppointmentForm({
           </div>
         )}
 
+        {/* 6. OBSERVAÇÃO - Opcional */}
+        {selectedTime && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Observação
+            </label>
+            <textarea
+              value={observation}
+              onChange={(e) => {
+                if (e.target.value.length <= 100) {
+                  setObservation(e.target.value);
+                }
+              }}
+              placeholder="Quer colocar alguma observação para o barbeiro?"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 resize-none"
+              rows={3}
+              maxLength={100}
+            />
+            <div className="flex justify-between items-center mt-1">
+              <p className="text-xs text-gray-500">
+                (Opcional) Máximo 100 caracteres
+              </p>
+              <span className={`text-xs ${observation.length > 90 ? 'text-red-500' : 'text-gray-400'}`}>
+                {observation.length}/100
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* 7. FORMA DE PAGAMENTO - Oculto para assinantes */}
         {(selectedService || (useMultiService && selectedServices.length > 0)) && !isSubscriberBooking && (
           <div>
@@ -1143,6 +1191,42 @@ export function AppointmentForm({
           </div>
         )}
 
+        {/* 7. SERVIÇO INFANTIL - Obrigatório (só se profissional oferece) */}
+        {selectedTime && selectedProfessional && (selectedProfessional as any).offers_child_service && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Serviço infantil? <span className="text-red-500">*</span>
+            </label>
+            <div className="flex gap-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="childService"
+                  value="true"
+                  checked={isChildService === true}
+                  onChange={() => setIsChildService(true)}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700">Sim</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="childService"
+                  value="false"
+                  checked={isChildService === false}
+                  onChange={() => setIsChildService(false)}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700">Não</span>
+              </label>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              (Obrigatório) Informe se é um serviço para criança
+            </p>
+          </div>
+        )}
+
         {/* RESUMO DO AGENDAMENTO */}
         {((selectedService && selectedProfessional && selectedPaymentMethod && selectedTime) || 
           (isSubscriberBooking && subscriberService && selectedProfessional && selectedTime)) && (
@@ -1172,6 +1256,12 @@ export function AppointmentForm({
                   ? `${subscriberService.service_duration || 30} minutos` // Usar duração da assinatura
                   : `${selectedService?.duration || 30} minutos`
               }</div>
+              {observation && (
+                <div><strong>Observação:</strong> <em>"{observation}"</em></div>
+              )}
+              {selectedProfessional && (selectedProfessional as any).offers_child_service && (
+                <div><strong>Serviço infantil:</strong> {isChildService === null ? 'Não informado' : (isChildService ? 'Sim' : 'Não')}</div>
+              )}
             </div>
           </div>
         )}
