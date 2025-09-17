@@ -148,6 +148,7 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
             selectedProfessional={selectedProfessional.id}
             onSelectTime={() => {}} // Não faz nada ao clicar, apenas visualização
             businessHours={getBusinessHoursForDay(selectedDate)}
+            professionalAbsences={(selectedProfessional as any).absences || []}
           />
         </div>
       )}

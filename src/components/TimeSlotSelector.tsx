@@ -25,6 +25,7 @@ interface TimeSlot {
 interface TimeSlotSelectorProps {
   selectedDate: Date;
   selectedService?: Service;
+  selectedDuration?: number; // Duração do serviço em minutos
   existingAppointments: Appointment[];
   selectedTime?: string;
   onTimeSelect: (time: string) => void;
@@ -37,17 +38,22 @@ interface TimeSlotSelectorProps {
   };
   use15MinuteInterval?: boolean; // Nova prop para configuração de intervalo
   filterPastTimes?: boolean; // Nova prop para filtrar horários passados
+  selectedProfessional?: string; // Profissional selecionado
+  professionalAbsences?: string[]; // Dias de ausência do profissional
 }
 
 export function TimeSlotSelector({
   selectedDate,
   selectedService,
+  selectedDuration,
   existingAppointments,
   selectedTime,
   onTimeSelect,
   businessHours,
   use15MinuteInterval = false, // Valor padrão false (15 em 15 min)
-  filterPastTimes = false // Valor padrão false (não filtrar horários passados)
+  filterPastTimes = false, // Valor padrão false (não filtrar horários passados)
+  selectedProfessional,
+  professionalAbsences = []
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -92,8 +98,19 @@ export function TimeSlotSelector({
     console.log(`🕒 TimeSlotSelector - Gerando horários com filtro de horários passados: ${filterPastTimes}`);
     
     // Se não houver horários de funcionamento ou não estiver habilitado, retornar array vazio
-    if (!businessHours || !businessHours.enabled || !selectedService) {
+    if (!businessHours || !businessHours.enabled || (!selectedService && !selectedDuration)) {
       return slots;
+    }
+
+    // Verificar se o profissional está ausente neste dia
+    const isProfessionalAbsent = selectedProfessional && professionalAbsences.includes(selectedDateString);
+    if (isProfessionalAbsent) {
+      console.log(`🚫 TimeSlotSelector - Profissional ${selectedProfessional} está ausente no dia ${selectedDateString}`);
+      return [{
+        time: '09:00',
+        isAvailable: false,
+        reason: 'Profissional ausente neste dia'
+      }];
     }
 
     // Filtrar agendamentos para o dia específico
@@ -121,7 +138,8 @@ export function TimeSlotSelector({
         const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
         
         // Verificar se há conflito
-        const slotEndMinutes = minutes + (selectedService?.duration || 30);
+        const serviceDuration = selectedService?.duration || selectedDuration || 30;
+        const slotEndMinutes = minutes + serviceDuration;
         let isAvailable = true;
         let conflictReason = '';
 
@@ -180,7 +198,8 @@ export function TimeSlotSelector({
         const mins = minutes % 60;
         const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
         
-        const slotEndMinutes = minutes + (selectedService?.duration || 30);
+        const serviceDuration = selectedService?.duration || selectedDuration || 30;
+        const slotEndMinutes = minutes + serviceDuration;
         let isAvailable = true;
         let conflictReason = '';
 

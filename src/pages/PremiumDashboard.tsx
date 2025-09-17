@@ -1117,6 +1117,8 @@ const PremiumDashboard = () => {
                               businessHours={establishment.business_hours[new Date(appointmentDate).getDay().toString()] || {
                                 enabled: false, open1: '08:00', close1: '18:00', open2: null, close2: null
                               }}
+                              selectedProfessional={establishment.professionals.find(p => p.name === professional)?.id}
+                              professionalAbsences={establishment.professionals.find(p => p.name === professional) ? (establishment.professionals.find(p => p.name === professional) as any).absences || [] : []}
                             />
                           </div>
                         )}

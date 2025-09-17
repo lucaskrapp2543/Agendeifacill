@@ -79,3 +79,4 @@ SELECT
   ROUND(SUM(tamanho_bytes) / 1024.0, 2) as tamanho_kb
 FROM data_usage;
 
+

@@ -368,6 +368,11 @@ const EstablishmentDashboard = () => {
   // Estados para novos clientes
   const [newClientsInfo, setNewClientsInfo] = useState<Record<string, boolean>>({});
 
+  // Estados para ausências dos profissionais
+  const [showAbsenceModal, setShowAbsenceModal] = useState(false);
+  const [selectedProfessionalForAbsence, setSelectedProfessionalForAbsence] = useState<string | null>(null);
+  const [professionalAbsences, setProfessionalAbsences] = useState<Record<string, string[]>>({});
+  const [absenceModalCurrentMonth, setAbsenceModalCurrentMonth] = useState(new Date());
 
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pinPassword, setPinPassword] = useState('');
@@ -1323,6 +1328,16 @@ const EstablishmentDashboard = () => {
 
 
         setProfessionals(professionalsWithPercentage);
+        
+        // Inicializar ausências dos profissionais
+        const absencesData: Record<string, string[]> = {};
+        professionalsWithPercentage.forEach((prof: any) => {
+          if (prof.absences) {
+            absencesData[prof.id] = prof.absences;
+          }
+        });
+        setProfessionalAbsences(absencesData);
+        
         setServicesWithPrices(establishmentData.services_with_prices || []);
         setBusinessHours(establishmentData.business_hours || {
           monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
@@ -2848,6 +2863,120 @@ const EstablishmentDashboard = () => {
       console.error('Erro ao alterar foto do profissional:', error);
       toast.error('Erro ao alterar foto do profissional');
     }
+  };
+
+  // Funções para gerenciar ausências dos profissionais
+  const handleOpenAbsenceModal = (professionalId: string) => {
+    setSelectedProfessionalForAbsence(professionalId);
+    
+    // Carregar ausências existentes do profissional
+    const professional = professionals.find(p => p.id === professionalId);
+    if (professional && (professional as any).absences) {
+      setProfessionalAbsences(prev => ({
+        ...prev,
+        [professionalId]: (professional as any).absences
+      }));
+    }
+    
+    setShowAbsenceModal(true);
+  };
+
+  const handleCloseAbsenceModal = () => {
+    setShowAbsenceModal(false);
+    setSelectedProfessionalForAbsence(null);
+    setAbsenceModalCurrentMonth(new Date()); // Reset para o mês atual
+  };
+
+  const handlePreviousMonth = () => {
+    const newMonth = new Date(absenceModalCurrentMonth);
+    newMonth.setMonth(newMonth.getMonth() - 1);
+    
+    // Não permitir ir para meses passados
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth();
+    
+    // Só permite navegar se não for o mês atual
+    if (!(newMonth.getFullYear() === currentYear && newMonth.getMonth() === currentMonth)) {
+      setAbsenceModalCurrentMonth(newMonth);
+    }
+  };
+
+  const handleNextMonth = () => {
+    const newMonth = new Date(absenceModalCurrentMonth);
+    newMonth.setMonth(newMonth.getMonth() + 1);
+    setAbsenceModalCurrentMonth(newMonth);
+  };
+
+  const handleToggleAbsenceDate = (date: string) => {
+    if (!selectedProfessionalForAbsence) return;
+
+    setProfessionalAbsences(prev => {
+      const currentAbsences = prev[selectedProfessionalForAbsence] || [];
+      const isAbsent = currentAbsences.includes(date);
+      
+      if (isAbsent) {
+        // Remove a data das ausências
+        return {
+          ...prev,
+          [selectedProfessionalForAbsence]: currentAbsences.filter(d => d !== date)
+        };
+      } else {
+        // Adiciona a data às ausências
+        return {
+          ...prev,
+          [selectedProfessionalForAbsence]: [...currentAbsences, date].sort()
+        };
+      }
+    });
+  };
+
+  const handleSaveAbsences = async () => {
+    if (!selectedProfessionalForAbsence || !establishment) return;
+
+    try {
+      const absences = professionalAbsences[selectedProfessionalForAbsence] || [];
+      
+      // Atualizar o profissional com as ausências
+      const updatedProfessionals = professionals.map((professional: any) => {
+        if (professional.id === selectedProfessionalForAbsence) {
+          return { ...professional, absences: absences };
+        }
+        return professional;
+      });
+
+      // Salvar no banco de dados
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (updateError) {
+        console.error('Erro ao atualizar ausências:', updateError);
+        toast.error('Erro ao salvar ausências do profissional');
+        return;
+      }
+
+      // Atualizar estados locais
+      setProfessionals(updatedProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
+
+      toast.success('Ausências do profissional salvas com sucesso!');
+      handleCloseAbsenceModal();
+    } catch (error) {
+      console.error('Erro ao salvar ausências:', error);
+      toast.error('Erro ao salvar ausências do profissional');
+    }
+  };
+
+  // Função para verificar se uma data é de ausência para um profissional
+  const isProfessionalAbsent = (professionalId: string, date: string): boolean => {
+    const professional = professionals.find(p => p.id === professionalId);
+    if (!professional || !(professional as any).absences) return false;
+    return (professional as any).absences.includes(date);
   };
 
   // Função para adicionar produto adicional
@@ -5270,7 +5399,21 @@ const EstablishmentDashboard = () => {
                             />
                           </div>
                           <span className="text-sm text-gray-400">Senha do profissional</span>
-                      </div>
+                        </div>
+                        
+                        {/* Campo de Ausência */}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <button
+                              onClick={() => handleOpenAbsenceModal(professional.id)}
+                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                            >
+                              <span>📅</span>
+                              <span>Ausência</span>
+                            </button>
+                          </div>
+                          <span className="text-sm text-gray-400">Configurar dias ausente</span>
+                        </div>
                     </div>
                   ))}
                   {professionals.length === 0 && (
@@ -6139,6 +6282,135 @@ const EstablishmentDashboard = () => {
         onValidate={handleValidateProfessionalPin}
         professionalName={tempSelectedProfessional === 'all' ? 'all' : getProfessionalName(tempSelectedProfessional || '')}
       />
+
+      {/* Modal de Ausência do Profissional */}
+      {showAbsenceModal && selectedProfessionalForAbsence && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-semibold text-white">
+                  Configurar Ausências - {professionals.find(p => p.id === selectedProfessionalForAbsence)?.name}
+                </h3>
+                <button
+                  onClick={handleCloseAbsenceModal}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="mb-4">
+                <p className="text-gray-300 text-sm mb-4">
+                  Selecione os dias em que o profissional estará ausente. Esses dias serão automaticamente bloqueados para novos agendamentos.
+                </p>
+              </div>
+
+              {/* Navegação do Mês */}
+              <div className="flex justify-between items-center mb-4">
+                <button
+                  onClick={handlePreviousMonth}
+                  disabled={absenceModalCurrentMonth.getMonth() === new Date().getMonth() && absenceModalCurrentMonth.getFullYear() === new Date().getFullYear()}
+                  className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+                >
+                  ← Anterior
+                </button>
+                
+                <h4 className="text-lg font-semibold text-white">
+                  {absenceModalCurrentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </h4>
+                
+                <button
+                  onClick={handleNextMonth}
+                  className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+                >
+                  Próximo →
+                </button>
+              </div>
+
+              {/* Calendário */}
+              <div className="grid grid-cols-7 gap-2 mb-6">
+                {/* Cabeçalho dos dias da semana */}
+                {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => (
+                  <div key={day} className="text-center text-sm font-medium text-gray-400 py-2">
+                    {day}
+                  </div>
+                ))}
+                
+                {/* Dias do mês */}
+                {Array.from({ length: 35 }, (_, i) => {
+                  const currentDate = new Date();
+                  const firstDay = new Date(absenceModalCurrentMonth.getFullYear(), absenceModalCurrentMonth.getMonth(), 1);
+                  const firstDayWeekday = firstDay.getDay();
+                  const dayNumber = i - firstDayWeekday + 1;
+                  const date = new Date(absenceModalCurrentMonth.getFullYear(), absenceModalCurrentMonth.getMonth(), dayNumber);
+                  const dateString = date.toISOString().split('T')[0];
+                  
+                  const isCurrentMonth = date.getMonth() === absenceModalCurrentMonth.getMonth();
+                  const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+                  const currentAbsences = professionalAbsences[selectedProfessionalForAbsence] || [];
+                  const isAbsent = currentAbsences.includes(dateString);
+                  
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => !isPast && isCurrentMonth && handleToggleAbsenceDate(dateString)}
+                      disabled={!isCurrentMonth || isPast}
+                      className={`
+                        aspect-square text-sm rounded-lg transition-colors
+                        ${!isCurrentMonth ? 'text-gray-600' : ''}
+                        ${isPast ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700 cursor-pointer'}
+                        ${isAbsent ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-800 hover:bg-gray-700'}
+                        ${dayNumber === currentDate.getDate() && isCurrentMonth && absenceModalCurrentMonth.getMonth() === currentDate.getMonth() && absenceModalCurrentMonth.getFullYear() === currentDate.getFullYear() ? 'ring-2 ring-blue-500' : ''}
+                      `}
+                    >
+                      {isCurrentMonth ? dayNumber : ''}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Lista de ausências selecionadas */}
+              {professionalAbsences[selectedProfessionalForAbsence]?.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="text-lg font-medium text-white mb-3">Dias de Ausência Selecionados:</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {professionalAbsences[selectedProfessionalForAbsence].map(date => (
+                      <div key={date} className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded-lg text-sm">
+                        <span>{new Date(date).toLocaleDateString('pt-BR')}</span>
+                        <button
+                          onClick={() => handleToggleAbsenceDate(date)}
+                          className="hover:text-red-200 transition-colors"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Botões */}
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={handleCloseAbsenceModal}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveAbsences}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Salvar Ausências
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Produtos Adicionais */}
       <AdditionalProductModal

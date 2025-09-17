@@ -1083,6 +1083,8 @@ export function AppointmentForm({
                 filterPastTimes={user && !isEstablishmentOwner} // Filtrar horários passados apenas para clientes logados
                 businessHours={businessHours}
                 use15MinuteInterval={establishment.use_15_minute_interval || false}
+                selectedProfessional={selectedProfessional?.id}
+                professionalAbsences={selectedProfessional ? (selectedProfessional as any).absences || [] : []}
               />
             )}
           </div>
