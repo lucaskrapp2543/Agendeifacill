@@ -415,6 +415,55 @@ const EstablishmentDashboard = () => {
   const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
+  // Estados para valores financeiros iniciais
+  // Estados para edição do valor bruto por mês
+  const [isEditingGrossValue, setIsEditingGrossValue] = useState(false);
+  const [editingGrossValue, setEditingGrossValue] = useState('');
+  const [monthlyGrossValues, setMonthlyGrossValues] = useState<{[key: string]: number}>({});
+
+  // Função para salvar valor bruto do mês específico
+  const handleSaveGrossValue = async () => {
+    if (!establishment) return;
+
+    const value = parseFloat(editingGrossValue);
+    if (isNaN(value) || value < 0) {
+      toast('Por favor, digite um valor válido (maior ou igual a 0)', 'error');
+      return;
+    }
+
+    try {
+      const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Atualiza o estado local
+      setMonthlyGrossValues(prev => ({
+        ...prev,
+        [monthKey]: value
+      }));
+
+      // Salva no banco de dados
+      const { error } = await supabase
+        .from('establishment_initial_values')
+        .upsert({
+          establishment_id: establishment.id,
+          month_year: monthKey,
+          initial_gross_revenue: value,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) {
+        console.error('Erro ao salvar valor bruto:', error);
+        toast('Erro ao salvar valor bruto', 'error');
+        return;
+      }
+
+      setIsEditingGrossValue(false);
+      setEditingGrossValue('');
+      toast(`Valor bruto de ${formatCurrency(value)} salvo para ${selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}!`, 'success');
+    } catch (error: any) {
+      console.error('Erro ao salvar valor bruto:', error);
+      toast('Erro ao salvar valor bruto', 'error');
+    }
+  };
 
   // Limpa o estado dos PINs quando o estabelecimento é atualizado
   useEffect(() => {
@@ -1454,6 +1503,7 @@ const EstablishmentDashboard = () => {
     if (establishment) {
       fetchAppointments();
       fetchMonthlyAppointments(selectedMonth);
+      // Valores iniciais agora são gerenciados por mês
       
       // Notificações agora são gerenciadas pelo painel interno
       
@@ -1630,6 +1680,76 @@ const EstablishmentDashboard = () => {
     }, 0);
   };
 
+  // Função que inclui valor bruto editado no cálculo bruto (por mês)
+  const calculateTotalGrossWithInitial = (appointments: Appointment[]): number => {
+    const monthlyGross = calculateMonthlyBalance(appointments);
+    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    const editedGrossValue = monthlyGrossValues[monthKey] || 0;
+    return monthlyGross + editedGrossValue;
+  };
+
+  // Função para calcular total das taxas de cartão do mês
+  const calculateTotalCardTaxes = (appointments: Appointment[]): number => {
+    return appointments.reduce((total, appointment) => {
+      if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
+        const baseValue = appointment.total_price || appointment.price || 0;
+        const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+        
+        // Só aplicar taxa se for cartão
+        if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
+          const cardTax = (baseValue * paymentTax) / 100;
+          return total + cardTax;
+        }
+      }
+      return total;
+    }, 0);
+  };
+
+  // Função que inclui valor bruto editado no cálculo líquido (por mês)
+  const calculateTotalLiquidWithInitial = (appointments: Appointment[], expenses: number): number => {
+    const monthlyGross = calculateMonthlyBalance(appointments);
+    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    const editedGrossValue = monthlyGrossValues[monthKey] || 0;
+    const totalGross = monthlyGross + editedGrossValue;
+    
+    // Calcular total das taxas de cartão dos agendamentos do mês
+    const totalCardTaxes = calculateTotalCardTaxes(appointments);
+    
+    return totalGross - expenses - totalCardTaxes;
+  };
+
+  // Função que inclui valor bruto editado no cálculo líquido do estabelecimento (por mês)
+  const calculateTotalEstablishmentLiquidWithInitial = (appointments: Appointment[], expenses: number): number => {
+    const monthlyGross = calculateMonthlyBalance(appointments);
+    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    const editedGrossValue = monthlyGrossValues[monthKey] || 0;
+    const totalGross = monthlyGross + editedGrossValue;
+    
+    // Calcular total das taxas de cartão
+    const totalCardTaxes = calculateTotalCardTaxes(appointments);
+    
+    // Calcular total que você paga para outros profissionais (SEM descontar taxa do profissional)
+    const totalPaidToOthers = appointments.reduce((total, appointment) => {
+      if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
+        const professionalPercentage = getProfessionalPercentageByName(appointment.professional);
+        
+        // Só subtrair se não for dono (100%)
+        if (professionalPercentage < 100) {
+          const baseValue = appointment.total_price || appointment.price || 0;
+          
+          // Profissional recebe % do valor BRUTO (sem descontar taxa)
+          const professionalShare = (baseValue * professionalPercentage) / 100;
+          
+          return total + professionalShare;
+        }
+      }
+      return total;
+    }, 0);
+    
+    // Líquido do estabelecimento = Líquido total - O que você paga para outros
+    return totalGross - expenses - totalCardTaxes - totalPaidToOthers;
+  };
+
   // Função para calcular valor bruto mensal do profissional selecionado
   const calculateMonthlyBalanceForSelectedProfessional = (appointments: Appointment[]): number => {
     const result = appointments.reduce((total, appointment) => {
@@ -1778,13 +1898,23 @@ const EstablishmentDashboard = () => {
       
       const professionalPercentage = getProfessionalPercentageByName(appointment.professional);
       
-      // Só descontar se o profissional tem menos de 100% (é colaborador, não dono)
-      if (professionalPercentage < 100) {
+      // Descontar TODOS os profissionais (incluindo dono com 100%)
+      if (professionalPercentage === 100) {
+        // Para dono: bruto - taxa de cartão (se houver)
+        const baseValue = appointment.total_price || appointment.price || 0;
+        const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+        if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
+          const cardTax = (baseValue * paymentTax) / 100;
+          const netValue = baseValue - cardTax;
+          return total + netValue;
+        } else {
+          return total + baseValue;
+        }
+      } else {
+        // Para outros profissionais: usar função normal
         const netValue = calculateNetValueWithCardTax(appointment);
         return total + netValue;
       }
-      
-      return total; // Profissionais com 100% não são descontados
     }, 0);
     
     return grossValue - collaboratorsValue;
@@ -3244,22 +3374,80 @@ const EstablishmentDashboard = () => {
     return (baseValue * percentage) / 100;
   };
 
+  // Função para calcular valor líquido do dono (descontando apenas taxas de cartão)
+  const calculateOwnerNetValue = (professionalName: string, appointments: Appointment[]) => {
+    const professional = professionals.find(p => p.name === professionalName);
+    if (!professional || professional.percentage !== 100) return 0;
+    
+    // Filtrar apenas agendamentos deste profissional (tanto por nome quanto por ID)
+    const professionalAppointments = appointments.filter(apt => 
+      apt.professional === professionalName || apt.professional === professional.id
+    );
+    
+    // Calcular o líquido total (bruto - taxas de cartão)
+    const totalNet = professionalAppointments.reduce((total, appointment) => {
+      if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
+        const baseValue = appointment.total_price || appointment.price || 0;
+        const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+        
+        // Se for cartão, descontar a taxa
+        if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
+          const cardTax = (baseValue * paymentTax) / 100;
+          const netValue = baseValue - cardTax;
+          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} - R$ ${cardTax} (taxa) = R$ ${netValue}`);
+          return total + netValue;
+        } else {
+          // Se não for cartão, valor total
+          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (sem taxa)`);
+          return total + baseValue;
+        }
+      }
+      return total;
+    }, 0);
+    
+    console.log(`✅ Total líquido DONO ${professionalName}: R$ ${totalNet}`);
+    return totalNet;
+  };
+
   // Função para calcular valor líquido do profissional considerando todos os seus agendamentos
   const calculateProfessionalNetValue = (professionalName: string, appointments: Appointment[]) => {
     const professional = professionals.find(p => p.name === professionalName);
     if (!professional) return 0;
     
-    // Filtrar apenas agendamentos deste profissional
-    const professionalAppointments = appointments.filter(apt => apt.professional === professionalName);
+    // Se for dono (100%), usar cálculo específico
+    if (professional.percentage === 100) {
+      return calculateOwnerNetValue(professionalName, appointments);
+    }
     
-    // Calcular o líquido total usando a função correta
+    // Filtrar apenas agendamentos deste profissional (tanto por nome quanto por ID)
+    const professionalAppointments = appointments.filter(apt => 
+      apt.professional === professionalName || apt.professional === professional.id
+    );
+    
+    console.log(`🔍 Calculando líquido para ${professionalName}:`, {
+      professionalId: professional.id,
+      appointments: professionalAppointments.map(apt => ({
+        id: apt.id,
+        client: apt.client_name,
+        professional: apt.professional,
+        status: apt.status,
+        value: apt.total_price || apt.price,
+        payment_method: apt.payment_method
+      }))
+    });
+    
+    // Calcular o líquido total (profissionais recebem % do valor BRUTO)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
-      if (appointment.status !== 'cancelled' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
-        return total + calculateNetValueWithCardTax(appointment);
+      if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
+        const baseValue = appointment.total_price || appointment.price || 0;
+        const netValue = (baseValue * professional.percentage) / 100;
+        console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${professional.percentage}%)`);
+        return total + netValue;
       }
       return total;
     }, 0);
     
+    console.log(`✅ Total líquido ${professionalName}: R$ ${totalNet}`);
     return totalNet;
   };
 
@@ -5928,13 +6116,15 @@ const EstablishmentDashboard = () => {
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-gray-900">Dashboard Financeiro</h2>
-                    <button
-                      onClick={() => setShowAddExpenseModal(true)}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Adicionar Despesas
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowAddExpenseModal(true)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Adicionar Despesas
+                      </button>
+                    </div>
                   </div>
 
                   {/* Seletor de Mês */}
@@ -5962,12 +6152,55 @@ const EstablishmentDashboard = () => {
                     <div className="bg-green-50 border border-green-200 rounded-lg p-6">
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-lg font-semibold text-green-800">Resumo Bruto</h3>
-                        <TrendingUp className="h-5 w-5 text-green-600" />
+                        <div className="flex items-center gap-2">
+                          {!isEditingGrossValue && (
+                            <button
+                              onClick={() => setIsEditingGrossValue(true)}
+                              className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                            >
+                              EDITAR
+                            </button>
+                          )}
+                          <TrendingUp className="h-5 w-5 text-green-600" />
+                        </div>
                       </div>
-                      <p className="text-3xl font-bold text-green-900">
-                        {formatCurrency(calculateMonthlyBalance(monthlyAppointments))}
-                      </p>
-                      <p className="text-sm text-green-700 mt-1">Total faturado no mês</p>
+                      {isEditingGrossValue ? (
+                        <div className="space-y-2">
+                          <input
+                            type="number"
+                            value={editingGrossValue}
+                            onChange={(e) => setEditingGrossValue(e.target.value)}
+                            placeholder="Digite o valor bruto"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-green-500 text-gray-900 bg-white"
+                            step="0.01"
+                            min="0"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleSaveGrossValue}
+                              className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                            >
+                              SALVAR
+                            </button>
+                            <button
+                              onClick={() => {
+                                setIsEditingGrossValue(false);
+                                setEditingGrossValue('');
+                              }}
+                              className="px-3 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                            >
+                              CANCELAR
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-3xl font-bold text-green-900">
+                            {formatCurrency(calculateTotalGrossWithInitial(monthlyAppointments))}
+                          </p>
+                          <p className="text-sm text-green-700 mt-1">Total faturado no mês</p>
+                        </>
+                      )}
                     </div>
 
                     {/* Resumo Líquido */}
@@ -5977,10 +6210,10 @@ const EstablishmentDashboard = () => {
                         <DollarSign className="h-5 w-5 text-blue-600" />
                       </div>
                       <p className="text-3xl font-bold text-blue-900">
-                        {formatCurrency(calculateMonthlyBalance(monthlyAppointments) - expensesTotal)}
+                        {formatCurrency(calculateTotalLiquidWithInitial(monthlyAppointments, expensesTotal))}
                       </p>
                       <p className="text-sm text-blue-700 mt-1">
-                        Bruto - Despesas ({formatCurrency(expensesTotal)})
+                        Bruto - Despesas - Taxas de Cartão
                       </p>
                     </div>
 
@@ -5991,12 +6224,25 @@ const EstablishmentDashboard = () => {
                         <Building2 className="h-5 w-5 text-purple-600" />
                       </div>
                       <p className="text-3xl font-bold text-purple-900">
-                        {formatCurrency(calculateEstablishmentNetBalance(monthlyAppointments) - expensesTotal)}
+                        {formatCurrency(calculateTotalEstablishmentLiquidWithInitial(monthlyAppointments, expensesTotal))}
                       </p>
                       <p className="text-sm text-purple-700 mt-1">
-                        Bruto - Colaboradores - Despesas
+                        Bruto - Todos os Profissionais - Despesas - Taxas
                       </p>
                     </div>
+                  </div>
+
+                  {/* Taxas de Cartão */}
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-5 w-5 text-red-600" />
+                      <span className="font-medium text-red-900">
+                        Taxas de Cartão: {formatCurrency(calculateTotalCardTaxes(monthlyAppointments))}
+                      </span>
+                    </div>
+                    <p className="text-sm text-red-700 mt-1">
+                      Total das taxas cobradas pelos cartões de crédito/débito
+                    </p>
                   </div>
 
                   {/* Lista de Despesas */}
@@ -6171,11 +6417,54 @@ const EstablishmentDashboard = () => {
                               </p>
                               <p className="text-sm text-blue-600">
                                 {professional.percentage === 100 ? (
-                                  <span className="text-green-600">Dono - Valor total</span>
+                                  <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
                                 ) : (
                                   <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
                                 )}
                               </p>
+                              {/* Mostrar detalhamento dos serviços */}
+                              {professionalAppointments.length > 0 && (
+                                <div className="mt-2 text-xs">
+                                  <details className="cursor-pointer">
+                                    <summary className="text-gray-500 hover:text-gray-700">
+                                      Ver serviços individuais
+                                    </summary>
+                                    <div className="mt-2 space-y-1 bg-gray-100 p-2 rounded">
+                                      {professionalAppointments
+                                        .filter(apt => apt.status === 'completed')
+                                        .map((apt, index) => {
+                                          const baseValue = apt.total_price || apt.price || 0;
+                                          let netValue;
+                                          
+                                          if (professional.percentage === 100) {
+                                            // Para dono: bruto - taxa de cartão (se houver)
+                                            const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                            if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                              const cardTax = (baseValue * paymentTax) / 100;
+                                              netValue = baseValue - cardTax;
+                                            } else {
+                                              netValue = baseValue;
+                                            }
+                                          } else {
+                                            // Para outros profissionais: recebem % do valor BRUTO (sem taxa)
+                                            netValue = (baseValue * professional.percentage) / 100;
+                                          }
+                                          
+                                          return (
+                                            <div key={index} className="flex justify-between text-xs">
+                                              <span className="text-gray-600">
+                                                {apt.client_name} - {formatCurrency(baseValue)}
+                                              </span>
+                                              <span className="text-blue-600">
+                                                → {formatCurrency(netValue)}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                    </div>
+                                  </details>
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -6292,7 +6581,7 @@ const EstablishmentDashboard = () => {
                     <div className="p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm text-blue-700">Total Líquido</p>
                       <p className="text-2xl font-bold text-blue-900">
-                        {formatCurrency(calculateMonthlyBalance(monthlyAppointments) - expensesTotal)}
+                        {formatCurrency(calculateTotalEstablishmentLiquidWithInitial(monthlyAppointments, expensesTotal))}
                       </p>
                     </div>
                   </div>
@@ -6987,7 +7276,7 @@ const EstablishmentDashboard = () => {
                     id="expenseName"
                     value={newExpenseName}
                     onChange={(e) => setNewExpenseName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
                     placeholder="Ex: Aluguel, Luz, Internet..."
                     required
                   />
@@ -7002,7 +7291,7 @@ const EstablishmentDashboard = () => {
                     id="expenseAmount"
                     value={newExpenseAmount}
                     onChange={(e) => setNewExpenseAmount(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
                     placeholder="0,00"
                     required
                   />
@@ -7885,6 +8174,8 @@ const EstablishmentDashboard = () => {
 
         </div>
       </div>
+
+      {/* Modal de Valores Iniciais */}
       
       {/* Botão de Atualização */}
       <UpdateButton />
