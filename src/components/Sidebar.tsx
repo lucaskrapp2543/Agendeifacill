@@ -13,7 +13,8 @@ import {
   Menu,
   Shuffle,
   Link,
-  Receipt
+  Receipt,
+  Package
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -153,7 +154,14 @@ const Sidebar: React.FC<SidebarProps> = ({
        }),
        isActive: activeTab === 'financial-dashboard'
      },
-         {
+     {
+       id: 'products',
+       label: 'Meus Produtos',
+       icon: Package,
+       onClick: () => handleItemClick(() => onTabChange('products')),
+       isActive: activeTab === 'products'
+     },
+     {
        id: 'taxes',
        label: 'Minhas Taxas',
        icon: Receipt,

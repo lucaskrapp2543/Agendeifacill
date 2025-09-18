@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle, Menu } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle, Menu, Package } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal, getClientProfileData, isNewClient } from '../lib/supabase';
@@ -99,11 +99,32 @@ interface Establishment {
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'taxes';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'products' | 'taxes';
 
 interface AdditionalProduct {
   name: string;
   price: number;
+}
+
+interface EstablishmentProduct {
+  id: string;
+  establishment_id: string;
+  name: string;
+  sale_price: number;
+  cost_price: number;
+  stock_quantity: number;
+  sold_quantity: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AppointmentProduct {
+  id: string;
+  appointment_id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  created_at: string;
 }
 
 interface Appointment {
@@ -130,6 +151,14 @@ interface Appointment {
   is_subscriber?: boolean;
   observation?: string;
   is_child_service?: boolean;
+  sold_products?: {
+    id: string;
+    product_id: string;
+    name: string;
+    quantity: number;
+    unit_price: number;
+    total: number;
+  }[];
 }
 
 interface PremiumSubscriber {
@@ -421,6 +450,17 @@ const EstablishmentDashboard = () => {
   const [editingGrossValue, setEditingGrossValue] = useState('');
   const [monthlyGrossValues, setMonthlyGrossValues] = useState<{[key: string]: number}>({});
 
+  // Estados para produtos
+  const [products, setProducts] = useState<EstablishmentProduct[]>([]);
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    sale_price: '',
+    cost_price: '',
+    stock_quantity: ''
+  });
+  const [showAddProductToAppointmentModal, setShowAddProductToAppointmentModal] = useState(false);
+
   // Função para salvar valor bruto do mês específico
   const handleSaveGrossValue = async () => {
     if (!establishment) return;
@@ -462,6 +502,268 @@ const EstablishmentDashboard = () => {
     } catch (error: any) {
       console.error('Erro ao salvar valor bruto:', error);
       toast('Erro ao salvar valor bruto', 'error');
+    }
+  };
+
+  // Funções para produtos
+  const fetchProducts = async () => {
+    if (!establishment) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('establishment_products')
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao buscar produtos:', error);
+        return;
+      }
+
+      setProducts(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar produtos:', error);
+    }
+  };
+
+  const handleAddProduct = async () => {
+    if (!establishment) return;
+
+    const salePrice = parseFloat(newProduct.sale_price);
+    const costPrice = parseFloat(newProduct.cost_price);
+    const stockQuantity = parseInt(newProduct.stock_quantity);
+
+    if (!newProduct.name || isNaN(salePrice) || isNaN(costPrice) || isNaN(stockQuantity)) {
+      toast('Por favor, preencha todos os campos corretamente', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('establishment_products')
+        .insert({
+          establishment_id: establishment.id,
+          name: newProduct.name,
+          sale_price: salePrice,
+          cost_price: costPrice,
+          stock_quantity: stockQuantity,
+          sold_quantity: 0
+        });
+
+      if (error) {
+        console.error('Erro ao adicionar produto:', error);
+        toast('Erro ao adicionar produto', 'error');
+        return;
+      }
+
+      setNewProduct({ name: '', sale_price: '', cost_price: '', stock_quantity: '' });
+      setShowAddProductModal(false);
+      fetchProducts();
+      toast('Produto adicionado com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar produto:', error);
+      toast('Erro ao adicionar produto', 'error');
+    }
+  };
+
+  const handleAddProductToAppointment = async (product: EstablishmentProduct) => {
+    if (!selectedAppointmentForProduct || !establishment) return;
+
+    if (product.stock_quantity <= 0) {
+      toast('Produto sem estoque disponível', 'error');
+      return;
+    }
+
+    try {
+      // Adicionar produto ao agendamento
+      const { error: appointmentProductError } = await supabase
+        .from('appointment_products')
+        .insert({
+          appointment_id: selectedAppointmentForProduct,
+          product_id: product.id,
+          quantity: 1,
+          unit_price: product.sale_price
+        });
+
+      if (appointmentProductError) {
+        console.error('Erro ao adicionar produto ao agendamento:', appointmentProductError);
+        toast('Erro ao adicionar produto ao agendamento', 'error');
+        return;
+      }
+
+      // Atualizar estoque do produto
+      const { error: stockError } = await supabase
+        .from('establishment_products')
+        .update({
+          stock_quantity: product.stock_quantity - 1,
+          sold_quantity: product.sold_quantity + 1
+        })
+        .eq('id', product.id);
+
+      if (stockError) {
+        console.error('Erro ao atualizar estoque:', stockError);
+        toast('Erro ao atualizar estoque do produto', 'error');
+        return;
+      }
+
+      // Atualizar valor total do agendamento
+      const appointment = appointments.find(apt => apt.id === selectedAppointmentForProduct);
+      if (appointment) {
+        const newTotal = (appointment.total_price || appointment.price || 0) + product.sale_price;
+        
+        const { error: updateError } = await supabase
+          .from('appointments')
+          .update({ total_price: newTotal })
+          .eq('id', selectedAppointmentForProduct);
+
+        if (updateError) {
+          console.error('Erro ao atualizar valor do agendamento:', updateError);
+        }
+      }
+
+      // Fechar modal e atualizar dados
+      setShowAddProductToAppointmentModal(false);
+      setSelectedAppointmentForProduct(null);
+      fetchProducts();
+      fetchAppointments();
+      toast(`Produto "${product.name}" adicionado ao agendamento!`, 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar produto:', error);
+      toast('Erro ao adicionar produto', 'error');
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string, productName: string) => {
+    if (!establishment) return;
+
+    const confirmDelete = window.confirm(
+      `🗑️ Excluir produto "${productName}"?\n\n⚠️ Atenção: Esta ação não pode ser desfeita!\n\nO que acontecerá:\n✅ Produto será removido do estoque\n✅ Todas as vendas serão removidas\n\nDeseja continuar?`
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      // Primeiro, remover todos os appointment_products relacionados
+      const { error: deleteAppointmentProductsError } = await supabase
+        .from('appointment_products')
+        .delete()
+        .eq('product_id', productId);
+
+      if (deleteAppointmentProductsError) {
+        console.error('Erro ao remover vendas do produto:', deleteAppointmentProductsError);
+        toast('Erro ao remover vendas do produto', 'error');
+        return;
+      }
+
+      // Depois, remover o produto
+      const { error: deleteProductError } = await supabase
+        .from('establishment_products')
+        .delete()
+        .eq('id', productId)
+        .eq('establishment_id', establishment.id);
+
+      if (deleteProductError) {
+        console.error('Erro ao excluir produto:', deleteProductError);
+        toast('Erro ao excluir produto', 'error');
+        return;
+      }
+
+      fetchProducts();
+      fetchAppointments(); // Atualizar agendamentos para remover produtos vendidos
+      toast(`Produto "${productName}" excluído com sucesso!`, 'success');
+    } catch (error) {
+      console.error('Erro ao excluir produto:', error);
+      toast('Erro ao excluir produto', 'error');
+    }
+  };
+
+  const handleRemoveProductFromAppointment = async (appointmentId: string, productId: string, productName: string) => {
+    if (!establishment) return;
+
+    const confirmRemove = window.confirm(
+      `Tem certeza que deseja remover "${productName}" deste agendamento?\n\nEsta ação irá:\n- Remover o produto do agendamento\n- Devolver 1 unidade ao estoque\n- Atualizar o valor total do agendamento`
+    );
+
+    if (!confirmRemove) return;
+
+    try {
+      // Buscar dados do produto vendido
+      const { data: appointmentProduct, error: fetchError } = await supabase
+        .from('appointment_products')
+        .select('quantity, unit_price')
+        .eq('appointment_id', appointmentId)
+        .eq('product_id', productId)
+        .single();
+
+      if (fetchError || !appointmentProduct) {
+        console.error('Erro ao buscar produto do agendamento:', fetchError);
+        toast('Erro ao buscar produto do agendamento', 'error');
+        return;
+      }
+
+      // Remover produto do agendamento
+      const { error: deleteError } = await supabase
+        .from('appointment_products')
+        .delete()
+        .eq('appointment_id', appointmentId)
+        .eq('product_id', productId);
+
+      if (deleteError) {
+        console.error('Erro ao remover produto do agendamento:', deleteError);
+        toast('Erro ao remover produto do agendamento', 'error');
+        return;
+      }
+
+      // Devolver ao estoque
+      const { data: product, error: productError } = await supabase
+        .from('establishment_products')
+        .select('stock_quantity, sold_quantity')
+        .eq('id', productId)
+        .single();
+
+      if (productError || !product) {
+        console.error('Erro ao buscar produto:', productError);
+        toast('Erro ao buscar produto', 'error');
+        return;
+      }
+
+      const { error: stockError } = await supabase
+        .from('establishment_products')
+        .update({
+          stock_quantity: product.stock_quantity + appointmentProduct.quantity,
+          sold_quantity: product.sold_quantity - appointmentProduct.quantity
+        })
+        .eq('id', productId);
+
+      if (stockError) {
+        console.error('Erro ao atualizar estoque:', stockError);
+        toast('Erro ao atualizar estoque', 'error');
+        return;
+      }
+
+      // Atualizar valor total do agendamento
+      const appointment = appointments.find(apt => apt.id === appointmentId);
+      if (appointment) {
+        const removedValue = appointmentProduct.quantity * appointmentProduct.unit_price;
+        const newTotal = Math.max(0, (appointment.total_price || appointment.price || 0) - removedValue);
+        
+        const { error: updateError } = await supabase
+          .from('appointments')
+          .update({ total_price: newTotal })
+          .eq('id', appointmentId);
+
+        if (updateError) {
+          console.error('Erro ao atualizar valor do agendamento:', updateError);
+        }
+      }
+
+      fetchProducts();
+      fetchAppointments();
+      toast(`Produto "${productName}" removido do agendamento!`, 'success');
+    } catch (error) {
+      console.error('Erro ao remover produto do agendamento:', error);
+      toast('Erro ao remover produto do agendamento', 'error');
     }
   };
 
@@ -1294,6 +1596,36 @@ const EstablishmentDashboard = () => {
       if (error) throw error;
       
       const appointmentsData = data as Appointment[] || [];
+      
+      // Buscar produtos vendidos para cada agendamento
+      for (const appointment of appointmentsData) {
+        const { data: appointmentProducts } = await supabase
+          .from('appointment_products')
+          .select(`
+            id,
+            product_id,
+            quantity,
+            unit_price,
+            establishment_products (
+              name,
+              sale_price
+            )
+          `)
+          .eq('appointment_id', appointment.id);
+
+        // Adicionar produtos vendidos ao agendamento
+        if (appointmentProducts && appointmentProducts.length > 0) {
+          (appointment as any).sold_products = appointmentProducts.map(ap => ({
+            id: ap.id,
+            product_id: ap.product_id,
+            name: ap.establishment_products.name,
+            quantity: ap.quantity,
+            unit_price: ap.unit_price,
+            total: ap.quantity * ap.unit_price
+          }));
+        }
+      }
+      
       setAppointments(appointmentsData);
 
       // Verificar quais clientes são novos
@@ -1496,6 +1828,9 @@ const EstablishmentDashboard = () => {
     }
     if (establishment && activeTab === 'taxes') {
       calculateTaxesReport();
+    }
+    if (establishment && activeTab === 'products') {
+      fetchProducts();
     }
   }, [establishment, activeTab]);
 
@@ -4692,6 +5027,29 @@ const EstablishmentDashboard = () => {
                                     </div>
                                   </div>
                                 )}
+
+                                {/* Produtos do Estoque (V2) */}
+                                {appointment.sold_products && appointment.sold_products.length > 0 && (
+                                  <div className="flex flex-col">
+                                    <span className="text-sm text-white/80 mb-1">Produtos do Estoque:</span>
+                                    <div className="flex flex-wrap gap-2">
+                                      {appointment.sold_products.map((product, index) => (
+                                        <div key={index} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-600/20 text-blue-200 rounded border border-blue-500/30 group">
+                                          <Package className="h-3 w-3" />
+                                          <span>{product.name} - {formatCurrency(product.total)}</span>
+                                          <span className="text-blue-300">({product.quantity}x)</span>
+                                          <button
+                                            onClick={() => handleRemoveProductFromAppointment(appointment.id, product.product_id, product.name)}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 ml-1"
+                                            title="Remover produto do agendamento"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                               
                               <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-3">
@@ -4775,12 +5133,23 @@ const EstablishmentDashboard = () => {
                                   <button
                                     onClick={() => {
                                       setSelectedAppointmentForProduct(appointment.id);
+                                      setShowAddProductToAppointmentModal(true);
+                                    }}
+                                    className="inline-flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors mb-2"
+                                  >
+                                    <Package className="h-4 w-4 mr-1" />
+                                    Adicionar Produto V2
+                                  </button>
+
+                                  <button
+                                    onClick={() => {
+                                      setSelectedAppointmentForProduct(appointment.id);
                                       setShowAdditionalProductModal(true);
                                     }}
                                     className="inline-flex items-center px-3 py-1.5 text-sm bg-white/20 text-white rounded hover:bg-white/30 transition-colors"
                                   >
                                     <Plus className="h-4 w-4 mr-1" />
-                                    Adicionar Produto
+                                    SERVIÇO EXTRA
                                   </button>
 
                                   {appointment.payment_method === 'pix' && appointment.pix_proof_url && (
@@ -7910,6 +8279,90 @@ const EstablishmentDashboard = () => {
         </div>
       )}
 
+      {/* Tab de Meus Produtos */}
+      {activeTab === 'products' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-gray-900">Meus Produtos</h2>
+            <button
+              onClick={() => setShowAddProductModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar Produto
+            </button>
+          </div>
+
+          {products.length === 0 ? (
+            <div className="text-center py-8">
+              <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600 mb-4">Nenhum produto cadastrado ainda</p>
+              <button
+                onClick={() => setShowAddProductModal(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Adicionar Primeiro Produto
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {products.map((product) => {
+                const totalProfit = (product.sale_price - product.cost_price) * product.stock_quantity;
+                const currentProfit = (product.sale_price - product.cost_price) * product.sold_quantity;
+                
+                return (
+                  <div key={product.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
+                    <button
+                      onClick={() => handleDeleteProduct(product.id, product.name)}
+                      className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                      title="Excluir produto"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                    
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2 pr-8">{product.name}</h3>
+                    
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-black">Estoque:</span>
+                        <span className="text-sm font-medium text-black">{product.stock_quantity} unidades</span>
+                      </div>
+                      
+                      <div className="flex justify-between">
+                        <span className="text-sm text-black">Vendidos:</span>
+                        <span className="text-sm font-medium text-black">{product.sold_quantity} unidades</span>
+                      </div>
+                      
+                      <div className="flex justify-between">
+                        <span className="text-sm text-black">Preço de venda:</span>
+                        <span className="text-sm font-medium text-black">{formatCurrency(product.sale_price)}</span>
+                      </div>
+                      
+                      <div className="flex justify-between">
+                        <span className="text-sm text-black">Custo:</span>
+                        <span className="text-sm font-medium text-black">{formatCurrency(product.cost_price)}</span>
+                      </div>
+                      
+                      <div className="border-t pt-2 mt-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm text-black">Lucro total estimado:</span>
+                          <span className="text-sm font-bold text-green-600">{formatCurrency(totalProfit)}</span>
+                        </div>
+                        
+                        <div className="flex justify-between">
+                          <span className="text-sm text-black">Lucro atual:</span>
+                          <span className="text-sm font-bold text-blue-600">{formatCurrency(currentProfit)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tab de Minhas Taxas */}
       {activeTab === 'taxes' && (
         <div className="bg-white rounded-lg p-6 border border-gray-200">
@@ -8176,6 +8629,169 @@ const EstablishmentDashboard = () => {
       </div>
 
       {/* Modal de Valores Iniciais */}
+      
+      {/* Modal para Adicionar Produto */}
+      {showAddProductModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Adicionar Produto</h3>
+              <button
+                onClick={() => setShowAddProductModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nome do produto
+                </label>
+                <input
+                  type="text"
+                  value={newProduct.name}
+                  onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="Ex: Coca-Cola"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Valor de venda (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newProduct.sale_price}
+                  onChange={(e) => setNewProduct({ ...newProduct, sale_price: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="5,00"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Valor de custo (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newProduct.cost_price}
+                  onChange={(e) => setNewProduct({ ...newProduct, cost_price: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="2,50"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Quantidade em estoque
+                </label>
+                <input
+                  type="number"
+                  value={newProduct.stock_quantity}
+                  onChange={(e) => setNewProduct({ ...newProduct, stock_quantity: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="1"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddProductModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAddProduct}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Adicionar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Adicionar Produto V2 (do estoque) */}
+      {showAddProductToAppointmentModal && selectedAppointmentForProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Adicionar Produto do Estoque</h3>
+              <button
+                onClick={() => {
+                  setShowAddProductToAppointmentModal(false);
+                  setSelectedAppointmentForProduct(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600 mb-4">
+                Selecione um produto do seu estoque para adicionar ao agendamento:
+              </p>
+
+              {products.length === 0 ? (
+                <div className="text-center py-4">
+                  <Package className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                  <p className="text-gray-600 text-sm">Nenhum produto cadastrado</p>
+                  <p className="text-gray-500 text-xs mt-1">
+                    Cadastre produtos em "Meus Produtos" primeiro
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {products.map((product) => (
+                    <div
+                      key={product.id}
+                      onClick={() => handleAddProductToAppointment(product)}
+                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                        product.stock_quantity > 0
+                          ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
+                          : 'border-gray-300 bg-gray-100 cursor-not-allowed opacity-50'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h4 className="font-medium text-gray-900">{product.name}</h4>
+                          <p className="text-sm text-gray-600">
+                            Preço: {formatCurrency(product.sale_price)}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Estoque: {product.stock_quantity} unidades
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-green-600">
+                            {formatCurrency(product.sale_price)}
+                          </p>
+                          {product.stock_quantity === 0 && (
+                            <p className="text-xs text-red-500">Sem estoque</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Botão de Atualização */}
       <UpdateButton />
