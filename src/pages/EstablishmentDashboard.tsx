@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle, Menu, Package } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle, Menu, Package, Layers } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal, getClientProfileData, isNewClient } from '../lib/supabase';
@@ -99,7 +99,7 @@ interface Establishment {
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'products' | 'taxes';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'products' | 'service-categories' | 'taxes';
 
 interface AdditionalProduct {
   name: string;
@@ -125,6 +125,28 @@ interface AppointmentProduct {
   quantity: number;
   unit_price: number;
   created_at: string;
+}
+
+interface ServiceCategory {
+  id: string;
+  establishment_id: string;
+  name: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ServiceSubcategory {
+  id: string;
+  category_id: string;
+  name: string;
+  price: number;
+  duration: number;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Appointment {
@@ -461,6 +483,19 @@ const EstablishmentDashboard = () => {
   });
   const [showAddProductToAppointmentModal, setShowAddProductToAppointmentModal] = useState(false);
 
+  // Estados para categorias de serviços
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
+  const [serviceSubcategories, setServiceSubcategories] = useState<ServiceSubcategory[]>([]);
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
+  const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<string | null>(null);
+  const [newCategory, setNewCategory] = useState({ name: '' });
+  const [newSubcategory, setNewSubcategory] = useState({
+    name: '',
+    price: '',
+    duration: '30'
+  });
+
   // Função para salvar valor bruto do mês específico
   const handleSaveGrossValue = async () => {
     if (!establishment) return;
@@ -767,6 +802,128 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // Funções para categorias de serviços
+  const fetchServiceCategories = async () => {
+    if (!establishment) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('service_categories')
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (error) {
+        console.error('Erro ao buscar categorias de serviços:', error);
+        return;
+      }
+
+      setServiceCategories(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar categorias de serviços:', error);
+    }
+  };
+
+  const fetchServiceSubcategories = async () => {
+    if (!establishment) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('service_subcategories')
+        .select(`
+          *,
+          service_categories (
+            establishment_id
+          )
+        `)
+        .eq('is_active', true)
+        .eq('service_categories.establishment_id', establishment.id)
+        .order('display_order', { ascending: true });
+
+      if (error) {
+        console.error('Erro ao buscar subcategorias de serviços:', error);
+        return;
+      }
+
+      setServiceSubcategories(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar subcategorias de serviços:', error);
+    }
+  };
+
+  const handleAddCategory = async () => {
+    if (!establishment) return;
+
+    if (!newCategory.name.trim()) {
+      toast('Por favor, digite o nome da categoria', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('service_categories')
+        .insert({
+          establishment_id: establishment.id,
+          name: newCategory.name.trim().toUpperCase(),
+          display_order: serviceCategories.length
+        });
+
+      if (error) {
+        console.error('Erro ao adicionar categoria:', error);
+        toast('Erro ao adicionar categoria', 'error');
+        return;
+      }
+
+      setNewCategory({ name: '' });
+      setShowAddCategoryModal(false);
+      fetchServiceCategories();
+      toast(`Categoria "${newCategory.name.toUpperCase()}" adicionada com sucesso!`, 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar categoria:', error);
+      toast('Erro ao adicionar categoria', 'error');
+    }
+  };
+
+  const handleAddSubcategory = async () => {
+    if (!selectedCategoryForSubcategory) return;
+
+    const price = parseFloat(newSubcategory.price);
+    const duration = parseInt(newSubcategory.duration);
+
+    if (!newSubcategory.name.trim() || isNaN(price) || isNaN(duration)) {
+      toast('Por favor, preencha todos os campos corretamente', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('service_subcategories')
+        .insert({
+          category_id: selectedCategoryForSubcategory,
+          name: newSubcategory.name.trim(),
+          price: price,
+          duration: duration,
+          display_order: serviceSubcategories.filter(sub => sub.category_id === selectedCategoryForSubcategory).length
+        });
+
+      if (error) {
+        console.error('Erro ao adicionar subcategoria:', error);
+        toast('Erro ao adicionar subcategoria', 'error');
+        return;
+      }
+
+      setNewSubcategory({ name: '', price: '', duration: '30' });
+      setShowAddSubcategoryModal(false);
+      setSelectedCategoryForSubcategory(null);
+      fetchServiceSubcategories();
+      toast(`Serviço "${newSubcategory.name}" adicionado com sucesso!`, 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar subcategoria:', error);
+      toast('Erro ao adicionar subcategoria', 'error');
+    }
+  };
+
   // Limpa o estado dos PINs quando o estabelecimento é atualizado
   useEffect(() => {
     setProfessionalPins({});
@@ -1062,23 +1219,18 @@ const EstablishmentDashboard = () => {
   const handleToggleChildService = async (professionalId: string, offersChildService: boolean) => {
     console.log('🔄 Alternando serviço infantil:', { professionalId, offersChildService });
     
-    // Atualizar o estado local
-    setProfessionals(prev => {
-      const updated = prev.map(p => 
-        p.id === professionalId ? { ...p, offers_child_service: offersChildService } : p
-      );
-      console.log('👶 Profissionais após atualização serviço infantil:', updated);
-      return updated;
-    });
-
-    // Salvar no banco de dados
     if (!establishment) return;
 
     try {
+      // Atualizar o estado local primeiro
       const updatedProfessionals = professionals.map(p => 
         p.id === professionalId ? { ...p, offers_child_service: offersChildService } : p
       );
+      
+      setProfessionals(updatedProfessionals);
+      console.log('👶 Profissionais após atualização serviço infantil:', updatedProfessionals);
 
+      // Salvar no banco de dados usando o estado atualizado
       const { error } = await supabase
         .from('establishments')
         .update({ professionals: updatedProfessionals })
@@ -1087,6 +1239,11 @@ const EstablishmentDashboard = () => {
       if (error) {
         console.error('❌ Erro ao salvar serviço infantil:', error);
         toast('Erro ao salvar configuração de serviço infantil', 'error');
+        
+        // Reverter o estado local em caso de erro
+        setProfessionals(prev => prev.map(p => 
+          p.id === professionalId ? { ...p, offers_child_service: !offersChildService } : p
+        ));
         return;
       }
 
@@ -1095,6 +1252,11 @@ const EstablishmentDashboard = () => {
     } catch (error) {
       console.error('❌ Erro ao salvar serviço infantil:', error);
       toast('Erro ao salvar configuração de serviço infantil', 'error');
+      
+      // Reverter o estado local em caso de erro
+      setProfessionals(prev => prev.map(p => 
+        p.id === professionalId ? { ...p, offers_child_service: !offersChildService } : p
+      ));
     }
   };
 
@@ -1284,8 +1446,10 @@ const EstablishmentDashboard = () => {
         professionals: professionals.map(p => ({
           id: p.id,
           name: p.name.trim(),
+          specialties: p.specialties || [], // PRESERVAR especialidades
           percentage: p.percentage || 100, // Manter o percentual
-          photo_url: (p as any).photo_url // Preservar a foto do profissional
+          photo_url: (p as any).photo_url, // Preservar a foto do profissional
+          offers_child_service: p.offers_child_service || false // PRESERVAR configuração de serviço infantil
         })).filter(p => p.name),
         services_with_prices: servicesWithPrices.map(s => ({
           id: s.id,
@@ -1831,6 +1995,10 @@ const EstablishmentDashboard = () => {
     }
     if (establishment && activeTab === 'products') {
       fetchProducts();
+    }
+    if (establishment && activeTab === 'service-categories') {
+      fetchServiceCategories();
+      fetchServiceSubcategories();
     }
   }, [establishment, activeTab]);
 
@@ -5163,72 +5331,85 @@ const EstablishmentDashboard = () => {
                                   )}
 
 
-                                              {/* Botões de Status */}
-            <div className="flex items-center gap-1">
-              {appointment.observation && (
-                <button
-                  onClick={() => handleOpenObservationModal(appointment.observation || '')}
-                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
-                  title="Ver observação do cliente"
-                >
-                  Ver Observação
-                </button>
-              )}
-              
-              {appointment.is_child_service !== undefined && (
-                <button
-                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                    appointment.is_child_service 
-                      ? 'bg-purple-600 text-white hover:bg-purple-700' 
-                      : 'bg-gray-600 text-white hover:bg-gray-700'
-                  }`}
-                  title={`Serviço infantil: ${appointment.is_child_service ? 'Sim' : 'Não'}`}
-                >
-                  {appointment.is_child_service ? '👶 Infantil' : '👤 Adulto'}
-                </button>
-              )}
-              
-              <button
-                onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
-                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
-                 title="Marcar como CONCLUÍDO"
-              >
-                CONCLUÍDO
-              </button>
+                                              {/* Botões de Status - Responsivo */}
+            <div className="space-y-2">
+              {/* Linha 1: Observação e Tipo de Serviço */}
+              <div className="flex flex-wrap gap-1">
+                {appointment.observation && (
+                  <button
+                    onClick={() => handleOpenObservationModal(appointment.observation || '')}
+                    className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                    title="Ver observação do cliente"
+                  >
+                    Ver Observação
+                  </button>
+                )}
+                
+                {appointment.is_child_service !== undefined && (
+                  <button
+                    className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                      appointment.is_child_service 
+                        ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                        : 'bg-gray-600 text-white hover:bg-gray-700'
+                    }`}
+                    title={`Serviço infantil: ${appointment.is_child_service ? 'Sim' : 'Não'}`}
+                  >
+                    {appointment.is_child_service ? '👶 Infantil' : '👤 Adulto'}
+                  </button>
+                )}
+              </div>
 
-              <button
-                onClick={() => handleUpdateAppointmentStatus(appointment.id, 'pending')}
-                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-yellow-600 text-white hover:bg-yellow-700"
-                title="Marcar como PENDENTE"
-              >
-                PENDENTE
-              </button>
+              {/* Linha 2: Botões de Status - Organizados para mobile */}
+              <div className="grid grid-cols-3 gap-1">
+                <button
+                  onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
+                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
+                  title="Marcar como CONCLUÍDO"
+                >
+                  ✅ CONCLUÍDO
+                </button>
 
-              <button
-                onClick={() => handleCancelClick(appointment.id)}
-                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-red-700 text-white hover:bg-red-800"
-                title="Cancelar agendamento"
-              >
-                CANCELADO
-              </button>
+                <button
+                  onClick={() => handleUpdateAppointmentStatus(appointment.id, 'pending')}
+                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-yellow-600 text-white hover:bg-yellow-700"
+                  title="Marcar como PENDENTE"
+                >
+                  ⏳ PENDENTE
+                </button>
+
+                <button
+                  onClick={() => handleCancelClick(appointment.id)}
+                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-red-700 text-white hover:bg-red-800"
+                  title="Cancelar agendamento"
+                >
+                  ❌ CANCELAR
+                </button>
+              </div>
             </div>
                                 </>
                               )}
                               
                               {appointment.status === 'cancelled' && (
-                                <div className="flex flex-col sm:flex-row gap-2">
-                                <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
-                                  <X className="h-4 w-4 mr-1" />
-                                  Cancelado
-                                </span>
-                                  <button
-                                    onClick={() => handleDeleteAppointment(appointment.id)}
-                                    className="inline-flex items-center px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                                    title="Excluir agendamento permanentemente"
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-1" />
-                                    EXCLUIR
-                                  </button>
+                                <div className="space-y-2">
+                                  {/* Linha 1: Status cancelado */}
+                                  <div className="flex justify-center">
+                                    <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
+                                      <X className="h-4 w-4 mr-1" />
+                                      ❌ CANCELADO
+                                    </span>
+                                  </div>
+                                  
+                                  {/* Linha 2: Botão de exclusão */}
+                                  <div className="flex justify-center">
+                                    <button
+                                      onClick={() => handleDeleteAppointment(appointment.id)}
+                                      className="inline-flex items-center px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                      title="Excluir agendamento permanentemente"
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-1" />
+                                      🗑️ EXCLUIR
+                                    </button>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -8279,6 +8460,81 @@ const EstablishmentDashboard = () => {
         </div>
       )}
 
+      {/* Tab de Serviços com Dropdown */}
+      {activeTab === 'service-categories' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-gray-900">Serviços com Dropdown</h2>
+            <button
+              onClick={() => setShowAddCategoryModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar Categoria
+            </button>
+          </div>
+
+          {serviceCategories.length === 0 ? (
+            <div className="text-center py-8">
+              <Layers className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-black mb-4">Nenhuma categoria de serviço cadastrada ainda</p>
+              <button
+                onClick={() => setShowAddCategoryModal(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Adicionar Primeira Categoria
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {serviceCategories.map((category) => {
+                const categorySubcategories = serviceSubcategories.filter(sub => sub.category_id === category.id);
+                
+                return (
+                  <div key={category.id} className="bg-gray-50 border border-gray-200 rounded-lg p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-xl font-semibold text-gray-900">{category.name}</h3>
+                      <button
+                        onClick={() => {
+                          setSelectedCategoryForSubcategory(category.id);
+                          setShowAddSubcategoryModal(true);
+                        }}
+                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors flex items-center gap-1"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Adicionar Serviço
+                      </button>
+                    </div>
+
+                    {categorySubcategories.length === 0 ? (
+                      <p className="text-black text-sm">Nenhum serviço cadastrado nesta categoria</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {categorySubcategories.map((subcategory) => (
+                          <div key={subcategory.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                            <h4 className="font-medium text-gray-900 mb-2">{subcategory.name}</h4>
+                            <div className="space-y-1">
+                              <div className="flex justify-between">
+                                <span className="text-sm text-black">Preço:</span>
+                                <span className="text-sm font-medium text-black">{formatCurrency(subcategory.price)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-sm text-black">Duração:</span>
+                                <span className="text-sm font-medium text-black">{subcategory.duration}min</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tab de Meus Produtos */}
       {activeTab === 'products' && (
         <div className="bg-white rounded-lg p-6 border border-gray-200">
@@ -8788,6 +9044,147 @@ const EstablishmentDashboard = () => {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Adicionar Categoria */}
+      {showAddCategoryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Adicionar Categoria</h3>
+              <button
+                onClick={() => setShowAddCategoryModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nome da categoria
+                </label>
+                <input
+                  type="text"
+                  value={newCategory.name}
+                  onChange={(e) => setNewCategory({ name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="Ex: BARBA"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  O nome será convertido automaticamente para maiúsculas
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCategoryModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAddCategory}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Adicionar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Adicionar Subcategoria */}
+      {showAddSubcategoryModal && selectedCategoryForSubcategory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Adicionar Serviço</h3>
+              <button
+                onClick={() => {
+                  setShowAddSubcategoryModal(false);
+                  setSelectedCategoryForSubcategory(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nome do serviço
+                </label>
+                <input
+                  type="text"
+                  value={newSubcategory.name}
+                  onChange={(e) => setNewSubcategory({ ...newSubcategory, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="Ex: Barba lisa"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Preço (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newSubcategory.price}
+                  onChange={(e) => setNewSubcategory({ ...newSubcategory, price: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="39,90"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Duração (minutos)
+                </label>
+                <select
+                  value={newSubcategory.duration}
+                  onChange={(e) => setNewSubcategory({ ...newSubcategory, duration: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                >
+                  <option value="15">15 minutos</option>
+                  <option value="20">20 minutos</option>
+                  <option value="30">30 minutos</option>
+                  <option value="45">45 minutos</option>
+                  <option value="60">60 minutos</option>
+                  <option value="90">90 minutos</option>
+                  <option value="120">120 minutos</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddSubcategoryModal(false);
+                    setSelectedCategoryForSubcategory(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAddSubcategory}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  Adicionar
+                </button>
+              </div>
             </div>
           </div>
         </div>

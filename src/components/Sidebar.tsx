@@ -14,7 +14,8 @@ import {
   Shuffle,
   Link,
   Receipt,
-  Package
+  Package,
+  Layers
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -124,6 +125,13 @@ const Sidebar: React.FC<SidebarProps> = ({
        icon: Crown,
        onClick: () => handleItemClick(() => onTabChange('subscribers')),
        isActive: activeTab === 'subscribers'
+     },
+     {
+       id: 'service-categories',
+       label: 'Serviços (com dropdown)',
+       icon: Layers,
+       onClick: () => handleItemClick(() => onTabChange('service-categories')),
+       isActive: activeTab === 'service-categories'
      },
          {
        id: 'hours',
