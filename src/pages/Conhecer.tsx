@@ -175,16 +175,6 @@ const Conhecer = () => {
         </div>
       )}
 
-      {/* Mensagem de Parabéns - Apenas no final */}
-      {showConfetti && quizState.step === 8 && (
-        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-6 py-3 rounded-full shadow-lg animate-pulse">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🎉</span>
-            <span className="font-bold text-lg">Parabéns!</span>
-            <span className="text-2xl">🎉</span>
-          </div>
-        </div>
-      )}
 
        <div className="flex-1 flex items-center justify-center p-2 pt-4">
          <div className="max-w-2xl w-full">
@@ -530,9 +520,6 @@ const Conhecer = () => {
                    {/* Texto destacado sobre a página do cliente */}
                    <div className="bg-green-600 border-l-4 border-green-700 p-4 rounded-lg mb-4">
                      <p className="text-sm font-bold text-white text-center">
-                       <span className="text-green-200">Seu cliente ao entrar no seu link Agendei Fácil, irá para uma página como essa abaixo</span>
-                     </p>
-                     <p className="text-xs text-green-100 mt-2 text-center">
                        Você ganha uma página personalizada e editável, onde seu cliente agenda em poucos cliques. 🔥
                      </p>
                    </div>
