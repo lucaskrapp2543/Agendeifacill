@@ -53,6 +53,7 @@ const AdminDashboard = () => {
   const [showDeleted, setShowDeleted] = useState(false);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
   const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [emailToCheck, setEmailToCheck] = useState('');
   const [userPassword, setUserPassword] = useState('');
@@ -76,21 +77,47 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    if (!user) {
-      // Se não há usuário, redirecionar para login
-      navigate('/login');
-      return;
-    }
+    // Verificar autenticação a cada renderização
+    const checkAuth = async () => {
+      try {
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        
+        if (!currentUser) {
+          navigate('/login');
+          return;
+        }
+        
+        // Verificar se é conta de suporte
+        const isSupport = currentUser.email === 'suporteagendeifacil@gmail.com';
+        
+        if (!isSupport) {
+          toast.error('Acesso negado. Apenas conta de suporte pode acessar esta página.');
+          navigate('/');
+          return;
+        }
+        
+        // Se chegou até aqui, pode carregar dados
+        fetchEstablishments();
+        fetchPendingRegistrationsCount();
+      } catch (error) {
+        console.error('Erro ao verificar autenticação:', error);
+        navigate('/login');
+      }
+    };
     
-    if (!isSupportAccount) {
-      toast.error('Acesso negado. Apenas conta de suporte pode acessar esta página.');
-      navigate('/');
-      return;
-    }
-    
-    fetchEstablishments();
-    fetchPendingRegistrationsCount();
-  }, [user, isSupportAccount, navigate]);
+    checkAuth();
+  }, []);
+
+  // Auto-refresh das inscrições a cada 5 segundos
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      setIsAutoRefreshing(true);
+      await fetchPendingRegistrationsCount();
+      setIsAutoRefreshing(false);
+    }, 5000); // 5 segundos
+
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchPendingRegistrationsCount = async () => {
     try {
@@ -104,7 +131,17 @@ const AdminDashboard = () => {
         return;
       }
 
-      setPendingRegistrationsCount(count || 0);
+      const newCount = count || 0;
+      
+      // Se o número aumentou, mostrar notificação
+      if (newCount > pendingRegistrationsCount && pendingRegistrationsCount > 0) {
+        toast.success(`🎉 Nova inscrição detectada! Total: ${newCount}`, {
+          duration: 4000,
+          icon: '📝'
+        });
+      }
+      
+      setPendingRegistrationsCount(newCount);
     } catch (error) {
       console.error('Erro:', error);
     }
@@ -621,13 +658,17 @@ const AdminDashboard = () => {
               <button
                 onClick={() => setShowNewRegistrations(true)}
                 className="relative flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                title={isAutoRefreshing ? "Atualizando automaticamente..." : "Atualiza a cada 5 segundos"}
               >
-                <FileText className="h-4 w-4" />
+                <FileText className={`h-4 w-4 ${isAutoRefreshing ? 'animate-pulse' : ''}`} />
                 <span>Novas Inscrições</span>
                 {pendingRegistrationsCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center font-bold">
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center font-bold animate-pulse">
                     {pendingRegistrationsCount}
                   </span>
+                )}
+                {isAutoRefreshing && (
+                  <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-ping"></div>
                 )}
               </button>
               
