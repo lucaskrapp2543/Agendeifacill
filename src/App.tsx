@@ -26,6 +26,7 @@ import BookingPage from './pages/BookingPage';
 import EstablishmentDirectBooking from './pages/EstablishmentDirectBooking';
 import { SuccessPage } from './pages/SuccessPage';
 import { Success } from './pages/Success';
+import RegistrationSuccess from './pages/RegistrationSuccess';
 import Suporte060622 from './pages/Suporte060622';
 import CadastroPremium060622 from './pages/CadastroPremium060622';
 import CadastroEstabelecimento060622 from './pages/CadastroEstabelecimento060622';
@@ -146,6 +147,7 @@ function App() {
               />
               
               <Route path="/success" element={<Success />} />
+              <Route path="/registration-success" element={<RegistrationSuccess />} />
               
               {/* Rota dinâmica para agendamento direto */}
               <Route path="/:slug" element={<EstablishmentDirectBooking />} />

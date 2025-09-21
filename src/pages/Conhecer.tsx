@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { RegistrationForm } from '../components/RegistrationForm';
 
 interface QuizState {
   step: number;
@@ -19,6 +20,9 @@ const Conhecer = () => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [currentDeviceIndex, setCurrentDeviceIndex] = useState(0);
+  
+  // Estados para o formulário de inscrição
+  const [showRegistrationForm, setShowRegistrationForm] = useState(false);
 
   const totalSteps = 8;
   const progress = (quizState.step / totalSteps) * 100;
@@ -752,7 +756,7 @@ const Conhecer = () => {
                    
                    <div className="bg-green-600 border-l-4 border-green-700 p-4 rounded-lg mb-4">
                      <p className="text-sm font-bold text-white text-center">
-                       Não se preocupe, esse valor <span className="text-green-200 text-lg">R$ 39,90</span> não aumenta nunca, é sempre esse valor para você. Caso queira pagar anual, ganha 2 meses grátis.
+                       Não se preocupe, esse valor <span className="text-green-200 text-lg">R$ 47,90</span> não aumenta nunca, é sempre esse valor para você. Caso queira pagar anual, ganha 2 meses grátis.
                      </p>
                    </div>
                    
@@ -820,13 +824,13 @@ const Conhecer = () => {
 
                  <div className="space-y-3">
                    <button
-                     onClick={() => window.open('https://pay.cakto.com.br/o798qm9_509159?affiliate=jK2AXbTW', '_blank')}
+                     onClick={() => setShowRegistrationForm(true)}
                      className="w-full p-4 sm:p-5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all duration-300 font-bold text-sm sm:text-base shadow-xl hover:shadow-2xl"
                      style={{
                        animation: 'scalePulse 1.5s ease-in-out infinite'
                      }}
                    >
-                     Quero aproveitar AGORA!
+                     Criar conta Agendei Fácil
                    </button>
                    
                    <p className="text-sm text-gray-600 mb-3 text-center">
@@ -846,6 +850,17 @@ const Conhecer = () => {
           </div>
         </div>
       </div>
+
+      {/* Modal do Formulário de Inscrição */}
+      {showRegistrationForm && (
+        <RegistrationForm
+          onSuccess={() => {
+            setShowRegistrationForm(false);
+            navigate('/registration-success');
+          }}
+          onClose={() => setShowRegistrationForm(false)}
+        />
+      )}
     </div>
   );
 };

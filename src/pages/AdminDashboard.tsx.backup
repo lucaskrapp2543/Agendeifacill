@@ -5,7 +5,6 @@ import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { AppDownloadLinks } from '../components/AppDownloadLinks';
 import { PWADownloadLink } from '../components/PWADownloadLink';
-import { NewRegistrations } from '../components/NewRegistrations';
 import { 
   Building2, 
   Calendar, 
@@ -23,8 +22,12 @@ import {
   Unlock,
   Eye,
   EyeOff,
-  FileText,
-  Bell
+  Bell,
+  UserPlus,
+  Mail,
+  Clock,
+  Check,
+  X
 } from 'lucide-react';
 
 interface Establishment {
@@ -41,6 +44,20 @@ interface Establishment {
   is_blocked?: boolean;
 }
 
+interface SignupRecord {
+  id: string;
+  client_name: string;
+  establishment_name: string;
+  email: string;
+  password: string;
+  status: 'pending' | 'processed' | 'rejected';
+  created_at: string;
+  processed_at?: string;
+  processed_by?: string;
+  notes?: string;
+  is_notification_read: boolean;
+}
+
 const AdminDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -51,8 +68,12 @@ const AdminDashboard = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
   const [filterPlan, setFilterPlan] = useState<'all' | 'monthly' | 'annual'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
-  const [showNewRegistrations, setShowNewRegistrations] = useState(false);
-  const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
+  
+  // Estados para as novas inscrições
+  const [activeTab, setActiveTab] = useState<'establishments' | 'signups'>('establishments');
+  const [signupRecords, setSignupRecords] = useState<SignupRecord[]>([]);
+  const [isLoadingSignups, setIsLoadingSignups] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [emailToCheck, setEmailToCheck] = useState('');
   const [userPassword, setUserPassword] = useState('');
@@ -89,24 +110,101 @@ const AdminDashboard = () => {
     }
     
     fetchEstablishments();
-    fetchPendingRegistrationsCount();
+    fetchSignupRecords();
   }, [user, isSupportAccount, navigate]);
 
-  const fetchPendingRegistrationsCount = async () => {
+  // Função para buscar prontuários de inscrição
+  const fetchSignupRecords = async () => {
     try {
-      const { count, error } = await supabase
-        .from('registration_forms')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
+      setIsLoadingSignups(true);
+      
+      const { data, error } = await supabase
+        .from('signup_records')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Erro ao buscar contagem de inscrições:', error);
-        return;
-      }
+      if (error) throw error;
 
-      setPendingRegistrationsCount(count || 0);
+      setSignupRecords(data || []);
+      
+      // Contar notificações não lidas
+      const unreadCount = data?.filter(record => !record.is_notification_read).length || 0;
+      setUnreadNotifications(unreadCount);
+      
     } catch (error) {
-      console.error('Erro:', error);
+      console.error('Erro ao buscar prontuários de inscrição:', error);
+      toast.error('Erro ao carregar prontuários de inscrição');
+    } finally {
+      setIsLoadingSignups(false);
+    }
+  };
+
+  // Função para marcar notificação como lida
+  const markNotificationAsRead = async (recordId: string) => {
+    try {
+      const { error } = await supabase
+        .from('signup_records')
+        .update({ is_notification_read: true })
+        .eq('id', recordId);
+
+      if (error) throw error;
+
+      // Atualizar estado local
+      setSignupRecords(prev => 
+        prev.map(record => 
+          record.id === recordId 
+            ? { ...record, is_notification_read: true }
+            : record
+        )
+      );
+
+      // Recalcular notificações não lidas
+      const unreadCount = signupRecords.filter(record => 
+        !record.is_notification_read && record.id !== recordId
+      ).length;
+      setUnreadNotifications(unreadCount);
+      
+    } catch (error) {
+      console.error('Erro ao marcar notificação como lida:', error);
+      toast.error('Erro ao marcar notificação como lida');
+    }
+  };
+
+  // Função para processar uma inscrição
+  const processSignupRecord = async (recordId: string, status: 'processed' | 'rejected', notes?: string) => {
+    try {
+      const { error } = await supabase
+        .from('signup_records')
+        .update({ 
+          status,
+          processed_at: new Date().toISOString(),
+          processed_by: user?.id,
+          notes: notes || null
+        })
+        .eq('id', recordId);
+
+      if (error) throw error;
+
+      // Atualizar estado local
+      setSignupRecords(prev => 
+        prev.map(record => 
+          record.id === recordId 
+            ? { 
+                ...record, 
+                status,
+                processed_at: new Date().toISOString(),
+                processed_by: user?.id,
+                notes: notes || null
+              }
+            : record
+        )
+      );
+
+      toast.success(`Inscrição ${status === 'processed' ? 'processada' : 'rejeitada'} com sucesso!`);
+      
+    } catch (error) {
+      console.error('Erro ao processar inscrição:', error);
+      toast.error('Erro ao processar inscrição');
     }
   };
 
@@ -617,20 +715,6 @@ const AdminDashboard = () => {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              {/* Botão Novas Inscrições */}
-              <button
-                onClick={() => setShowNewRegistrations(true)}
-                className="relative flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                <FileText className="h-4 w-4" />
-                <span>Novas Inscrições</span>
-                {pendingRegistrationsCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center font-bold">
-                    {pendingRegistrationsCount}
-                  </span>
-                )}
-              </button>
-              
               <button
                 onClick={() => setShowPasswordModal(true)}
                 className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -651,7 +735,50 @@ const AdminDashboard = () => {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex space-x-8">
+            <button
+              onClick={() => setActiveTab('establishments')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'establishments'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Estabelecimentos
+              </div>
+            </button>
+            
+            <button
+              onClick={() => setActiveTab('signups')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors relative ${
+                activeTab === 'signups'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <UserPlus className="h-4 w-4" />
+                Novas Inscrições
+                {unreadNotifications > 0 && (
+                  <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
+                    {unreadNotifications}
+                  </span>
+                )}
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
              <div className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6">
+        {/* Tab de Estabelecimentos */}
+        {activeTab === 'establishments' && (
+          <>
                  {/* Stats */}
          <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
@@ -1089,16 +1216,175 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
+          </>
+        )}
 
-      {/* Modal Novas Inscrições */}
-      {showNewRegistrations && (
-        <NewRegistrations
-          onClose={() => {
-            setShowNewRegistrations(false);
-            fetchPendingRegistrationsCount(); // Atualizar contagem ao fechar
-          }}
-        />
-      )}
+        {/* Tab de Novas Inscrições */}
+        {activeTab === 'signups' && (
+          <div className="space-y-6">
+            {/* Stats das Inscrições */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <UserPlus className="h-8 w-8 text-blue-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Total Inscrições</p>
+                    <p className="text-2xl font-bold text-gray-900">{signupRecords.length}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <Clock className="h-8 w-8 text-yellow-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Pendentes</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {signupRecords.filter(record => record.status === 'pending').length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <Check className="h-8 w-8 text-green-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Processadas</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {signupRecords.filter(record => record.status === 'processed').length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center">
+                  <Bell className="h-8 w-8 text-red-600" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Não Lidas</p>
+                    <p className="text-2xl font-bold text-gray-900">{unreadNotifications}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Lista de Inscrições */}
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900">Prontuários de Inscrição</h2>
+              </div>
+              
+              {isLoadingSignups ? (
+                <div className="p-8 text-center">
+                  <RefreshCw className="h-8 w-8 text-blue-600 animate-spin mx-auto mb-4" />
+                  <p className="text-gray-600">Carregando inscrições...</p>
+                </div>
+              ) : signupRecords.length === 0 ? (
+                <div className="p-8 text-center">
+                  <UserPlus className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">Nenhuma inscrição encontrada</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-200">
+                  {signupRecords.map((record) => (
+                    <div 
+                      key={record.id} 
+                      className={`p-6 hover:bg-gray-50 transition-colors ${
+                        !record.is_notification_read ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="text-lg font-semibold text-gray-900">
+                              {record.client_name}
+                            </h3>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              record.status === 'pending' 
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : record.status === 'processed'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {record.status === 'pending' ? 'Pendente' : 
+                               record.status === 'processed' ? 'Processada' : 'Rejeitada'}
+                            </span>
+                            {!record.is_notification_read && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                Nova
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+                            <div>
+                              <p><strong>Estabelecimento:</strong> {record.establishment_name}</p>
+                              <p><strong>E-mail:</strong> {record.email}</p>
+                            </div>
+                            <div>
+                              <p><strong>Data:</strong> {new Date(record.created_at).toLocaleDateString('pt-BR')}</p>
+                              <p><strong>Hora:</strong> {new Date(record.created_at).toLocaleTimeString('pt-BR')}</p>
+                            </div>
+                          </div>
+                          
+                          {record.notes && (
+                            <div className="mt-3 p-3 bg-gray-100 rounded-lg">
+                              <p className="text-sm text-gray-700">
+                                <strong>Observações:</strong> {record.notes}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center gap-2 ml-4">
+                          {!record.is_notification_read && (
+                            <button
+                              onClick={() => markNotificationAsRead(record.id)}
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-colors"
+                              title="Marcar como lida"
+                            >
+                              <Bell className="h-4 w-4" />
+                            </button>
+                          )}
+                          
+                          {record.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  const notes = prompt('Adicione uma observação (opcional):');
+                                  processSignupRecord(record.id, 'processed', notes || undefined);
+                                }}
+                                className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-colors"
+                                title="Processar inscrição"
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                              
+                              <button
+                                onClick={() => {
+                                  const notes = prompt('Motivo da rejeição:');
+                                  if (notes) {
+                                    processSignupRecord(record.id, 'rejected', notes);
+                                  }
+                                }}
+                                className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-colors"
+                                title="Rejeitar inscrição"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Seção de Links de Download */}
       <div className="p-6">
