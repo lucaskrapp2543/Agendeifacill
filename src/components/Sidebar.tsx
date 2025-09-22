@@ -15,12 +15,15 @@ import {
   Link,
   Receipt,
   Package,
-  Layers
+  Layers,
+  UserCheck
 } from 'lucide-react';
 
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw';
+
 interface SidebarProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
+  activeTab: TabType;
+  onTabChange: (tab: TabType) => void;
   onSignOut: () => void;
   unreadNotifications?: number;
   onNotificationsClick?: () => void;
@@ -161,6 +164,13 @@ const Sidebar: React.FC<SidebarProps> = ({
          }
        }),
        isActive: activeTab === 'financial-dashboard'
+     },
+     {
+       id: 'professionals',
+       label: 'Profissionais',
+       icon: UserCheck,
+       onClick: () => handleItemClick(() => onTabChange('professionals')),
+       isActive: activeTab === 'professionals'
      },
      {
        id: 'products',

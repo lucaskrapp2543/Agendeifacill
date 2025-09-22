@@ -1072,7 +1072,7 @@ export function AppointmentForm({
                 </button>
               )}
               
-              {/* Mostrar "SERVIÇOS" sempre (antigo "OUTROS SERVIÇOS") */}
+              {/* Mostrar "Outros Serviços" sempre */}
               <button
                 type="button"
                 onClick={() => {

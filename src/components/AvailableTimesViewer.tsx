@@ -85,8 +85,13 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
         <select
           value={selectedService?.id || ''}
           onChange={(e) => {
-            const service = establishment.services_with_prices.find(s => s.id === e.target.value);
-            setSelectedService(service || null);
+            if (e.target.value === 'outros-servicos') {
+              // TODO: Implementar seleção de outros serviços
+              setSelectedService(null);
+            } else {
+              const service = establishment.services_with_prices.find(s => s.id === e.target.value);
+              setSelectedService(service || null);
+            }
           }}
           className="input-field"
           required
@@ -97,6 +102,7 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
               {service.name} - {formatDuration(service.duration)} - R$ {service.price.toFixed(2)}
             </option>
           ))}
+          <option value="outros-servicos">🔥 Outros Serviços 🔥</option>
         </select>
       </div>
 

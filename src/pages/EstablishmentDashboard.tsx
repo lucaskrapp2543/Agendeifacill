@@ -99,7 +99,7 @@ interface Establishment {
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'products' | 'service-categories' | 'taxes';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw';
 
 interface AdditionalProduct {
   name: string;
@@ -481,6 +481,26 @@ const EstablishmentDashboard = () => {
     cost_price: '',
     stock_quantity: ''
   });
+  const [selectedProductForSales, setSelectedProductForSales] = useState<string | null>(null);
+  const [productSalesData, setProductSalesData] = useState<Record<string, any[]>>({});
+
+  const handleShowProductSales = async (productId: string) => {
+    if (selectedProductForSales === productId) {
+      setSelectedProductForSales(null);
+      return;
+    }
+
+    setSelectedProductForSales(productId);
+    
+    // Buscar vendas se ainda não foram carregadas
+    if (!productSalesData[productId]) {
+      const sales = await fetchProductSalesByProfessional(productId);
+      setProductSalesData(prev => ({
+        ...prev,
+        [productId]: sales
+      }));
+    }
+  };
   const [showAddProductToAppointmentModal, setShowAddProductToAppointmentModal] = useState(false);
 
   // Estados para categorias de serviços
@@ -562,6 +582,131 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // Função para buscar vendas de produtos por funcionário no mês atual
+  const fetchProductSalesByProfessional = async (productId: string) => {
+    if (!establishment?.id) return [];
+
+    try {
+      // 1. PRIMEIRO: Buscar TODOS os funcionários do estabelecimento
+      const allProfessionals = establishment.professionals || [];
+      const professionalNames = allProfessionals.map(p => p.name);
+      
+      // Criar mapeamento ID -> Nome
+      const professionalIdToName: Record<string, string> = {};
+      allProfessionals.forEach(prof => {
+        if (prof.id && prof.name) {
+          professionalIdToName[prof.id] = prof.name;
+        }
+      });
+      
+      console.log('🔍 DEBUG - Mapeamento ID -> Nome:', professionalIdToName);
+
+      // 2. Buscar vendas deste produto
+      const { data, error } = await supabase
+        .from('appointment_products')
+        .select(`
+          id,
+          quantity,
+          unit_price,
+          appointment_id
+        `)
+        .eq('product_id', productId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao buscar vendas:', error);
+        return [];
+      }
+
+      // 3. Buscar appointments relacionados
+      const appointmentIds = data?.map(sale => sale.appointment_id) || [];
+      console.log('🔍 DEBUG - Appointment IDs para buscar:', appointmentIds);
+      
+      const { data: appointments, error: appointmentsError } = await supabase
+        .from('appointments')
+        .select(`
+          id,
+          professional,
+          appointment_date,
+          status,
+          establishment_id
+        `)
+        .in('id', appointmentIds);
+      
+      console.log('🔍 DEBUG - Appointments encontrados (SEM filtro de establishment):', appointments);
+      
+      // Filtrar por establishment após buscar
+      const filteredAppointments = appointments?.filter(apt => apt.establishment_id === establishment.id);
+      console.log('🔍 DEBUG - Appointments filtrados por establishment:', filteredAppointments);
+
+      if (appointmentsError) {
+        console.error('Erro ao buscar appointments:', appointmentsError);
+        return [];
+      }
+
+      // 4. Inicializar TODOS os funcionários com 0 vendas
+      const salesByProfessional: Record<string, {
+        professional_name: string;
+        total_quantity: number;
+        total_value: number;
+        sales_count: number;
+      }> = {};
+
+      // Inicializar todos os funcionários com 0
+      professionalNames.forEach(name => {
+        salesByProfessional[name] = {
+          professional_name: name,
+          total_quantity: 0,
+          total_value: 0,
+          sales_count: 0
+        };
+      });
+
+      // 5. Processar vendas reais
+      console.log('🔍 DEBUG - Dados de vendas:', data);
+      console.log('🔍 DEBUG - Appointments encontrados:', appointments);
+      
+      data?.forEach(sale => {
+        const appointment = filteredAppointments?.find(apt => apt.id === sale.appointment_id);
+        
+        // Converter ID do profissional para nome
+        let professionalName = 'Funcionário não identificado';
+        if (appointment?.professional) {
+          // Se é um ID numérico, tentar mapear para nome
+          if (professionalIdToName[appointment.professional]) {
+            professionalName = professionalIdToName[appointment.professional];
+          } else {
+            // Se já é um nome, usar diretamente
+            professionalName = appointment.professional;
+          }
+        }
+        
+        console.log('🔍 DEBUG - Venda:', sale);
+        console.log('🔍 DEBUG - Appointment encontrado:', appointment);
+        console.log('🔍 DEBUG - Professional ID/Nome original:', appointment?.professional);
+        console.log('🔍 DEBUG - Nome do profissional convertido:', professionalName);
+        
+        if (salesByProfessional[professionalName]) {
+          salesByProfessional[professionalName].total_quantity += sale.quantity;
+          salesByProfessional[professionalName].total_value += sale.quantity * sale.unit_price;
+          salesByProfessional[professionalName].sales_count += 1;
+          console.log('🔍 DEBUG - Venda atribuída ao profissional:', professionalName);
+        } else {
+          console.log('🔍 DEBUG - Profissional não encontrado:', professionalName);
+        }
+      });
+
+      const result = Object.values(salesByProfessional);
+      console.log('🔍 DEBUG - Resultado final (TODOS os funcionários):', result);
+      console.log('🔍 DEBUG - Estabelecimento:', establishment.name);
+      console.log('🔍 DEBUG - Funcionários do estabelecimento:', professionalNames);
+      return result;
+    } catch (error) {
+      console.error('Erro ao buscar vendas por profissional:', error);
+      return [];
+    }
+  };
+
   const handleAddProduct = async () => {
     if (!establishment) return;
 
@@ -611,6 +756,13 @@ const EstablishmentDashboard = () => {
     }
 
     try {
+      // Buscar o profissional do agendamento para associar à venda do produto
+      const { data: appointmentData } = await supabase
+        .from('appointments')
+        .select('professional')
+        .eq('id', selectedAppointmentForProduct)
+        .single();
+
       // Adicionar produto ao agendamento
       const { error: appointmentProductError } = await supabase
         .from('appointment_products')
@@ -618,7 +770,8 @@ const EstablishmentDashboard = () => {
           appointment_id: selectedAppointmentForProduct,
           product_id: product.id,
           quantity: 1,
-          unit_price: product.sale_price
+          unit_price: product.sale_price,
+          professional_id: appointmentData?.professional
         });
 
       if (appointmentProductError) {
@@ -1770,6 +1923,7 @@ const EstablishmentDashboard = () => {
             product_id,
             quantity,
             unit_price,
+            professional_id,
             establishment_products (
               name,
               sale_price
@@ -1782,9 +1936,10 @@ const EstablishmentDashboard = () => {
           (appointment as any).sold_products = appointmentProducts.map(ap => ({
             id: ap.id,
             product_id: ap.product_id,
-            name: ap.establishment_products.name,
+            name: ap.establishment_products?.name,
             quantity: ap.quantity,
             unit_price: ap.unit_price,
+            professional_id: ap.professional_id,
             total: ap.quantity * ap.unit_price
           }));
         }
@@ -4541,7 +4696,7 @@ const EstablishmentDashboard = () => {
         {/* Sidebar */}
         <Sidebar
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={(tab) => setActiveTab(tab)}
           onSignOut={signOut}
           unreadNotifications={unreadNotificationsCount}
           onNotificationsClick={() => {
@@ -6160,223 +6315,6 @@ const EstablishmentDashboard = () => {
                 </div>
               </div>
 
-              {/* Profissionais */}
-              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                <h3 className="text-lg font-medium text-white mb-4">Profissionais</h3>
-                <p className="text-sm text-gray-400 mb-6">
-                  Cadastre os profissionais do seu estabelecimento. Para cada profissional, você deve:
-                  <br />• Informar nome e sobrenome
-                  <br />• Definir uma senha de 4 dígitos para acesso ao dashboard individual
-                  <br /><br />
-                  Cada profissional terá acesso ao seu próprio painel de controle onde poderá:
-                  <br />• Visualizar o valor total recebido no dia
-                  <br />• Acompanhar o valor total recebido no mês
-                  <br />• Ver sua lista de agendamentos do dia
-                  <br />• Criar agendamentos e cancelar agendamentos
-                  <br />• Vender produtos adicionais para clientes
-                </p>
-
-                {/* Lista de Profissionais Cadastrados */}
-                {professionals.length > 0 && (
-                  <div className="mb-4 border-b border-gray-800 pb-4">
-                    <h4 className="text-md font-semibold text-gray-300 mb-3">Profissionais Cadastrados:</h4>
-                    <div className="space-y-2">
-                      {professionals.map((professional) => (
-                        <div key={professional.id} className="flex items-center justify-between bg-[#242628] p-3 rounded-lg">
-                          <span className="text-gray-300">{professional.name}</span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleUpdateProfessionalPin(professional.id, '')}
-                              className="text-xs px-2 py-1 bg-green-600/20 text-green-500 rounded"
-                            >
-                              Alterar Senha
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center mb-4">
-                  <button
-                    type="button"
-                    onClick={handleAddProfessional}
-                    disabled={professionals.length >= 10}
-                    className="px-4 py-2 bg-[#242628] text-white rounded-lg hover:bg-[#2a2b2d] transition-colors flex items-center gap-2 border border-gray-700"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Adicionar</span>
-                  </button>
-                  
-                  <button
-                    type="button"
-                    onClick={saveProfessionalsToDatabase}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-                  >
-                    <Check className="h-4 w-4" />
-                    <span>Salvar Profissionais</span>
-                  </button>
-                  
-                  {/* Indicador de status */}
-                  <div className="text-xs text-gray-400">
-                    {professionals.length > 0 && (
-                      <span className="text-yellow-400">⚠ Clique em "Salvar Profissionais" para salvar</span>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Resto do código original dos profissionais */}
-                <div className="space-y-4">
-                  {professionals.map((professional) => (
-                    <div key={professional.id} className="p-4 bg-[#242628] rounded-lg space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            value={professional.name}
-                            onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
-                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                            placeholder="Nome do profissional"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveProfessional(professional.id)}
-                            className="ml-2 text-red-500 hover:text-red-400"
-                        >
-                            <Trash2 className="h-5 w-5" />
-                        </button>
-                        </div>
-                        
-                        {/* Campo de foto do profissional */}
-                        <div className="flex gap-2 items-center">
-                          <div className="flex-1">
-                            <label className="block text-sm text-gray-400 mb-1">Foto do Profissional</label>
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-600 flex-shrink-0">
-                                <img
-                                  src={(professional as any).photo_url || '/fotopessoa.png'}
-                                  alt={professional.name}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.src = '/fotopessoa.png';
-                                  }}
-                                />
-                              </div>
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
-                                className="hidden"
-                                id={`photo-${professional.id}`}
-                              />
-                              <label
-                                htmlFor={`photo-${professional.id}`}
-                                className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 cursor-pointer transition-colors"
-                              >
-                                Alterar Foto
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Campo de percentual do profissional */}
-                        <div className="flex gap-2 items-center">
-                          <div className="flex-1">
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={professional.percentage || 0}
-                              onChange={(e) => handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0)}
-                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                              placeholder="Percentual (%)"
-                            />
-                          </div>
-                          <span className="text-sm text-gray-400">% do profissional</span>
-                        </div>
-                        
-                        {/* Campo de senha do profissional */}
-                        <div className="flex gap-2 items-center">
-                          <div className="flex-1">
-                            <input
-                              type="text"
-                              maxLength={4}
-                              value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
-                              onChange={(e) => {
-                                const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-                                setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
-                                if (value.length === 4) {
-                                  handleUpdateProfessionalPin(professional.id, value);
-                                }
-                              }}
-                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                              placeholder="Senha de 4 dígitos"
-                            />
-                          </div>
-                          <span className="text-sm text-gray-400">Senha do profissional</span>
-                        </div>
-                        
-                        {/* Campo de Ausência */}
-                        <div className="flex gap-2 items-center">
-                          <div className="flex-1">
-                            <button
-                              onClick={() => handleOpenAbsenceModal(professional.id)}
-                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                            >
-                              <span>📅</span>
-                              <span>Ausência</span>
-                            </button>
-                          </div>
-                          <span className="text-sm text-gray-400">Configurar dias ausente</span>
-                        </div>
-
-                        {/* Campo de Bloquear Horário */}
-                        <div className="flex gap-2 items-center">
-                          <div className="flex-1">
-                            <button
-                              onClick={() => handleOpenBlockTimeModal(professional.id)}
-                              className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                            >
-                              <span>🔒</span>
-                              <span>Bloquear Horário</span>
-                            </button>
-                          </div>
-                          <span className="text-sm text-gray-400">Bloquear horários específicos</span>
-                        </div>
-
-                        {/* Campo de Serviço Infantil */}
-                        <div className="flex gap-2 items-center">
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
-                              <div className="flex items-center gap-2">
-                                <span>👶</span>
-                                <span className="text-white">Serviço Infantil</span>
-                              </div>
-                              <label className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={professional.offers_child_service || false}
-                                  onChange={(e) => handleToggleChildService(professional.id, e.target.checked)}
-                                  className="sr-only peer"
-                                />
-                                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                              </label>
-                            </div>
-                          </div>
-                          <span className="text-sm text-gray-400">Oferecer corte infantil</span>
-                        </div>
-                    </div>
-                  ))}
-                  {professionals.length === 0 && (
-                    <p className="text-gray-400 text-center py-4">
-                      Nenhum profissional cadastrado. Clique em "Adicionar" para começar.
-                    </p>
-                  )}
-                </div>
-              </div>
 
               {/* Serviços */}
               <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
@@ -8610,12 +8548,282 @@ const EstablishmentDashboard = () => {
                           <span className="text-sm font-bold text-blue-600">{formatCurrency(currentProfit)}</span>
                         </div>
                       </div>
+
+                      {/* Botão para ver vendas por funcionário */}
+                      <div className="border-t pt-2 mt-2">
+                        <button
+                          onClick={() => handleShowProductSales(product.id)}
+                          className="w-full flex items-center justify-between px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                        >
+                          <span className="text-black">📊 Vendas por Funcionário</span>
+                          <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${
+                            selectedProductForSales === product.id ? 'rotate-180' : ''
+                          }`} />
+                        </button>
+
+                        {/* Dropdown de vendas por funcionário */}
+                        {selectedProductForSales === product.id && (
+                          <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                            <h4 className="text-sm font-medium text-black mb-2">Vendas no Mês Atual</h4>
+                            {productSalesData[product.id] && productSalesData[product.id].length > 0 ? (
+                              <div className="space-y-2">
+                                {productSalesData[product.id].map((sale, index) => (
+                                  <div key={index} className="flex justify-between items-center p-2 bg-white rounded border">
+                                    <div>
+                                      <span className="text-sm font-medium text-black">
+                                        {sale.professional_name || 'Funcionário não identificado'}
+                                      </span>
+                                      <p className="text-xs text-gray-600">{sale.sales_count} vendas</p>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-sm font-bold text-green-600">
+                                        {sale.total_quantity} unidades
+                                      </span>
+                                      <p className="text-xs text-blue-600">
+                                        {formatCurrency(sale.total_value)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 text-center py-2">
+                                Nenhuma venda registrada este mês
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Tab de Profissionais */}
+      {activeTab === 'professionals' && (
+        <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Profissionais</h2>
+          
+          <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+            <h3 className="text-lg font-medium text-white mb-4">Profissionais</h3>
+            <p className="text-sm text-gray-400 mb-6">
+              Cadastre os profissionais do seu estabelecimento. Para cada profissional, você deve:
+              <br />• Informar nome e sobrenome
+              <br />• Definir uma senha de 4 dígitos para acesso ao dashboard individual
+              <br /><br />
+              Cada profissional terá acesso ao seu próprio painel de controle onde poderá:
+              <br />• Visualizar o valor total recebido no dia
+              <br />• Acompanhar o valor total recebido no mês
+              <br />• Ver sua lista de agendamentos do dia
+              <br />• Criar agendamentos e cancelar agendamentos
+              <br />• Vender produtos adicionais para clientes
+            </p>
+
+            {/* Lista de Profissionais Cadastrados */}
+            {professionals.length > 0 && (
+              <div className="mb-4 border-b border-gray-800 pb-4">
+                <h4 className="text-md font-semibold text-gray-300 mb-3">Profissionais Cadastrados:</h4>
+                <div className="space-y-2">
+                  {professionals.map((professional) => (
+                    <div key={professional.id} className="flex items-center justify-between bg-[#242628] p-3 rounded-lg">
+                      <span className="text-gray-300">{professional.name}</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleUpdateProfessionalPin(professional.id, '')}
+                          className="text-xs px-2 py-1 bg-green-600/20 text-green-500 rounded"
+                        >
+                          Alterar Senha
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center mb-4">
+              <button
+                type="button"
+                onClick={handleAddProfessional}
+                disabled={professionals.length >= 10}
+                className="px-4 py-2 bg-[#242628] text-white rounded-lg hover:bg-[#2a2b2d] transition-colors flex items-center gap-2 border border-gray-700"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Adicionar</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={saveProfessionalsToDatabase}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+              >
+                <Check className="h-4 w-4" />
+                <span>Salvar Profissionais</span>
+              </button>
+              
+              {/* Indicador de status */}
+              <div className="text-xs text-gray-400">
+                {professionals.length > 0 && (
+                  <span className="text-yellow-400">⚠ Clique em "Salvar Profissionais" para salvar</span>
+                )}
+              </div>
+            </div>
+            
+            {/* Resto do código original dos profissionais */}
+            <div className="space-y-4">
+              {professionals.map((professional) => (
+                <div key={professional.id} className="p-4 bg-[#242628] rounded-lg space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <input
+                        type="text"
+                        value={professional.name}
+                        onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                        placeholder="Nome do profissional"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveProfessional(professional.id)}
+                      className="ml-2 text-red-500 hover:text-red-400"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
+                  </div>
+                  
+                  {/* Campo de foto do profissional */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <label className="block text-sm text-gray-400 mb-1">Foto do Profissional</label>
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-600 flex-shrink-0">
+                          <img
+                            src={(professional as any).photo_url || '/fotopessoa.png'}
+                            alt={professional.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = '/fotopessoa.png';
+                            }}
+                          />
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                          onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
+                          className="hidden"
+                          id={`photo-${professional.id}`}
+                        />
+                        <label
+                          htmlFor={`photo-${professional.id}`}
+                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 cursor-pointer transition-colors"
+                        >
+                          Alterar Foto
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Campo de percentual do profissional */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={professional.percentage || 0}
+                        onChange={(e) => handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                        placeholder="Percentual (%)"
+                      />
+                    </div>
+                    <span className="text-sm text-gray-400">% do profissional</span>
+                  </div>
+                  
+                  {/* Campo de senha do profissional */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                          setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
+                          if (value.length === 4) {
+                            handleUpdateProfessionalPin(professional.id, value);
+                          }
+                        }}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                        placeholder="Senha de 4 dígitos"
+                      />
+                    </div>
+                    <span className="text-sm text-gray-400">Senha do profissional</span>
+                  </div>
+                  
+                  {/* Campo de Ausência */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <button
+                        onClick={() => handleOpenAbsenceModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>📅</span>
+                        <span>Ausência</span>
+                      </button>
+                    </div>
+                    <span className="text-sm text-gray-400">Configurar dias ausente</span>
+                  </div>
+
+                  {/* Campo de Bloquear Horário */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <button
+                        onClick={() => handleOpenBlockTimeModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>🔒</span>
+                        <span>Bloquear Horário</span>
+                      </button>
+                    </div>
+                    <span className="text-sm text-gray-400">Bloquear horários específicos</span>
+                  </div>
+
+                  {/* Campo de Serviço Infantil */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>👶</span>
+                          <span className="text-white">Serviço Infantil</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={professional.offers_child_service || false}
+                            onChange={(e) => handleToggleChildService(professional.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                        </label>
+                      </div>
+                    </div>
+                    <span className="text-sm text-gray-400">Oferecer corte infantil</span>
+                  </div>
+                </div>
+              ))}
+              {professionals.length === 0 && (
+                <p className="text-gray-400 text-center py-4">
+                  Nenhum profissional cadastrado. Clique em "Adicionar" para começar.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

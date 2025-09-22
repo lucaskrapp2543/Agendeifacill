@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format, parseISO, addMinutes } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Clock, ChevronDown, ChevronUp, CheckCircle, XCircle, Calendar } from 'lucide-react';
@@ -36,11 +36,56 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
   businessHours
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+
+  // Estados para outros serviços
+  const [serviceCategories, setServiceCategories] = useState<any[]>([]);
+  const [serviceSubcategories, setServiceSubcategories] = useState<any[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<any | null>(null);
+  const [showOtherServices, setShowOtherServices] = useState(false);
+
+  // Função para buscar categorias de serviços
+  const fetchServiceCategories = async () => {
+    try {
+      const { data: categories, error } = await supabase
+        .from('service_categories')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .order('name');
+
+      if (error) throw error;
+      setServiceCategories(categories || []);
+    } catch (error) {
+      console.error('Erro ao buscar categorias:', error);
+    }
+  };
+
+  // Função para buscar subcategorias
+  const fetchServiceSubcategories = async (categoryId: string) => {
+    try {
+      const { data: subcategories, error } = await supabase
+        .from('service_subcategories')
+        .select('*')
+        .eq('category_id', categoryId)
+        .order('name');
+
+      if (error) throw error;
+      setServiceSubcategories(subcategories || []);
+    } catch (error) {
+      console.error('Erro ao buscar subcategorias:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (establishmentId) {
+      fetchServiceCategories();
+    }
+  }, [establishmentId]);
 
   const generateTimeSlots = (dayBusinessHours: any): string[] => {
     const slots: string[] = [];
@@ -79,8 +124,14 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
   };
 
   const checkAvailability = async () => {
-    if (!selectedDate || !selectedService || !professionalId) {
-      toast.error('Selecione uma data e um serviço');
+    if (!selectedDate || !professionalId) {
+      toast.error('Selecione uma data');
+      return;
+    }
+
+    // Verificar se tem serviço selecionado (normal ou outros serviços)
+    if (!selectedService && !selectedSubcategory) {
+      toast.error('Selecione um serviço');
       return;
     }
 
@@ -138,10 +189,14 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
 
       if (error) throw error;
 
+      // Determinar qual serviço usar (normal ou outros serviços)
+      const currentService = selectedService || selectedSubcategory;
+      const serviceDuration = currentService?.duration || 30;
+
       // Verificar disponibilidade para cada horário
       const availabilitySlots: TimeSlot[] = allTimeSlots.map(time => {
         const slotStart = new Date(`${format(date, 'yyyy-MM-dd')}T${time}`);
-        const slotEnd = addMinutes(slotStart, selectedService.duration);
+        const slotEnd = addMinutes(slotStart, serviceDuration);
 
         // Verificar se é um horário de intervalo (entre close1 e open2)
         // Verifica se o INÍCIO ou o FIM do serviço invade o intervalo
@@ -257,32 +312,129 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
             )}
           </div>
 
-          {/* Seleção de Serviço */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Serviço
-            </label>
-            <select
-              value={selectedService?.id || ''}
-              onChange={(e) => {
-                const service = services.find(s => s.id === e.target.value);
-                setSelectedService(service || null);
+          {/* Botões de seleção de tipo de serviço */}
+          <div className="flex gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => {
+                setShowOtherServices(false);
+                setSelectedService(null);
+                setSelectedSubcategory(null);
+                setSelectedCategory(null);
               }}
-              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                !showOtherServices
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
             >
-              <option value="" className="text-gray-900">Selecione um serviço</option>
-              {services.map((service) => (
-                <option key={service.id} value={service.id} className="text-gray-900">
-                  {service.name} ({service.duration}min - {service.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
-                </option>
-              ))}
-            </select>
+              Serviços Normais
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => {
+                setShowOtherServices(true);
+                setSelectedService(null);
+                setSelectedSubcategory(null);
+                setSelectedCategory(null);
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                showOtherServices
+                  ? 'bg-red-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              🔥 Outros Serviços 🔥
+            </button>
           </div>
+
+          {/* Seleção de Serviço Normal */}
+          {!showOtherServices && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Serviço
+              </label>
+              <select
+                value={selectedService?.id || ''}
+                onChange={(e) => {
+                  const service = services.find(s => s.id === e.target.value);
+                  setSelectedService(service || null);
+                }}
+                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
+              >
+                <option value="" className="text-gray-900">Selecione um serviço</option>
+                {services.map((service) => (
+                  <option key={service.id} value={service.id} className="text-gray-900">
+                    {service.name} ({service.duration}min - {service.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Interface para Outros Serviços */}
+          {showOtherServices && (
+            <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h4 className="font-medium text-blue-900">🔥 Outros Serviços 🔥</h4>
+              
+              {/* Seleção de Categoria */}
+              <div>
+                <label className="block text-sm font-medium text-blue-700 mb-2">
+                  Categoria
+                </label>
+                <select
+                  value={selectedCategory || ''}
+                  onChange={(e) => {
+                    setSelectedCategory(e.target.value);
+                    setSelectedSubcategory(null);
+                    if (e.target.value) {
+                      fetchServiceSubcategories(e.target.value);
+                    } else {
+                      setServiceSubcategories([]);
+                    }
+                  }}
+                  className="w-full p-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
+                >
+                  <option value="" className="text-gray-900">Selecione uma categoria</option>
+                  {serviceCategories.map((category) => (
+                    <option key={category.id} value={category.id} className="text-gray-900">
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Seleção de Subcategoria */}
+              {selectedCategory && (
+                <div>
+                  <label className="block text-sm font-medium text-blue-700 mb-2">
+                    Serviço Específico
+                  </label>
+                  <select
+                    value={selectedSubcategory?.id || ''}
+                    onChange={(e) => {
+                      const subcategory = serviceSubcategories.find(s => s.id === e.target.value);
+                      setSelectedSubcategory(subcategory || null);
+                    }}
+                    className="w-full p-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
+                  >
+                    <option value="" className="text-gray-900">Selecione um serviço</option>
+                    {serviceSubcategories.map((subcategory) => (
+                      <option key={subcategory.id} value={subcategory.id} className="text-gray-900">
+                        {subcategory.name} ({subcategory.duration}min - R$ {subcategory.price.toFixed(2)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Botão Verificar */}
           <button
             onClick={checkAvailability}
-            disabled={!selectedDate || !selectedService || isLoading}
+            disabled={!selectedDate || (!selectedService && !selectedSubcategory) || isLoading}
             className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             {isLoading ? (
@@ -302,7 +454,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
           {timeSlots.length > 0 && (
             <div className="mt-4">
               <h4 className="font-medium text-gray-900 mb-3">
-                Horários para {selectedService?.name} em {selectedDate && formatDate(selectedDate)}
+                Horários para {(selectedService || selectedSubcategory)?.name} em {selectedDate && formatDate(selectedDate)}
               </h4>
               
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
