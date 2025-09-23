@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RegistrationForm } from '../components/RegistrationForm';
 
 interface QuizState {
   step: number;
@@ -21,8 +20,6 @@ const Conhecer = () => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [currentDeviceIndex, setCurrentDeviceIndex] = useState(0);
   
-  // Estados para o formulário de inscrição
-  const [showRegistrationForm, setShowRegistrationForm] = useState(false);
 
   const totalSteps = 8;
   const progress = (quizState.step / totalSteps) * 100;
@@ -811,7 +808,7 @@ const Conhecer = () => {
 
                  <div className="space-y-3">
                    <button
-                     onClick={() => setShowRegistrationForm(true)}
+                     onClick={() => navigate('/cadastroag')}
                      className="w-full p-4 sm:p-5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all duration-300 font-bold text-sm sm:text-base shadow-xl hover:shadow-2xl"
                      style={{
                        animation: 'scalePulse 1.5s ease-in-out infinite'
@@ -838,16 +835,6 @@ const Conhecer = () => {
         </div>
       </div>
 
-      {/* Modal do Formulário de Inscrição */}
-      {showRegistrationForm && (
-        <RegistrationForm
-          onSuccess={() => {
-            setShowRegistrationForm(false);
-            navigate('/registration-success');
-          }}
-          onClose={() => setShowRegistrationForm(false)}
-        />
-      )}
     </div>
   );
 };

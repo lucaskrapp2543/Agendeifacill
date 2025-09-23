@@ -66,3 +66,4 @@ A meta dos profissionais estava aparecendo na tela de agendamento (booking) onde
 
 **Resultado**: Interface mais limpa e lógica para clientes, mantendo funcionalidade completa para proprietários! 🎉
 
+

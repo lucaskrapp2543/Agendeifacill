@@ -47,7 +47,12 @@
     <!-- Service Worker para controle de cache -->
     <script>
       // Sistema de atualização automática mais robusto
-      if ('serviceWorker' in navigator && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      // DESABILITAR SERVICE WORKER EM DESENVOLVIMENTO PARA EVITAR CONFLITOS
+      if ('serviceWorker' in navigator && 
+          window.location.hostname !== 'localhost' && 
+          window.location.hostname !== '127.0.0.1' &&
+          !window.location.hostname.includes('localhost') &&
+          !window.location.hostname.includes('127.0.0.1')) {
         const swPath = '/sw.js';
         
         navigator.serviceWorker.register(swPath).then(function(registration) {
@@ -85,8 +90,55 @@
         }).catch(function(error) {
           console.log('Service Worker registration failed:', error);
         });
-      } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      } else {
         console.log('🚫 Service Worker desabilitado em desenvolvimento');
+        
+        // Limpar qualquer service worker existente em desenvolvimento
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for(let registration of registrations) {
+              console.log('🗑️ Removendo service worker em desenvolvimento:', registration);
+              registration.unregister();
+            }
+          });
+        }
+        
+        // Adicionar função global para limpeza manual
+        window.clearAppCache = function() {
+          console.log('🧹 Limpeza manual iniciada...');
+          
+          // Limpar service workers
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              registrations.forEach(function(registration) {
+                registration.unregister();
+              });
+            });
+          }
+          
+          // Limpar caches
+          if ('caches' in window) {
+            caches.keys().then(function(cacheNames) {
+              cacheNames.forEach(function(cacheName) {
+                caches.delete(cacheName);
+              });
+            });
+          }
+          
+          // Limpar localStorage
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.includes('agendafacil') || key.includes('appointments_') || key.includes('supabase'))) {
+              keysToRemove.push(key);
+            }
+          }
+          keysToRemove.forEach(key => localStorage.removeItem(key));
+          
+          console.log('✅ Limpeza concluída! Recarregue a página.');
+        };
+        
+        console.log('💡 Use window.clearAppCache() no console para limpeza manual');
       }
       
       // Sistema de cache busting mais agressivo

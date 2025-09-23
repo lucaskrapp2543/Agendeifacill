@@ -94,6 +94,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   );
   const [isUpdatingOneWeekLimit, setIsUpdatingOneWeekLimit] = useState(false);
 
+
   // Estados para funcionalidade de Adicionar Atendimento
   const [showAddAttendanceModal, setShowAddAttendanceModal] = useState(false);
   const [selectedClientForAttendance, setSelectedClientForAttendance] = useState<ClientSubscription | null>(null);
@@ -233,6 +234,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setIsUpdatingOneWeekLimit(false);
     }
   };
+
 
   // Função para buscar profissionais do estabelecimento
   const fetchProfessionals = async () => {
@@ -1140,6 +1142,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
             )}
           </div>
+
         </div>
       </div>
 

@@ -71,11 +71,18 @@ const ClientDashboard = () => {
     setIsLoading(true);
     
     try {
+      console.log('🔍 Buscando agendamentos para usuário:', user.id);
       const { data, error } = await getClientAppointments(user.id);
       
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro ao buscar agendamentos:', error);
+        throw error;
+      }
+      
+      console.log('📊 Dados recebidos:', data?.length || 0, 'agendamentos');
       
       if (!data || data.length === 0) {
+        console.log('⚠️ Nenhum agendamento no banco, verificando localStorage...');
         const localAppointments = JSON.parse(localStorage.getItem(`appointments_${user.id}`) || '[]');
         
         if (localAppointments.length > 0) {
@@ -84,16 +91,22 @@ const ClientDashboard = () => {
           );
           setAppointments(sortedAppointments);
           toast('⚠️ Usando dados locais');
+          console.log('💾 Usando dados locais:', localAppointments.length, 'agendamentos');
         } else {
           setAppointments([]);
+          console.log('📭 Nenhum agendamento encontrado');
         }
       } else {
         const sortedAppointments = data.sort((a: Appointment, b: Appointment) => 
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setAppointments(sortedAppointments);
+        console.log('✅ Agendamentos carregados do banco:', sortedAppointments.length);
       }
     } catch (error: any) {
+      console.error('❌ Erro ao buscar agendamentos:', error);
+      
+      // Fallback para dados locais
       const localAppointments = JSON.parse(localStorage.getItem(`appointments_${user.id}`) || '[]');
       
       if (localAppointments.length > 0) {
@@ -101,10 +114,12 @@ const ClientDashboard = () => {
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setAppointments(sortedAppointments);
-        toast('⚠️ Usando dados locais');
+        toast('⚠️ Usando dados locais (problema de conexão)');
+        console.log('💾 Fallback para dados locais:', localAppointments.length, 'agendamentos');
       } else {
         setAppointments([]);
         toast.error(error.message || 'Erro ao buscar agendamentos');
+        console.log('📭 Nenhum agendamento disponível');
       }
     } finally {
       setIsLoading(false);

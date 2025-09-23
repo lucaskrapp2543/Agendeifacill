@@ -133,3 +133,4 @@ console.log('🔍 DEBUG - onChange percentual:', {
 
 **Agora o campo de percentual deve funcionar perfeitamente após verificar a senha!** ✅
 
+

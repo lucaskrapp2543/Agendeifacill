@@ -428,6 +428,25 @@ export default function BookingPage() {
         console.log('✅ Validação de 1 agendamento por semana passou');
       }
 
+      // 🔥 VALIDAÇÃO DE PUNIÇÃO POR CANCELAMENTO
+      if (user?.id) {
+        console.log('🔍 Validando punição por cancelamento...');
+        
+        const punishmentValidation = await validatePunishmentOnCancel(
+          user.id,
+          establishment.id,
+          new Date(appointmentData.appointment_date)
+        );
+
+        if (!punishmentValidation.canBook) {
+          console.log('🚫 Agendamento bloqueado por punição:', punishmentValidation.message);
+          toast.error(punishmentValidation.message);
+          return;
+        }
+
+        console.log('✅ Validação de punição por cancelamento passou');
+      }
+
       const { error } = await supabase
         .from('appointments')
         .insert([{

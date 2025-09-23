@@ -154,3 +154,4 @@ const [pendingAction, setPendingAction] = useState<{
 
 **Agora as configurações sensíveis dos profissionais estão protegidas pela senha de 4 dígitos das configurações!** 🔒
 
+

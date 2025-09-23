@@ -218,7 +218,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
       
-      <div className={`fixed left-0 top-0 h-full bg-white border-r border-gray-200 transition-all duration-300 z-40 ${
+      <div className={`fixed left-0 top-0 h-full bg-white border-r border-gray-200 transition-all duration-300 z-40 flex flex-col ${
         isExpanded ? 'w-64' : 'w-16'
       } md:relative md:z-auto md:flex-shrink-0`}>
       {/* Botão de toggle */}
@@ -247,7 +247,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Lista de itens do menu */}
-      <nav className="p-2 space-y-1">
+      <nav className="p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide">
         {menuItems.map((item) => {
           const Icon = item.icon;
           return (

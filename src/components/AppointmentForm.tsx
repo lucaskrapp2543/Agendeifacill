@@ -13,7 +13,6 @@ import { ProfessionalSelector } from './ProfessionalSelector';
 import { checkWhatsAppSubscriber, getClientProfileData, isNewClient, testMigration, getClientDataFromAuth, supabase } from '../lib/supabase';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { validateSubscriberBooking, getAvailableDatesForSubscriber } from '../utils/subscriberBookingValidation';
-import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 
 interface Service {
@@ -61,6 +60,7 @@ interface Establishment {
   services_with_prices: Service[];
   professionals: Professional[];
   limit_subscribers_one_week?: boolean;
+  punish_client_on_cancel?: boolean; // Adicionado
 }
 
 interface AppointmentFormProps {
@@ -304,12 +304,11 @@ export function AppointmentForm({
   const [showSubscriberNotification, setShowSubscriberNotification] = useState(false);
 
   // Estados para validação de remarcação no mesmo dia
-  const [sameDayRescheduleError, setSameDayRescheduleError] = useState<string | null>(null);
-  const [isValidatingSameDay, setIsValidatingSameDay] = useState(false);
 
   // Estados para validação de 1 agendamento por semana
   const [oneWeekLimitError, setOneWeekLimitError] = useState<string | null>(null);
   const [isValidatingOneWeek, setIsValidatingOneWeek] = useState(false);
+
 
   // Função para validar agendamento de assinantes
   const validateSubscriberBookingDate = async (date: Date) => {
@@ -352,54 +351,6 @@ export function AppointmentForm({
     }
   };
 
-  // Função para validar remarcação no mesmo dia (APENAS PARA ASSINANTES)
-  const validateSameDayRescheduleDate = async (date: Date) => {
-    console.log('🔍 Iniciando validação de remarcação no mesmo dia:', {
-      clientWhatsapp,
-      establishmentId: establishment?.id,
-      selectedDate: date.toISOString(),
-      isSubscriberBooking
-    });
-
-    // APENAS aplicar validação se for agendamento de assinante
-    if (!isSubscriberBooking) {
-      console.log('✅ Não é assinante, pular validação de remarcação');
-      setSameDayRescheduleError(null);
-      return;
-    }
-
-    if (!clientWhatsapp || !establishment?.id) {
-      console.log('❌ Dados insuficientes para validação de remarcação');
-      setSameDayRescheduleError(null);
-      return;
-    }
-
-    setIsValidatingSameDay(true);
-    setSameDayRescheduleError(null);
-
-    try {
-      const validation = await validateSameDayReschedule(
-        clientWhatsapp,
-        establishment.id,
-        date
-      );
-
-      console.log('📋 Resultado da validação de remarcação:', validation);
-
-      if (!validation.canBook) {
-        console.log('❌ Remarcação bloqueada:', validation.message);
-        setSameDayRescheduleError(validation.message || 'Remarcação não permitida para esta data.');
-      } else {
-        console.log('✅ Remarcação permitida');
-        setSameDayRescheduleError(null);
-      }
-    } catch (error) {
-      console.error('❌ Erro ao validar remarcação no mesmo dia:', error);
-      setSameDayRescheduleError(null); // Em caso de erro, permitir agendamento
-    } finally {
-      setIsValidatingSameDay(false);
-    }
-  };
 
   // Função para validar 1 agendamento por semana (APENAS PARA ASSINANTES)
   const validateOneWeekLimitDate = async (date: Date) => {
@@ -457,6 +408,7 @@ export function AppointmentForm({
     }
   };
 
+
   // Removido useEffect que definia automaticamente o método de pagamento
 
   // Validar agendamento de assinantes quando data ou WhatsApp mudarem
@@ -469,9 +421,8 @@ export function AppointmentForm({
     });
 
     if (clientWhatsapp && establishment?.id) {
-      console.log('🔄 DEBUG - Executando todas as validações...');
+      console.log('🔄 DEBUG - Executando validações...');
       validateSubscriberBookingDate(selectedDate);
-      validateSameDayRescheduleDate(selectedDate);
       validateOneWeekLimitDate(selectedDate);
     } else {
       console.log('🔄 DEBUG - Condições não atendidas para executar validações');
@@ -681,25 +632,6 @@ export function AppointmentForm({
       return;
     }
 
-    // VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA - BLOQUEAR SE ASSINANTE CANCELOU HOJE
-    if (sameDayRescheduleError) {
-      console.log('❌ Remarcação bloqueada para assinante:', sameDayRescheduleError);
-      
-      // Scroll para a mensagem de erro (que já está visível)
-      setTimeout(() => {
-        const errorElement = document.querySelector('[data-same-day-error]');
-        if (errorElement) {
-          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          // Destacar a mensagem com uma animação
-          errorElement.classList.add('animate-bounce');
-          setTimeout(() => {
-            errorElement.classList.remove('animate-bounce');
-          }, 1000);
-        }
-      }, 100);
-      
-      return;
-    }
 
     // VALIDAÇÃO DE 1 AGENDAMENTO POR SEMANA - BLOQUEAR SE ASSINANTE JÁ TEM AGENDAMENTO NA SEMANA
     if (oneWeekLimitError) {
@@ -720,6 +652,7 @@ export function AppointmentForm({
       
       return;
     }
+
 
 
     // Se há campos faltando, mostrar mensagem amigável
@@ -1070,47 +1003,7 @@ export function AppointmentForm({
             </div>
           )}
 
-          {/* Mensagem de erro para remarcação no mesmo dia */}
-          {sameDayRescheduleError && (
-            <div 
-              data-same-day-error
-              className="mt-4 p-4 bg-gradient-to-r from-orange-50 to-red-50 border-l-4 border-orange-500 rounded-lg shadow-lg animate-pulse"
-            >
-              <div className="flex items-start gap-3">
-                <div className="flex-shrink-0">
-                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
-                    <span className="text-orange-600 text-xl">🚫</span>
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-bold text-orange-800 mb-1">
-                      Remarcação Bloqueada
-                    </h3>
-                    <div className="text-orange-500 text-sm font-medium">
-                      ⚠️ Atenção
-                    </div>
-                  </div>
-                  <p className="text-sm text-orange-700 leading-relaxed mb-2">
-                    {sameDayRescheduleError}
-                  </p>
-                  <div className="bg-orange-100 rounded-md p-2">
-                    <p className="text-xs text-orange-600 font-medium">
-                      💡 Dica: Escolha uma data diferente para prosseguir com o agendamento.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* Loading de validação de remarcação */}
-          {isValidatingSameDay && (
-            <div className="mt-3 flex items-center gap-2 text-orange-600">
-              <div className="animate-spin h-4 w-4 border-2 border-orange-600 border-t-transparent rounded-full"></div>
-              <span className="text-sm">Verificando histórico de cancelamentos...</span>
-            </div>
-          )}
 
           {/* Mensagem de erro para 1 agendamento por semana */}
           {oneWeekLimitError && (
@@ -1153,6 +1046,8 @@ export function AppointmentForm({
               <span className="text-sm">Verificando agendamentos da semana...</span>
             </div>
           )}
+
+
         </div>
 
 

@@ -102,7 +102,6 @@ interface Establishment {
   has_wifi?: boolean; // Novo estado para Wi-fi
   has_parking?: boolean;
   limit_subscriber_bookings?: boolean; // Limitar agendamentos de assinantes
-  prevent_same_day_reschedule?: boolean; // Prevenir remarcação no mesmo dia
   require_cancellation_request?: boolean; // Exigir solicitação de cancelamento via WhatsApp
   has_accessibility?: boolean; // Novo estado para Acessibilidade
   wifi_password?: string; // Senha do Wi-Fi
@@ -429,6 +428,10 @@ const EstablishmentDashboard = () => {
   const [showReminderPopup, setShowReminderPopup] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
+  
+  // Estados para edição de valor do agendamento
+  const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
   
   // Estados para relatório de taxas
   const [taxesReport, setTaxesReport] = useState<any>(null);
@@ -1340,7 +1343,7 @@ const EstablishmentDashboard = () => {
           updatePhotoState();
         }
         
-      } catch (error) {
+      } catch (error: any) {
         console.error(`❌ Erro ao processar foto ${photoNumber}:`, error);
         toast(`Erro ao processar foto ${photoNumber}: ${error.message}`, 'error');
       }
@@ -2001,7 +2004,7 @@ const EstablishmentDashboard = () => {
           (appointment as any).sold_products = appointmentProducts.map(ap => ({
             id: ap.id,
             product_id: ap.product_id,
-            name: ap.establishment_products?.name,
+            name: (ap.establishment_products as any)?.name,
             quantity: ap.quantity,
             unit_price: ap.unit_price,
             professional_id: ap.professional_id,
@@ -4575,12 +4578,63 @@ const EstablishmentDashboard = () => {
     }).format(value);
   };
 
+  // Função para iniciar edição do valor do agendamento
+  const handleEditAppointmentValue = (appointmentId: string, currentValue: number) => {
+    setEditingAppointmentValue(appointmentId);
+    setEditingValue(currentValue.toString());
+  };
+
+  // Função para salvar o novo valor do agendamento
+  const handleSaveAppointmentValue = async (appointmentId: string) => {
+    if (!establishment) return;
+
+    const newValue = parseFloat(editingValue.replace(',', '.'));
+    if (isNaN(newValue) || newValue < 0) {
+      toast('Valor inválido', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ 
+          price: newValue,
+          total_price: newValue // Atualizar também o total_price
+        })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      // Atualizar o estado local
+      setAppointments(prevAppointments => 
+        prevAppointments.map(apt => 
+          apt.id === appointmentId 
+            ? { ...apt, price: newValue, total_price: newValue }
+            : apt
+        )
+      );
+
+      setEditingAppointmentValue(null);
+      setEditingValue('');
+      toast('Valor atualizado com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao atualizar valor:', error);
+      toast('Erro ao atualizar valor', 'error');
+    }
+  };
+
+  // Função para cancelar edição
+  const handleCancelEditValue = () => {
+    setEditingAppointmentValue(null);
+    setEditingValue('');
+  };
+
   // Função para calcular valor líquido baseado no percentual do profissional
   const calculateNetValue = (baseValue: number, professionalId: string) => {
     const professional = professionals.find(p => p.id === professionalId);
     if (!professional) return baseValue;
     
-    const percentage = professional.percentage || 0;
+    const percentage = professional?.percentage || 0;
     
     // IMPORTANTE: Esta função é usada apenas para exibição na seção "Receita por Profissional"
     // Ela NÃO considera a taxa do cartão porque não tem acesso ao método de pagamento
@@ -4654,8 +4708,8 @@ const EstablishmentDashboard = () => {
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
         const baseValue = appointment.total_price || appointment.price || 0;
-        const netValue = (baseValue * professional.percentage) / 100;
-        console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${professional.percentage}%)`);
+        const netValue = (baseValue * (professional?.percentage || 0)) / 100;
+        console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${professional?.percentage || 0}%)`);
         return total + netValue;
       }
       return total;
@@ -4934,7 +4988,7 @@ const EstablishmentDashboard = () => {
       const fileName = `logo-${Date.now()}.${fileExt}`;
 
       // Upload do arquivo para o storage
-      const { error: uploadError, data } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('establishment-photos')
         .upload(fileName, file, {
           cacheControl: '3600',
@@ -5315,7 +5369,7 @@ const EstablishmentDashboard = () => {
                 <Menu className="h-5 w-5 text-gray-600" />
               </button>
               
-              <NotificationPermission className="hidden sm:flex" />
+              <NotificationPermission />
               {establishment && (
                 <NotificationsPanel 
                   establishmentId={establishment.id}
@@ -5885,14 +5939,53 @@ const EstablishmentDashboard = () => {
                               <div className="flex flex-col gap-3 mt-3">
                                 <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                   <span className="text-sm text-white/80">Valor base:</span>
-                                  <span className="text-sm text-white">
-                                    {isClientPaidSubscriber(appointment.client_whatsapp) 
-                                      ? "GRATUITO" 
-                                      : appointment.is_subscriber 
-                                      ? 'R$ 0,00 (GRATUITO)' 
-                                      : formatCurrency(appointment.price)
-                                    }
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    {editingAppointmentValue === appointment.id ? (
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          value={editingValue}
+                                          onChange={(e) => setEditingValue(e.target.value)}
+                                          className="px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white w-20"
+                                          placeholder="0,00"
+                                        />
+                                        <button
+                                          onClick={() => handleSaveAppointmentValue(appointment.id)}
+                                          className="text-green-400 hover:text-green-300 text-xs"
+                                          title="Salvar"
+                                        >
+                                          ✓
+                                        </button>
+                                        <button
+                                          onClick={handleCancelEditValue}
+                                          className="text-red-400 hover:text-red-300 text-xs"
+                                          title="Cancelar"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm text-white">
+                                          {isClientPaidSubscriber(appointment.client_whatsapp) 
+                                            ? "GRATUITO" 
+                                            : appointment.is_subscriber 
+                                            ? 'R$ 0,00 (GRATUITO)' 
+                                            : formatCurrency(appointment.price)
+                                          }
+                                        </span>
+                                        {!isClientPaidSubscriber(appointment.client_whatsapp || '') && !appointment.is_subscriber && (
+                                          <button
+                                            onClick={() => handleEditAppointmentValue(appointment.id, appointment.price || 0)}
+                                            className="text-blue-400 hover:text-blue-300 text-xs"
+                                            title="Editar valor"
+                                          >
+                                            ✏️
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                                 {appointment.additional_products && appointment.additional_products.length > 0 && (
                                   <div className="flex flex-col">
@@ -7522,7 +7615,7 @@ const EstablishmentDashboard = () => {
                                             }
                                           } else {
                                             // Para outros profissionais: recebem % do valor BRUTO (sem taxa)
-                                            netValue = (baseValue * professional.percentage) / 100;
+                                            netValue = (baseValue * (professional?.percentage || 0)) / 100;
                                           }
                                           
                                           return (
@@ -9359,32 +9452,34 @@ const EstablishmentDashboard = () => {
               </div>
             )}
 
-            <div className="flex justify-between items-center mb-4">
-              <button
-                type="button"
-                onClick={handleAddProfessional}
-                disabled={professionals.length >= 10}
-                className="px-4 py-2 bg-[#242628] text-white rounded-lg hover:bg-[#2a2b2d] transition-colors flex items-center gap-2 border border-gray-700"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Adicionar</span>
-              </button>
-              
-              <button
-                type="button"
-                onClick={saveProfessionalsToDatabase}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-              >
-                <Check className="h-4 w-4" />
-                <span>Salvar Profissionais</span>
-              </button>
+            <div className="space-y-4 mb-6">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={handleAddProfessional}
+                  disabled={professionals.length >= 10}
+                  className="flex-1 px-4 py-2 bg-[#242628] text-white rounded-lg hover:bg-[#2a2b2d] transition-colors flex items-center justify-center gap-2 border border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Adicionar</span>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={saveProfessionalsToDatabase}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Check className="h-4 w-4" />
+                  <span>Salvar Profissionais</span>
+                </button>
+              </div>
               
               {/* Indicador de status */}
-              <div className="text-xs text-gray-400">
-                {professionals.length > 0 && (
-                  <span className="text-yellow-400">⚠ Clique em "Salvar Profissionais" para salvar</span>
-                )}
-              </div>
+              {professionals.length > 0 && (
+                <div className="text-xs text-yellow-400 text-center">
+                  ⚠ Clique em "Salvar Profissionais" para salvar
+                </div>
+              )}
             </div>
             
             {/* Resto do código original dos profissionais */}
@@ -9411,132 +9506,124 @@ const EstablishmentDashboard = () => {
                   </div>
                   
                   {/* Campo de foto do profissional */}
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      <label className="block text-sm text-gray-400 mb-1">Foto do Profissional</label>
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-600 flex-shrink-0">
-                          <img
-                            src={(professional as any).photo_url || '/fotopessoa.png'}
-                            alt={professional.name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.src = '/fotopessoa.png';
-                            }}
-                          />
-                        </div>
-                        <input
-                          type="file"
-                          accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                          onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
-                          className="hidden"
-                          id={`photo-${professional.id}`}
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">Foto do Profissional</label>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-600 flex-shrink-0">
+                        <img
+                          src={(professional as any).photo_url || '/fotopessoa.png'}
+                          alt={professional.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = '/fotopessoa.png';
+                          }}
                         />
-                        <label
-                          htmlFor={`photo-${professional.id}`}
-                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 cursor-pointer transition-colors"
-                        >
-                          Alterar Foto
-                        </label>
                       </div>
+                      <input
+                        type="file"
+                        accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                        onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
+                        className="hidden"
+                        id={`photo-${professional.id}`}
+                      />
+                      <label
+                        htmlFor={`photo-${professional.id}`}
+                        className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 cursor-pointer transition-colors"
+                      >
+                        Alterar Foto
+                      </label>
                     </div>
                   </div>
                   
                   {/* Campo de percentual do profissional */}
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      {professionalPercentageEditable[professional.id] ? (
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">% do profissional</label>
+                    {professionalPercentageEditable[professional.id] ? (
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={professional.percentage || 0}
+                        onChange={(e) => {
+                          console.log('🔍 DEBUG - onChange percentual:', {
+                            professionalId: professional.id,
+                            isEditable: professionalPercentageEditable[professional.id],
+                            newValue: e.target.value
+                          });
+                          handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0);
+                        }}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                        placeholder="Percentual (%)"
+                      />
+                    ) : (
+                      <div className="flex gap-2">
                         <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={professional.percentage || 0}
-                          onChange={(e) => {
-                            console.log('🔍 DEBUG - onChange percentual:', {
-                              professionalId: professional.id,
-                              isEditable: professionalPercentageEditable[professional.id],
-                              newValue: e.target.value
-                            });
-                            handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0);
-                          }}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                          placeholder="Percentual (%)"
+                          type="text"
+                          value="••••"
+                          readOnly
+                          className="flex-1 px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
+                          placeholder="Percentual oculto"
                         />
-                      ) : (
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value="••••"
-                            readOnly
-                            className="w-full px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
-                            placeholder="Percentual oculto"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleRequestPercentageEdit(professional.id)}
-                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                          >
-                            Ver %
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-sm text-gray-400">% do profissional</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRequestPercentageEdit(professional.id)}
+                          className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                        >
+                          Ver %
+                        </button>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Campo de senha do profissional */}
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      {professionalPasswordVisible[professional.id] ? (
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">Senha do profissional</label>
+                    {professionalPasswordVisible[professional.id] ? (
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                          setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
+                          if (value.length === 4) {
+                            handleUpdateProfessionalPin(professional.id, value);
+                          }
+                        }}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                        placeholder="Senha de 4 dígitos"
+                      />
+                    ) : (
+                      <div className="flex gap-2">
                         <input
-                          type="text"
-                          maxLength={4}
-                          value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-                            setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
-                            if (value.length === 4) {
-                              handleUpdateProfessionalPin(professional.id, value);
-                            }
-                          }}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                          placeholder="Senha de 4 dígitos"
+                          type="password"
+                          value="••••"
+                          readOnly
+                          className="flex-1 px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
+                          placeholder="Senha oculta"
                         />
-                      ) : (
-                        <div className="flex gap-2">
-                          <input
-                            type="password"
-                            value="••••"
-                            readOnly
-                            className="w-full px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
-                            placeholder="Senha oculta"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleRequestPasswordVisibility(professional.id)}
-                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                          >
-                            Ver
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-sm text-gray-400">Senha do profissional</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRequestPasswordVisibility(professional.id)}
+                          className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                        >
+                          Ver
+                        </button>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Campo de Meta */}
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      <button
-                        onClick={() => handleOpenGoalModal(professional.id)}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <span>🎯</span>
-                        <span>META</span>
-                      </button>
-                    </div>
-                    <span className="text-sm text-gray-400">Definir meta mensal</span>
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">Definir meta mensal</label>
+                    <button
+                      onClick={() => handleOpenGoalModal(professional.id)}
+                      className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <span>🎯</span>
+                      <span>META</span>
+                    </button>
                   </div>
 
                   {/* Barra de Progresso da Meta */}
@@ -9552,67 +9639,59 @@ const EstablishmentDashboard = () => {
                   )}
 
                   {/* Campo de Ausência */}
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      <button
-                        onClick={() => handleOpenAbsenceModal(professional.id)}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <span>📅</span>
-                        <span>Ausência</span>
-                      </button>
-                    </div>
-                    <span className="text-sm text-gray-400">Configurar dias ausente</span>
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">Configurar dias ausente</label>
+                    <button
+                      onClick={() => handleOpenAbsenceModal(professional.id)}
+                      className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <span>📅</span>
+                      <span>Ausência</span>
+                    </button>
                   </div>
 
                   {/* Campo de Bloquear Horário */}
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      <button
-                        onClick={() => handleOpenBlockTimeModal(professional.id)}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <span>🔒</span>
-                        <span>Bloquear Horário</span>
-                      </button>
-                    </div>
-                    <span className="text-sm text-gray-400">Bloquear horários específicos</span>
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">Bloquear horários específicos</label>
+                    <button
+                      onClick={() => handleOpenBlockTimeModal(professional.id)}
+                      className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <span>🔒</span>
+                      <span>Bloquear Horário</span>
+                    </button>
                   </div>
 
                   {/* Campo de Horários de Trabalho */}
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      <button
-                        onClick={() => handleOpenWorkHoursModal(professional.id)}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <span>⏰</span>
-                        <span>Horários de Trabalho</span>
-                      </button>
-                    </div>
-                    <span className="text-sm text-gray-400">Definir horários personalizados</span>
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">Definir horários personalizados</label>
+                    <button
+                      onClick={() => handleOpenWorkHoursModal(professional.id)}
+                      className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <span>⏰</span>
+                      <span>Horários de Trabalho</span>
+                    </button>
                   </div>
 
                   {/* Campo de Serviço Infantil */}
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <span>👶</span>
-                          <span className="text-white">Serviço Infantil</span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={professional.offers_child_service || false}
-                            onChange={(e) => handleToggleChildService(professional.id, e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                        </label>
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">Oferecer corte infantil</label>
+                    <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span>👶</span>
+                        <span className="text-white">Serviço Infantil</span>
                       </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={professional.offers_child_service || false}
+                          onChange={(e) => handleToggleChildService(professional.id, e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                      </label>
                     </div>
-                    <span className="text-sm text-gray-400">Oferecer corte infantil</span>
                   </div>
                 </div>
               ))}

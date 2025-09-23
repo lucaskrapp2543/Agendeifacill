@@ -129,3 +129,4 @@ const [professionalPercentageEditable, setProfessionalPercentageEditable] = useS
 
 **Agora todas as configurações sensíveis dos profissionais estão protegidas pela senha de 4 dígitos!** 🔒
 
+

@@ -125,3 +125,4 @@ filtro ativo: {getProfessionalName(selectedProfessional).toLowerCase()}
 
 **Agora a interface é mais intuitiva e orienta claramente o usuário a selecionar um profissional!** 🎉
 
+
