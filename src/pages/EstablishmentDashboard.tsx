@@ -9627,7 +9627,7 @@ const EstablishmentDashboard = () => {
                         placeholder="Percentual (%)"
                       />
                     ) : (
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <input
                           type="text"
                           value="••••"
@@ -9638,7 +9638,7 @@ const EstablishmentDashboard = () => {
                         <button
                           type="button"
                           onClick={() => handleRequestPercentageEdit(professional.id)}
-                          className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                          className="w-full sm:w-auto px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
                         >
                           Ver %
                         </button>
@@ -9665,7 +9665,7 @@ const EstablishmentDashboard = () => {
                         placeholder="Senha de 4 dígitos"
                       />
                     ) : (
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <input
                           type="password"
                           value="••••"
@@ -9676,7 +9676,7 @@ const EstablishmentDashboard = () => {
                         <button
                           type="button"
                           onClick={() => handleRequestPasswordVisibility(professional.id)}
-                          className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                          className="w-full sm:w-auto px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
                         >
                           Ver
                         </button>
