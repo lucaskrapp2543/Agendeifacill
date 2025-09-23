@@ -61,3 +61,4 @@ DO UPDATE SET goal_amount = EXCLUDED.goal_amount, updated_at = now();
 
 SELECT 'Meta de teste inserida!' as resultado;
 */
+

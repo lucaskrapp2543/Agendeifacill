@@ -70,3 +70,4 @@ WHERE professional IS NOT NULL
   AND professional != ''
 GROUP BY professional
 ORDER BY total_agendamentos DESC;
+

@@ -46,6 +46,7 @@ interface SubscribersManagerProps {
   establishment?: {
     limit_subscriber_bookings?: boolean;
     prevent_same_day_reschedule?: boolean;
+    limit_subscribers_one_week?: boolean;
   };
   onEstablishmentUpdate?: () => void;
 }
@@ -87,6 +88,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   );
   const [isUpdatingSameDayLimit, setIsUpdatingSameDayLimit] = useState(false);
 
+  // Estado para controlar limitação de 1 agendamento por semana
+  const [limitSubscribersOneWeek, setLimitSubscribersOneWeek] = useState(
+    establishment?.limit_subscribers_one_week || false
+  );
+  const [isUpdatingOneWeekLimit, setIsUpdatingOneWeekLimit] = useState(false);
+
   // Estados para funcionalidade de Adicionar Atendimento
   const [showAddAttendanceModal, setShowAddAttendanceModal] = useState(false);
   const [selectedClientForAttendance, setSelectedClientForAttendance] = useState<ClientSubscription | null>(null);
@@ -120,7 +127,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (establishment?.prevent_same_day_reschedule !== undefined) {
       setPreventSameDayReschedule(establishment.prevent_same_day_reschedule);
     }
-  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule]);
+    if (establishment?.limit_subscribers_one_week !== undefined) {
+      setLimitSubscribersOneWeek(establishment.limit_subscribers_one_week);
+    }
+  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week]);
 
   // Função para atualizar limitação de agendamentos de assinantes
   const handleUpdateSubscriberBookingLimit = async (newLimit: boolean) => {
@@ -190,8 +200,39 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // Função para atualizar configuração de 1 agendamento por semana
+  const handleUpdateOneWeekLimit = async (newLimit: boolean) => {
+    setIsUpdatingOneWeekLimit(true);
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ limit_subscribers_one_week: newLimit })
+        .eq('id', establishmentId);
 
+      if (error) {
+        console.error('Erro ao atualizar limitação de 1 agendamento por semana:', error);
+        toast.error('Erro ao atualizar configuração de 1 agendamento por semana.');
+        return;
+      }
 
+      setLimitSubscribersOneWeek(newLimit);
+      toast.success(
+        newLimit 
+          ? 'Assinantes limitados a 1 agendamento por semana.' 
+          : 'Assinantes podem fazer múltiplos agendamentos por semana.'
+      );
+      
+      // Notificar o componente pai sobre a atualização
+      if (onEstablishmentUpdate) {
+        onEstablishmentUpdate();
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar limitação de 1 agendamento por semana:', error);
+      toast.error('Erro ao atualizar configuração de 1 agendamento por semana.');
+    } finally {
+      setIsUpdatingOneWeekLimit(false);
+    }
+  };
 
   // Função para buscar profissionais do estabelecimento
   const fetchProfessionals = async () => {
@@ -1051,6 +1092,46 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </div>
             
             {isUpdatingSameDayLimit && (
+              <div className="px-3 sm:px-4 pb-3 sm:pb-4">
+                <div className="flex items-center gap-2 text-blue-400">
+                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                  <span className="text-xs sm:text-sm">Atualizando configuração...</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Terceira opção - 1 agendamento por semana */}
+          <div className="bg-[#2a2b2c] rounded-lg border border-gray-600 overflow-hidden">
+            <div className="p-3 sm:p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm sm:text-base font-medium text-white mb-2 leading-tight">
+                    1 agendamento na semana
+                  </h3>
+                  <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
+                    Ao ativar essa opção seu cliente assinante só poderá fazer um agendamento na mesma semana. Ele ainda pode cancelar agendamento, só assim ele consegue agendar novamente na mesma semana nos respectivos dias do serviço.
+                  </p>
+                  <p className="text-xs sm:text-sm text-yellow-400 mt-1 leading-relaxed">
+                    Exemplo: Se o assinante já tem agendamento na semana, não pode fazer outro até cancelar o atual.
+                  </p>
+                </div>
+                <div className="flex-shrink-0">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={limitSubscribersOneWeek}
+                      onChange={(e) => handleUpdateOneWeekLimit(e.target.checked)}
+                      disabled={isUpdatingOneWeekLimit}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            {isUpdatingOneWeekLimit && (
               <div className="px-3 sm:px-4 pb-3 sm:pb-4">
                 <div className="flex items-center gap-2 text-blue-400">
                   <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>

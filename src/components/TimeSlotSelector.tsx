@@ -41,6 +41,15 @@ interface TimeSlotSelectorProps {
   selectedProfessional?: string; // Profissional selecionado
   professionalAbsences?: string[]; // Dias de ausência do profissional
   professionalBlockedHours?: string[]; // Horários bloqueados do profissional para a data selecionada
+  professionalWorkHours?: {
+    [key: string]: {
+      enabled: boolean;
+      entry_time?: string;
+      break_start?: string;
+      break_end?: string;
+      exit_time?: string;
+    };
+  } | null; // Horários personalizados de trabalho do profissional
 }
 
 export function TimeSlotSelector({
@@ -55,7 +64,8 @@ export function TimeSlotSelector({
   filterPastTimes = false, // Valor padrão false (não filtrar horários passados)
   selectedProfessional,
   professionalAbsences = [],
-  professionalBlockedHours = []
+  professionalBlockedHours = [],
+  professionalWorkHours = null
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -91,16 +101,46 @@ export function TimeSlotSelector({
     return isPast;
   };
 
+  // Função para obter o dia da semana em inglês
+  const getDayOfWeek = (date: Date): string => {
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    return days[date.getDay()];
+  };
+
   // Função para gerar os horários disponíveis
   const generateTimeSlots = (): TimeSlot[] => {
     const slots: TimeSlot[] = [];
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
+    const dayOfWeek = getDayOfWeek(selectedDate);
     
     // Log de debug
     console.log(`🕒 TimeSlotSelector - Gerando horários com filtro de horários passados: ${filterPastTimes}`);
+    console.log(`🕒 TimeSlotSelector - Dia da semana: ${dayOfWeek}`);
+    console.log(`🕒 TimeSlotSelector - Horários personalizados do profissional:`, professionalWorkHours);
+    
+    // Determinar quais horários usar: personalizados do profissional ou padrão do estabelecimento
+    let effectiveBusinessHours = businessHours;
+    
+    if (professionalWorkHours && professionalWorkHours[dayOfWeek] && professionalWorkHours[dayOfWeek].enabled) {
+      const workDay = professionalWorkHours[dayOfWeek];
+      console.log(`🕒 TimeSlotSelector - Usando horários personalizados do profissional para ${dayOfWeek}:`, workDay);
+      
+      // Converter horários personalizados para o formato do businessHours
+      effectiveBusinessHours = {
+        enabled: true,
+        open1: workDay.entry_time || '08:00',
+        close1: workDay.exit_time || '17:00',
+        open2: workDay.break_start && workDay.break_end ? workDay.break_start : null,
+        close2: workDay.break_start && workDay.break_end ? workDay.break_end : null
+      };
+      
+      console.log(`🕒 TimeSlotSelector - Horários efetivos convertidos:`, effectiveBusinessHours);
+    } else {
+      console.log(`🕒 TimeSlotSelector - Usando horários padrão do estabelecimento`);
+    }
     
     // Se não houver horários de funcionamento ou não estiver habilitado, retornar array vazio
-    if (!businessHours || !businessHours.enabled || (!selectedService && !selectedDuration)) {
+    if (!effectiveBusinessHours || !effectiveBusinessHours.enabled || (!selectedService && !selectedDuration)) {
       return slots;
     }
 
@@ -122,16 +162,16 @@ export function TimeSlotSelector({
     );
 
     console.log('🕒 TimeSlotSelector - Gerando horários:');
-    console.log('  - businessHours:', businessHours);
+    console.log('  - effectiveBusinessHours:', effectiveBusinessHours);
     console.log('  - relevantAppointments:', relevantAppointments);
 
     // Determinar o intervalo baseado na configuração
     const interval = use15MinuteInterval ? 30 : 15;
     
     // Gerar horários para o primeiro período
-    if (businessHours.open1 && businessHours.close1) {
-      const startMinutes = timeToMinutes(businessHours.open1);
-      const endMinutes = timeToMinutes(businessHours.close1);
+    if (effectiveBusinessHours.open1 && effectiveBusinessHours.close1) {
+      const startMinutes = timeToMinutes(effectiveBusinessHours.open1);
+      const endMinutes = timeToMinutes(effectiveBusinessHours.close1);
       
       // Gerar slots com o intervalo configurado
       for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
@@ -199,9 +239,9 @@ export function TimeSlotSelector({
     }
 
     // Se houver segundo período, gerar horários para ele também
-    if (businessHours.open2 && businessHours.close2) {
-      const startMinutes = timeToMinutes(businessHours.open2);
-      const endMinutes = timeToMinutes(businessHours.close2);
+    if (effectiveBusinessHours.open2 && effectiveBusinessHours.close2) {
+      const startMinutes = timeToMinutes(effectiveBusinessHours.open2);
+      const endMinutes = timeToMinutes(effectiveBusinessHours.close2);
       
       for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
         const hours = Math.floor(minutes / 60);

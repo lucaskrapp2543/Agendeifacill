@@ -17,6 +17,7 @@ import { AlertCircle } from 'lucide-react'; // Corrigido de ExclamationCircle pa
 import { Crown } from 'lucide-react';
 import ReadMore from '../components/ReadMore';
 import { LoginRequiredModal } from '../components/LoginRequiredModal';
+import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -406,6 +407,26 @@ export default function BookingPage() {
 
       // Lógica para agendamentos reais (se não for ID 3814 ou 3315)
       const isEstablishmentOwner = user?.id === establishment.owner_id;
+
+      // 🔥 VALIDAÇÃO DE 1 AGENDAMENTO POR SEMANA PARA ASSINANTES
+      if (appointmentData.is_subscriber && user?.id) {
+        console.log('🔍 Validando limitação de 1 agendamento por semana...');
+        
+        const validation = await validateOneWeekLimit(
+          user.id,
+          establishment.id,
+          new Date(appointmentData.appointment_date),
+          appointmentData.is_subscriber
+        );
+
+        if (!validation.canBook) {
+          console.log('🚫 Agendamento bloqueado:', validation.message);
+          toast.error(validation.message);
+          return;
+        }
+
+        console.log('✅ Validação de 1 agendamento por semana passou');
+      }
 
       const { error } = await supabase
         .from('appointments')

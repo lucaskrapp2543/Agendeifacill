@@ -18,3 +18,4 @@ SELECT column_name
 FROM information_schema.columns 
 WHERE table_name = 'appointments' 
 AND column_name LIKE '%professional%';
+

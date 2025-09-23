@@ -24,7 +24,23 @@ type Establishment = Database['public']['Tables']['establishments']['Row'] & {
     price: number;
     duration: number;
   }>;
-  professionals: string[];
+  professionals: Array<{
+    id: string;
+    name: string;
+    specialties: string[];
+    percentage?: number;
+    photo_url?: string;
+    offers_child_service?: boolean;
+    work_hours?: {
+      [key: string]: {
+        enabled: boolean;
+        entry_time?: string;
+        break_start?: string;
+        break_end?: string;
+        exit_time?: string;
+      };
+    } | null;
+  }>;
   business_hours: Record<string, BusinessHours>;
 };
 
@@ -266,6 +282,7 @@ const EstablishmentPage = () => {
                     existingAppointments={existingAppointments}
                     selectedProfessional={professional}
                     selectedServiceDuration={service ? establishment.services_with_prices.find(s => s.name === service)?.duration || 30 : 30}
+                    professionalWorkHours={professional ? establishment.professionals.find(p => p.name === professional)?.work_hours || null : null}
                   />
                 </div>
               )}

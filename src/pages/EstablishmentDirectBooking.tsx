@@ -756,6 +756,7 @@ const EstablishmentDirectBooking: React.FC = () => {
                         existingAppointments={existingAppointments}
                         selectedProfessional={selectedProfessional}
                         selectedServiceDuration={selectedService?.duration || 30}
+                        professionalWorkHours={selectedProfessional ? establishment?.professionals?.find((p: any) => p.id === selectedProfessional)?.work_hours || null : null}
                       />
                     </div>
                   )}

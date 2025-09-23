@@ -14,6 +14,7 @@ import { checkWhatsAppSubscriber, getClientProfileData, isNewClient, testMigrati
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { validateSubscriberBooking, getAvailableDatesForSubscriber } from '../utils/subscriberBookingValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
+import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 
 interface Service {
   id: string;
@@ -59,6 +60,7 @@ interface Establishment {
   }>;
   services_with_prices: Service[];
   professionals: Professional[];
+  limit_subscribers_one_week?: boolean;
 }
 
 interface AppointmentFormProps {
@@ -305,6 +307,10 @@ export function AppointmentForm({
   const [sameDayRescheduleError, setSameDayRescheduleError] = useState<string | null>(null);
   const [isValidatingSameDay, setIsValidatingSameDay] = useState(false);
 
+  // Estados para validação de 1 agendamento por semana
+  const [oneWeekLimitError, setOneWeekLimitError] = useState<string | null>(null);
+  const [isValidatingOneWeek, setIsValidatingOneWeek] = useState(false);
+
   // Função para validar agendamento de assinantes
   const validateSubscriberBookingDate = async (date: Date) => {
     console.log('🔍 Iniciando validação de agendamento:', {
@@ -395,13 +401,80 @@ export function AppointmentForm({
     }
   };
 
+  // Função para validar 1 agendamento por semana (APENAS PARA ASSINANTES)
+  const validateOneWeekLimitDate = async (date: Date) => {
+    console.log('🔍 DEBUG - INICIANDO validação de 1 agendamento por semana:', {
+      clientWhatsapp,
+      establishmentId: establishment?.id,
+      selectedDate: date.toISOString(),
+      isSubscriberBooking
+    });
+
+    // APENAS aplicar validação se for agendamento de assinante
+    if (!isSubscriberBooking) {
+      console.log('✅ DEBUG - Não é assinante, pular validação de 1 agendamento por semana');
+      setOneWeekLimitError(null);
+      return;
+    }
+
+    console.log('👤 DEBUG - É assinante, continuando validação...');
+
+    if (!clientWhatsapp || !establishment?.id) {
+      console.log('❌ DEBUG - Dados insuficientes para validação de 1 agendamento por semana:', {
+        hasClientWhatsapp: !!clientWhatsapp,
+        hasEstablishmentId: !!establishment?.id
+      });
+      setOneWeekLimitError(null);
+      return;
+    }
+
+    console.log('✅ DEBUG - Dados suficientes, executando validação...');
+
+    setIsValidatingOneWeek(true);
+    setOneWeekLimitError(null);
+
+    try {
+      const validation = await validateOneWeekLimit(
+        clientWhatsapp,
+        establishment.id,
+        date
+      );
+
+      console.log('📋 Resultado da validação de 1 agendamento por semana:', validation);
+
+      if (!validation.canBook) {
+        console.log('❌ Agendamento bloqueado:', validation.message);
+        setOneWeekLimitError(validation.message || 'Agendamento não permitido para esta data.');
+      } else {
+        console.log('✅ Agendamento permitido');
+        setOneWeekLimitError(null);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao validar 1 agendamento por semana:', error);
+      setOneWeekLimitError(null); // Em caso de erro, permitir agendamento
+    } finally {
+      setIsValidatingOneWeek(false);
+    }
+  };
+
   // Removido useEffect que definia automaticamente o método de pagamento
 
   // Validar agendamento de assinantes quando data ou WhatsApp mudarem
   useEffect(() => {
+    console.log('🔄 DEBUG - useEffect de validações executado:', {
+      hasClientWhatsapp: !!clientWhatsapp,
+      hasEstablishmentId: !!establishment?.id,
+      selectedDate: selectedDate.toISOString(),
+      isSubscriberBooking
+    });
+
     if (clientWhatsapp && establishment?.id) {
+      console.log('🔄 DEBUG - Executando todas as validações...');
       validateSubscriberBookingDate(selectedDate);
       validateSameDayRescheduleDate(selectedDate);
+      validateOneWeekLimitDate(selectedDate);
+    } else {
+      console.log('🔄 DEBUG - Condições não atendidas para executar validações');
     }
   }, [selectedDate, clientWhatsapp, establishment?.id, isSubscriberBooking]);
 
@@ -627,6 +700,27 @@ export function AppointmentForm({
       
       return;
     }
+
+    // VALIDAÇÃO DE 1 AGENDAMENTO POR SEMANA - BLOQUEAR SE ASSINANTE JÁ TEM AGENDAMENTO NA SEMANA
+    if (oneWeekLimitError) {
+      console.log('❌ Agendamento bloqueado para assinante:', oneWeekLimitError);
+      
+      // Scroll para a mensagem de erro (que já está visível)
+      setTimeout(() => {
+        const errorElement = document.querySelector('[data-one-week-error]');
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Destacar a mensagem com uma animação
+          errorElement.classList.add('animate-bounce');
+          setTimeout(() => {
+            errorElement.classList.remove('animate-bounce');
+          }, 1000);
+        }
+      }, 100);
+      
+      return;
+    }
+
 
     // Se há campos faltando, mostrar mensagem amigável
     if (missingFields.length > 0) {
@@ -1017,6 +1111,48 @@ export function AppointmentForm({
               <span className="text-sm">Verificando histórico de cancelamentos...</span>
             </div>
           )}
+
+          {/* Mensagem de erro para 1 agendamento por semana */}
+          {oneWeekLimitError && (
+            <div 
+              data-one-week-error
+              className="mt-4 p-4 bg-gradient-to-r from-red-50 to-pink-50 border-l-4 border-red-500 rounded-lg shadow-lg animate-pulse"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <span className="text-red-600 text-xl">🚫</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-bold text-red-800 mb-1">
+                      Limite de Agendamentos
+                    </h3>
+                    <div className="text-red-500 text-sm font-medium">
+                      🚫 Atenção
+                    </div>
+                  </div>
+                  <p className="text-sm text-red-700 leading-relaxed mb-2">
+                    {oneWeekLimitError}
+                  </p>
+                  <div className="bg-red-100 rounded-md p-2">
+                    <p className="text-xs text-red-600 font-medium">
+                      💡 Dica: Cancele seu agendamento atual para poder fazer um novo na mesma semana.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Loading de validação de 1 agendamento por semana */}
+          {isValidatingOneWeek && (
+            <div className="mt-3 flex items-center gap-2 text-red-600">
+              <div className="animate-spin h-4 w-4 border-2 border-red-600 border-t-transparent rounded-full"></div>
+              <span className="text-sm">Verificando agendamentos da semana...</span>
+            </div>
+          )}
         </div>
 
 
@@ -1312,10 +1448,11 @@ export function AppointmentForm({
                 onTimeSelect={setSelectedTime}
                 filterPastTimes={user && !isEstablishmentOwner} // Filtrar horários passados apenas para clientes logados
                 businessHours={businessHours}
-                use15MinuteInterval={establishment.use_15_minute_interval || false}
+                use15MinuteInterval={establishment.use_15_minute_interval ?? false}
                 selectedProfessional={selectedProfessional?.id}
                 professionalAbsences={selectedProfessional ? (selectedProfessional as any).absences || [] : []}
                 professionalBlockedHours={selectedProfessional ? (selectedProfessional as any).blocked_hours?.[selectedDate.toISOString().split('T')[0]] || [] : []}
+                professionalWorkHours={selectedProfessional ? (selectedProfessional as any).work_hours || null : null}
               />
             )}
           </div>

@@ -26,6 +26,15 @@ interface QuickAvailabilityCheckerProps {
   establishmentId: string;
   services: Service[];
   businessHours: Record<string, any>;
+  professionalWorkHours?: {
+    [key: string]: {
+      enabled: boolean;
+      entry_time?: string;
+      break_start?: string;
+      break_end?: string;
+      exit_time?: string;
+    };
+  } | null;
 }
 
 export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> = ({
@@ -33,7 +42,8 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
   professionalName,
   establishmentId,
   services,
-  businessHours
+  businessHours,
+  professionalWorkHours = null
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -140,8 +150,21 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
       const date = parseISO(selectedDate);
       const dayOfWeek = format(date, 'EEEE', { locale: ptBR }).toLowerCase();
       
-      // Tentar diferentes formatos de dia da semana
-      let dayBusinessHours = businessHours[dayOfWeek];
+      // Mapear dia da semana para inglês
+      const dayMap: Record<string, string> = {
+        'domingo': 'sunday',
+        'segunda-feira': 'monday',
+        'terça-feira': 'tuesday',
+        'quarta-feira': 'wednesday',
+        'quinta-feira': 'thursday',
+        'sexta-feira': 'friday',
+        'sábado': 'saturday'
+      };
+      
+      const dayOfWeekEnglish = dayMap[dayOfWeek] || dayOfWeek;
+      
+      // Determinar quais horários usar: personalizados do profissional ou padrão do estabelecimento
+      let dayBusinessHours = businessHours[dayOfWeekEnglish];
       
       // Se não encontrar, tentar formatos alternativos
       if (!dayBusinessHours) {
@@ -151,12 +174,30 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
       
       // Se ainda não encontrar, tentar em inglês
       if (!dayBusinessHours) {
-        const dayOfWeekEnglish = format(date, 'EEEE').toLowerCase();
         dayBusinessHours = businessHours[dayOfWeekEnglish];
       }
 
+      // Verificar se o profissional tem horários personalizados para este dia
+      if (professionalWorkHours && professionalWorkHours[dayOfWeekEnglish] && professionalWorkHours[dayOfWeekEnglish].enabled) {
+        const workDay = professionalWorkHours[dayOfWeekEnglish];
+        console.log(`🕒 QuickAvailabilityChecker - Usando horários personalizados do profissional para ${dayOfWeekEnglish}:`, workDay);
+        
+        // Converter horários personalizados para o formato do businessHours
+        dayBusinessHours = {
+          enabled: true,
+          open1: workDay.entry_time || '08:00',
+          close1: workDay.exit_time || '17:00',
+          open2: workDay.break_start && workDay.break_end ? workDay.break_start : null,
+          close2: workDay.break_start && workDay.break_end ? workDay.break_end : null
+        };
+        
+        console.log(`🕒 QuickAvailabilityChecker - Horários efetivos convertidos:`, dayBusinessHours);
+      } else {
+        console.log(`🕒 QuickAvailabilityChecker - Usando horários padrão do estabelecimento`);
+      }
+
       if (!dayBusinessHours || !dayBusinessHours.enabled) {
-        toast.error('Estabelecimento fechado neste dia');
+        toast.error('Profissional não trabalha neste dia');
         setTimeSlots([]);
         return;
       }

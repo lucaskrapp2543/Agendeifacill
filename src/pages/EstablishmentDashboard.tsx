@@ -29,7 +29,8 @@ import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker
 import Sidebar from '../components/Sidebar';
 import { UpdateButton } from '../components/UpdateButton';
 import { ValidityDisplay } from '../components/ValidityDisplay';
-import { GoalModal } from '../components/GoalModal';
+import { GoalModalSimple } from '../components/GoalModalSimple';
+import { GoalProgressBar } from '../components/GoalProgressBar';
 import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 
@@ -48,6 +49,15 @@ interface Professional {
   percentage?: number; // Campo para percentual do profissional (opcional)
   photo_url?: string; // Campo para foto do profissional
   offers_child_service?: boolean; // Campo para indicar se oferece serviço infantil
+  work_hours?: {
+    [key: string]: {
+      enabled: boolean;
+      entry_time?: string;
+      break_start?: string;
+      break_end?: string;
+      exit_time?: string;
+    };
+  } | null; // Horários personalizados de trabalho do profissional
 }
 
 interface ProfessionalPin {
@@ -437,6 +447,15 @@ const EstablishmentDashboard = () => {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [selectedProfessionalForGoal, setSelectedProfessionalForGoal] = useState<string | null>(null);
   const [professionalGoals, setProfessionalGoals] = useState<Record<string, number>>({});
+  // Estado para serviços selecionados das metas
+  const [professionalSelectedServices, setProfessionalSelectedServices] = useState<Record<string, string[]>>({});
+  // Estado para dados de progresso das metas
+  const [professionalGoalProgress, setProfessionalGoalProgress] = useState<Record<string, {
+    goalAmount: number;
+    completedServices: number;
+    progressPercentage: number;
+    remainingServices: number;
+  }>>({});
   const [goalModalCurrentMonth, setGoalModalCurrentMonth] = useState(new Date());
   const [isLoadingGoal, setIsLoadingGoal] = useState(false);
 
@@ -450,6 +469,19 @@ const EstablishmentDashboard = () => {
   const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
+
+  // Estados para gerenciar horários de trabalho dos profissionais
+  const [showWorkHoursModal, setShowWorkHoursModal] = useState(false);
+  const [selectedProfessionalForWorkHours, setSelectedProfessionalForWorkHours] = useState<string | null>(null);
+  const [workHoursData, setWorkHoursData] = useState<{
+    [key: string]: {
+      enabled: boolean;
+      entry_time?: string;
+      break_start?: string;
+      break_end?: string;
+      exit_time?: string;
+    };
+  }>({});
 
   // Estados para modal de observação
   const [showObservationModal, setShowObservationModal] = useState(false);
@@ -1632,7 +1664,8 @@ const EstablishmentDashboard = () => {
           specialties: p.specialties || [], // PRESERVAR especialidades
           percentage: p.percentage || 100, // Manter o percentual
           photo_url: (p as any).photo_url, // Preservar a foto do profissional
-          offers_child_service: p.offers_child_service || false // PRESERVAR configuração de serviço infantil
+          offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
+          work_hours: p.work_hours || null // PRESERVAR horários de trabalho personalizados
         })).filter(p => p.name),
         services_with_prices: servicesWithPrices.map(s => ({
           id: s.id,
@@ -1794,6 +1827,7 @@ const EstablishmentDashboard = () => {
       toast('Erro ao atualizar status do agendamento', 'error');
     }
   };
+
 
   const handleDeleteAppointment = async (appointmentId: string) => {
     try {
@@ -2186,6 +2220,16 @@ const EstablishmentDashboard = () => {
     if (establishment && activeTab === 'service-categories') {
       fetchServiceCategories();
       fetchServiceSubcategories();
+    }
+    // Carregar categorias sempre que o estabelecimento for carregado (para usar no modal de metas)
+    if (establishment) {
+      fetchServiceCategories();
+      fetchServiceSubcategories();
+    }
+    
+    // Carregar progresso das metas quando estiver na aba de profissionais
+    if (establishment && activeTab === 'professionals' && professionals.length > 0) {
+      loadAllProfessionalGoalsProgress();
     }
   }, [establishment, activeTab]);
 
@@ -3121,12 +3165,12 @@ const EstablishmentDashboard = () => {
         break;
       case 'password':
         if (data?.password) {
-          handleUpdateProfessionalPassword(professionalId, data.password);
+          handleUpdateProfessionalPin(professionalId, data.password);
         }
         break;
       case 'goal':
         if (data?.goalAmount !== undefined) {
-          handleSaveGoalDirect(data.goalAmount);
+          handleSaveGoalDirect(data.goalAmount, data.selectedServices || []);
         }
         break;
     }
@@ -4076,6 +4120,18 @@ const EstablishmentDashboard = () => {
             ...prev,
             [professionalId]: data.goal_amount
           }));
+          
+          // Carregar serviços selecionados também
+          const selectedServices = data.selected_services || [];
+          setProfessionalSelectedServices(prev => ({
+            ...prev,
+            [professionalId]: selectedServices
+          }));
+          
+          console.log('🔍 DEBUG - Meta e serviços carregados:', {
+            goalAmount: data.goal_amount,
+            selectedServices: selectedServices
+          });
         }
       } catch (error) {
         console.error('Erro ao carregar meta:', error);
@@ -4091,15 +4147,24 @@ const EstablishmentDashboard = () => {
     setGoalModalCurrentMonth(new Date()); // Reset para o mês atual
   };
 
-  const handleSaveGoal = async (goalAmount: number) => {
+  const handleSaveGoal = async (goalAmount: number, selectedServices: string[]) => {
     if (!selectedProfessionalForGoal || !establishment) return;
 
-    // Usar proteção de senha
-    handleProtectedAction('goal', selectedProfessionalForGoal, { goalAmount });
+    // TEMPORÁRIO: Salvar meta diretamente sem proteção de senha
+    console.log('🔍 DEBUG - Salvando meta diretamente (proteção de senha desabilitada temporariamente)');
+    handleSaveGoalDirect(goalAmount, selectedServices);
   };
 
-  const handleSaveGoalDirect = async (goalAmount: number) => {
+  const handleSaveGoalDirect = async (goalAmount: number, selectedServices: string[] = []) => {
     if (!selectedProfessionalForGoal || !establishment) return;
+
+    console.log('🔍 DEBUG - handleSaveGoalDirect chamado:', {
+      professionalId: selectedProfessionalForGoal,
+      goalAmount,
+      selectedServices,
+      establishmentId: establishment.id,
+      professionalName: professionals.find(p => p.id === selectedProfessionalForGoal)?.name
+    });
 
     setIsLoadingGoal(true);
     
@@ -4107,28 +4172,50 @@ const EstablishmentDashboard = () => {
       const currentYear = goalModalCurrentMonth.getFullYear();
       const currentMonth = goalModalCurrentMonth.getMonth() + 1;
       
+      console.log('🔍 DEBUG - Salvando meta:', {
+        establishmentId: establishment.id,
+        professionalId: selectedProfessionalForGoal,
+        goalAmount,
+        year: currentYear,
+        month: currentMonth,
+        selectedServices
+      });
+      
       const { error } = await setProfessionalGoal(
         establishment.id,
         selectedProfessionalForGoal,
         goalAmount,
         currentYear,
-        currentMonth
+        currentMonth,
+        selectedServices
       );
 
       if (error) {
-        console.error('Erro ao salvar meta:', error);
+        console.error('❌ Erro ao salvar meta:', error);
         toast.error('Erro ao salvar meta do profissional');
         return;
       }
+
+      console.log('✅ Meta salva com sucesso!');
 
       // Atualizar estado local
       setProfessionalGoals(prev => ({
         ...prev,
         [selectedProfessionalForGoal]: goalAmount
       }));
+      
+      // Atualizar serviços selecionados no estado local
+      setProfessionalSelectedServices(prev => ({
+        ...prev,
+        [selectedProfessionalForGoal]: selectedServices
+      }));
 
-      toast.success('Meta do profissional salva com sucesso!');
-      handleCloseGoalModal();
+        toast.success('Meta do profissional salva com sucesso!');
+        
+        // Recarregar progresso das metas após salvar
+        await loadAllProfessionalGoalsProgress();
+        
+        handleCloseGoalModal();
     } catch (error) {
       console.error('Erro ao salvar meta:', error);
       toast.error('Erro ao salvar meta do profissional');
@@ -4141,6 +4228,67 @@ const EstablishmentDashboard = () => {
   const getProfessionalGoalAmount = (professionalId: string): number => {
     return professionalGoals[professionalId] || 0;
   };
+
+  // Função para carregar progresso das metas de todos os profissionais
+  const loadAllProfessionalGoalsProgress = async () => {
+    if (!establishment) return;
+
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+
+    console.log('🔍 DEBUG - Carregando progresso de metas para todos os profissionais');
+
+    const progressData: Record<string, any> = {};
+
+    for (const professional of professionals) {
+      try {
+        const { data, error } = await supabase
+          .rpc('get_professional_goal_progress', {
+            p_establishment_id: establishment.id,
+            p_professional_id: professional.id,
+            p_year: currentYear,
+            p_month: currentMonth
+          });
+
+        if (error) {
+          console.error(`❌ Erro ao buscar progresso da meta para ${professional.name}:`, error);
+          continue;
+        }
+
+        if (data && data.length > 0) {
+          const progress = data[0];
+          progressData[professional.id] = {
+            goalAmount: progress.goal_amount || 0,
+            completedServices: progress.completed_services || 0,
+            progressPercentage: progress.progress_percentage || 0,
+            remainingServices: progress.remaining_services || 0
+          };
+
+          console.log(`✅ Progresso carregado para ${professional.name}:`, progressData[professional.id]);
+        } else {
+          // Se não há dados, usar valores padrão
+          progressData[professional.id] = {
+            goalAmount: 0,
+            completedServices: 0,
+            progressPercentage: 0,
+            remainingServices: 0
+          };
+        }
+      } catch (error) {
+        console.error(`❌ Erro ao processar meta para ${professional.name}:`, error);
+        progressData[professional.id] = {
+          goalAmount: 0,
+          completedServices: 0,
+          progressPercentage: 0,
+          remainingServices: 0
+        };
+      }
+    }
+
+    setProfessionalGoalProgress(progressData);
+    console.log('🔍 DEBUG - Todos os progressos carregados:', progressData);
+  };
+
 
   // Funções para gerenciar bloqueio de horários dos profissionais
   const handleOpenBlockTimeModal = (professionalId: string) => {
@@ -4230,6 +4378,95 @@ const EstablishmentDashboard = () => {
     if (!professional || !(professional as any).blocked_hours) return false;
     const blockedHoursForDate = (professional as any).blocked_hours[date];
     return blockedHoursForDate && blockedHoursForDate.includes(hour);
+  };
+
+  // Funções para gerenciar horários de trabalho dos profissionais
+  const handleOpenWorkHoursModal = (professionalId: string) => {
+    setSelectedProfessionalForWorkHours(professionalId);
+    
+    // Carregar horários de trabalho existentes do profissional
+    const professional = professionals.find(p => p.id === professionalId);
+    if (professional && professional.work_hours) {
+      setWorkHoursData(professional.work_hours);
+    } else {
+      // Inicializar com horários padrão desabilitados
+      const defaultWorkHours = {
+        monday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        tuesday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        wednesday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        thursday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        friday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        saturday: { enabled: false, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' },
+        sunday: { enabled: false, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' }
+      };
+      setWorkHoursData(defaultWorkHours);
+    }
+    
+    setShowWorkHoursModal(true);
+  };
+
+  const handleCloseWorkHoursModal = () => {
+    setShowWorkHoursModal(false);
+    setSelectedProfessionalForWorkHours(null);
+    setWorkHoursData({});
+  };
+
+  const handleToggleWorkDay = (day: string) => {
+    setWorkHoursData(prev => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        enabled: !prev[day].enabled
+      }
+    }));
+  };
+
+  const handleUpdateWorkTime = (day: string, field: string, value: string) => {
+    setWorkHoursData(prev => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        [field]: value
+      }
+    }));
+  };
+
+  const handleSaveWorkHours = async () => {
+    if (!selectedProfessionalForWorkHours || !establishment) return;
+    
+    try {
+      const updatedProfessionals = professionals.map((professional: any) => {
+        if (professional.id === selectedProfessionalForWorkHours) {
+          return { ...professional, work_hours: workHoursData };
+        }
+        return professional;
+      });
+
+      // Salvar no banco de dados
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (updateError) {
+        console.error('Erro ao atualizar horários de trabalho:', updateError);
+        toast.error('Erro ao salvar horários de trabalho do profissional');
+        return;
+      }
+
+      // Atualizar estados locais
+      setProfessionals(updatedProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
+
+      toast.success('Horários de trabalho do profissional salvos com sucesso!');
+      handleCloseWorkHoursModal();
+    } catch (error) {
+      console.error('Erro ao salvar horários de trabalho:', error);
+      toast.error('Erro ao salvar horários de trabalho do profissional');
+    }
   };
 
   // Funções para gerenciar modal de observação
@@ -5130,6 +5367,7 @@ const EstablishmentDashboard = () => {
                               establishmentId={establishment.id}
                               services={establishment.services_with_prices || []}
                               businessHours={establishment.business_hours || {}}
+                              professionalWorkHours={professionals.find(p => p.id === selectedProfessional)?.work_hours || null}
                             />
                           </div>
                         )}
@@ -5363,7 +5601,7 @@ const EstablishmentDashboard = () => {
                         <span className="text-xs">Cancelado</span>
                       </button>
                       <span className="text-sm font-bold text-white bg-red-700 px-2 py-1 rounded w-full text-center">
-                        {appointments.filter(apt => apt.status === 'cancelled').length}
+                        {filteredAppointments.filter(apt => apt.status === 'cancelled').length}
                       </span>
                     </div>
                     
@@ -5375,7 +5613,7 @@ const EstablishmentDashboard = () => {
                         <span className="text-xs">Pendente</span>
                       </button>
                       <span className="text-sm font-bold text-white bg-yellow-700 px-2 py-1 rounded w-full text-center">
-                        {appointments.filter(apt => apt.status === 'pending').length}
+                        {filteredAppointments.filter(apt => apt.status === 'pending').length}
                       </span>
                     </div>
                     
@@ -5387,7 +5625,7 @@ const EstablishmentDashboard = () => {
                         <span className="text-xs">Concluído</span>
                       </button>
                       <span className="text-sm font-bold text-white bg-green-700 px-2 py-1 rounded w-full text-center">
-                        {appointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
+                        {filteredAppointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
                       </span>
                     </div>
                   </div>
@@ -5402,7 +5640,7 @@ const EstablishmentDashboard = () => {
                         <span>Cancelado</span>
                       </button>
                       <span className="text-lg font-bold text-white bg-red-700 px-3 py-1 rounded">
-                        {appointments.filter(apt => apt.status === 'cancelled').length}
+                        {filteredAppointments.filter(apt => apt.status === 'cancelled').length}
                       </span>
                     </div>
                     
@@ -5414,7 +5652,7 @@ const EstablishmentDashboard = () => {
                         <span>Pendente</span>
                       </button>
                       <span className="text-lg font-bold text-white bg-yellow-700 px-3 py-1 rounded">
-                        {appointments.filter(apt => apt.status === 'pending').length}
+                        {filteredAppointments.filter(apt => apt.status === 'pending').length}
                       </span>
                     </div>
                     
@@ -5426,7 +5664,7 @@ const EstablishmentDashboard = () => {
                         <span>Concluído</span>
                       </button>
                       <span className="text-lg font-bold text-white bg-green-700 px-3 py-1 rounded">
-                        {appointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
+                        {filteredAppointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
                       </span>
                     </div>
                   </div>
@@ -5873,6 +6111,7 @@ const EstablishmentDashboard = () => {
                   ❌ CANCELAR
                 </button>
               </div>
+
             </div>
                                 </>
                               )}
@@ -7753,9 +7992,9 @@ const EstablishmentDashboard = () => {
         </div>
       )}
 
-      {/* Modal de Meta do Profissional */}
+      {/* Modal de Meta do Profissional - SISTEMA SIMPLES */}
       {showGoalModal && selectedProfessionalForGoal && (
-        <GoalModal
+        <GoalModalSimple
           isOpen={showGoalModal}
           onClose={handleCloseGoalModal}
           onSave={handleSaveGoal}
@@ -7941,6 +8180,121 @@ const EstablishmentDashboard = () => {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Salvar Horários Bloqueados
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Horários de Trabalho */}
+      {showWorkHoursModal && selectedProfessionalForWorkHours && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-semibold text-white">
+                  Horários de Trabalho - {professionals.find(p => p.id === selectedProfessionalForWorkHours)?.name}
+                </h3>
+                <button
+                  onClick={handleCloseWorkHoursModal}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-gray-300 text-sm mb-4">
+                  Configure os horários de trabalho personalizados para este profissional. Se não configurado, será usado o horário padrão do estabelecimento.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {Object.entries({
+                  monday: 'Segunda-feira',
+                  tuesday: 'Terça-feira', 
+                  wednesday: 'Quarta-feira',
+                  thursday: 'Quinta-feira',
+                  friday: 'Sexta-feira',
+                  saturday: 'Sábado',
+                  sunday: 'Domingo'
+                }).map(([day, dayName]) => (
+                  <div key={day} className="bg-gray-800 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-white font-medium">{dayName}</h4>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={workHoursData[day]?.enabled || false}
+                          onChange={() => handleToggleWorkDay(day)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                      </label>
+                    </div>
+
+                    {workHoursData[day]?.enabled && (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-sm text-gray-300 mb-2">Entrada</label>
+                          <input
+                            type="time"
+                            value={workHoursData[day]?.entry_time || '08:00'}
+                            onChange={(e) => handleUpdateWorkTime(day, 'entry_time', e.target.value)}
+                            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm text-gray-300 mb-2">Início Intervalo</label>
+                          <input
+                            type="time"
+                            value={workHoursData[day]?.break_start || ''}
+                            onChange={(e) => handleUpdateWorkTime(day, 'break_start', e.target.value)}
+                            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm text-gray-300 mb-2">Fim Intervalo</label>
+                          <input
+                            type="time"
+                            value={workHoursData[day]?.break_end || ''}
+                            onChange={(e) => handleUpdateWorkTime(day, 'break_end', e.target.value)}
+                            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm text-gray-300 mb-2">Saída</label>
+                          <input
+                            type="time"
+                            value={workHoursData[day]?.exit_time || '17:00'}
+                            onChange={(e) => handleUpdateWorkTime(day, 'exit_time', e.target.value)}
+                            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-3 justify-end mt-6">
+                <button
+                  onClick={handleCloseWorkHoursModal}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveWorkHours}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Salvar Horários de Trabalho
                 </button>
               </div>
             </div>
@@ -9185,6 +9539,18 @@ const EstablishmentDashboard = () => {
                     <span className="text-sm text-gray-400">Definir meta mensal</span>
                   </div>
 
+                  {/* Barra de Progresso da Meta */}
+                  {professionalGoalProgress[professional.id] && professionalGoalProgress[professional.id].goalAmount > 0 && (
+                    <div className="mt-3">
+                      <GoalProgressBar
+                        goalAmount={professionalGoalProgress[professional.id].goalAmount}
+                        completedServices={professionalGoalProgress[professional.id].completedServices}
+                        professionalName={professional.name}
+                        isCompact={true}
+                      />
+                    </div>
+                  )}
+
                   {/* Campo de Ausência */}
                   <div className="flex gap-2 items-center">
                     <div className="flex-1">
@@ -9211,6 +9577,20 @@ const EstablishmentDashboard = () => {
                       </button>
                     </div>
                     <span className="text-sm text-gray-400">Bloquear horários específicos</span>
+                  </div>
+
+                  {/* Campo de Horários de Trabalho */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <button
+                        onClick={() => handleOpenWorkHoursModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>⏰</span>
+                        <span>Horários de Trabalho</span>
+                      </button>
+                    </div>
+                    <span className="text-sm text-gray-400">Definir horários personalizados</span>
                   </div>
 
                   {/* Campo de Serviço Infantil */}

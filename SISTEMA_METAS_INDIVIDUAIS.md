@@ -115,3 +115,4 @@ Para aplicar esta funcionalidade:
 1. Execute o script `create_professional_goals_system.sql` no banco de dados
 2. Os componentes já estão integrados e funcionais
 3. A funcionalidade estará disponível imediatamente no dashboard e na tela de agendamento
+

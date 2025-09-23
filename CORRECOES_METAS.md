@@ -63,3 +63,4 @@
 5. **Reporte qualquer erro** que aparecer nos logs
 
 Os logs de debug ajudarão a identificar exatamente onde está o problema! 🔍
+

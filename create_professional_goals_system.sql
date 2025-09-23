@@ -122,3 +122,4 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER update_professional_goals_updated_at 
   BEFORE UPDATE ON professional_goals 
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+

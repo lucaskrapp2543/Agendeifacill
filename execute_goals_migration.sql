@@ -52,3 +52,4 @@ CREATE TRIGGER update_professional_goals_updated_at
 
 -- Verificar se a tabela foi criada com sucesso
 SELECT 'Sistema de metas criado com sucesso!' as status;
+

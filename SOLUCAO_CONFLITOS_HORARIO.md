@@ -62,3 +62,4 @@ Observação: [CANCELADO: Profissional removido e horário indisponível]
 ---
 
 **Agora teste novamente o botão "🔧 Corrigir Órfãos" e veja se resolve o conflito de horário!** 🚀
+

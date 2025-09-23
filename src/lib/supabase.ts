@@ -1826,7 +1826,8 @@ export const setProfessionalGoal = async (
   professionalId: string,
   goalAmount: number,
   year: number,
-  month: number
+  month: number,
+  selectedServices: string[] = []
 ) => {
   try {
     console.log('💾 setProfessionalGoal - Salvando meta:', { 
@@ -1834,7 +1835,8 @@ export const setProfessionalGoal = async (
       professionalId, 
       goalAmount, 
       year, 
-      month 
+      month,
+      selectedServices
     });
     
     const { data, error } = await supabase
@@ -1844,7 +1846,8 @@ export const setProfessionalGoal = async (
         professional_id: professionalId,
         year,
         month,
-        goal_amount: goalAmount
+        goal_amount: goalAmount,
+        selected_services: selectedServices
       }, {
         onConflict: 'establishment_id,professional_id,year,month'
       })
@@ -1852,6 +1855,12 @@ export const setProfessionalGoal = async (
 
     if (error) {
       console.error('❌ Erro ao definir meta:', error);
+      console.error('❌ Detalhes do erro:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       throw error;
     }
 
@@ -1899,6 +1908,24 @@ export const getProfessionalGoal = async (
   } catch (error) {
     console.error('❌ Erro ao buscar meta do profissional:', error);
     return { data: null, error };
+  }
+};
+
+/**
+ * Obtém os serviços selecionados para a meta de um profissional
+ */
+export const getProfessionalSelectedServices = async (
+  establishmentId: string,
+  professionalId: string,
+  year: number,
+  month: number
+): Promise<string[]> => {
+  try {
+    const result = await getProfessionalGoal(establishmentId, professionalId, year, month);
+    return result.data?.selected_services || [];
+  } catch (error) {
+    console.error('❌ Erro ao buscar serviços selecionados:', error);
+    return [];
   }
 };
 

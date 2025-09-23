@@ -80,3 +80,4 @@ console.log('\n✅ Script carregado! Use as funções:');
 console.log('- findAppointmentsByProfessional("Luc")');
 console.log('- checkProfessionalExists("Luc")');
 console.log('- checkProfessionalExists("ID_DO_PROFISSIONAL")');
+
