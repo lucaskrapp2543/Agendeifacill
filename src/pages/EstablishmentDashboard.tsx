@@ -183,8 +183,9 @@ interface Appointment {
   pix_proof_url?: string;
   additional_products?: AdditionalProduct[];
   total_price?: number;
-  is_subscriber?: boolean;
   observation?: string;
+  establishment_observation?: string;
+  is_subscriber?: boolean;
   is_child_service?: boolean;
   sold_products?: {
     id: string;
@@ -433,6 +434,11 @@ const EstablishmentDashboard = () => {
   const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
   
+  // Estados para observações dos agendamentos
+  const [showObservationModal, setShowObservationModal] = useState(false);
+  const [selectedAppointmentForObservation, setSelectedAppointmentForObservation] = useState<string | null>(null);
+  const [observationText, setObservationText] = useState('');
+  
   // Estados para relatório de taxas
   const [taxesReport, setTaxesReport] = useState<any>(null);
   const [isLoadingTaxes, setIsLoadingTaxes] = useState(false);
@@ -486,9 +492,7 @@ const EstablishmentDashboard = () => {
     };
   }>({});
 
-  // Estados para modal de observação
-  const [showObservationModal, setShowObservationModal] = useState(false);
-  const [selectedObservation, setSelectedObservation] = useState<string>('');
+  // Estados para modal de observação (removido - já existe acima)
 
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pinPassword, setPinPassword] = useState('');
@@ -1968,6 +1972,7 @@ const EstablishmentDashboard = () => {
           pix_payment_status,
           pix_proof_url,
           observation,
+          establishment_observation,
           is_child_service,
           additional_products,
           total_price
@@ -4472,16 +4477,7 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  // Funções para gerenciar modal de observação
-  const handleOpenObservationModal = (observation: string) => {
-    setSelectedObservation(observation);
-    setShowObservationModal(true);
-  };
-
-  const handleCloseObservationModal = () => {
-    setShowObservationModal(false);
-    setSelectedObservation('');
-  };
+  // Funções para gerenciar modal de observação (removido - já existe abaixo)
 
   // Função para adicionar produto adicional
   const handleAddAdditionalProduct = async (appointmentId: string, product: AdditionalProduct) => {
@@ -4628,6 +4624,56 @@ const EstablishmentDashboard = () => {
     setEditingAppointmentValue(null);
     setEditingValue('');
   };
+
+  // Função para abrir modal de observações
+  const handleOpenObservationModal = (appointmentId: string, currentObservation?: string) => {
+    setSelectedAppointmentForObservation(appointmentId);
+    setObservationText(currentObservation || '');
+    setShowObservationModal(true);
+  };
+
+  // Função para salvar observação
+  const handleSaveObservation = async () => {
+    if (!selectedAppointmentForObservation || !establishment) return;
+
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ 
+          establishment_observation: observationText.trim() || null
+        })
+        .eq('id', selectedAppointmentForObservation);
+
+      if (error) throw error;
+
+      // Atualizar o estado local
+      setAppointments(prevAppointments => 
+        prevAppointments.map(apt => 
+          apt.id === selectedAppointmentForObservation 
+            ? { ...apt, establishment_observation: observationText.trim() || undefined }
+            : apt
+        )
+      );
+
+      setShowObservationModal(false);
+      setSelectedAppointmentForObservation(null);
+      setObservationText('');
+      toast('Observação salva com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao salvar observação:', error);
+      toast('Erro ao salvar observação', 'error');
+    }
+  };
+
+  // Função para cancelar observação
+  const handleCancelObservation = () => {
+    setShowObservationModal(false);
+    setSelectedAppointmentForObservation(null);
+    setObservationText('');
+  };
+
+  // Função para fechar modal de observação (alias para compatibilidade)
+  const handleCloseObservationModal = handleCancelObservation;
 
   // Função para calcular valor líquido baseado no percentual do profissional
   const calculateNetValue = (baseValue: number, professionalId: string) => {
@@ -5888,7 +5934,7 @@ const EstablishmentDashboard = () => {
                                         onClick={() => {
                                           const establishmentCode = establishment?.code || 'codigo';
                                           const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
-                                          let phoneNumber = appointment.client_whatsapp.replace(/\D/g, '');
+                                          let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
                                           if (!phoneNumber.startsWith('55')) {
                                             phoneNumber = '55' + phoneNumber;
                                           }
@@ -6204,6 +6250,30 @@ const EstablishmentDashboard = () => {
                   ❌ CANCELAR
                 </button>
               </div>
+
+              {/* Linha 3: Botão de Observações */}
+              <div className="mt-2">
+                <button
+                  onClick={() => handleOpenObservationModal(appointment.id, appointment.establishment_observation)}
+                  className="w-full px-2 py-1 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
+                  title="Adicionar observações ao agendamento"
+                >
+                  📝 Minhas Observações
+                </button>
+              </div>
+
+              {/* Exibir observação do estabelecimento se existir */}
+              {appointment.establishment_observation && (
+                <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <span className="text-purple-600 text-sm">📝</span>
+                    <div className="flex-1">
+                      <p className="text-xs text-purple-800 font-medium mb-1">Minha Observação:</p>
+                      <p className="text-xs text-purple-700 break-words">{appointment.establishment_observation}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
             </div>
                                 </>
@@ -8423,7 +8493,7 @@ const EstablishmentDashboard = () => {
                   </div>
                   <div className="flex-1">
                     <p className="text-white text-sm leading-relaxed italic">
-                      "{selectedObservation}"
+                      "{observationText}"
                     </p>
                   </div>
                 </div>
@@ -10269,6 +10339,57 @@ const EstablishmentDashboard = () => {
                   className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
                   Adicionar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Observações */}
+      {showObservationModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                <span className="text-purple-600 text-xl">📝</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Minhas Observações</h3>
+                <p className="text-sm text-gray-600">Adicione observações para este agendamento</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Observações
+                </label>
+                <textarea
+                  value={observationText}
+                  onChange={(e) => setObservationText(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-black bg-white resize-none"
+                  placeholder="Ex: Cliente não pagou tudo, deixou R$ 5,00 para depois..."
+                  rows={4}
+                  maxLength={500}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {observationText.length}/500 caracteres
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={handleCancelObservation}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveObservation}
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                >
+                  Salvar Observação
                 </button>
               </div>
             </div>
