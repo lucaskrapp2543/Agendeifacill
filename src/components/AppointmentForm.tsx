@@ -1228,6 +1228,8 @@ export function AppointmentForm({
               setSelectedProfessional(professional);
             }}
             establishmentId={establishment.id || establishment.establishment_id || ''}
+            selectedDate={selectedDate}
+            showGoalProgress={false}
           />
         </div>
 

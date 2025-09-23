@@ -8,8 +8,9 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
   const [showSecondConfirmation, setShowSecondConfirmation] = useState(false);
   const [isSubscriber, setIsSubscriber] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [establishment, setEstablishment] = useState(null);
 
-  // Verificar se é assinante quando o componente carrega
+  // Verificar se é assinante e buscar dados do estabelecimento
   React.useEffect(() => {
     const checkSubscriberStatus = async () => {
       if (appointment?.client_whatsapp && appointment?.establishment_id) {
@@ -25,11 +26,46 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
       }
     };
 
+    const fetchEstablishment = async () => {
+      if (appointment?.establishment_id) {
+        try {
+          const { data: establishmentData, error } = await supabase
+            .from('establishments')
+            .select('*')
+            .eq('id', appointment.establishment_id)
+            .single();
+
+          if (error) throw error;
+          setEstablishment(establishmentData);
+        } catch (error) {
+          console.error('Erro ao buscar dados do estabelecimento:', error);
+        }
+      }
+    };
+
     checkSubscriberStatus();
+    fetchEstablishment();
   }, [appointment]);
 
   const handleCancelClick = () => {
-    setShowFirstConfirmation(true);
+    // Se o estabelecimento exige solicitação de cancelamento via WhatsApp
+    if (establishment?.require_cancellation_request) {
+      handleRequestCancellation();
+    } else {
+      setShowFirstConfirmation(true);
+    }
+  };
+
+  const handleRequestCancellation = () => {
+    if (establishment?.whatsapp) {
+      const phoneNumber = establishment.whatsapp.replace(/\D/g, '');
+      const message = `Olá, queria cancelar agendamento... motivo é `;
+      const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank');
+      toast.success('Redirecionando para WhatsApp...');
+    } else {
+      toast.error('WhatsApp do estabelecimento não encontrado');
+    }
   };
 
   const handleFirstConfirmation = (confirmed) => {
@@ -78,7 +114,8 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
         disabled={isLoading}
         className="bg-red-500 hover:bg-red-600 disabled:bg-red-400 text-white font-bold py-2 px-4 rounded transition-colors"
       >
-        {isLoading ? 'Cancelando...' : 'Cancelar Agendamento'}
+        {isLoading ? 'Cancelando...' : 
+         establishment?.require_cancellation_request ? 'Pedir Cancelamento' : 'Cancelar Agendamento'}
       </button>
 
       {/* Primeira confirmação */}

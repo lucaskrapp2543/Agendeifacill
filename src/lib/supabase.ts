@@ -1813,3 +1813,296 @@ export const testMigration = async () => {
     return false;
   }
 };
+
+// ========================================
+// FUNÇÕES PARA GERENCIAR METAS DOS PROFISSIONAIS
+// ========================================
+
+/**
+ * Define uma meta mensal para um profissional
+ */
+export const setProfessionalGoal = async (
+  establishmentId: string,
+  professionalId: string,
+  goalAmount: number,
+  year: number,
+  month: number
+) => {
+  try {
+    console.log('💾 setProfessionalGoal - Salvando meta:', { 
+      establishmentId, 
+      professionalId, 
+      goalAmount, 
+      year, 
+      month 
+    });
+    
+    const { data, error } = await supabase
+      .from('professional_goals')
+      .upsert({
+        establishment_id: establishmentId,
+        professional_id: professionalId,
+        year,
+        month,
+        goal_amount: goalAmount
+      }, {
+        onConflict: 'establishment_id,professional_id,year,month'
+      })
+      .select();
+
+    if (error) {
+      console.error('❌ Erro ao definir meta:', error);
+      throw error;
+    }
+
+    console.log('✅ Meta definida com sucesso:', data);
+    return { data, error: null };
+  } catch (error) {
+    console.error('❌ Erro ao definir meta do profissional:', error);
+    return { data: null, error };
+  }
+};
+
+/**
+ * Obtém a meta de um profissional para um mês específico
+ */
+export const getProfessionalGoal = async (
+  establishmentId: string,
+  professionalId: string,
+  year: number,
+  month: number
+) => {
+  try {
+    console.log('🔍 getProfessionalGoal - Buscando meta:', { establishmentId, professionalId, year, month });
+    
+    const { data, error } = await supabase
+      .from('professional_goals')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .eq('professional_id', professionalId)
+      .eq('year', year)
+      .eq('month', month)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('❌ Erro ao buscar meta:', error);
+      throw error;
+    }
+
+    if (error && error.code === 'PGRST116') {
+      console.log('ℹ️ Nenhuma meta encontrada para este profissional');
+      return { data: null, error: null };
+    }
+
+    console.log('✅ Meta encontrada:', data);
+    return { data, error: null };
+  } catch (error) {
+    console.error('❌ Erro ao buscar meta do profissional:', error);
+    return { data: null, error };
+  }
+};
+
+/**
+ * Obtém o progresso da meta de um profissional
+ */
+export const getProfessionalGoalProgress = async (
+  establishmentId: string,
+  professionalId: string,
+  year: number,
+  month: number
+) => {
+  try {
+    console.log('🔍 getProfessionalGoalProgress chamado:', { establishmentId, professionalId, year, month });
+    
+    // Primeiro, obter o nome do profissional
+    const { data: establishmentData, error: establishmentError } = await supabase
+      .from('establishments')
+      .select('professionals')
+      .eq('id', establishmentId)
+      .single();
+
+    if (establishmentError) {
+      console.error('❌ Erro ao buscar estabelecimento:', establishmentError);
+      throw establishmentError;
+    }
+
+    console.log('✅ Estabelecimento encontrado:', establishmentData);
+
+    const professional = establishmentData.professionals?.find((p: any) => p.id === professionalId);
+    if (!professional) {
+      console.error('❌ Profissional não encontrado:', professionalId);
+      throw new Error('Profissional não encontrado');
+    }
+
+    const professionalName = professional.name;
+    console.log('✅ Nome do profissional:', professionalName);
+
+    // Buscar a meta mais recente (independente do mês)
+    console.log('🔍 Buscando meta mais recente para profissional:', professionalId);
+    
+    const { data: goalData, error: goalError } = await supabase
+      .from('professional_goals')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .eq('professional_id', professionalId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (goalError && goalError.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('❌ Erro ao buscar meta:', goalError);
+      throw goalError;
+    }
+
+    const goalAmount = goalData?.goal_amount || 0;
+    console.log('✅ Meta encontrada (mais recente):', goalAmount, 'criada em:', goalData?.created_at);
+
+    // Calcular serviços completados no mês
+    const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
+    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+    
+    console.log('🔍 Buscando agendamentos entre:', startDate, 'e', endDate, 'para o mês:', month, 'ano:', year);
+
+    // Buscar agendamentos sem filtrar por profissional primeiro
+    console.log('🔍 Buscando agendamentos do estabelecimento...');
+    
+    const { data: appointmentsData, error: appointmentsError } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .eq('status', 'completed')
+      .gte('appointment_date', startDate)
+      .lte('appointment_date', endDate);
+
+    if (appointmentsError) {
+      console.error('❌ Erro ao buscar agendamentos:', appointmentsError);
+      throw appointmentsError;
+    }
+
+    console.log('✅ Agendamentos encontrados:', appointmentsData);
+
+    // Filtrar agendamentos do profissional específico
+    let completedServices = 0;
+    if (appointmentsData && appointmentsData.length > 0) {
+      console.log('🔍 Estrutura do primeiro agendamento:', Object.keys(appointmentsData[0]));
+      
+      completedServices = appointmentsData.filter(appointment => {
+        // Tentar diferentes campos possíveis para o nome do profissional
+        const appointmentProfessional = appointment.professional || 
+                                      appointment.professional_name || 
+                                      appointment.service_name ||
+                                      appointment.professional_id;
+        
+        console.log('🔍 Agendamento:', {
+          id: appointment.id,
+          professional: appointment.professional,
+          professional_name: appointment.professional_name,
+          service_name: appointment.service_name,
+          professional_id: appointment.professional_id
+        });
+        
+        console.log('🔍 Comparando:', {
+          professionalName,
+          professionalId,
+          appointmentProfessional,
+          appointmentProfessionalId: appointment.professional
+        });
+        
+        // Comparar por UUID do profissional (que é o que está sendo usado)
+        const matches = appointment.professional === professionalId;
+        
+        if (matches) {
+          console.log('✅ Match encontrado!');
+        }
+        
+        return matches;
+      }).length;
+    }
+    
+    const progressPercentage = goalAmount > 0 ? (completedServices / goalAmount) * 100 : 0;
+    const remainingServices = Math.max(goalAmount - completedServices, 0);
+    
+    console.log('✅ Meta:', goalAmount, 'serviços | Completados em', year + '/' + month + ':', completedServices, '| Progresso:', progressPercentage + '%');
+
+    return {
+      data: {
+        goalAmount,
+        completedServices,
+        progressPercentage,
+        remainingServices,
+        professionalName
+      },
+      error: null
+    };
+  } catch (error) {
+    console.error('Erro ao calcular progresso da meta:', error);
+    return { 
+      data: {
+        goalAmount: 0,
+        completedServices: 0,
+        progressPercentage: 0,
+        remainingServices: 0,
+        professionalName: ''
+      }, 
+      error 
+    };
+  }
+};
+
+/**
+ * Remove a meta de um profissional
+ */
+export const removeProfessionalGoal = async (
+  establishmentId: string,
+  professionalId: string,
+  year: number,
+  month: number
+) => {
+  try {
+    const { error } = await supabase
+      .from('professional_goals')
+      .delete()
+      .eq('establishment_id', establishmentId)
+      .eq('professional_id', professionalId)
+      .eq('year', year)
+      .eq('month', month);
+
+    if (error) {
+      console.error('Erro ao remover meta:', error);
+      throw error;
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error('Erro ao remover meta do profissional:', error);
+    return { error };
+  }
+};
+
+/**
+ * Obtém todas as metas de um estabelecimento para um mês específico
+ */
+export const getEstablishmentGoals = async (
+  establishmentId: string,
+  year: number,
+  month: number
+) => {
+  try {
+    const { data, error } = await supabase
+      .from('professional_goals')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .eq('year', year)
+      .eq('month', month);
+
+    if (error) {
+      console.error('Erro ao buscar metas do estabelecimento:', error);
+      throw error;
+    }
+
+    return { data, error: null };
+  } catch (error) {
+    console.error('Erro ao buscar metas do estabelecimento:', error);
+    return { data: null, error };
+  }
+};

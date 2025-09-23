@@ -6,7 +6,7 @@ import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal, getClientProfileData, isNewClient } from '../lib/supabase';
-import { getEstablishmentAppointments, createEstablishment, updateEstablishment, getEstablishmentPremiumSubscribers, removePremiumSubscriber } from '../lib/supabase';
+import { getEstablishmentAppointments, createEstablishment, updateEstablishment, getEstablishmentPremiumSubscribers, removePremiumSubscriber, setProfessionalGoal, getProfessionalGoalProgress, getProfessionalGoal } from '../lib/supabase';
 import { ServiceForm } from '../components/ServiceForm';
 import { DurationSelector } from '../components/DurationSelector';
 import { DraggableServiceList } from '../components/DraggableServiceList';
@@ -29,6 +29,9 @@ import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker
 import Sidebar from '../components/Sidebar';
 import { UpdateButton } from '../components/UpdateButton';
 import { ValidityDisplay } from '../components/ValidityDisplay';
+import { GoalModal } from '../components/GoalModal';
+import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
+import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 
 interface BusinessHours {
   enabled: boolean;
@@ -90,6 +93,7 @@ interface Establishment {
   has_parking?: boolean;
   limit_subscriber_bookings?: boolean; // Limitar agendamentos de assinantes
   prevent_same_day_reschedule?: boolean; // Prevenir remarcação no mesmo dia
+  require_cancellation_request?: boolean; // Exigir solicitação de cancelamento via WhatsApp
   has_accessibility?: boolean; // Novo estado para Acessibilidade
   wifi_password?: string; // Senha do Wi-Fi
   whatsapp?: string; // Novo campo para WhatsApp
@@ -254,7 +258,7 @@ const EstablishmentDashboard = () => {
   const [codeCopied, setCodeCopied] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isPaymentDropdownOpen, setIsPaymentDropdownOpen] = useState(false);
-  const [selectedProfessional, setSelectedProfessional] = useState('all');
+  const [selectedProfessional, setSelectedProfessional] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('todos');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedMonth, setSelectedMonth] = useState(new Date());
@@ -312,6 +316,7 @@ const EstablishmentDashboard = () => {
   const [hasParking, setHasParking] = useState(false); // Novo estado para Estacionamento
   const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
+  const [requireCancellationRequest, setRequireCancellationRequest] = useState(false); // Exigir solicitação de cancelamento via WhatsApp
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
   const [carouselPosition, setCarouselPosition] = useState<'behind' | 'below'>('behind'); // Posição do carrossel
@@ -428,6 +433,17 @@ const EstablishmentDashboard = () => {
   const [professionalAbsences, setProfessionalAbsences] = useState<Record<string, string[]>>({});
   const [absenceModalCurrentMonth, setAbsenceModalCurrentMonth] = useState(new Date());
 
+  // Estados para metas dos profissionais
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [selectedProfessionalForGoal, setSelectedProfessionalForGoal] = useState<string | null>(null);
+  const [professionalGoals, setProfessionalGoals] = useState<Record<string, number>>({});
+  const [goalModalCurrentMonth, setGoalModalCurrentMonth] = useState(new Date());
+  const [isLoadingGoal, setIsLoadingGoal] = useState(false);
+
+  // Estados para transferência de agendamentos
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [selectedAppointmentForTransfer, setSelectedAppointmentForTransfer] = useState<Appointment | null>(null);
+
   // Estados para gerenciar bloqueio de horários dos profissionais
   const [showBlockTimeModal, setShowBlockTimeModal] = useState(false);
   const [selectedProfessionalForBlock, setSelectedProfessionalForBlock] = useState<string | null>(null);
@@ -449,6 +465,19 @@ const EstablishmentDashboard = () => {
   const [selectedProfessionalForPin, setSelectedProfessionalForPin] = useState<string | null>(null);
   const [tempSelectedProfessional, setTempSelectedProfessional] = useState<string | null>(null);
   const [authenticatedProfessionalId, setAuthenticatedProfessionalId] = useState<string | null>(null);
+
+  // Estados para proteção de configurações sensíveis
+  const [showConfigPasswordModal, setShowConfigPasswordModal] = useState(false);
+  const [configPasswordVerified, setConfigPasswordVerified] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{
+    type: 'percentage' | 'password' | 'goal';
+    professionalId: string;
+    data?: any;
+  } | null>(null);
+
+  // Estados para controlar visibilidade de senhas dos profissionais
+  const [professionalPasswordVisible, setProfessionalPasswordVisible] = useState<Record<string, boolean>>({});
+  const [professionalPercentageEditable, setProfessionalPercentageEditable] = useState<Record<string, boolean>>({});
 
   // Estado para controlar os valores dos inputs de senha
   const [professionalPins, setProfessionalPins] = useState<Record<string, string>>({});
@@ -1539,6 +1568,7 @@ const EstablishmentDashboard = () => {
         has_parking: hasParking, // Salva a comodidade Estacionamento
         has_accessibility: hasAccessibility, // Salva a comodidade Acessibilidade
         wifi_password: wifiPassword.trim(), // Salva a senha do Wi-Fi
+        require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
       };
       
@@ -1629,6 +1659,7 @@ const EstablishmentDashboard = () => {
         has_parking: hasParking, // Atualiza a comodidade Estacionamento
         has_accessibility: hasAccessibility, // Atualiza a comodidade Acessibilidade
         wifi_password: wifiPassword.trim(), // Atualiza a senha do Wi-Fi
+        require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
         show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
@@ -2061,6 +2092,7 @@ const EstablishmentDashboard = () => {
         setHasParking(establishmentData.has_parking ?? false);
         setHasAccessibility(establishmentData.has_accessibility ?? false);
         setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
+        setRequireCancellationRequest(establishmentData.require_cancellation_request ?? false); // Exigir solicitação de cancelamento
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
         setCarouselPosition(establishmentData.carousel_position || 'behind'); // Posição do carrossel
@@ -2580,6 +2612,9 @@ const EstablishmentDashboard = () => {
 
   // Filtrar agendamentos por profissional e forma de pagamento selecionados
   const filteredAppointments = appointments.filter(appointment => {
+    // Se nenhum profissional estiver selecionado, não mostrar agendamentos
+    if (selectedProfessional === '') return false;
+    
     const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
     const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
     return isProfessionalMatch && isPaymentMethodMatch;
@@ -3037,9 +3072,205 @@ const EstablishmentDashboard = () => {
     }
   }, [showDrawModal, selectedLoyalMonth]);
 
+
+  // Funções para proteção de configurações sensíveis
+  const handleConfigPasswordVerify = async (password: string): Promise<boolean> => {
+    if (!establishment) return false;
+    
+    try {
+      console.log('🔍 DEBUG - Verificando senha:', {
+        enteredPassword: password,
+        storedPassword: establishment.pin_password,
+        hasPassword: !!establishment.pin_password
+      });
+      
+      // Verificar se a senha está correta (usar a senha das configurações)
+      const isCorrect = establishment.pin_password === password;
+      
+      console.log('🔍 DEBUG - Resultado da verificação:', isCorrect);
+      
+      if (isCorrect) {
+        setConfigPasswordVerified(true);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Erro ao verificar senha:', error);
+      return false;
+    }
+  };
+
+  const handleProtectedAction = (type: 'percentage' | 'password' | 'goal', professionalId: string, data?: any) => {
+    if (configPasswordVerified) {
+      // Se já foi verificado, executar ação diretamente
+      executeProtectedAction(type, professionalId, data);
+    } else {
+      // Se não foi verificado, pedir senha
+      setPendingAction({ type, professionalId, data });
+      setShowConfigPasswordModal(true);
+    }
+  };
+
+  const executeProtectedAction = (type: 'percentage' | 'password' | 'goal', professionalId: string, data?: any) => {
+    switch (type) {
+      case 'percentage':
+        if (data?.percentage !== undefined) {
+          handleProfessionalChange(professionalId, 'percentage', data.percentage);
+        }
+        break;
+      case 'password':
+        if (data?.password) {
+          handleUpdateProfessionalPassword(professionalId, data.password);
+        }
+        break;
+      case 'goal':
+        if (data?.goalAmount !== undefined) {
+          handleSaveGoalDirect(data.goalAmount);
+        }
+        break;
+    }
+  };
+
+  const handleConfigPasswordSuccess = () => {
+    console.log('🔍 DEBUG - handleConfigPasswordSuccess chamado:', pendingAction);
+    
+    if (pendingAction) {
+      if (pendingAction.type === 'password') {
+        // Para senha, apenas tornar visível
+        console.log('🔍 DEBUG - Tornando senha visível para:', pendingAction.professionalId);
+        setProfessionalPasswordVisible(prev => ({
+          ...prev,
+          [pendingAction.professionalId]: true
+        }));
+      } else if (pendingAction.type === 'percentage') {
+        // Para percentual, tornar editável
+        console.log('🔍 DEBUG - Tornando percentual editável para:', pendingAction.professionalId);
+        setProfessionalPercentageEditable(prev => ({
+          ...prev,
+          [pendingAction.professionalId]: true
+        }));
+      } else {
+        // Para meta, executar ação diretamente
+        console.log('🔍 DEBUG - Executando ação protegida:', pendingAction.type);
+        executeProtectedAction(pendingAction.type, pendingAction.professionalId, pendingAction.data);
+      }
+      setPendingAction(null);
+    }
+  };
+
+  // Função para solicitar verificação de senha para ver senha do profissional
+  const handleRequestPasswordVisibility = (professionalId: string) => {
+    console.log('🔍 DEBUG - handleRequestPasswordVisibility chamado para:', professionalId);
+    setPendingAction({ type: 'password', professionalId });
+    setShowConfigPasswordModal(true);
+  };
+
+  // Função para solicitar verificação de senha para editar percentual
+  const handleRequestPercentageEdit = (professionalId: string) => {
+    console.log('🔍 DEBUG - handleRequestPercentageEdit chamado para:', professionalId);
+    setPendingAction({ type: 'percentage', professionalId });
+    setShowConfigPasswordModal(true);
+  };
+
+  // Função para alterar percentual com proteção
+  const handleProtectedPercentageChange = (professionalId: string, percentage: number) => {
+    if (professionalPercentageEditable[professionalId]) {
+      // Se já foi verificado, alterar diretamente
+      handleProfessionalChange(professionalId, 'percentage', percentage);
+    } else {
+      // Se não foi verificado, pedir senha
+      handleRequestPercentageEdit(professionalId);
+    }
+  };
+
+
+  // Funções para transferência de agendamentos
+  const handleOpenTransferModal = (appointment: Appointment) => {
+    setSelectedAppointmentForTransfer(appointment);
+    setShowTransferModal(true);
+  };
+
+  const handleCloseTransferModal = () => {
+    setShowTransferModal(false);
+    setSelectedAppointmentForTransfer(null);
+  };
+
+  const handleTransferAppointment = async (appointmentId: string, toProfessionalId: string) => {
+    if (!selectedAppointmentForTransfer) return;
+    
+    const fromProfessionalId = selectedAppointmentForTransfer.professional;
+    await transferAppointment(appointmentId, fromProfessionalId, toProfessionalId);
+  };
+
+  // Função para transferir agendamento entre profissionais
+  const transferAppointment = async (appointmentId: string, fromProfessionalId: string, toProfessionalId: string) => {
+    if (!establishment) return;
+    
+    console.log('🔄 TRANSFERINDO AGENDAMENTO...');
+    console.log(`De: ${fromProfessionalId} → Para: ${toProfessionalId}`);
+    
+    try {
+      // Verificar se o profissional de destino está disponível no horário
+      const appointment = appointments.find(apt => apt.id === appointmentId);
+      if (!appointment) {
+        toast.error('Agendamento não encontrado!');
+        return;
+      }
+      
+      // Verificar conflito de horário
+      const hasConflict = appointments.some(apt => 
+        apt.professional === toProfessionalId &&
+        apt.appointment_date === appointment.appointment_date &&
+        apt.appointment_time === appointment.appointment_time &&
+        apt.id !== appointmentId
+      );
+      
+      if (hasConflict) {
+        toast.error('Profissional de destino já tem agendamento neste horário!');
+        return;
+      }
+      
+      // Encontrar nomes dos profissionais
+      const fromProfessional = professionals.find(p => p.id === fromProfessionalId);
+      const toProfessional = professionals.find(p => p.id === toProfessionalId);
+      
+      if (!fromProfessional || !toProfessional) {
+        toast.error('Profissional não encontrado!');
+        return;
+      }
+      
+      // Atualizar agendamento
+      const { error } = await supabase
+        .from('appointments')
+        .update({ 
+          professional: toProfessionalId,
+          observation: (appointment.observation || '') + ` [Transferido de ${fromProfessional.name} para ${toProfessional.name}]`
+        })
+        .eq('id', appointmentId);
+      
+      if (error) {
+        console.error('❌ Erro ao transferir agendamento:', error);
+        toast.error('Erro ao transferir agendamento');
+        return;
+      }
+      
+      // Recarregar dados
+      await fetchAppointments();
+      
+      toast.success(`Agendamento transferido de ${fromProfessional.name} para ${toProfessional.name}!`);
+      
+    } catch (error) {
+      console.error('❌ Erro ao transferir agendamento:', error);
+      toast.error('Erro ao transferir agendamento');
+    }
+  };
+
+
   // Função para obter o nome do profissional pelo ID
   const getProfessionalName = (professionalId: string): string => {
     if (professionalId === 'all') return 'Todos os profissionais';
+    if (professionalId === '') return 'Nenhum profissional selecionado';
     
     // Primeiro tenta encontrar por ID
     const professionalById: Professional | undefined = professionals.find(p => p.id === professionalId);
@@ -3821,6 +4052,94 @@ const EstablishmentDashboard = () => {
     const professional = professionals.find(p => p.id === professionalId);
     if (!professional || !(professional as any).absences) return false;
     return (professional as any).absences.includes(date);
+  };
+
+  // Funções para gerenciar metas dos profissionais
+  const handleOpenGoalModal = async (professionalId: string) => {
+    setSelectedProfessionalForGoal(professionalId);
+    
+    // Carregar meta existente do profissional para o mês atual
+    if (establishment) {
+      const currentYear = goalModalCurrentMonth.getFullYear();
+      const currentMonth = goalModalCurrentMonth.getMonth() + 1;
+      
+      try {
+        const { data } = await getProfessionalGoal(
+          establishment.id,
+          professionalId,
+          currentYear,
+          currentMonth
+        );
+        
+        if (data) {
+          setProfessionalGoals(prev => ({
+            ...prev,
+            [professionalId]: data.goal_amount
+          }));
+        }
+      } catch (error) {
+        console.error('Erro ao carregar meta:', error);
+      }
+    }
+    
+    setShowGoalModal(true);
+  };
+
+  const handleCloseGoalModal = () => {
+    setShowGoalModal(false);
+    setSelectedProfessionalForGoal(null);
+    setGoalModalCurrentMonth(new Date()); // Reset para o mês atual
+  };
+
+  const handleSaveGoal = async (goalAmount: number) => {
+    if (!selectedProfessionalForGoal || !establishment) return;
+
+    // Usar proteção de senha
+    handleProtectedAction('goal', selectedProfessionalForGoal, { goalAmount });
+  };
+
+  const handleSaveGoalDirect = async (goalAmount: number) => {
+    if (!selectedProfessionalForGoal || !establishment) return;
+
+    setIsLoadingGoal(true);
+    
+    try {
+      const currentYear = goalModalCurrentMonth.getFullYear();
+      const currentMonth = goalModalCurrentMonth.getMonth() + 1;
+      
+      const { error } = await setProfessionalGoal(
+        establishment.id,
+        selectedProfessionalForGoal,
+        goalAmount,
+        currentYear,
+        currentMonth
+      );
+
+      if (error) {
+        console.error('Erro ao salvar meta:', error);
+        toast.error('Erro ao salvar meta do profissional');
+        return;
+      }
+
+      // Atualizar estado local
+      setProfessionalGoals(prev => ({
+        ...prev,
+        [selectedProfessionalForGoal]: goalAmount
+      }));
+
+      toast.success('Meta do profissional salva com sucesso!');
+      handleCloseGoalModal();
+    } catch (error) {
+      console.error('Erro ao salvar meta:', error);
+      toast.error('Erro ao salvar meta do profissional');
+    } finally {
+      setIsLoadingGoal(false);
+    }
+  };
+
+  // Função para obter a meta atual de um profissional
+  const getProfessionalGoalAmount = (professionalId: string): number => {
+    return professionalGoals[professionalId] || 0;
   };
 
   // Funções para gerenciar bloqueio de horários dos profissionais
@@ -4793,12 +5112,14 @@ const EstablishmentDashboard = () => {
                             fetchEstablishment();
                           }}
                           authenticatedProfessionalId={authenticatedProfessionalId}
+                          selectedDate={selectedDate}
                           showPhotoEditButtons={true}
                           establishment={establishment}
                         />
                         <div className="mt-2 text-xs text-red-600">
-                          filtro ativo: {getProfessionalName(selectedProfessional).toLowerCase()}
+                          {selectedProfessional === '' ? 'Selecione algum profissional' : `filtro ativo: ${getProfessionalName(selectedProfessional).toLowerCase()}`}
                         </div>
+                        
                         
                         {/* Quick Availability Checker - aparece quando um profissional específico está selecionado */}
                         {selectedProfessional !== 'all' && establishment && (
@@ -4929,7 +5250,7 @@ const EstablishmentDashboard = () => {
                     </div>
                   </div>
                   <div className="mt-3 text-center text-sm text-gray-600">
-                    {filteredAppointments.length} agendamentos encontrados
+                    {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' : `${filteredAppointments.length} agendamentos encontrados`}
                   </div>
                 </div>
 
@@ -4938,7 +5259,9 @@ const EstablishmentDashboard = () => {
               <div className="mb-4">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Agendamentos do Dia</h2>
                 <p className="text-gray-700 mb-3">
-                  {selectedProfessional === 'all' ? 'Todos os profissionais' : `Profissional: ${getProfessionalName(selectedProfessional)}`}
+                  {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' : 
+                   selectedProfessional === 'all' ? 'Todos os profissionais' : 
+                   `Profissional: ${getProfessionalName(selectedProfessional)}`}
                 </p>
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-4">
@@ -5166,7 +5489,9 @@ const EstablishmentDashboard = () => {
                 {filteredAppointments.length === 0 ? (
                   <div className="text-center py-8">
                     <Calendar className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
-                    <p className="text-gray-400">Nenhum agendamento para este dia</p>
+                    <p className="text-gray-400">
+                      {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' : 'Nenhum agendamento para este dia'}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-3 mt-4 w-full max-w-[100vw] overflow-x-hidden">
@@ -5515,7 +5840,7 @@ const EstablishmentDashboard = () => {
               </div>
 
               {/* Linha 2: Botões de Status - Organizados para mobile */}
-              <div className="grid grid-cols-3 gap-1">
+              <div className="grid grid-cols-2 gap-1">
                 <button
                   onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
                   className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
@@ -5530,6 +5855,14 @@ const EstablishmentDashboard = () => {
                   title="Marcar como PENDENTE"
                 >
                   ⏳ PENDENTE
+                </button>
+
+                <button
+                  onClick={() => handleOpenTransferModal(appointment)}
+                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                  title="Transferir para outro profissional"
+                >
+                  🔄 TRANSFERIR
                 </button>
 
                 <button
@@ -5780,6 +6113,21 @@ const EstablishmentDashboard = () => {
                       className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                     />
                     <span className="text-white">Acessibilidade</span>
+                  </label>
+                  
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={requireCancellationRequest}
+                      onChange={(e) => setRequireCancellationRequest(e.target.checked)}
+                      className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-white">Cancelamento</span>
+                      <span className="text-xs text-gray-400">
+                        Ao ativar essa opção seus clientes não podem agendar e depois cancelar, mas sim terá um botão que o cliente clica e envia uma mensagem no seu WhatsApp com a mensagem "Olá, queria cancelar agendamento... motivo é"
+                      </span>
+                    </div>
                   </label>
                 </div>
               </div>
@@ -7405,6 +7753,18 @@ const EstablishmentDashboard = () => {
         </div>
       )}
 
+      {/* Modal de Meta do Profissional */}
+      {showGoalModal && selectedProfessionalForGoal && (
+        <GoalModal
+          isOpen={showGoalModal}
+          onClose={handleCloseGoalModal}
+          onSave={handleSaveGoal}
+          professionalName={professionals.find(p => p.id === selectedProfessionalForGoal)?.name || ''}
+          currentGoal={getProfessionalGoalAmount(selectedProfessionalForGoal)}
+          isLoading={isLoadingGoal}
+        />
+      )}
+
       {/* Modal de Bloqueio de Horários */}
       {showBlockTimeModal && selectedProfessionalForBlock && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -8732,15 +9092,41 @@ const EstablishmentDashboard = () => {
                   {/* Campo de percentual do profissional */}
                   <div className="flex gap-2 items-center">
                     <div className="flex-1">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={professional.percentage || 0}
-                        onChange={(e) => handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0)}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                        placeholder="Percentual (%)"
-                      />
+                      {professionalPercentageEditable[professional.id] ? (
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={professional.percentage || 0}
+                          onChange={(e) => {
+                            console.log('🔍 DEBUG - onChange percentual:', {
+                              professionalId: professional.id,
+                              isEditable: professionalPercentageEditable[professional.id],
+                              newValue: e.target.value
+                            });
+                            handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0);
+                          }}
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          placeholder="Percentual (%)"
+                        />
+                      ) : (
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value="••••"
+                            readOnly
+                            className="w-full px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
+                            placeholder="Percentual oculto"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRequestPercentageEdit(professional.id)}
+                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                          >
+                            Ver %
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <span className="text-sm text-gray-400">% do profissional</span>
                   </div>
@@ -8748,24 +9134,57 @@ const EstablishmentDashboard = () => {
                   {/* Campo de senha do profissional */}
                   <div className="flex gap-2 items-center">
                     <div className="flex-1">
-                      <input
-                        type="text"
-                        maxLength={4}
-                        value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-                          setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
-                          if (value.length === 4) {
-                            handleUpdateProfessionalPin(professional.id, value);
-                          }
-                        }}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                        placeholder="Senha de 4 dígitos"
-                      />
+                      {professionalPasswordVisible[professional.id] ? (
+                        <input
+                          type="text"
+                          maxLength={4}
+                          value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                            setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
+                            if (value.length === 4) {
+                              handleUpdateProfessionalPin(professional.id, value);
+                            }
+                          }}
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          placeholder="Senha de 4 dígitos"
+                        />
+                      ) : (
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value="••••"
+                            readOnly
+                            className="w-full px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
+                            placeholder="Senha oculta"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRequestPasswordVisibility(professional.id)}
+                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                          >
+                            Ver
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <span className="text-sm text-gray-400">Senha do profissional</span>
                   </div>
                   
+                  {/* Campo de Meta */}
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <button
+                        onClick={() => handleOpenGoalModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>🎯</span>
+                        <span>META</span>
+                      </button>
+                    </div>
+                    <span className="text-sm text-gray-400">Definir meta mensal</span>
+                  </div>
+
                   {/* Campo de Ausência */}
                   <div className="flex gap-2 items-center">
                     <div className="flex-1">
@@ -9467,6 +9886,35 @@ const EstablishmentDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de Transferência de Agendamento */}
+      <TransferAppointmentModal
+        isOpen={showTransferModal}
+        onClose={handleCloseTransferModal}
+        onTransfer={handleTransferAppointment}
+        appointment={selectedAppointmentForTransfer}
+        professionals={professionals}
+        currentProfessionalName={selectedAppointmentForTransfer ? getProfessionalName(selectedAppointmentForTransfer.professional) : ''}
+      />
+
+      {/* Modal de Verificação de Senha para Configurações */}
+      <ConfigPasswordModal
+        isOpen={showConfigPasswordModal}
+        onClose={() => {
+          setShowConfigPasswordModal(false);
+          setPendingAction(null);
+        }}
+        onVerify={handleConfigPasswordVerify}
+        onSuccess={handleConfigPasswordSuccess}
+        title="Verificação de Senha"
+        description={
+          pendingAction?.type === 'password' 
+            ? "Digite a senha de 4 dígitos para visualizar a senha do profissional"
+            : pendingAction?.type === 'percentage'
+            ? "Digite a senha de 4 dígitos para alterar o percentual do profissional"
+            : "Digite a senha de 4 dígitos para alterar configurações sensíveis"
+        }
+      />
     </div>
   );
 };

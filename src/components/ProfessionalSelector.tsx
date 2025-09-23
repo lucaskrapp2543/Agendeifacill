@@ -1,7 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Camera, Users, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { GoalProgressBar } from './GoalProgressBar';
+import { getProfessionalGoalProgress } from '../lib/supabase';
 
 interface Professional {
   id: string;
@@ -20,6 +22,10 @@ interface ProfessionalSelectorProps {
   showPhotoEditButtons?: boolean;
   // Props para verificar senhas dos profissionais
   establishment?: any;
+  // Prop para definir qual mês/ano buscar a meta
+  selectedDate?: Date;
+  // Prop para mostrar ou não a barra de progresso da meta
+  showGoalProgress?: boolean;
 }
 
 export function ProfessionalSelector({
@@ -30,7 +36,9 @@ export function ProfessionalSelector({
   onProfessionalUpdate,
   authenticatedProfessionalId = null,
   showPhotoEditButtons = false,
-  establishment
+  establishment,
+  selectedDate = new Date(),
+  showGoalProgress = true
 }: ProfessionalSelectorProps) {
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -38,6 +46,76 @@ export function ProfessionalSelector({
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [pendingFile, setPendingFile] = useState<{ file: File; professionalId: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Estados para metas
+  const [goalProgress, setGoalProgress] = useState<Record<string, {
+    goalAmount: number;
+    completedServices: number;
+    progressPercentage: number;
+    remainingServices: number;
+    professionalName: string;
+  }>>({});
+
+  // Função para carregar progresso da meta de um profissional
+  const loadGoalProgress = async (professionalId: string) => {
+    if (!establishmentId) {
+      console.log('❌ establishmentId não encontrado');
+      return;
+    }
+
+    try {
+      // Usar a data selecionada no calendário para buscar agendamentos do mês
+      const year = selectedDate.getFullYear();
+      const month = selectedDate.getMonth() + 1;
+
+      console.log('🔍 Carregando meta para profissional:', professionalId, 'ano:', year, 'mês:', month, 'data selecionada:', selectedDate.toISOString());
+
+      const { data, error } = await getProfessionalGoalProgress(
+        establishmentId,
+        professionalId,
+        year,
+        month
+      );
+
+      if (error) {
+        console.error('❌ Erro ao carregar progresso da meta:', error);
+        return;
+      }
+
+      console.log('✅ Dados da meta carregados:', data);
+
+      if (data && data.goalAmount > 0) {
+        setGoalProgress(prev => ({
+          ...prev,
+          [professionalId]: data
+        }));
+        console.log('🎯 Meta mantida:', data.goalAmount, 'serviços | Progresso atualizado para', year + '/' + month);
+      } else {
+        console.log('ℹ️ Nenhuma meta definida para este profissional');
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar progresso da meta:', error);
+    }
+  };
+
+  // Carregar progresso da meta quando um profissional é selecionado ou quando a data muda
+  useEffect(() => {
+    // Só carregar meta se showGoalProgress for true (dashboard do estabelecimento)
+    if (!showGoalProgress) {
+      console.log('🚫 Meta não será carregada - showGoalProgress = false (tela de agendamento)');
+      return;
+    }
+
+    const currentMonth = selectedDate.getMonth() + 1;
+    const currentYear = selectedDate.getFullYear();
+    
+    console.log('🎯 useEffect disparado - selectedProfessional:', selectedProfessional, 'establishmentId:', establishmentId, 'selectedDate:', selectedDate.toISOString(), 'mês/ano:', currentMonth + '/' + currentYear);
+    
+    if (selectedProfessional && selectedProfessional !== null) {
+      console.log('✅ Carregando meta para profissional selecionado:', selectedProfessional, 'mês:', currentMonth, 'ano:', currentYear);
+      loadGoalProgress(selectedProfessional);
+    }
+  }, [selectedProfessional, establishmentId, selectedDate.getMonth(), selectedDate.getFullYear(), showGoalProgress]);
 
   // Função para verificar se o profissional precisa de senha para alterar foto
   const checkIfNeedsPassword = async (professionalId: string): Promise<boolean> => {
@@ -418,6 +496,23 @@ export function ProfessionalSelector({
           </div>
         )}
       </div>
+
+      {/* Exibição da Meta do Profissional Selecionado - APENAS no dashboard */}
+      {showGoalProgress && selectedProfessional && selectedProfessional !== null && goalProgress[selectedProfessional] && goalProgress[selectedProfessional].goalAmount > 0 && (
+        <div className="mt-4">
+          {console.log('🎯 Renderizando barra de progresso para:', selectedProfessional, goalProgress[selectedProfessional])}
+          <GoalProgressBar
+            goalAmount={goalProgress[selectedProfessional].goalAmount}
+            completedServices={goalProgress[selectedProfessional].completedServices}
+            professionalName={goalProgress[selectedProfessional].professionalName}
+            isCompact={true}
+          />
+        </div>
+      )}
+      
+      {/* Meta sempre aparece se estiver definida para o profissional */}
+      
+      {/* Debug info - removido para limpar a interface */}
 
              {/* Input file hidden */}
        <input
