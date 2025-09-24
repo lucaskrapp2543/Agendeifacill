@@ -38,6 +38,10 @@ import BlockedPage from './pages/BlockedPage';
 import RecoveryPassword from './pages/RecoveryPassword';
 import ResetPassword from './pages/ResetPassword';
 import Conhecer from './pages/Conhecer';
+import ConhecerV2 from './pages/ConhecerV2';
+import ConhecerV3 from './pages/ConhecerV3';
+import ConhecerV4 from './pages/ConhecerV4';
+import ConhecerV5 from './pages/ConhecerV5';
 import CadastroAg from './pages/CadastroAg';
 
 // Protected Routes
@@ -88,6 +92,10 @@ function App() {
               <Route path="/recovery-password" element={<RecoveryPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/conhecer" element={<Conhecer />} />
+              <Route path="/conhecerv2" element={<ConhecerV2 />} />
+              <Route path="/conhecerv3" element={<ConhecerV3 />} />
+              <Route path="/conhecerv4" element={<ConhecerV4 />} />
+              <Route path="/conhecerv5" element={<ConhecerV5 />} />
               <Route path="/cadastroag" element={<CadastroAg />} />
               <Route path="/suporte060622" element={<Suporte060622 />} />
       

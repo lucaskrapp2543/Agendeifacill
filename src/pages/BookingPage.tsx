@@ -1368,8 +1368,8 @@ export default function BookingPage() {
               {/* Link para Agendei Fácil */}
               <div className="mt-6 text-center">
                 <a
-                  href="https://agendeifacil.com"
-                  target="_blank"
+                  href={id === '8160' ? '/conhecerv4' : 'https://agendeifacil.com'}
+                  target={id === '8160' ? '_self' : '_blank'}
                   rel="noopener noreferrer"
                   className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors underline"
                 >
