@@ -2487,6 +2487,7 @@ const EstablishmentDashboard = () => {
     if (establishment) {
       fetchAppointments();
       fetchMonthlyAppointments(selectedMonth);
+      fetchProducts(); // Carregar produtos automaticamente
       // Valores iniciais agora são gerenciados por mês
       
       // Notificações agora são gerenciadas pelo painel interno
