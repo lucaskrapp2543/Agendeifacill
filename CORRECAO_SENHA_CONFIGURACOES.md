@@ -63,3 +63,5 @@ console.log('🔍 DEBUG - Resultado da verificação:', isCorrect);
 **Agora a verificação de senha deve funcionar corretamente!** ✅
 
 
+
+

@@ -20,3 +20,5 @@ WHERE table_name = 'appointments'
 AND column_name LIKE '%professional%';
 
 
+
+

@@ -123,3 +123,5 @@ const handlePercentageFieldClick = (professionalId: string) => {
 **Agora a proteção de senha deve funcionar corretamente!** ✅
 
 
+
+

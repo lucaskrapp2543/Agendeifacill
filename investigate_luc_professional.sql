@@ -72,3 +72,5 @@ GROUP BY professional
 ORDER BY total_agendamentos DESC;
 
 
+
+

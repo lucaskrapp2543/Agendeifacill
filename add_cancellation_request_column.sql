@@ -15,3 +15,5 @@ WHERE table_name = 'establishments'
 AND column_name = 'require_cancellation_request';
 
 
+
+

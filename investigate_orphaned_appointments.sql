@@ -75,3 +75,5 @@ WHERE establishment_id = 'SEU_ESTABELECIMENTO_ID'  -- SUBSTITUA PELO ID REAL
 ORDER BY appointment_date DESC, appointment_time DESC;
 
 
+
+

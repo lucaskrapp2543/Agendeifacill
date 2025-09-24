@@ -99,3 +99,5 @@ console.log('🔍 DEBUG - Estrutura dos agendamentos:', appointmentsData.map(apt
 **Resultado esperado**: Todos os agendamentos devem mostrar o nome correto do profissional em vez de "Profissional não encontrado".
 
 
+
+
