@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay, endOfDay, addDays, subDays, startOfMonth, endOfMonth, isToday, isSameMonth, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle, Menu, Package, Layers } from 'lucide-react';
+import { Calendar, Clock, User, LogOut, Scissors, Star, Copy, CheckCircle, Image as ImageIcon, Plus, Trash2, DollarSign, Settings, ChevronLeft, ChevronRight, Check, Crown, Phone, MessageSquare, CreditCard, X, BarChart3, AlertTriangle, Users, Receipt, TrendingUp, ChevronDown, ChevronUp, Building2, Shuffle, Menu, Package, Layers, Edit } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toaster';
 import { supabase, addExpense, getExpenses, deleteExpense, getExpensesTotal, getClientProfileData, isNewClient } from '../lib/supabase';
@@ -545,6 +545,8 @@ const EstablishmentDashboard = () => {
   // Estados para produtos
   const [products, setProducts] = useState<EstablishmentProduct[]>([]);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [showEditProductModal, setShowEditProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<EstablishmentProduct | null>(null);
   const [newProduct, setNewProduct] = useState({
     name: '',
     sale_price: '',
@@ -578,8 +580,12 @@ const EstablishmentDashboard = () => {
   const [serviceSubcategories, setServiceSubcategories] = useState<ServiceSubcategory[]>([]);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
+  const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
+  const [showEditSubcategoryModal, setShowEditSubcategoryModal] = useState(false);
   const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState({ name: '' });
+  const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
+  const [editingSubcategory, setEditingSubcategory] = useState<ServiceSubcategory | null>(null);
   const [newSubcategory, setNewSubcategory] = useState({
     name: '',
     price: '',
@@ -936,6 +942,60 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // Função para editar produto
+  const handleEditProduct = async () => {
+    if (!editingProduct || !establishment) return;
+
+    const salePrice = parseFloat(editingProduct.sale_price.toString());
+    const costPrice = parseFloat(editingProduct.cost_price.toString());
+    const stockQuantity = parseInt(editingProduct.stock_quantity.toString());
+
+    if (!editingProduct.name.trim() || isNaN(salePrice) || isNaN(costPrice) || isNaN(stockQuantity)) {
+      toast('Por favor, preencha todos os campos corretamente', 'error');
+      return;
+    }
+
+    if (salePrice <= 0 || costPrice < 0 || stockQuantity < 0) {
+      toast('Preços devem ser positivos e estoque não pode ser negativo', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('establishment_products')
+        .update({
+          name: editingProduct.name.trim(),
+          sale_price: salePrice,
+          cost_price: costPrice,
+          stock_quantity: stockQuantity
+        })
+        .eq('id', editingProduct.id)
+        .eq('establishment_id', establishment.id);
+
+      if (error) {
+        console.error('Erro ao editar produto:', error);
+        toast('Erro ao editar produto', 'error');
+        return;
+      }
+
+      // Atualizar estado local
+      setProducts(prev => 
+        prev.map(product => 
+          product.id === editingProduct.id 
+            ? { ...product, name: editingProduct.name.trim(), sale_price: salePrice, cost_price: costPrice, stock_quantity: stockQuantity }
+            : product
+        )
+      );
+
+      setShowEditProductModal(false);
+      setEditingProduct(null);
+      toast('Produto editado com sucesso!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao editar produto:', error);
+      toast('Erro ao editar produto', 'error');
+    }
+  };
+
   const handleRemoveProductFromAppointment = async (appointmentId: string, productId: string, productName: string) => {
     if (!establishment) return;
 
@@ -1144,6 +1204,151 @@ const EstablishmentDashboard = () => {
     } catch (error) {
       console.error('Erro ao adicionar subcategoria:', error);
       toast('Erro ao adicionar subcategoria', 'error');
+    }
+  };
+
+  // Função para deletar categoria
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      // Primeiro deletar todas as subcategorias da categoria
+      const { error: subcategoriesError } = await supabase
+        .from('service_subcategories')
+        .delete()
+        .eq('category_id', categoryId);
+
+      if (subcategoriesError) {
+        console.error('Erro ao deletar subcategorias:', subcategoriesError);
+        toast('Erro ao deletar serviços da categoria', 'error');
+        return;
+      }
+
+      // Depois deletar a categoria
+      const { error: categoryError } = await supabase
+        .from('service_categories')
+        .delete()
+        .eq('id', categoryId);
+
+      if (categoryError) {
+        console.error('Erro ao deletar categoria:', categoryError);
+        toast('Erro ao deletar categoria', 'error');
+        return;
+      }
+
+      // Atualizar estados locais
+      setServiceCategories(prev => prev.filter(cat => cat.id !== categoryId));
+      setServiceSubcategories(prev => prev.filter(sub => sub.category_id !== categoryId));
+      
+      toast('Categoria e serviços excluídos com sucesso!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao deletar categoria:', error);
+      toast('Erro ao deletar categoria', 'error');
+    }
+  };
+
+  // Função para deletar subcategoria
+  const handleDeleteSubcategory = async (subcategoryId: string) => {
+    try {
+      const { error } = await supabase
+        .from('service_subcategories')
+        .delete()
+        .eq('id', subcategoryId);
+
+      if (error) {
+        console.error('Erro ao deletar subcategoria:', error);
+        toast('Erro ao deletar serviço', 'error');
+        return;
+      }
+
+      // Atualizar estado local
+      setServiceSubcategories(prev => prev.filter(sub => sub.id !== subcategoryId));
+      
+      toast('Serviço excluído com sucesso!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao deletar subcategoria:', error);
+      toast('Erro ao deletar serviço', 'error');
+    }
+  };
+
+  // Função para editar categoria
+  const handleEditCategory = async () => {
+    if (!editingCategory || !editingCategory.name.trim()) {
+      toast('Por favor, digite o nome da categoria', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('service_categories')
+        .update({ name: editingCategory.name.toUpperCase() })
+        .eq('id', editingCategory.id);
+
+      if (error) {
+        console.error('Erro ao editar categoria:', error);
+        toast('Erro ao editar categoria', 'error');
+        return;
+      }
+
+      // Atualizar estado local
+      setServiceCategories(prev => 
+        prev.map(cat => 
+          cat.id === editingCategory.id 
+            ? { ...cat, name: editingCategory.name.toUpperCase() }
+            : cat
+        )
+      );
+
+      setShowEditCategoryModal(false);
+      setEditingCategory(null);
+      toast('Categoria editada com sucesso!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao editar categoria:', error);
+      toast('Erro ao editar categoria', 'error');
+    }
+  };
+
+  // Função para editar subcategoria
+  const handleEditSubcategory = async () => {
+    if (!editingSubcategory) return;
+
+    const price = parseFloat(editingSubcategory.price.toString());
+    const duration = parseInt(editingSubcategory.duration.toString());
+
+    if (!editingSubcategory.name.trim() || isNaN(price) || isNaN(duration)) {
+      toast('Por favor, preencha todos os campos corretamente', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('service_subcategories')
+        .update({
+          name: editingSubcategory.name,
+          price: price,
+          duration: duration
+        })
+        .eq('id', editingSubcategory.id);
+
+      if (error) {
+        console.error('Erro ao editar subcategoria:', error);
+        toast('Erro ao editar serviço', 'error');
+        return;
+      }
+
+      // Atualizar estado local
+      setServiceSubcategories(prev => 
+        prev.map(sub => 
+          sub.id === editingSubcategory.id 
+            ? { ...sub, name: editingSubcategory.name, price: price, duration: duration }
+            : sub
+        )
+      );
+
+      setShowEditSubcategoryModal(false);
+      setEditingSubcategory(null);
+      toast('Serviço editado com sucesso!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao editar subcategoria:', error);
+      toast('Erro ao editar serviço', 'error');
     }
   };
 
@@ -9422,16 +9627,39 @@ const EstablishmentDashboard = () => {
                   <div key={category.id} className="bg-gray-50 border border-gray-200 rounded-lg p-6">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-xl font-semibold text-gray-900">{category.name}</h3>
-                      <button
-                        onClick={() => {
-                          setSelectedCategoryForSubcategory(category.id);
-                          setShowAddSubcategoryModal(true);
-                        }}
-                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors flex items-center gap-1"
-                      >
-                        <Plus className="h-3 w-3" />
-                        Adicionar Serviço
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setSelectedCategoryForSubcategory(category.id);
+                            setShowAddSubcategoryModal(true);
+                          }}
+                          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors flex items-center gap-1"
+                        >
+                          <Plus className="h-3 w-3" />
+                          Adicionar Serviço
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingCategory(category);
+                            setShowEditCategoryModal(true);
+                          }}
+                          className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
+                        >
+                          <Edit className="h-3 w-3" />
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Tem certeza que deseja excluir a categoria "${category.name}" e todos os seus serviços?`)) {
+                              handleDeleteCategory(category.id);
+                            }
+                          }}
+                          className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-1"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Excluir
+                        </button>
+                      </div>
                     </div>
 
                     {categorySubcategories.length === 0 ? (
@@ -9440,7 +9668,32 @@ const EstablishmentDashboard = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         {categorySubcategories.map((subcategory) => (
                           <div key={subcategory.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                            <h4 className="font-medium text-gray-900 mb-2">{subcategory.name}</h4>
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-medium text-gray-900">{subcategory.name}</h4>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => {
+                                    setEditingSubcategory(subcategory);
+                                    setShowEditSubcategoryModal(true);
+                                  }}
+                                  className="p-1 text-blue-600 hover:bg-blue-100 rounded transition-colors"
+                                  title="Editar serviço"
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Tem certeza que deseja excluir o serviço "${subcategory.name}"?`)) {
+                                      handleDeleteSubcategory(subcategory.id);
+                                    }
+                                  }}
+                                  className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                                  title="Excluir serviço"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
                             <div className="space-y-1">
                               <div className="flex justify-between">
                                 <span className="text-sm text-black">Preço:</span>
@@ -9477,6 +9730,47 @@ const EstablishmentDashboard = () => {
             </button>
           </div>
 
+          {/* Relatório de Faturamento */}
+          {products.length > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-green-600" />
+                Faturamento dos Produtos
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Faturamento Bruto</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {formatCurrency(products.reduce((total, product) => total + (product.sale_price * product.sold_quantity), 0))}
+                      </p>
+                      <p className="text-xs text-gray-500">Total vendido em produtos</p>
+                    </div>
+                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                      <TrendingUp className="h-6 w-6 text-green-600" />
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Lucro Líquido</p>
+                      <p className="text-2xl font-bold text-blue-600">
+                        {formatCurrency(products.reduce((total, product) => total + ((product.sale_price - product.cost_price) * product.sold_quantity), 0))}
+                      </p>
+                      <p className="text-xs text-gray-500">Lucro real obtido</p>
+                    </div>
+                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                      <Receipt className="h-6 w-6 text-blue-600" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {products.length === 0 ? (
             <div className="text-center py-8">
               <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
@@ -9496,15 +9790,27 @@ const EstablishmentDashboard = () => {
                 
                 return (
                   <div key={product.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
-                    <button
-                      onClick={() => handleDeleteProduct(product.id, product.name)}
-                      className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
-                      title="Excluir produto"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => {
+                          setEditingProduct(product);
+                          setShowEditProductModal(true);
+                        }}
+                        className="p-1 text-blue-600 hover:bg-blue-100 rounded transition-colors"
+                        title="Editar produto"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProduct(product.id, product.name)}
+                        className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                        title="Excluir produto"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                     
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2 pr-8">{product.name}</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2 pr-16">{product.name}</h3>
                     
                     <div className="space-y-2">
                       <div className="flex justify-between">
@@ -10243,6 +10549,108 @@ const EstablishmentDashboard = () => {
         </div>
       )}
 
+      {/* Modal para Editar Produto */}
+      {showEditProductModal && editingProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Editar Produto</h3>
+              <button
+                onClick={() => {
+                  setShowEditProductModal(false);
+                  setEditingProduct(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nome do Produto
+                </label>
+                <input
+                  type="text"
+                  value={editingProduct.name}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="Ex: Coca-Cola 350ml"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Preço de Venda (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editingProduct.sale_price}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="0.00"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Custo (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editingProduct.cost_price}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, cost_price: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="0.00"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Quantidade em Estoque
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editingProduct.stock_quantity}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, stock_quantity: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="0"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditProductModal(false);
+                    setEditingProduct(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleEditProduct}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal para Adicionar Produto V2 (do estoque) */}
       {showAddProductToAppointmentModal && selectedAppointmentForProduct && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -10447,6 +10855,153 @@ const EstablishmentDashboard = () => {
                   className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
                   Adicionar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Editar Categoria */}
+      {showEditCategoryModal && editingCategory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Editar Categoria</h3>
+              <button
+                onClick={() => {
+                  setShowEditCategoryModal(false);
+                  setEditingCategory(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nome da Categoria
+                </label>
+                <input
+                  type="text"
+                  value={editingCategory.name}
+                  onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  placeholder="Ex: BARBA"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  O nome será convertido automaticamente para maiúsculas
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditCategoryModal(false);
+                    setEditingCategory(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleEditCategory}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Editar Subcategoria */}
+      {showEditSubcategoryModal && editingSubcategory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Editar Serviço</h3>
+              <button
+                onClick={() => {
+                  setShowEditSubcategoryModal(false);
+                  setEditingSubcategory(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nome do Serviço
+                </label>
+                <input
+                  type="text"
+                  value={editingSubcategory.name}
+                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
+                  placeholder="Ex: Corte de cabelo"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Preço (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editingSubcategory.price}
+                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, price: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
+                  placeholder="0.00"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Duração (minutos)
+                </label>
+                <select
+                  value={editingSubcategory.duration}
+                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, duration: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
+                  required
+                >
+                  {durationOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditSubcategoryModal(false);
+                    setEditingSubcategory(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleEditSubcategory}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  Salvar
                 </button>
               </div>
             </div>
