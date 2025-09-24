@@ -701,7 +701,8 @@ export function AppointmentForm({
         price: isSubscriberBooking && subscriberService ? 0 : totalPrice, // Preço total
         payment_method: isSubscriberBooking ? 'assinante' : selectedPaymentMethod,
         observation: observation.trim() || null, // Adicionar observação (null se vazia)
-        is_child_service: isChildService === true // Adicionar serviço infantil (garantir boolean)
+        is_child_service: isChildService === true, // Adicionar serviço infantil (garantir boolean)
+        is_subscriber: isSubscriberBooking // Adicionar flag de assinante
       };
 
       console.log('🚀 DEBUG - Dados do agendamento sendo enviados:', appointmentData);

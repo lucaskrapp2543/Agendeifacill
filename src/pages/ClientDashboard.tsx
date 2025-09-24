@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { getClientAppointments, cancelAppointment } from '../lib/supabase';
+import { getClientAppointments, cancelAppointment, supabase } from '../lib/supabase';
 import { Calendar, LogOut, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -25,7 +25,7 @@ type Appointment = {
   appointment_time: string;
   professional_name?: string;
   duration?: number;
-  status: 'pending' | 'confirmed' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
   payment_method?: string;
   pix_payment_status?: string;
   pix_proof_url?: string;
@@ -130,6 +130,50 @@ const ClientDashboard = () => {
     if (!user) return;
     
     try {
+      // Encontrar o agendamento antes de cancelar
+      const appointmentToCancel = appointments.find(apt => apt.id === appointmentId);
+      
+      if (!appointmentToCancel) {
+        toast.error('Agendamento não encontrado');
+        return;
+      }
+
+      // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
+      console.log('🔍 DEBUG - appointmentToCancel:', appointmentToCancel);
+      console.log('🔍 DEBUG - is_subscriber:', appointmentToCancel.is_subscriber);
+      
+      if (appointmentToCancel.is_subscriber) {
+        console.log('🔍 Verificando se é assinante e se pode cancelar...');
+        
+        // Verificar se o estabelecimento tem a configuração ativada
+        console.log('🔍 DEBUG - establishment_id:', appointmentToCancel.establishment_id);
+        
+        const { data: establishment, error: establishmentError } = await supabase
+          .from('establishments')
+          .select('prevent_same_day_reschedule')
+          .eq('id', appointmentToCancel.establishment_id)
+          .single();
+
+        console.log('🔍 DEBUG - establishment:', establishment);
+        console.log('🔍 DEBUG - establishmentError:', establishmentError);
+
+        if (establishmentError) {
+          console.error('Erro ao buscar configuração do estabelecimento:', establishmentError);
+        } else if (establishment?.prevent_same_day_reschedule) {
+          console.log('🔍 DEBUG - Configuração ativada, mostrando aviso...');
+          // Mostrar aviso de confirmação
+          const confirmCancel = window.confirm(
+            '⚠️ ATENÇÃO: Você é um assinante e este estabelecimento tem a configuração de "não remarcar no mesmo dia" ativada.\n\n' +
+            'Se você cancelar este agendamento, NÃO poderá agendar novamente para o mesmo dia.\n\n' +
+            'Tem certeza que deseja cancelar?'
+          );
+          
+          if (!confirmCancel) {
+            return; // Usuário cancelou a ação
+          }
+        }
+      }
+      
       const { error } = await cancelAppointment(appointmentId);
       
       if (error) throw error;
@@ -230,7 +274,7 @@ const ClientDashboard = () => {
                         </div>
                         <div className="text-right flex items-center gap-3">
                           {/* Botão CRIAR LEMBRETE - No canto superior direito */}
-                          {appointment.status !== 'cancelled' && (
+                          {appointment.status !== 'cancelled' && appointment.status !== 'completed' && (
                             <button
                               onClick={() => {
                                 const appointmentDateTime = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
@@ -314,12 +358,16 @@ const ClientDashboard = () => {
                           <span className={`font-medium text-lg ${
                             appointment.status === 'cancelled' 
                               ? 'text-red-500' 
+                              : appointment.status === 'completed'
+                              ? 'text-green-600'
                               : appointment.status === 'confirmed' 
                               ? 'text-green-500' 
                               : 'text-yellow-500'
                           }`}>
                             {appointment.status === 'cancelled' 
                               ? '❌ Cancelado' 
+                              : appointment.status === 'completed'
+                              ? '✅ CONCLUÍDO'
                               : appointment.status === 'confirmed' 
                               ? '✅ Confirmado' 
                               : '⏳ Pendente'}
@@ -345,7 +393,7 @@ const ClientDashboard = () => {
 
 
                       {/* Botões de Ação */}
-                      {appointment.status !== 'cancelled' && (
+                      {appointment.status !== 'cancelled' && appointment.status !== 'completed' && (
                         <div className="mt-4 flex justify-end gap-2">
                           <CancelAppointmentButton
                             appointmentId={appointment.id}

@@ -103,6 +103,7 @@ interface Establishment {
   has_parking?: boolean;
   limit_subscriber_bookings?: boolean; // Limitar agendamentos de assinantes
   require_cancellation_request?: boolean; // Exigir solicitação de cancelamento via WhatsApp
+  prevent_same_day_reschedule?: boolean; // Impedir remarcação no mesmo dia
   has_accessibility?: boolean; // Novo estado para Acessibilidade
   wifi_password?: string; // Senha do Wi-Fi
   whatsapp?: string; // Novo campo para WhatsApp
@@ -327,6 +328,7 @@ const EstablishmentDashboard = () => {
   const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
   const [requireCancellationRequest, setRequireCancellationRequest] = useState(false); // Exigir solicitação de cancelamento via WhatsApp
+  const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
   const [carouselPosition, setCarouselPosition] = useState<'behind' | 'below'>('behind'); // Posição do carrossel
@@ -1608,6 +1610,7 @@ const EstablishmentDashboard = () => {
         has_accessibility: hasAccessibility, // Salva a comodidade Acessibilidade
         wifi_password: wifiPassword.trim(), // Salva a senha do Wi-Fi
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
+        prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
       };
       
@@ -1700,6 +1703,7 @@ const EstablishmentDashboard = () => {
         has_accessibility: hasAccessibility, // Atualiza a comodidade Acessibilidade
         wifi_password: wifiPassword.trim(), // Atualiza a senha do Wi-Fi
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
+        prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
         show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
@@ -1760,6 +1764,38 @@ const EstablishmentDashboard = () => {
     try {
       // Encontrar o agendamento antes de cancelar para notificação
       const appointmentToCancel = appointments.find(apt => apt.id === appointmentId);
+      
+      if (!appointmentToCancel) {
+        toast.error('Agendamento não encontrado');
+        return;
+      }
+
+      // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
+      if (appointmentToCancel.is_subscriber) {
+        console.log('🔍 Verificando se é assinante e se pode cancelar...');
+        
+        // Verificar se o estabelecimento tem a configuração ativada
+        const { data: establishment, error: establishmentError } = await supabase
+          .from('establishments')
+          .select('prevent_same_day_reschedule')
+          .eq('id', appointmentToCancel.establishment_id)
+          .single();
+
+        if (establishmentError) {
+          console.error('Erro ao buscar configuração do estabelecimento:', establishmentError);
+        } else if (establishment?.prevent_same_day_reschedule) {
+          // Mostrar aviso de confirmação
+          const confirmCancel = window.confirm(
+            '⚠️ ATENÇÃO: Este cliente é um assinante e você tem a configuração de "não remarcar no mesmo dia" ativada.\n\n' +
+            'Se você cancelar este agendamento, o cliente NÃO poderá agendar novamente para o mesmo dia.\n\n' +
+            'Tem certeza que deseja cancelar?'
+          );
+          
+          if (!confirmCancel) {
+            return; // Usuário cancelou a ação
+          }
+        }
+      }
       
       const { error } = await supabase
         .from('appointments')
@@ -2135,6 +2171,7 @@ const EstablishmentDashboard = () => {
         setHasAccessibility(establishmentData.has_accessibility ?? false);
         setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
         setRequireCancellationRequest(establishmentData.require_cancellation_request ?? false); // Exigir solicitação de cancelamento
+        setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
         setCarouselPosition(establishmentData.carousel_position || 'behind'); // Posição do carrossel
@@ -3154,11 +3191,28 @@ const EstablishmentDashboard = () => {
   };
 
   const handleProtectedAction = (type: 'percentage' | 'password' | 'goal', professionalId: string, data?: any) => {
-    if (configPasswordVerified) {
+    // Verificar se há senha configurada
+    const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
+    
+    console.log('🔍 DEBUG - handleProtectedAction:', {
+      type,
+      professionalId,
+      hasPassword,
+      pinPassword: establishment?.pin_password,
+      configPasswordVerified
+    });
+    
+    if (!hasPassword) {
+      // Se não há senha configurada, executar ação diretamente
+      console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
+      executeProtectedAction(type, professionalId, data);
+    } else if (configPasswordVerified) {
       // Se já foi verificado, executar ação diretamente
+      console.log('✅ Senha já verificada, executando ação diretamente');
       executeProtectedAction(type, professionalId, data);
     } else {
-      // Se não foi verificado, pedir senha
+      // Se há senha configurada e não foi verificado, pedir senha
+      console.log('🔒 Senha configurada, solicitando verificação');
       setPendingAction({ type, professionalId, data });
       setShowConfigPasswordModal(true);
     }
@@ -3214,15 +3268,59 @@ const EstablishmentDashboard = () => {
   // Função para solicitar verificação de senha para ver senha do profissional
   const handleRequestPasswordVisibility = (professionalId: string) => {
     console.log('🔍 DEBUG - handleRequestPasswordVisibility chamado para:', professionalId);
-    setPendingAction({ type: 'password', professionalId });
-    setShowConfigPasswordModal(true);
+    
+    // Verificar se há senha configurada
+    const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
+    
+    console.log('🔍 DEBUG - handleRequestPasswordVisibility:', {
+      professionalId,
+      hasPassword,
+      pinPassword: establishment?.pin_password,
+      configPasswordVerified
+    });
+    
+    if (!hasPassword) {
+      // Se não há senha configurada, executar ação diretamente
+      console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
+      setProfessionalPasswordVisible(prev => ({
+        ...prev,
+        [professionalId]: !prev[professionalId]
+      }));
+    } else {
+      // Se há senha configurada, pedir verificação
+      console.log('🔒 Senha configurada, solicitando verificação');
+      setPendingAction({ type: 'password', professionalId });
+      setShowConfigPasswordModal(true);
+    }
   };
 
   // Função para solicitar verificação de senha para editar percentual
   const handleRequestPercentageEdit = (professionalId: string) => {
     console.log('🔍 DEBUG - handleRequestPercentageEdit chamado para:', professionalId);
-    setPendingAction({ type: 'percentage', professionalId });
-    setShowConfigPasswordModal(true);
+    
+    // Verificar se há senha configurada
+    const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
+    
+    console.log('🔍 DEBUG - handleRequestPercentageEdit:', {
+      professionalId,
+      hasPassword,
+      pinPassword: establishment?.pin_password,
+      configPasswordVerified
+    });
+    
+    if (!hasPassword) {
+      // Se não há senha configurada, executar ação diretamente
+      console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
+      setProfessionalPercentageEditable(prev => ({
+        ...prev,
+        [professionalId]: !prev[professionalId]
+      }));
+    } else {
+      // Se há senha configurada, pedir verificação
+      console.log('🔒 Senha configurada, solicitando verificação');
+      setPendingAction({ type: 'percentage', professionalId });
+      setShowConfigPasswordModal(true);
+    }
   };
 
   // Função para alterar percentual com proteção
@@ -6443,7 +6541,7 @@ const EstablishmentDashboard = () => {
                       <label className="block text-sm font-medium">Senha de 4 dígitos para configurações</label>
                       <span className="text-sm text-yellow-500 flex items-center gap-1">
                         <AlertTriangle className="h-4 w-4" />
-                        A senha colocada aqui servirá para abrir o dashboard e também para ver todos os profissionais na página Agend.
+                        Senhas salvas aqui servem para abrir (todos os profissionais/alterar senha de cada profissional/trocar % do profissional/e para entrar nas config).
                       </span>
                     </div>
                     <div className="flex gap-2">
@@ -6528,6 +6626,21 @@ const EstablishmentDashboard = () => {
                       <span className="text-white">Cancelamento</span>
                       <span className="text-xs text-gray-400">
                         Ao ativar essa opção seus clientes não podem agendar e depois cancelar, mas sim terá um botão que o cliente clica e envia uma mensagem no seu WhatsApp com a mensagem "Olá, queria cancelar agendamento... motivo é"
+                      </span>
+                    </div>
+                  </label>
+                  
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={preventSameDayReschedule}
+                      onChange={(e) => setPreventSameDayReschedule(e.target.checked)}
+                      className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-white">Clientes assinantes não podem desmarcar e remarcar no mesmo dia</span>
+                      <span className="text-xs text-gray-400">
+                        Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia. Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
                       </span>
                     </div>
                   </label>
@@ -9616,11 +9729,6 @@ const EstablishmentDashboard = () => {
                         max="100"
                         value={professional.percentage || 0}
                         onChange={(e) => {
-                          console.log('🔍 DEBUG - onChange percentual:', {
-                            professionalId: professional.id,
-                            isEditable: professionalPercentageEditable[professional.id],
-                            newValue: e.target.value
-                          });
                           handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0);
                         }}
                         className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"

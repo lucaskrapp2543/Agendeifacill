@@ -22,6 +22,41 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
     setIsLoading(true);
     try {
       console.log('🔄 Cancelando agendamento:', appointmentId);
+      console.log('🔍 DEBUG - appointment:', appointment);
+      console.log('🔍 DEBUG - appointment.is_subscriber:', appointment?.is_subscriber);
+      console.log('🔍 DEBUG - appointment keys:', Object.keys(appointment || {}));
+      
+      // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
+      if (appointment?.is_subscriber) {
+        console.log('🔍 Verificando se é assinante e se pode cancelar...');
+        
+        // Verificar se o estabelecimento tem a configuração ativada
+        const { data: establishment, error: establishmentError } = await supabase
+          .from('establishments')
+          .select('prevent_same_day_reschedule')
+          .eq('id', appointment.establishment_id)
+          .single();
+
+        console.log('🔍 DEBUG - establishment:', establishment);
+        console.log('🔍 DEBUG - establishmentError:', establishmentError);
+
+        if (establishmentError) {
+          console.error('Erro ao buscar configuração do estabelecimento:', establishmentError);
+        } else if (establishment?.prevent_same_day_reschedule) {
+          console.log('🔍 DEBUG - Configuração ativada, mostrando aviso...');
+          // Mostrar aviso de confirmação
+          const confirmCancel = window.confirm(
+            '⚠️ ATENÇÃO: Você é um assinante e este estabelecimento tem a configuração de "não remarcar no mesmo dia" ativada.\n\n' +
+            'Se você cancelar este agendamento, NÃO poderá agendar novamente para o mesmo dia.\n\n' +
+            'Tem certeza que deseja cancelar?'
+          );
+          
+          if (!confirmCancel) {
+            setIsLoading(false);
+            return; // Usuário cancelou a ação
+          }
+        }
+      }
       
       const { error } = await supabase
         .from('appointments')

@@ -18,6 +18,7 @@ import { Crown } from 'lucide-react';
 import ReadMore from '../components/ReadMore';
 import { LoginRequiredModal } from '../components/LoginRequiredModal';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
+import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -415,17 +416,36 @@ export default function BookingPage() {
         const validation = await validateOneWeekLimit(
           user.id,
           establishment.id,
-          new Date(appointmentData.appointment_date),
-          appointmentData.is_subscriber
+          new Date(appointmentData.appointment_date)
         );
 
         if (!validation.canBook) {
           console.log('🚫 Agendamento bloqueado:', validation.message);
-          toast.error(validation.message);
+          toast.error(validation.message || 'Erro na validação');
           return;
         }
 
         console.log('✅ Validação de 1 agendamento por semana passou');
+      }
+
+      // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
+      if (appointmentData.is_subscriber && user?.id) {
+        console.log('🔍 Validando remarcação no mesmo dia...');
+        
+        const sameDayValidation = await validateSameDayReschedule(
+          user.id,
+          establishment.id,
+          new Date(appointmentData.appointment_date),
+          appointmentData.is_subscriber
+        );
+
+        if (!sameDayValidation.canBook) {
+          console.log('🚫 Agendamento bloqueado por remarcação no mesmo dia:', sameDayValidation.message);
+          toast.error(sameDayValidation.message || 'Erro na validação de remarcação');
+          return;
+        }
+
+        console.log('✅ Validação de remarcação no mesmo dia passou');
       }
 
       // 🔥 VALIDAÇÃO DE PUNIÇÃO POR CANCELAMENTO - REMOVIDA
@@ -575,13 +595,22 @@ export default function BookingPage() {
               <span>Voltar</span>
             </Link>
             {user && (
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 text-gray-700 hover:text-gray-900"
-              >
-                <LogOut className="w-5 h-5" />
-                <span>Sair</span>
-              </button>
+              <div className="flex items-center gap-3">
+                <Link 
+                  to="/dashboard/client" 
+                  className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  <Calendar className="w-5 h-5" />
+                  <span>Meus Agendamentos</span>
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 text-gray-700 hover:text-gray-900"
+                >
+                  <LogOut className="w-5 h-5" />
+                  <span>Sair</span>
+                </button>
+              </div>
             )}
           </div>
 
