@@ -46,8 +46,7 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
           console.log('🔍 DEBUG - Configuração ativada, mostrando aviso...');
           // Mostrar aviso de confirmação
           const confirmCancel = window.confirm(
-            '⚠️ ATENÇÃO: Você é um assinante e este estabelecimento tem a configuração de "não remarcar no mesmo dia" ativada.\n\n' +
-            'Se você cancelar este agendamento, NÃO poderá agendar novamente para o mesmo dia.\n\n' +
+            '⚠️ Atenção: você é um assinante, o sistema não deixa desmarcar e agendar para o mesmo dia.\n\n' +
             'Tem certeza que deseja cancelar?'
           );
           
