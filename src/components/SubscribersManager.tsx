@@ -64,6 +64,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newFixedCommissionValue, setNewFixedCommissionValue] = useState<number>(0);
   const [newSubscriptionDuration, setNewSubscriptionDuration] = useState<number>(30); // Duração em minutos
   const [newSubscriptionWeekdays, setNewSubscriptionWeekdays] = useState<string[]>([]);
+  const [newSubscriptionDescription, setNewSubscriptionDescription] = useState(''); // Nova descrição
 
   const [selectedSubscriptionToAdd, setSelectedSubscriptionToAdd] = useState<string>('');
   const [selectedClientToAdd, setSelectedClientToAdd] = useState<string>('');
@@ -118,6 +119,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   
   // Estado para barra de pesquisa
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Estados para edição de descrições
+  const [showEditDescriptionModal, setShowEditDescriptionModal] = useState(false);
+  const [selectedSubscriptionForEdit, setSelectedSubscriptionForEdit] = useState<Subscription | null>(null);
+  const [editDescription, setEditDescription] = useState('');
 
 
   // Sincronizar estado quando establishment mudar
@@ -514,7 +520,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         1, // Duração fixa de 1 mês (não será mais usada)
         newSubscriptionWeekdays, // Adicionar os dias da semana
         newSubscriptionDuration, // Adicionar a duração do serviço
-        newFixedCommissionValue // Valor fixo de comissão por serviço diário
+        newFixedCommissionValue, // Valor fixo de comissão por serviço diário
+        newSubscriptionDescription // Adicionar descrição
       );
       if (error) {
         throw error;
@@ -525,6 +532,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewFixedCommissionValue(0);
       setNewSubscriptionDuration(30); // Reset para 30 minutos
       setNewSubscriptionWeekdays([]);
+      setNewSubscriptionDescription(''); // Limpar descrição
       fetchSubscriptions(); // Atualiza a lista
     } catch (error: any) {
       console.error('Erro ao criar assinatura:', error);
@@ -638,6 +646,31 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         console.error('Erro ao deletar assinatura:', error);
         toast.error(error.message || 'Erro ao deletar assinatura.');
       }
+    }
+  };
+
+  // Função para salvar descrição
+  const handleSaveDescription = async () => {
+    if (!selectedSubscriptionForEdit) return;
+
+    try {
+      const { error } = await supabase
+        .from('subscriptions')
+        .update({ description: editDescription.trim() || null })
+        .eq('id', selectedSubscriptionForEdit.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success(selectedSubscriptionForEdit.description ? 'Descrição atualizada com sucesso!' : 'Descrição adicionada com sucesso!');
+      setShowEditDescriptionModal(false);
+      setSelectedSubscriptionForEdit(null);
+      setEditDescription('');
+      fetchSubscriptions(); // Atualizar lista
+    } catch (error: any) {
+      console.error('Erro ao salvar descrição:', error);
+      toast.error(error.message || 'Erro ao salvar descrição.');
     }
   };
 
@@ -1246,6 +1279,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               ))}
             </div>
           </div>
+          <div>
+            <label htmlFor="subscriptionDescription" className="block text-sm font-medium text-gray-400 mb-1">
+              Descrição (opcional - até 150 caracteres)
+            </label>
+            <textarea
+              id="subscriptionDescription"
+              value={newSubscriptionDescription}
+              onChange={(e) => setNewSubscriptionDescription(e.target.value)}
+              placeholder="Ex: Essa assinatura inclui cortes ilimitados durante o mês."
+              maxLength={150}
+              rows={3}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              {newSubscriptionDescription.length}/150 caracteres
+            </p>
+          </div>
           <button type="submit" className="btn-primary w-full">
             <Plus className="h-5 w-5 mr-2" /> Criar Assinatura
           </button>
@@ -1281,13 +1331,26 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </p>
                   )}
                 </div>
-                <button
-                  onClick={() => handleDeleteSubscription(sub.id)}
-                  className="text-red-500 hover:text-red-400 transition-colors"
-                  title="Deletar Assinatura"
-                >
-                  <Trash2 className="h-5 w-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedSubscriptionForEdit(sub);
+                      setEditDescription(sub.description || '');
+                      setShowEditDescriptionModal(true);
+                    }}
+                    className="text-blue-500 hover:text-blue-400 transition-colors"
+                    title={sub.description ? "Editar Informações" : "Adicionar Informações"}
+                  >
+                    <Edit className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSubscription(sub.id)}
+                    className="text-red-500 hover:text-red-400 transition-colors"
+                    title="Deletar Assinatura"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -2004,6 +2067,57 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </div>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edição de Descrição */}
+      {showEditDescriptionModal && selectedSubscriptionForEdit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                {selectedSubscriptionForEdit.description ? 'Editar Descrição' : 'Adicionar Descrição'}
+              </h3>
+              <button
+                onClick={() => setShowEditDescriptionModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                Descrição da Assinatura "{selectedSubscriptionForEdit.name}"
+              </label>
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Ex: Essa assinatura inclui cortes ilimitados durante o mês."
+                maxLength={150}
+                rows={4}
+                className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {editDescription.length}/150 caracteres
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowEditDescriptionModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveDescription}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                {selectedSubscriptionForEdit.description ? 'Atualizar' : 'Adicionar'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -814,14 +814,28 @@ export default function BookingPage() {
                               </div>
                             )}
                           </div>
-                          <button
-                            onClick={() => {
-                              handleSubscribeClick(subscription.name);
-                            }}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors"
-                          >
-                            Assinar
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {subscription.description && (
+                              <button
+                                onClick={() => {
+                                  // Mostrar tooltip com descrição
+                                  alert(`📋 ${subscription.name}\n\n${subscription.description}`);
+                                }}
+                                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded text-sm font-medium transition-colors border border-gray-300"
+                                title="Ver informações sobre esta assinatura"
+                              >
+                                Sobre
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                handleSubscribeClick(subscription.name);
+                              }}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors"
+                            >
+                              Assinar
+                            </button>
+                          </div>
                         </div>
                       ))}
                       

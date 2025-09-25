@@ -4973,11 +4973,16 @@ const EstablishmentDashboard = () => {
     setEditingValue('');
   };
 
-  // Função para abrir modal de observações
+  // Função para abrir modal de observações do PROFISSIONAL
   const handleOpenObservationModal = (appointmentId: string, currentObservation?: string) => {
     setSelectedAppointmentForObservation(appointmentId);
     setObservationText(currentObservation || '');
     setShowObservationModal(true);
+  };
+
+  // Função para mostrar observação do CLIENTE (apenas visualização)
+  const handleShowClientObservation = (observationText: string) => {
+    alert(`📝 Observação do Cliente:\n\n"${observationText}"`);
   };
 
   // Função para salvar observação
@@ -6542,7 +6547,7 @@ const EstablishmentDashboard = () => {
               <div className="flex flex-wrap gap-1">
                 {appointment.observation && (
                   <button
-                    onClick={() => handleOpenObservationModal(appointment.observation || '')}
+                    onClick={() => handleShowClientObservation(appointment.observation || '')}
                     className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
                     title="Ver observação do cliente"
                   >

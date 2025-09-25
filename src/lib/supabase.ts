@@ -1261,7 +1261,7 @@ export const loadEstablishmentDirect = async (code: string) => {
 };
 
 // Subscription functions
-export const createSubscription = async (establishmentId: string, name: string, value: number, durationMonths: number, weekdays?: string[], serviceDuration?: number, fixedCommissionValue?: number) => {
+export const createSubscription = async (establishmentId: string, name: string, value: number, durationMonths: number, weekdays?: string[], serviceDuration?: number, fixedCommissionValue?: number, description?: string) => {
   const { data, error } = await supabase
     .from('subscriptions')
     .insert([
@@ -1272,7 +1272,8 @@ export const createSubscription = async (establishmentId: string, name: string, 
         duration_months: durationMonths,
         weekdays: weekdays || [],
         service_duration: serviceDuration || 30, // Duração padrão de 30 minutos
-        fixed_commission_value: fixedCommissionValue || 0 // Valor fixo de comissão por serviço diário
+        fixed_commission_value: fixedCommissionValue || 0, // Valor fixo de comissão por serviço diário
+        description: description?.trim() || null // Descrição opcional
       }
     ])
     .select()
