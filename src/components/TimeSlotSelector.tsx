@@ -126,12 +126,13 @@ export function TimeSlotSelector({
       console.log(`🕒 TimeSlotSelector - Usando horários personalizados do profissional para ${dayOfWeek}:`, workDay);
       
       // Converter horários personalizados para o formato do businessHours
+      // IMPORTANTE: Não tratar intervalo como segundo período, mas sim excluir esse período
       effectiveBusinessHours = {
         enabled: true,
         open1: workDay.entry_time || '08:00',
         close1: workDay.exit_time || '17:00',
-        open2: workDay.break_start && workDay.break_end ? workDay.break_start : null,
-        close2: workDay.break_start && workDay.break_end ? workDay.break_end : null
+        open2: null, // Não usar segundo período para intervalo
+        close2: null // Não usar segundo período para intervalo
       };
       
       console.log(`🕒 TimeSlotSelector - Horários efetivos convertidos:`, effectiveBusinessHours);
@@ -203,6 +204,21 @@ export function TimeSlotSelector({
           conflictReason = 'Horário Fechado';
         }
 
+        // Verificar se o horário está dentro do intervalo de almoço do profissional
+        if (isAvailable && professionalWorkHours && professionalWorkHours[dayOfWeek] && professionalWorkHours[dayOfWeek].enabled) {
+          const workDay = professionalWorkHours[dayOfWeek];
+          if (workDay.break_start && workDay.break_end) {
+            const breakStartMinutes = timeToMinutes(workDay.break_start);
+            const breakEndMinutes = timeToMinutes(workDay.break_end);
+            
+            // Verificar se o horário está dentro do intervalo de almoço
+            if (minutes >= breakStartMinutes && minutes < breakEndMinutes) {
+              isAvailable = false;
+              conflictReason = 'Horário de Intervalo';
+            }
+          }
+        }
+
         // Verificar conflitos com agendamentos existentes (apenas se não estiver bloqueado)
         if (isAvailable) {
           for (const appointment of relevantAppointments) {
@@ -271,6 +287,21 @@ export function TimeSlotSelector({
           conflictReason = 'Horário Fechado';
         }
 
+        // Verificar se o horário está dentro do intervalo de almoço do profissional
+        if (isAvailable && professionalWorkHours && professionalWorkHours[dayOfWeek] && professionalWorkHours[dayOfWeek].enabled) {
+          const workDay = professionalWorkHours[dayOfWeek];
+          if (workDay.break_start && workDay.break_end) {
+            const breakStartMinutes = timeToMinutes(workDay.break_start);
+            const breakEndMinutes = timeToMinutes(workDay.break_end);
+            
+            // Verificar se o horário está dentro do intervalo de almoço
+            if (minutes >= breakStartMinutes && minutes < breakEndMinutes) {
+              isAvailable = false;
+              conflictReason = 'Horário de Intervalo';
+            }
+          }
+        }
+
         // Verificar conflitos com agendamentos existentes (apenas se não estiver bloqueado)
         if (isAvailable) {
           for (const appointment of relevantAppointments) {
@@ -324,9 +355,10 @@ export function TimeSlotSelector({
         const isSelected = selectedTime === time;
         const isReserved = reason === 'Horário Reservado';
         const isBlocked = reason === 'Horário Fechado';
+        const isIntervalTime = reason === 'Horário de Intervalo';
         const isUltrapassedTime = reason === 'Serviço ultrapassaria horário';
         const isPastTime = reason === 'Horário já passou';
-        const isDisabled = !isAvailable || isReserved || isBlocked || isUltrapassedTime || isPastTime;
+        const isDisabled = !isAvailable || isReserved || isBlocked || isIntervalTime || isUltrapassedTime || isPastTime;
 
         return (
           <button
@@ -352,6 +384,9 @@ export function TimeSlotSelector({
               )}
               {isBlocked && (
                 <span className="text-xs mt-1 text-white">Horário Fechado</span>
+              )}
+              {isIntervalTime && (
+                <span className="text-xs mt-1 text-white">Horário de Intervalo</span>
               )}
               {isUltrapassedTime && (
                 <span className="text-xs mt-1 text-white">Serviço ultrapassaria horário</span>

@@ -933,10 +933,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return !isPast(endDate); // Apenas assinaturas ativas
   }).length;
 
-  // Contar assinantes não pagos (ativos)
+  // Contar assinantes não pagos (ativos e vencidos)
   const assinantesNaoPagos = clientSubscriptions.filter(cs => {
-    const endDate = parseISO(cs.end_date);
-    return !isPast(endDate) && cs.payment_status === 'unpaid'; // Ativos e não pagos
+    return cs.payment_status === 'unpaid'; // Todos os não pagos, independente da data
   }).length;
 
   // Filtrar assinantes pela pesquisa

@@ -592,6 +592,49 @@ const EstablishmentDashboard = () => {
     duration: '30'
   });
 
+  // Estados para controlar visibilidade dos tutoriais
+  const [showTutorials, setShowTutorials] = useState<{
+    products: boolean;
+    services: boolean;
+    professionals: boolean;
+    subscribers: boolean;
+    config: boolean;
+  }>({
+    products: true,
+    services: true,
+    professionals: true,
+    subscribers: true,
+    config: true
+  });
+
+  // Função para carregar preferências dos tutoriais
+  const loadTutorialPreferences = () => {
+    const saved = localStorage.getItem('tutorial-preferences');
+    if (saved) {
+      try {
+        const preferences = JSON.parse(saved);
+        setShowTutorials(preferences);
+      } catch (error) {
+        console.error('Erro ao carregar preferências dos tutoriais:', error);
+      }
+    }
+  };
+
+  // Função para salvar preferências dos tutoriais
+  const saveTutorialPreferences = (newPreferences: typeof showTutorials) => {
+    localStorage.setItem('tutorial-preferences', JSON.stringify(newPreferences));
+    setShowTutorials(newPreferences);
+  };
+
+  // Função para alternar visibilidade de um tutorial específico
+  const toggleTutorial = (tutorialType: keyof typeof showTutorials) => {
+    const newPreferences = {
+      ...showTutorials,
+      [tutorialType]: !showTutorials[tutorialType]
+    };
+    saveTutorialPreferences(newPreferences);
+  };
+
   // Função para salvar valor bruto do mês específico
   const handleSaveGrossValue = async () => {
     if (!establishment) return;
@@ -2455,6 +2498,7 @@ const EstablishmentDashboard = () => {
 
   useEffect(() => {
     fetchEstablishment();
+    loadTutorialPreferences(); // Carregar preferências dos tutoriais
   }, [user]);
 
   useEffect(() => {
@@ -6654,22 +6698,64 @@ const EstablishmentDashboard = () => {
                 <ValidityDisplay establishmentId={establishment.id} />
               )}
 
-              {/* Vídeo Tutorial - Em Processo de Carregamento */}
-              <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
-                <h3 className="text-lg font-medium text-white mb-4">Tutorial de Configurações</h3>
-                <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-                  <div className="absolute top-0 left-0 w-full h-full rounded-lg bg-gray-800 flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="animate-spin h-12 w-12 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-                      <p className="text-gray-400 text-sm">Vídeo tutorial em processo de carregamento...</p>
-                      <p className="text-gray-500 text-xs mt-2">Em breve você terá acesso ao tutorial completo</p>
+              {/* Vídeo Tutorial de Configurações */}
+              {showTutorials.config && (
+                <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                        <span className="text-red-600 text-xl">📺</span>
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-medium text-white">Tutorial de Configurações</h3>
+                        <p className="text-sm text-gray-400">Aprenda a configurar seu estabelecimento corretamente</p>
+                      </div>
                     </div>
+                    <button
+                      onClick={() => toggleTutorial('config')}
+                      className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
+                    >
+                      Ocultar Tutorial
+                    </button>
+                  </div>
+                  
+                  <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                    <iframe
+                      className="absolute top-0 left-0 w-full h-full"
+                      src="https://www.youtube.com/embed/pB3QZ1H20xA"
+                      title="Tutorial de Configurações"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                    ></iframe>
+                  </div>
+                  
+                  <div className="mt-4 text-center">
+                    <a
+                      href="https://youtu.be/pB3QZ1H20xA"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors"
+                    >
+                      <span>📺</span>
+                      <span>Assistir no YouTube</span>
+                    </a>
                   </div>
                 </div>
-                <p className="text-sm text-gray-400 mt-4">
-                  O tutorial de configurações estará disponível em breve para te ajudar a configurar seu estabelecimento corretamente.
-                </p>
-              </div>
+              )}
+
+              {/* Botão para mostrar tutorial se estiver oculto */}
+              {!showTutorials.config && (
+                <div className="mb-6 text-center">
+                  <button
+                    onClick={() => toggleTutorial('config')}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                  >
+                    <span>📺</span>
+                    <span>Mostrar Tutorial</span>
+                  </button>
+                </div>
+              )}
 
               {/* Informações Básicas */}
               <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 mb-6">
@@ -9363,6 +9449,65 @@ const EstablishmentDashboard = () => {
       {activeTab === 'subscribers' && (
         <div className="bg-white rounded-lg p-6 border border-gray-200">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Gerenciar Assinantes</h2>
+
+          {/* Vídeo Tutorial */}
+          {showTutorials.subscribers && (
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <span className="text-red-600 text-xl">📺</span>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Assinantes</h3>
+                    <p className="text-sm text-gray-600">Aprenda a gerenciar assinantes e acompanhar pagamentos</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggleTutorial('subscribers')}
+                  className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                >
+                  Ocultar Tutorial
+                </button>
+              </div>
+              
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/CeWMXi4MS7g"
+                  title="Tutorial: Como Gerenciar Assinantes"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+              
+              <div className="mt-3 text-center">
+                <a
+                  href="https://youtu.be/CeWMXi4MS7g"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+                >
+                  <span>📺</span>
+                  <span>Assistir no YouTube</span>
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Botão para mostrar tutorial se estiver oculto */}
+          {!showTutorials.subscribers && (
+            <div className="mb-6 text-center">
+              <button
+                onClick={() => toggleTutorial('subscribers')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+              >
+                <span>📺</span>
+                <span>Mostrar Tutorial</span>
+              </button>
+            </div>
+          )}
           <SubscribersManager 
             establishmentId={establishment.id} 
             clients={clients}
@@ -9608,6 +9753,65 @@ const EstablishmentDashboard = () => {
             </button>
           </div>
 
+          {/* Vídeo Tutorial */}
+          {showTutorials.services && (
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <span className="text-red-600 text-xl">📺</span>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Serviços</h3>
+                    <p className="text-sm text-gray-600">Aprenda a criar categorias e serviços com dropdown</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggleTutorial('services')}
+                  className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                >
+                  Ocultar Tutorial
+                </button>
+              </div>
+              
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/ABZLLHyMVq0"
+                  title="Tutorial: Como Gerenciar Serviços"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+              
+              <div className="mt-3 text-center">
+                <a
+                  href="https://youtu.be/ABZLLHyMVq0"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+                >
+                  <span>📺</span>
+                  <span>Assistir no YouTube</span>
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Botão para mostrar tutorial se estiver oculto */}
+          {!showTutorials.services && (
+            <div className="mb-6 text-center">
+              <button
+                onClick={() => toggleTutorial('services')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+              >
+                <span>📺</span>
+                <span>Mostrar Tutorial</span>
+              </button>
+            </div>
+          )}
+
           {serviceCategories.length === 0 ? (
             <div className="text-center py-8">
               <Layers className="h-16 w-16 text-gray-400 mx-auto mb-4" />
@@ -9730,6 +9934,65 @@ const EstablishmentDashboard = () => {
               Adicionar Produto
             </button>
           </div>
+
+          {/* Vídeo Tutorial */}
+          {showTutorials.products && (
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <span className="text-red-600 text-xl">📺</span>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Produtos</h3>
+                    <p className="text-sm text-gray-600">Aprenda a adicionar, editar e acompanhar seus produtos</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggleTutorial('products')}
+                  className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                >
+                  Ocultar Tutorial
+                </button>
+              </div>
+              
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/vNFGtcEmJ0I"
+                  title="Tutorial: Como Gerenciar Produtos"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+              
+              <div className="mt-3 text-center">
+                <a
+                  href="https://youtu.be/vNFGtcEmJ0I"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+                >
+                  <span>📺</span>
+                  <span>Assistir no YouTube</span>
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Botão para mostrar tutorial se estiver oculto */}
+          {!showTutorials.products && (
+            <div className="mb-6 text-center">
+              <button
+                onClick={() => toggleTutorial('products')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+              >
+                <span>📺</span>
+                <span>Mostrar Tutorial</span>
+              </button>
+            </div>
+          )}
 
           {/* Relatório de Faturamento */}
           {products.length > 0 && (
@@ -9904,6 +10167,65 @@ const EstablishmentDashboard = () => {
       {activeTab === 'professionals' && (
         <div className="bg-white rounded-lg p-6 border border-gray-200">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Profissionais</h2>
+
+          {/* Vídeo Tutorial */}
+          {showTutorials.professionals && (
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <span className="text-red-600 text-xl">📺</span>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Profissionais</h3>
+                    <p className="text-sm text-gray-600">Aprenda a cadastrar e gerenciar profissionais do seu estabelecimento</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggleTutorial('professionals')}
+                  className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                >
+                  Ocultar Tutorial
+                </button>
+              </div>
+              
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/1Sm25W596v0"
+                  title="Tutorial: Como Gerenciar Profissionais"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+              
+              <div className="mt-3 text-center">
+                <a
+                  href="https://youtu.be/1Sm25W596v0"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+                >
+                  <span>📺</span>
+                  <span>Assistir no YouTube</span>
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Botão para mostrar tutorial se estiver oculto */}
+          {!showTutorials.professionals && (
+            <div className="mb-6 text-center">
+              <button
+                onClick={() => toggleTutorial('professionals')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+              >
+                <span>📺</span>
+                <span>Mostrar Tutorial</span>
+              </button>
+            </div>
+          )}
           
           <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
             <h3 className="text-lg font-medium text-white mb-4">Profissionais</h3>
@@ -10962,7 +11284,7 @@ const EstablishmentDashboard = () => {
                   step="0.01"
                   min="0"
                   value={editingSubcategory.price}
-                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, price: e.target.value })}
+                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, price: parseFloat(e.target.value) || 0 })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
                   placeholder="0.00"
                   required
@@ -10975,7 +11297,7 @@ const EstablishmentDashboard = () => {
                 </label>
                 <select
                   value={editingSubcategory.duration}
-                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, duration: e.target.value })}
+                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, duration: parseInt(e.target.value) || 30 })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
                   required
                 >
