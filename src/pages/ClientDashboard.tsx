@@ -14,6 +14,7 @@ import { useAppointmentReminders } from '../hooks/useAppointmentReminders';
 import { NotificationStatus } from '../components/NotificationStatus';
 import { ReminderInfo } from '../components/ReminderInfo';
 import { AppDownloadBanner } from '../components/AppDownloadBanner';
+import { SuccessBookingModal } from '../components/SuccessBookingModal';
 
 type Appointment = {
   id: string;
@@ -42,6 +43,14 @@ const ClientDashboard = () => {
   const { notificationPermission } = useAppointmentReminders(appointments);
   const [isLoading, setIsLoading] = useState(true);
   const [showWelcomePopup, setShowWelcomePopup] = useState(false);
+  
+  // Estados para indicador de ativação de lembrete
+  const [shouldShowReminderIndicator, setShouldShowReminderIndicator] = useState(false);
+  const [pendingReminderData, setPendingReminderData] = useState<any>(null);
+  
+  // Estados para modal de sucesso do agendamento (vindo do booking)
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successModalStep, setSuccessModalStep] = useState<'initial' | 'confirmation'>('initial');
 
   // Função para solicitar permissão de notificação
   const requestNotificationPermission = async () => {
@@ -64,6 +73,118 @@ const ClientDashboard = () => {
   useEffect(() => {
     setShowWelcomePopup(true);
   }, []);
+
+  // Verificar se há dados pendentes de lembrete vindos do agendamento
+  useEffect(() => {
+    const reminderData = localStorage.getItem('reminder_creation_data');
+    if (reminderData) {
+      try {
+        const parsedData = JSON.parse(reminderData);
+        setPendingReminderData(parsedData);
+        setShouldShowReminderIndicator(true);
+        
+        // Mostrar modal de agendamento concluído no dashboard
+        setTimeout(() => {
+          setShowSuccessModal(true);
+          setSuccessModalStep('initial');
+        }, 1500);
+
+        // Remover dados após 5 minutos se não foram usados
+        setTimeout(() => {
+          const currentData = localStorage.getItem('reminder_creation_data');
+          if (currentData === reminderData) {
+            localStorage.removeItem('reminder_creation_data');
+            setShouldShowReminderIndicator(false);
+          }
+        }, 300000); // 5 minutos
+      } catch (error) {
+        console.error('Erro ao processar dados de lembrete:', error);
+      }
+    }
+  }, []);
+
+  // Verificar sempre se há lembretes pendentes no localStorage
+  useEffect(() => {
+    const checkReminderData = () => {
+      const reminderData = localStorage.getItem('reminder_creation_data');
+      if (reminderData) {
+        setShouldShowReminderIndicator(true);
+      } else {
+        setShouldShowReminderIndicator(false);
+      }
+    };
+
+    checkReminderData();
+    const interval = setInterval(checkReminderData, 1000); // Verificar a cada segundo
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Funções para controlar o modal de sucesso do agendamento
+  const handleActivateReminder = () => {
+    // Primeiro, fechar o modal
+    setShowSuccessModal(false);
+    setSuccessModalStep('initial');
+    
+    // Se há dados pendentes, abrir o lembrete automaticamente como no botão
+    if (pendingReminderData) {
+      // Buscar qual appointment corresponde aos dados salvos (comparando com formato salvo)
+      const matchedAppointment = appointments.find(appointment => 
+        appointment.establishment_name === pendingReminderData.establishmentName &&
+        appointment.appointment_time === pendingReminderData.appointmentTime
+      );
+      
+      // Se encontrar o appointment, usar seus dados. Caso contrário, usar dados salvos do modal
+      const appointmentData = matchedAppointment || {
+        establishment_name: pendingReminderData.establishmentName,
+        appointment_date: new Date().toISOString().split('T')[0], // Data de hoje como fallback
+        appointment_time: pendingReminderData.appointmentTime,
+        service_name: pendingReminderData.serviceName
+      };
+      
+      // Executar o mesmo código que o botão azul de lembrete
+      const appointmentDateTime = new Date(`${appointmentData.appointment_date}T${appointmentData.appointment_time}`);
+      const reminderTime = new Date(appointmentDateTime.getTime() - (30 * 60 * 1000)); // 30 minutos antes
+      
+      const reminderTitle = `Lembrete: ${appointmentData.establishment_name}`;
+      const reminderDescription = `Você tem um agendamento em ${appointmentData.establishment_name}\n\nServiço: ${appointmentData.service_name}\nProfissional: Não especificado\nHorário: ${appointmentData.appointment_time}`;
+      
+      // Criar evento no calendário
+      const startDate = reminderTime.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+      const endDate = new Date(reminderTime.getTime() + (15 * 60 * 1000)).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'; // 15 min de duração
+      
+      const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointmentData.establishment_name)}`;
+      
+      // Abrir o calendário como no botão normal
+      window.open(calendarUrl, '_blank');
+      
+      toast('Lembrete criado! Abrindo calendário...', 'success');
+      
+      // Limpar dados pendentes
+      setShouldShowReminderIndicator(false);
+      localStorage.removeItem('reminder_creation_data');
+      setPendingReminderData(null);
+    }
+  };
+
+  const handleDontActivateFirst = () => {
+    // Move para passo de confirmação
+    setSuccessModalStep('confirmation');
+  };
+
+  const handleDontActivateFinal = () => {
+    // Final choice - não ativar lembrete
+    setShowSuccessModal(false);
+    setSuccessModalStep('initial');
+    // Limpar dados pendentes
+    localStorage.removeItem('reminder_creation_data');
+    setShouldShowReminderIndicator(false);
+  };
+
+  const handleCloseSuccessModal = () => {
+    setShowSuccessModal(false);
+    setSuccessModalStep('initial');
+  };
 
   const fetchAppointments = async () => {
     if (!user) return;
@@ -274,29 +395,44 @@ const ClientDashboard = () => {
                         <div className="text-right flex items-center gap-3">
                           {/* Botão CRIAR LEMBRETE - No canto superior direito */}
                           {appointment.status !== 'cancelled' && appointment.status !== 'completed' && (
-                            <button
-                              onClick={() => {
-                                const appointmentDateTime = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
-                                const reminderTime = new Date(appointmentDateTime.getTime() - (30 * 60 * 1000)); // 30 minutos antes
-                                
-                                const reminderTitle = `Lembrete: ${appointment.establishment_name}`;
-                                const reminderDescription = `Você tem um agendamento em ${appointment.establishment_name}\n\nServiço: ${appointment.service_name}\nProfissional: ${appointment.professional_name || 'Não especificado'}\nHorário: ${appointment.appointment_time}`;
-                                
-                                // Criar evento no calendário
-                                const startDate = reminderTime.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-                                const endDate = new Date(reminderTime.getTime() + (15 * 60 * 1000)).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'; // 15 min de duração
-                                
-                                const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointment.establishment_name)}`;
-                                
-                                window.open(calendarUrl, '_blank');
-                                
-                                toast('Lembrete criado! Abrindo calendário...', 'success');
-                              }}
-                              className="px-3 py-2 text-sm font-medium rounded-lg transition-colors bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1"
-                              title="Criar lembrete no seu calendário"
-                            >
-                              📅 Lembrete
-                            </button>
+                            <>
+                              <button
+                                onClick={() => {
+                                  const appointmentDateTime = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
+                                  const reminderTime = new Date(appointmentDateTime.getTime() - (30 * 60 * 1000)); // 30 minutos antes
+                                  
+                                  const reminderTitle = `Lembrete: ${appointment.establishment_name}`;
+                                  const reminderDescription = `Você tem um agendamento em ${appointment.establishment_name}\n\nServiço: ${appointment.service_name}\nProfissional: ${appointment.professional_name || 'Não especificado'}\nHorário: ${appointment.appointment_time}`;
+                                  
+                                  // Criar evento no calendário
+                                  const startDate = reminderTime.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                                  const endDate = new Date(reminderTime.getTime() + (15 * 60 * 1000)).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'; // 15 min de duração
+                                  
+                                  const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointment.establishment_name)}`;
+                                  
+                                  window.open(calendarUrl, '_blank');
+                                  
+                                  toast('Lembrete criado! Abrindo calendário...', 'success');
+                                  
+                                  // Se havia um lembrete pendente, marcar como ativado
+                                  if (pendingReminderData) {
+                                    setShouldShowReminderIndicator(false);
+                                    localStorage.removeItem('reminder_creation_data');
+                                  }
+                                }}
+                                className={`px-3 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-1 ${
+                                  shouldShowReminderIndicator 
+                                    ? 'bg-yellow-500 text-black animate-pulse hover:bg-yellow-400 shadow-lg' 
+                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                }`}
+                                title={shouldShowReminderIndicator ? "🏆 Clique para ativar seu lembrete!" : "Criar lembrete no seu calendário"}
+                              >
+                                📅 Lembrete
+                                {shouldShowReminderIndicator && (
+                                  <span className="ml-1 animate-bounce text-lg">✨</span>
+                                )}
+                              </button>
+                            </>
                           )}
                           
                           <div>
@@ -496,7 +632,16 @@ const ClientDashboard = () => {
           </div>
         </div>
       )}
-      
+
+      {/* Modal de Sucesso do Agendamento */}
+      <SuccessBookingModal
+        isOpen={showSuccessModal}
+        onClose={handleCloseSuccessModal}
+        onActivateReminder={handleActivateReminder}
+        onDontActivate={successModalStep === 'initial' ? handleDontActivateFirst : handleDontActivateFinal}
+        step={successModalStep}
+        appointmentData={pendingReminderData}
+      />
 
       {/* Banner para baixar o app */}
       <AppDownloadBanner />

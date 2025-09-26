@@ -42,6 +42,7 @@ export default function BookingPage() {
   const [showBusinessHours, setShowBusinessHours] = useState(false);
   const [duplicateCarouselIndex, setDuplicateCarouselIndex] = useState(0);
   
+  
   // Funções para o carrossel duplicado - Filtrar apenas fotos selecionadas
   const duplicatePhotos = [
     establishment?.custom_photo_1_url,
@@ -466,11 +467,22 @@ export default function BookingPage() {
 
       toast.success('Agendamento realizado com sucesso!');
       
+      // Store appointment data for dashboard reminder modal
+      const appointmentInfo = {
+        serviceName: appointmentData.service || 'Serviço não especificado',
+        establishmentName: establishment?.name || '',
+        appointmentDate: format(selectedDate, 'dd/MM/yyyy'),
+        appointmentTime: appointmentData.appointment_time,
+        location: establishment?.location || establishment?.address || '',
+        appointmentId: user?.id
+      };
+      localStorage.setItem('reminder_creation_data', JSON.stringify(appointmentInfo));
+      
       // Atualizar lista de agendamentos após sucesso
       await fetchExistingAppointments();
       setShowBookingForm(false); // Esconder formulário após agendamento
       
-      // Se for o estabelecimento, redirecionar para o dashboard do estabelecimento
+      // Redirecionar sempre para o dashboard apropriado
       if (isEstablishmentOwner) {
         navigate('/dashboard/establishment');
       } else {
@@ -483,6 +495,8 @@ export default function BookingPage() {
       setIsLoading(false);
     }
   };
+
+
 
   const handleAgendarClick = () => {
     if (id === '3814' || id === '3315') {
@@ -1531,6 +1545,7 @@ export default function BookingPage() {
         </div>
       </div>
 
+
       {/* Modal de Login Necessário */}
       <LoginRequiredModal
         isOpen={showLoginModal}
@@ -1538,6 +1553,7 @@ export default function BookingPage() {
         establishmentName={establishment?.name || 'este estabelecimento'}
         returnUrl={location.pathname}
       />
+
     </div>
   );
 } 
