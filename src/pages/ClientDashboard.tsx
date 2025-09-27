@@ -1,20 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import { getClientAppointments, cancelAppointment, supabase } from '../lib/supabase';
-import { Calendar, LogOut, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import type { Database } from '../types/supabase';
+import { Calendar, LogOut, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
+import { AppDownloadBanner } from '../components/AppDownloadBanner';
 import { CancelAppointmentButton } from '../components/CancelAppointmentButton';
-import { useNotifications } from '../hooks/useNotifications';
 import { NotificationPermission } from '../components/NotificationPermission';
-import { useAppointmentReminders } from '../hooks/useAppointmentReminders';
 import { NotificationStatus } from '../components/NotificationStatus';
 import { ReminderInfo } from '../components/ReminderInfo';
-import { AppDownloadBanner } from '../components/AppDownloadBanner';
 import { SuccessBookingModal } from '../components/SuccessBookingModal';
+import { useAuth } from '../context/AuthContext';
+import { useAppointmentReminders } from '../hooks/useAppointmentReminders';
+import { useNotifications } from '../hooks/useNotifications';
+import { cancelAppointment, getClientAppointments, supabase } from '../lib/supabase';
 
 type Appointment = {
   id: string;
@@ -36,18 +35,18 @@ const ClientDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
-  
+
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  
+
   // Sistema de lembretes automáticos
   const { notificationPermission } = useAppointmentReminders(appointments);
   const [isLoading, setIsLoading] = useState(true);
   const [showWelcomePopup, setShowWelcomePopup] = useState(false);
-  
+
   // Estados para indicador de ativação de lembrete
   const [shouldShowReminderIndicator, setShouldShowReminderIndicator] = useState(false);
   const [pendingReminderData, setPendingReminderData] = useState<any>(null);
-  
+
   // Estados para modal de sucesso do agendamento (vindo do booking)
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successModalStep, setSuccessModalStep] = useState<'initial' | 'confirmation'>('initial');
@@ -82,7 +81,7 @@ const ClientDashboard = () => {
         const parsedData = JSON.parse(reminderData);
         setPendingReminderData(parsedData);
         setShouldShowReminderIndicator(true);
-        
+
         // Mostrar modal de agendamento concluído no dashboard
         setTimeout(() => {
           setShowSuccessModal(true);
@@ -116,7 +115,7 @@ const ClientDashboard = () => {
 
     checkReminderData();
     const interval = setInterval(checkReminderData, 1000); // Verificar a cada segundo
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -125,15 +124,15 @@ const ClientDashboard = () => {
     // Primeiro, fechar o modal
     setShowSuccessModal(false);
     setSuccessModalStep('initial');
-    
+
     // Se há dados pendentes, abrir o lembrete automaticamente como no botão
     if (pendingReminderData) {
       // Buscar qual appointment corresponde aos dados salvos (comparando com formato salvo)
-      const matchedAppointment = appointments.find(appointment => 
+      const matchedAppointment = appointments.find(appointment =>
         appointment.establishment_name === pendingReminderData.establishmentName &&
         appointment.appointment_time === pendingReminderData.appointmentTime
       );
-      
+
       // Se encontrar o appointment, usar seus dados. Caso contrário, usar dados salvos do modal
       const appointmentData = matchedAppointment || {
         establishment_name: pendingReminderData.establishmentName,
@@ -141,25 +140,25 @@ const ClientDashboard = () => {
         appointment_time: pendingReminderData.appointmentTime,
         service_name: pendingReminderData.serviceName
       };
-      
+
       // Executar o mesmo código que o botão azul de lembrete
       const appointmentDateTime = new Date(`${appointmentData.appointment_date}T${appointmentData.appointment_time}`);
       const reminderTime = new Date(appointmentDateTime.getTime() - (30 * 60 * 1000)); // 30 minutos antes
-      
+
       const reminderTitle = `Lembrete: ${appointmentData.establishment_name}`;
       const reminderDescription = `Você tem um agendamento em ${appointmentData.establishment_name}\n\nServiço: ${appointmentData.service_name}\nProfissional: Não especificado\nHorário: ${appointmentData.appointment_time}`;
-      
+
       // Criar evento no calendário
       const startDate = reminderTime.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
       const endDate = new Date(reminderTime.getTime() + (15 * 60 * 1000)).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'; // 15 min de duração
-      
+
       const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointmentData.establishment_name)}`;
-      
+
       // Abrir o calendário como no botão normal
       window.open(calendarUrl, '_blank');
-      
+
       toast('Lembrete criado! Abrindo calendário...', 'success');
-      
+
       // Limpar dados pendentes
       setShouldShowReminderIndicator(false);
       localStorage.removeItem('reminder_creation_data');
@@ -188,26 +187,26 @@ const ClientDashboard = () => {
 
   const fetchAppointments = async () => {
     if (!user) return;
-    
+
     setIsLoading(true);
-    
+
     try {
       console.log('🔍 Buscando agendamentos para usuário:', user.id);
       const { data, error } = await getClientAppointments(user.id);
-      
+
       if (error) {
         console.error('❌ Erro ao buscar agendamentos:', error);
         throw error;
       }
-      
+
       console.log('📊 Dados recebidos:', data?.length || 0, 'agendamentos');
-      
+
       if (!data || data.length === 0) {
         console.log('⚠️ Nenhum agendamento no banco, verificando localStorage...');
         const localAppointments = JSON.parse(localStorage.getItem(`appointments_${user.id}`) || '[]');
-        
+
         if (localAppointments.length > 0) {
-          const sortedAppointments = localAppointments.sort((a: Appointment, b: Appointment) => 
+          const sortedAppointments = localAppointments.sort((a: Appointment, b: Appointment) =>
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           setAppointments(sortedAppointments);
@@ -218,7 +217,7 @@ const ClientDashboard = () => {
           console.log('📭 Nenhum agendamento encontrado');
         }
       } else {
-        const sortedAppointments = data.sort((a: Appointment, b: Appointment) => 
+        const sortedAppointments = data.sort((a: Appointment, b: Appointment) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setAppointments(sortedAppointments);
@@ -226,12 +225,12 @@ const ClientDashboard = () => {
       }
     } catch (error: any) {
       console.error('❌ Erro ao buscar agendamentos:', error);
-      
+
       // Fallback para dados locais
       const localAppointments = JSON.parse(localStorage.getItem(`appointments_${user.id}`) || '[]');
-      
+
       if (localAppointments.length > 0) {
-        const sortedAppointments = localAppointments.sort((a: Appointment, b: Appointment) => 
+        const sortedAppointments = localAppointments.sort((a: Appointment, b: Appointment) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setAppointments(sortedAppointments);
@@ -249,11 +248,11 @@ const ClientDashboard = () => {
 
   const handleCancelAppointment = async (appointmentId: string) => {
     if (!user) return;
-    
+
     try {
       // Encontrar o agendamento antes de cancelar
       const appointmentToCancel = appointments.find(apt => apt.id === appointmentId);
-      
+
       if (!appointmentToCancel) {
         toast.error('Agendamento não encontrado');
         return;
@@ -262,13 +261,13 @@ const ClientDashboard = () => {
       // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
       console.log('🔍 DEBUG - appointmentToCancel:', appointmentToCancel);
       console.log('🔍 DEBUG - is_subscriber:', appointmentToCancel.is_subscriber);
-      
+
       if (appointmentToCancel.is_subscriber) {
         console.log('🔍 Verificando se é assinante e se pode cancelar...');
-        
+
         // Verificar se o estabelecimento tem a configuração ativada
         console.log('🔍 DEBUG - establishment_id:', appointmentToCancel.establishment_id);
-        
+
         const { data: establishment, error: establishmentError } = await supabase
           .from('establishments')
           .select('prevent_same_day_reschedule')
@@ -287,17 +286,17 @@ const ClientDashboard = () => {
             '⚠️ Atenção: você é um assinante, o sistema não deixa desmarcar e agendar para o mesmo dia.\n\n' +
             'Tem certeza que deseja cancelar?'
           );
-          
+
           if (!confirmCancel) {
             return; // Usuário cancelou a ação
           }
         }
       }
-      
+
       const { error } = await cancelAppointment(appointmentId);
-      
+
       if (error) throw error;
-      
+
       // Encontrar o agendamento cancelado para notificação
       const cancelledAppointment = appointments.find(apt => apt.id === appointmentId);
       if (cancelledAppointment) {
@@ -307,9 +306,9 @@ const ClientDashboard = () => {
           cancelledAppointment.appointment_time
         );
       }
-      
+
       await fetchAppointments();
-      
+
       toast.success('Agendamento cancelado com sucesso!');
     } catch (error: any) {
       toast.error(error.message || 'Erro ao cancelar agendamento');
@@ -360,7 +359,7 @@ const ClientDashboard = () => {
           </div>
 
           {/* Status das Notificações */}
-          <NotificationStatus 
+          <NotificationStatus
             permission={notificationPermission}
             onRequestPermission={requestNotificationPermission}
           />
@@ -400,31 +399,30 @@ const ClientDashboard = () => {
                                 onClick={() => {
                                   const appointmentDateTime = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
                                   const reminderTime = new Date(appointmentDateTime.getTime() - (30 * 60 * 1000)); // 30 minutos antes
-                                  
+
                                   const reminderTitle = `Lembrete: ${appointment.establishment_name}`;
                                   const reminderDescription = `Você tem um agendamento em ${appointment.establishment_name}\n\nServiço: ${appointment.service_name}\nProfissional: ${appointment.professional_name || 'Não especificado'}\nHorário: ${appointment.appointment_time}`;
-                                  
+
                                   // Criar evento no calendário
                                   const startDate = reminderTime.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
                                   const endDate = new Date(reminderTime.getTime() + (15 * 60 * 1000)).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'; // 15 min de duração
-                                  
+
                                   const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointment.establishment_name)}`;
-                                  
+
                                   window.open(calendarUrl, '_blank');
-                                  
+
                                   toast('Lembrete criado! Abrindo calendário...', 'success');
-                                  
+
                                   // Se havia um lembrete pendente, marcar como ativado
                                   if (pendingReminderData) {
                                     setShouldShowReminderIndicator(false);
                                     localStorage.removeItem('reminder_creation_data');
                                   }
                                 }}
-                                className={`px-3 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-1 ${
-                                  shouldShowReminderIndicator 
-                                    ? 'bg-yellow-500 text-black animate-pulse hover:bg-yellow-400 shadow-lg' 
+                                className={`px-3 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-1 ${shouldShowReminderIndicator
+                                    ? 'bg-yellow-500 text-black animate-pulse hover:bg-yellow-400 shadow-lg'
                                     : 'bg-blue-600 text-white hover:bg-blue-700'
-                                }`}
+                                  }`}
                                 title={shouldShowReminderIndicator ? "🏆 Clique para ativar seu lembrete!" : "Criar lembrete no seu calendário"}
                               >
                                 📅 Lembrete
@@ -434,7 +432,7 @@ const ClientDashboard = () => {
                               </button>
                             </>
                           )}
-                          
+
                           <div>
                             <p className="text-2xl text-green-500 font-bold">
                               R$ {appointment.service_price?.toFixed(2).replace('.', ',')}
@@ -490,22 +488,21 @@ const ClientDashboard = () => {
                           <h4 className="text-white font-medium mb-2 flex items-center gap-2">
                             📊 Status
                           </h4>
-                          <span className={`font-medium text-lg ${
-                            appointment.status === 'cancelled' 
-                              ? 'text-red-500' 
+                          <span className={`font-medium text-lg ${appointment.status === 'cancelled'
+                              ? 'text-red-500'
                               : appointment.status === 'completed'
-                              ? 'text-green-600'
-                              : appointment.status === 'confirmed' 
-                              ? 'text-green-500' 
-                              : 'text-yellow-500'
-                          }`}>
-                            {appointment.status === 'cancelled' 
-                              ? '❌ Cancelado' 
+                                ? 'text-green-600'
+                                : appointment.status === 'confirmed'
+                                  ? 'text-green-500'
+                                  : 'text-yellow-500'
+                            }`}>
+                            {appointment.status === 'cancelled'
+                              ? '❌ Cancelado'
                               : appointment.status === 'completed'
-                              ? '✅ CONCLUÍDO'
-                              : appointment.status === 'confirmed' 
-                              ? '✅ Confirmado' 
-                              : '⏳ Pendente'}
+                                ? '✅ CONCLUÍDO'
+                                : appointment.status === 'confirmed'
+                                  ? '✅ Confirmado'
+                                  : '⏳ Pendente'}
                           </span>
                         </div>
 
@@ -516,12 +513,12 @@ const ClientDashboard = () => {
                           </h4>
                           <p className="text-gray-300 text-lg">
                             {appointment.payment_method === 'pix' ? '💳 PIX' :
-                             appointment.payment_method === 'credito' ? '💳 Crédito' :
-                             appointment.payment_method === 'debito' ? '💳 Débito' :
-                             appointment.payment_method === 'dinheiro' ? '💵 Dinheiro' :
-                             appointment.payment_method === 'pagar_local' ? '🏪 Pagar no Local' :
-                             appointment.payment_method === 'assinante' ? '👑 Assinante' :
-                             '💳 Não especificado'}
+                              appointment.payment_method === 'credito' ? '💳 Crédito' :
+                                appointment.payment_method === 'debito' ? '💳 Débito' :
+                                  appointment.payment_method === 'dinheiro' ? '💵 Dinheiro' :
+                                    appointment.payment_method === 'pagar_local' ? '🏪 Pagar no Local' :
+                                      appointment.payment_method === 'assinante' ? '👑 Assinante' :
+                                        '💳 Não especificado'}
                           </p>
                         </div>
                       </div>
@@ -545,16 +542,15 @@ const ClientDashboard = () => {
                         <div className="mt-4 p-4 bg-[#242628] rounded-lg border border-gray-700">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm text-gray-400">Status do Pagamento:</span>
-                            <span className={`text-sm font-medium px-3 py-1 rounded-full ${
-                              appointment.pix_payment_status === 'confirmado' ? 'bg-green-900/20 text-green-500' :
-                              appointment.pix_payment_status === 'enviado' ? 'bg-yellow-900/20 text-yellow-500' :
-                              appointment.pix_payment_status === 'rejeitado' ? 'bg-red-900/20 text-red-500' :
-                              'bg-gray-900/20 text-gray-400'
-                            }`}>
+                            <span className={`text-sm font-medium px-3 py-1 rounded-full ${appointment.pix_payment_status === 'confirmado' ? 'bg-green-900/20 text-green-500' :
+                                appointment.pix_payment_status === 'enviado' ? 'bg-yellow-900/20 text-yellow-500' :
+                                  appointment.pix_payment_status === 'rejeitado' ? 'bg-red-900/20 text-red-500' :
+                                    'bg-gray-900/20 text-gray-400'
+                              }`}>
                               {appointment.pix_payment_status === 'confirmado' ? '✅ Confirmado' :
-                               appointment.pix_payment_status === 'enviado' ? '⏳ Em análise' :
-                               appointment.pix_payment_status === 'rejeitado' ? '❌ Rejeitado' :
-                               '⏳ Pendente'}
+                                appointment.pix_payment_status === 'enviado' ? '⏳ Em análise' :
+                                  appointment.pix_payment_status === 'rejeitado' ? '❌ Rejeitado' :
+                                    '⏳ Pendente'}
                             </span>
                           </div>
 

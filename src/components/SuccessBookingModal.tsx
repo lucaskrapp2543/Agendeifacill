@@ -46,8 +46,8 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
 
           {/* Mensagem principal */}
           <p className="text-gray-600 text-center mb-6">
-            {isConfirmationStep 
-              ? 'Tem certeza que deseja não ativar o lembrete? Se não ativar, o seu barbeiro pode não ser notificado do seu agendamento.'
+            {isConfirmationStep
+              ? 'Tem certeza que deseja não ativar o lembrete? Se não ativar, você pode esquecer de ir e prejudicar seu profissional.'
               : 'Clique abaixo para ativar o lembrete.'
             }
           </p>
@@ -75,14 +75,13 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
                 Voltar
               </button>
             )}
-            
+
             <button
               onClick={isConfirmationStep ? onActivateReminder : onDontActivate}
-              className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                isConfirmationStep 
-                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
+              className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isConfirmationStep
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
+                }`}
             >
               {isConfirmationStep ? (
                 <>
@@ -99,11 +98,10 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
 
             <button
               onClick={isConfirmationStep ? onDontActivate : onActivateReminder}
-              className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                isConfirmationStep 
-                  ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' 
+              className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isConfirmationStep
+                  ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
+                }`}
             >
               {isConfirmationStep ? (
                 <>

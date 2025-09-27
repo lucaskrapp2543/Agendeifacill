@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { usePWASession } from '../hooks/usePWASession';
 
 type UserRole = 'client' | 'premium' | 'establishment' | null;
 
@@ -33,47 +34,66 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [, setSession] = useState<Session | null>(null);
 
+  // Hook para gerenciar sessão PWA
+  const { isPWAMode } = usePWASession();
+
   useEffect(() => {
-    // Função para recuperar sessão
+    // Função para recuperar sessão com múltiplas estratégias
     const initializeAuth = async () => {
       try {
-        // Primeiro, tenta recuperar do Supabase
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('Erro ao recuperar sessão:', error);
+        console.log('🔄 Inicializando autenticação PWA...');
+
+        // Estratégia 1: Verificar localStorage primeiro (mais rápido para PWA)
+        const savedSession = localStorage.getItem('agendafacil_auth_token');
+        if (savedSession) {
+          try {
+            const parsedSession = JSON.parse(savedSession);
+            console.log('📱 Sessão encontrada no localStorage');
+
+            // Verifica se a sessão não expirou (com margem de 5 minutos)
+            const now = Date.now() / 1000;
+            const expiresAt = parsedSession.expires_at;
+            const margin = 5 * 60; // 5 minutos de margem
+
+            if (expiresAt && (expiresAt - margin) > now) {
+              console.log('✅ Sessão válida, restaurando...');
+              setSession(parsedSession);
+              setUser(parsedSession.user);
+              setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
+              setIsLoading(false);
+              return; // Sair aqui se sessão válida
+            } else {
+              console.log('⏰ Sessão expirada, removendo...');
+              localStorage.removeItem('agendafacil_auth_token');
+            }
+          } catch (error) {
+            console.error('❌ Erro ao parsear sessão do localStorage:', error);
+            localStorage.removeItem('agendafacil_auth_token');
+          }
         }
-        
+
+        // Estratégia 2: Buscar do Supabase (fallback)
+        console.log('🌐 Buscando sessão do Supabase...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+
+        if (error) {
+          console.error('❌ Erro ao recuperar sessão do Supabase:', error);
+        }
+
         if (session) {
+          console.log('✅ Sessão encontrada no Supabase');
           setSession(session);
           setUser(session.user);
           setUserRole(session.user?.user_metadata?.role as UserRole || null);
-          
-          // Salva no localStorage para backup
+
+          // Salva no localStorage para PWA
           localStorage.setItem('agendafacil_auth_token', JSON.stringify(session));
+          console.log('💾 Sessão salva no localStorage para PWA');
         } else {
-          // Se não há sessão ativa, tenta recuperar do localStorage
-          const savedSession = localStorage.getItem('agendafacil_auth_token');
-          if (savedSession) {
-            try {
-              const parsedSession = JSON.parse(savedSession);
-              // Verifica se a sessão não expirou
-              if (parsedSession.expires_at && parsedSession.expires_at > Date.now() / 1000) {
-                setSession(parsedSession);
-                setUser(parsedSession.user);
-                setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
-              } else {
-                // Sessão expirada, remove do localStorage
-                localStorage.removeItem('agendafacil_auth_token');
-              }
-            } catch (error) {
-              console.error('Erro ao recuperar sessão do localStorage:', error);
-              localStorage.removeItem('agendafacil_auth_token');
-            }
-          }
+          console.log('🚫 Nenhuma sessão ativa encontrada');
         }
       } catch (error) {
-        console.error('Erro na inicialização da autenticação:', error);
+        console.error('❌ Erro na inicialização da autenticação:', error);
       } finally {
         setIsLoading(false);
       }
@@ -81,21 +101,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     initializeAuth();
 
-    // Inscreve para mudanças na sessão
+    // Inscreve para mudanças na sessão com melhor tratamento para PWA
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`🔄 Evento de autenticação: ${event}`);
+
       setSession(session);
       setUser(session?.user ?? null);
       setUserRole(session?.user?.user_metadata?.role as UserRole || null);
       setIsLoading(false);
 
-      // Salvar a sessão no localStorage com chave consistente
+      // Tratamento específico para PWA
       if (session) {
+        // Salvar a sessão no localStorage com chave consistente
         localStorage.setItem('agendafacil_auth_token', JSON.stringify(session));
         console.log('✅ Sessão salva no localStorage para PWA');
+
+        // Verificar se é um refresh de token
+        if (event === 'TOKEN_REFRESHED') {
+          console.log('🔄 Token renovado automaticamente');
+        }
       } else {
+        // Limpar completamente o localStorage em logout
         localStorage.removeItem('agendafacil_auth_token');
+        localStorage.removeItem('supabase.auth.token'); // Limpar chave antiga também
         console.log('🗑️ Sessão removida do localStorage');
       }
     });

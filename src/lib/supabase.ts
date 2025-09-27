@@ -12,7 +12,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Por favor, crie um arquivo .env na raiz do projeto com:');
   console.error('VITE_SUPABASE_URL=sua_url_do_supabase');
   console.error('VITE_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase');
-  
+
   // Fallback temporário para desenvolvimento
   if (import.meta.env.DEV) {
     console.warn('⚠️ Usando configuração de fallback para desenvolvimento...');
@@ -21,7 +21,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Initialize the Supabase client
 export const supabase: SupabaseClient<Database> = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co', 
+  supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder_key',
   {
     auth: {
@@ -30,31 +30,34 @@ export const supabase: SupabaseClient<Database> = createClient(
       detectSessionInUrl: true,
       storageKey: 'agendafacil_auth_token',
       flowType: 'pkce',
-      // Configurações para permitir múltiplas sessões
-      multiTab: true,
+      // Configurações otimizadas para PWA
       debug: false,
-      // Força o uso do localStorage mesmo em PWAs
+      // Configurações específicas para PWA
       storage: {
         getItem: (key: string) => {
           try {
-            return localStorage.getItem(key);
+            const value = localStorage.getItem(key);
+            console.log(`📱 PWA - Lendo ${key}:`, value ? 'encontrado' : 'não encontrado');
+            return value;
           } catch (error) {
-            console.warn('Erro ao acessar localStorage:', error);
+            console.warn('❌ Erro ao acessar localStorage:', error);
             return null;
           }
         },
         setItem: (key: string, value: string) => {
           try {
             localStorage.setItem(key, value);
+            console.log(`💾 PWA - Salvando ${key}:`, 'sucesso');
           } catch (error) {
-            console.warn('Erro ao salvar no localStorage:', error);
+            console.warn('❌ Erro ao salvar no localStorage:', error);
           }
         },
         removeItem: (key: string) => {
           try {
             localStorage.removeItem(key);
+            console.log(`🗑️ PWA - Removendo ${key}:`, 'sucesso');
           } catch (error) {
-            console.warn('Erro ao remover do localStorage:', error);
+            console.warn('❌ Erro ao remover do localStorage:', error);
           }
         }
       }
@@ -105,7 +108,7 @@ export const signIn = async (email: string, password: string) => {
     email,
     password
   });
-  
+
   return { data, error };
 };
 
@@ -309,7 +312,7 @@ export const createEstablishment = async (establishmentData: any) => {
   delete establishmentData.custom_photo_5;
   delete establishmentData.custom_photo_6;
   delete establishmentData.custom_photo_7;
-  
+
   establishmentData.profile_image_url = profileImageUrl;
   establishmentData.custom_photo_1_url = customPhoto1Url;
   establishmentData.custom_photo_2_url = customPhoto2Url;
@@ -392,13 +395,13 @@ export const createEstablishment = async (establishmentData: any) => {
   } else {
     console.log('Estabelecimento criado:', data);
   }
-    
+
   return { data, error };
 };
 
 export const getEstablishmentByCode = async (code: string) => {
   console.log('Buscando estabelecimento pelo código:', code);
-  
+
   const { data, error } = await supabase
     .from('establishments')
     .select(`
@@ -423,7 +426,7 @@ export const getEstablishmentByCode = async (code: string) => {
     .single();
 
   console.log('Estabelecimento encontrado:', data);
-  
+
   return { data, error };
 };
 
@@ -447,18 +450,18 @@ const uploadCustomPhoto = async (file: File, establishmentId: string, photoNumbe
 };
 
 export const updateEstablishment = async (id: string, data: any) => {
-  const { 
-    profile_image, 
-    custom_photo_1, 
-    custom_photo_2, 
-    custom_photo_3, 
-    custom_photo_4, 
-    custom_photo_5, 
-    custom_photo_6, 
-    custom_photo_7, 
-    ...establishmentData 
+  const {
+    profile_image,
+    custom_photo_1,
+    custom_photo_2,
+    custom_photo_3,
+    custom_photo_4,
+    custom_photo_5,
+    custom_photo_6,
+    custom_photo_7,
+    ...establishmentData
   } = data;
-  
+
   try {
     // Se houver uma nova imagem de perfil, faz o upload
     if (profile_image instanceof File) {
@@ -479,27 +482,27 @@ export const updateEstablishment = async (id: string, data: any) => {
     if (custom_photo_1 instanceof File) {
       establishmentData.custom_photo_1_url = await uploadCustomPhoto(custom_photo_1, id, 1);
     }
-    
+
     if (custom_photo_2 instanceof File) {
       establishmentData.custom_photo_2_url = await uploadCustomPhoto(custom_photo_2, id, 2);
     }
-    
+
     if (custom_photo_3 instanceof File) {
       establishmentData.custom_photo_3_url = await uploadCustomPhoto(custom_photo_3, id, 3);
     }
-    
+
     if (custom_photo_4 instanceof File) {
       establishmentData.custom_photo_4_url = await uploadCustomPhoto(custom_photo_4, id, 4);
     }
-    
+
     if (custom_photo_5 instanceof File) {
       establishmentData.custom_photo_5_url = await uploadCustomPhoto(custom_photo_5, id, 5);
     }
-    
+
     if (custom_photo_6 instanceof File) {
       establishmentData.custom_photo_6_url = await uploadCustomPhoto(custom_photo_6, id, 6);
     }
-    
+
     if (custom_photo_7 instanceof File) {
       establishmentData.custom_photo_7_url = await uploadCustomPhoto(custom_photo_7, id, 7);
     }
@@ -528,7 +531,7 @@ export const updateEstablishment = async (id: string, data: any) => {
             photo_url: existingProf?.photo_url || newProf.photo_url
           };
         });
-        
+
         establishmentData.professionals = updatedProfessionals;
       }
     }
@@ -557,7 +560,7 @@ export const updateEstablishment = async (id: string, data: any) => {
     if (error) throw error;
 
     console.log('Dados atualizados:', data);
-    
+
     return { data, error: null };
   } catch (error) {
     console.error('Erro ao atualizar estabelecimento:', error);
@@ -571,33 +574,33 @@ const retryRequest = async (fn: () => Promise<any>) => {
   // Importar dinamicamente para evitar problemas de SSR
   const { getConnectionInfo } = await import('../utils/connectionDetector');
   const connectionInfo = getConnectionInfo();
-  
+
   const maxRetries = connectionInfo.retries;
   const timeout = connectionInfo.timeout;
   const delay = connectionInfo.isSlow ? 3000 : 2000;
-  
+
   console.log(`📱 Tipo de conexão detectado: ${connectionInfo.type} (timeout: ${timeout}ms, retries: ${maxRetries})`);
-  
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       // Timeout baseado no tipo de conexão
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Timeout - conexão muito lenta')), timeout);
       });
-      
+
       return await Promise.race([fn(), timeoutPromise]);
     } catch (error: any) {
       console.log(`🔄 Tentativa ${i + 1}/${maxRetries} falhou (${connectionInfo.type}):`, error.message);
-      
+
       // Se for erro de timeout ou conexão, tentar novamente
       if (error.message.includes('Timeout') || error.message.includes('Load failed') || error.message.includes('fetch') || error.message.includes('TypeError')) {
         if (i === maxRetries - 1) {
-          const errorMessage = connectionInfo.isSlow 
+          const errorMessage = connectionInfo.isSlow
             ? 'Conexão muito lenta. Tente usar Wi-Fi ou aguarde alguns minutos.'
             : 'Conexão instável. Verifique sua internet e tente novamente.';
           throw new Error(errorMessage);
         }
-        
+
         // Delay progressivo baseado no tipo de conexão
         const currentDelay = delay * (i + 1) * (connectionInfo.isSlow ? 2 : 1.5);
         console.log(`⏳ Aguardando ${currentDelay}ms antes da próxima tentativa...`);
@@ -612,11 +615,11 @@ const retryRequest = async (fn: () => Promise<any>) => {
 
 export const createAppointment = async (appointmentData: any) => {
   console.log('🚀 Criando agendamento:', appointmentData);
-  
+
   try {
     // VALIDAÇÃO DUPLA: Verificar conflitos antes de criar
     console.log('🔍 Verificando conflitos antes de criar agendamento...');
-    
+
     // Buscar agendamentos existentes no mesmo dia e profissional (com retry)
     const { data: existingAppointments, error: fetchError } = await retryRequest(async () => {
       return await supabase
@@ -645,7 +648,7 @@ export const createAppointment = async (appointmentData: any) => {
 
       // Verificar sobreposição
       const hasConflict = !(newEndMinutes <= existingStartMinutes || newStartMinutes >= existingEndMinutes);
-      
+
       if (hasConflict) {
         const conflictMessage = `Conflito de horário detectado! O horário ${appointmentData.appointment_time}-${minutesToTime(newEndMinutes)} conflita com agendamento existente ${existing.appointment_time}-${minutesToTime(existingEndMinutes)}`;
         console.error('🔴 CONFLITO DETECTADO:', conflictMessage);
@@ -682,33 +685,33 @@ export const createAppointment = async (appointmentData: any) => {
 
     console.log('✅ Agendamento criado - resultado:', data);
     console.log('❌ Erro (se houver):', error);
-    
+
     // BACKUP LOCAL - salvar também no localStorage
     if (data && data[0]) {
       try {
         const userId = appointmentData.client_id;
         const existing = localStorage.getItem(`appointments_${userId}`);
         const localAppointments = existing ? JSON.parse(existing) : [];
-        
+
         const localAppointment = {
           ...data[0],
           saved_locally: true,
           local_save_date: new Date().toISOString()
         };
-        
+
         localAppointments.push(localAppointment);
         localStorage.setItem(`appointments_${userId}`, JSON.stringify(localAppointments));
-        
+
         console.log('💾 BACKUP: Agendamento salvo localmente:', localAppointment);
       } catch (localError) {
         console.error('❌ Erro ao salvar backup local:', localError);
       }
     }
-    
+
     if (error) {
       console.error('❌ Erro detalhado na criação:', error);
     }
-    
+
     return { data, error };
   } catch (err) {
     console.error('❌ Erro catch createAppointment:', err);
@@ -731,28 +734,28 @@ const minutesToTime = (minutes: number): string => {
 // Função de teste para verificar RLS
 export const testClientAppointmentsAccess = async (clientId: string) => {
   console.log('🧪 Testando acesso aos agendamentos...');
-  
+
   try {
     // Teste 1: Buscar todos os agendamentos (sem filtro)
     const { data: allData, error: allError } = await supabase
       .from('appointments')
       .select('*')
       .limit(5);
-    
+
     console.log('🧪 Teste 1 - Todos agendamentos:', { count: allData?.length, error: allError });
-    
+
     // Teste 2: Buscar com filtro de client_id
     const { data: filteredData, error: filteredError } = await supabase
       .from('appointments')
       .select('*')
       .eq('client_id', clientId);
-    
+
     console.log('🧪 Teste 2 - Filtrado por client_id:', { count: filteredData?.length, error: filteredError });
-    
+
     // Teste 3: Verificar user atual
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     console.log('🧪 Teste 3 - User atual:', { id: user?.id, email: user?.email, error: userError });
-    
+
     return {
       allCount: allData?.length || 0,
       filteredCount: filteredData?.length || 0,
@@ -768,7 +771,7 @@ export const testClientAppointmentsAccess = async (clientId: string) => {
 
 export const getClientAppointments = async (clientId: string) => {
   console.log('🔍 getClientAppointments chamada para clientId:', clientId);
-  
+
   try {
     // Tentar buscar no Supabase
     const { data: supabaseData, error } = await supabase
@@ -779,53 +782,53 @@ export const getClientAppointments = async (clientId: string) => {
       `)
       .eq('client_id', clientId)
       .order('appointment_date', { ascending: true });
-    
+
     console.log('📊 getClientAppointments - Resultado Supabase:');
     console.log('  - Dados encontrados:', supabaseData?.length || 0);
     console.log('  - Erro:', error);
     console.log('  - Dados completos:', supabaseData);
-    
+
     // Buscar também no localStorage (backup)
     const localData = getAppointmentsLocal(clientId);
     console.log('💾 Dados locais encontrados:', localData?.length || 0);
-    
+
     // Combinar dados do Supabase com dados locais
     let combinedData: Array<Database['public']['Tables']['appointments']['Row']> = [];
-    
+
     if (supabaseData && supabaseData.length > 0) {
       combinedData = [...supabaseData];
     }
-    
+
     // Adicionar dados locais que não estão no Supabase
     if (localData && localData.length > 0) {
       const supabaseIds = new Set(supabaseData?.map(item => item.id) || []);
       const uniqueLocalData = localData.filter((item: any) => !supabaseIds.has(item.id));
       combinedData = [...combinedData, ...uniqueLocalData];
     }
-    
+
     // Se não há dados no Supabase mas há locais, usar locais
     if ((!supabaseData || supabaseData.length === 0) && localData && localData.length > 0) {
       console.log('⚠️ Usando apenas dados locais (problema de RLS detectado)');
       combinedData = localData;
     }
-    
+
     console.log('🔄 Dados combinados final:', combinedData?.length || 0);
-    
+
     return { data: combinedData, error };
   } catch (err) {
     console.error('❌ Erro catch getClientAppointments:', err);
-    
+
     // Em caso de erro total, tentar usar apenas dados locais
     const localData = getAppointmentsLocal(clientId);
     console.log('🆘 Fallback para dados locais:', localData?.length || 0);
-    
+
     return { data: localData, error: err };
   }
 };
 
 export const getEstablishmentAppointments = async (establishmentId: string) => {
   console.log('Buscando agendamentos do estabelecimento:', establishmentId);
-  
+
   const { data, error } = await supabase
     .from('appointments')
     .select(`
@@ -847,7 +850,7 @@ export const getEstablishmentAppointments = async (establishmentId: string) => {
     .order('appointment_date', { ascending: true });
 
   console.log('Agendamentos encontrados:', data);
-  
+
   return { data, error };
 };
 
@@ -957,7 +960,7 @@ export const createAddIsPremiumFunction = async () => {
         $$ LANGUAGE plpgsql;
       `
     });
-  
+
   return { error };
 };
 
@@ -1093,7 +1096,7 @@ export const addPremiumDrawColumns = async () => {
 // Cancel appointment function
 export const cancelAppointment = async (appointmentId: string) => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
-  
+
   return await supabase
     .from('appointments')
     .update({ status: 'cancelled' })
@@ -1108,17 +1111,17 @@ export const saveAppointmentLocal = (appointment: any) => {
     const userId = appointment.client_id;
     const existing = localStorage.getItem(`appointments_${userId}`);
     const appointments = existing ? JSON.parse(existing) : [];
-    
+
     // Adicionar ID único se não tiver
     const newAppointment = {
       ...appointment,
       id: appointment.id || Date.now().toString(),
       created_at: appointment.created_at || new Date().toISOString()
     };
-    
+
     appointments.push(newAppointment);
     localStorage.setItem(`appointments_${userId}`, JSON.stringify(appointments));
-    
+
     console.log('💾 Agendamento salvo localmente:', newAppointment);
     return newAppointment;
   } catch (error) {
@@ -1143,12 +1146,12 @@ export const cancelAppointmentLocal = (appointmentId: string, userId: string) =>
   try {
     const existing = localStorage.getItem(`appointments_${userId}`);
     if (!existing) return false;
-    
+
     const appointments = JSON.parse(existing);
-    const updatedAppointments = appointments.map((apt: any) => 
+    const updatedAppointments = appointments.map((apt: any) =>
       apt.id === appointmentId ? { ...apt, status: 'cancelled' } : apt
     );
-    
+
     localStorage.setItem(`appointments_${userId}`, JSON.stringify(updatedAppointments));
     console.log('💾 Agendamento cancelado localmente:', appointmentId);
     return true;
@@ -1228,7 +1231,7 @@ export const checkIfEstablishmentIsFavorite = async (establishmentId: string) =>
 
 export const loadEstablishmentDirect = async (code: string) => {
   console.log('🔍 Buscando estabelecimento:', code);
-  
+
   const { data, error } = await supabase
     .from('establishments')
     .select(`
@@ -1265,10 +1268,10 @@ export const createSubscription = async (establishmentId: string, name: string, 
   const { data, error } = await supabase
     .from('subscriptions')
     .insert([
-      { 
-        establishment_id: establishmentId, 
-        name, 
-        value, 
+      {
+        establishment_id: establishmentId,
+        name,
+        value,
         duration_months: durationMonths,
         weekdays: weekdays || [],
         service_duration: serviceDuration || 30, // Duração padrão de 30 minutos
@@ -1340,32 +1343,32 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
     const subscriber = data?.find(sub => {
       const clientPhone = normalizePhoneNumber(sub.client_whatsapp || '');
       const subscriberPhone = normalizePhoneNumber(sub.subscriber_whatsapp || '');
-      
-      console.log('🔍 Comparando:', { 
-        clientPhone, 
+
+      console.log('🔍 Comparando:', {
+        clientPhone,
         subscriberPhone,
-        normalizedWhatsapp, 
+        normalizedWhatsapp,
         matchClient: clientPhone === normalizedWhatsapp,
         matchSubscriber: subscriberPhone === normalizedWhatsapp
       });
-      
+
       return clientPhone === normalizedWhatsapp || subscriberPhone === normalizedWhatsapp;
     });
 
     if (subscriber) {
       // Verificar se o assinante está vencido
-      const isExpired = (new Date(subscriber.end_date) < new Date()) || 
+      const isExpired = (new Date(subscriber.end_date) < new Date()) ||
         subscriber.payment_status === 'unpaid';
-      
+
       if (isExpired) {
         console.log('⚠️ Assinante vencido encontrado (sistema antigo):', subscriber);
-        return { 
+        return {
           data: {
             ...subscriber,
             is_expired: true,
             expiration_message: `Seu plano venceu em ${new Date(subscriber.end_date).toLocaleDateString('pt-BR')}. Renove para continuar agendando.`
-          }, 
-          error: null 
+          },
+          error: null
         };
       } else {
         console.log('✅ Assinante ativo encontrado (sistema antigo):', subscriber);
@@ -1434,10 +1437,10 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
   console.log('🔍 Client IDs para buscar nomes:', uniqueClientIds);
 
   // Filtrar apenas UUIDs válidos para a busca de agendamentos
-  const validUuids = uniqueClientIds.filter(id => 
+  const validUuids = uniqueClientIds.filter(id =>
     id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   );
-  
+
   console.log('🔍 UUIDs válidos para buscar:', validUuids);
   console.log('🔍 IDs manuais ignorados:', uniqueClientIds.filter(id => !validUuids.includes(id)));
 
@@ -1451,10 +1454,10 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
       .eq('establishment_id', establishmentId)
       .in('client_id', validUuids)
       .order('created_at', { ascending: false });
-    
+
     appointments = appointmentsData;
     appointmentsError = error;
-    
+
     if (appointmentsError) {
       console.error('Erro ao buscar agendamentos:', appointmentsError);
     }
@@ -1486,17 +1489,17 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
   // Combinar os dados das assinaturas de clientes com os nomes
   const combinedData = await Promise.all(clientSubs.map(async (cs) => {
     const clientData = clientNamesMap.get(cs.client_id);
-    
+
     // Verificar se é um cliente manual
     let clientName = 'Cliente Desconhecido';
     let clientWhatsapp = 'N/A';
     let clientEmail = null;
-    
+
     if (cs.client_id.startsWith('manual_')) {
       // É um cliente manual - buscar nos dados passados primeiro
       const whatsapp = cs.client_id.replace('manual_', '');
       const manualClient = manualClientsData[whatsapp];
-      
+
       if (manualClient) {
         clientName = manualClient.name;
         clientWhatsapp = whatsapp;
@@ -1509,7 +1512,7 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
           const { getClientNameFromDatabase, getClientWhatsappFromDatabase } = await import('../utils/databaseClientRecovery');
           const dbName = await getClientNameFromDatabase(establishmentId, cs.client_id);
           const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, cs.client_id);
-          
+
           if (dbName && dbName !== 'Cliente Desconhecido') {
             clientName = dbName;
             clientWhatsapp = dbWhatsapp || whatsapp;
@@ -1525,14 +1528,14 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
       // É um UUID - usar dados do agendamento
       clientName = clientData?.name || 'Cliente Desconhecido';
       clientWhatsapp = clientData?.whatsapp || 'N/A';
-      
+
       // Se não encontrou nome, tentar buscar no banco
       if (clientName === 'Cliente Desconhecido') {
         try {
           const { getClientNameFromDatabase, getClientWhatsappFromDatabase } = await import('../utils/databaseClientRecovery');
           const dbName = await getClientNameFromDatabase(establishmentId, cs.client_id);
           const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, cs.client_id);
-          
+
           if (dbName && dbName !== 'Cliente Desconhecido') {
             clientName = dbName;
             clientWhatsapp = dbWhatsapp || clientWhatsapp;
@@ -1543,7 +1546,7 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
         }
       }
     }
-    
+
     console.log(`📋 Cliente ${cs.client_id}:`, {
       clientData,
       clientName,
@@ -1619,7 +1622,7 @@ export const addExpense = async (establishmentId: string, name: string, amount: 
     ])
     .select()
     .single();
-  
+
   if (error) throw error;
   return data;
 };
@@ -1630,7 +1633,7 @@ export const getExpenses = async (establishmentId: string) => {
     .select('*')
     .eq('establishment_id', establishmentId)
     .order('created_at', { ascending: false });
-  
+
   if (error) throw error;
   return data;
 };
@@ -1640,14 +1643,14 @@ export const deleteExpense = async (expenseId: string) => {
     .from('establishment_expenses')
     .delete()
     .eq('id', expenseId);
-  
+
   if (error) throw error;
 };
 
 export const getExpensesTotal = async (establishmentId: string) => {
   const { data, error } = await supabase
     .rpc('get_establishment_expenses_total', { est_id: establishmentId });
-  
+
   if (error) throw error;
   return data || 0;
 };
@@ -1656,7 +1659,7 @@ export const getExpensesTotal = async (establishmentId: string) => {
 export const getClientProfileData = async (userId: string) => {
   try {
     console.log('🔍 DEBUG - getClientProfileData chamada para userId:', userId);
-    
+
     // Primeiro, verificar se o usuário existe na tabela profiles
     const { data: userExists, error: existsError } = await supabase
       .from('profiles')
@@ -1693,14 +1696,14 @@ export const getClientProfileData = async (userId: string) => {
     // Se não encontrou dados, retornar estrutura vazia
     if (!data) {
       console.log('🔍 DEBUG - Nenhum dado encontrado para o usuário');
-      return { 
+      return {
         data: {
           first_name: null,
           last_name: null,
           whatsapp: null,
           is_new_client: false
-        }, 
-        error: null 
+        },
+        error: null
       };
     }
 
@@ -1715,10 +1718,10 @@ export const getClientProfileData = async (userId: string) => {
 export const isNewClient = async (userId: string): Promise<boolean> => {
   try {
     console.log('🔍 DEBUG - isNewClient chamada para userId:', userId);
-    
+
     // Primeiro, verificar se o usuário tem dados de autenticação que indicam que é novo cliente
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
+
     if (authError) {
       console.error('Erro ao buscar dados de autenticação:', authError);
     } else if (user) {
@@ -1728,14 +1731,14 @@ export const isNewClient = async (userId: string): Promise<boolean> => {
         metadata: user.user_metadata,
         app_metadata: user.app_metadata
       });
-      
+
       // Verificar se o usuário foi criado com is_new_client = true
       if (user.user_metadata?.is_new_client === true) {
         console.log('🔍 DEBUG - Usuário identificado como novo cliente via metadata');
         return true;
       }
     }
-    
+
     // Se não encontrou nos metadados, verificar na tabela profiles
     const { data, error } = await getClientProfileData(userId);
     console.log('🔍 DEBUG - isNewClient resultado:', { data, error });
@@ -1753,23 +1756,23 @@ export const getClientDataFromAuth = async () => {
   try {
     console.log('🔍 DEBUG - Buscando dados do cliente via autenticação...');
     const { data: { user }, error } = await supabase.auth.getUser();
-    
+
     if (error) {
       console.error('Erro ao buscar dados de autenticação:', error);
       return null;
     }
-    
+
     if (!user) {
       console.log('🔍 DEBUG - Nenhum usuário logado');
       return null;
     }
-    
+
     console.log('🔍 DEBUG - Dados de autenticação encontrados:', {
       id: user.id,
       email: user.email,
       metadata: user.user_metadata
     });
-    
+
     // Verificar se é um novo cliente e tem os dados necessários
     if (user.user_metadata?.is_new_client === true) {
       const clientData = {
@@ -1778,11 +1781,11 @@ export const getClientDataFromAuth = async () => {
         whatsapp: user.user_metadata.whatsapp,
         is_new_client: true
       };
-      
+
       console.log('🔍 DEBUG - Dados do novo cliente encontrados:', clientData);
       return clientData;
     }
-    
+
     console.log('🔍 DEBUG - Usuário não é um novo cliente ou não tem dados');
     return null;
   } catch (error) {
@@ -1799,9 +1802,9 @@ export const testMigration = async () => {
       .from('profiles')
       .select('first_name, last_name, whatsapp, is_new_client')
       .limit(1);
-    
+
     console.log('🔍 DEBUG - Teste de migração:', { data, error });
-    
+
     if (error) {
       console.log('❌ MIGRAÇÃO NÃO EXECUTADA - Erro:', error.message);
       return false;
@@ -1831,15 +1834,15 @@ export const setProfessionalGoal = async (
   selectedServices: string[] = []
 ) => {
   try {
-    console.log('💾 setProfessionalGoal - Salvando meta:', { 
-      establishmentId, 
-      professionalId, 
-      goalAmount, 
-      year, 
+    console.log('💾 setProfessionalGoal - Salvando meta:', {
+      establishmentId,
+      professionalId,
+      goalAmount,
+      year,
       month,
       selectedServices
     });
-    
+
     const { data, error } = await supabase
       .from('professional_goals')
       .upsert({
@@ -1884,7 +1887,7 @@ export const getProfessionalGoal = async (
 ) => {
   try {
     console.log('🔍 getProfessionalGoal - Buscando meta:', { establishmentId, professionalId, year, month });
-    
+
     const { data, error } = await supabase
       .from('professional_goals')
       .select('*')
@@ -1941,7 +1944,7 @@ export const getProfessionalGoalProgress = async (
 ) => {
   try {
     console.log('🔍 getProfessionalGoalProgress chamado:', { establishmentId, professionalId, year, month });
-    
+
     // Primeiro, obter o nome do profissional
     const { data: establishmentData, error: establishmentError } = await supabase
       .from('establishments')
@@ -1967,7 +1970,7 @@ export const getProfessionalGoalProgress = async (
 
     // Buscar a meta mais recente (independente do mês)
     console.log('🔍 Buscando meta mais recente para profissional:', professionalId);
-    
+
     const { data: goalData, error: goalError } = await supabase
       .from('professional_goals')
       .select('*')
@@ -1988,12 +1991,12 @@ export const getProfessionalGoalProgress = async (
     // Calcular serviços completados no mês
     const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
     const endDate = new Date(year, month, 0).toISOString().split('T')[0];
-    
+
     console.log('🔍 Buscando agendamentos entre:', startDate, 'e', endDate, 'para o mês:', month, 'ano:', year);
 
     // Buscar agendamentos sem filtrar por profissional primeiro
     console.log('🔍 Buscando agendamentos do estabelecimento...');
-    
+
     const { data: appointmentsData, error: appointmentsError } = await supabase
       .from('appointments')
       .select('*')
@@ -2013,14 +2016,14 @@ export const getProfessionalGoalProgress = async (
     let completedServices = 0;
     if (appointmentsData && appointmentsData.length > 0) {
       console.log('🔍 Estrutura do primeiro agendamento:', Object.keys(appointmentsData[0]));
-      
+
       completedServices = appointmentsData.filter(appointment => {
         // Tentar diferentes campos possíveis para o nome do profissional
-        const appointmentProfessional = appointment.professional || 
-                                      appointment.professional_name || 
-                                      appointment.service_name ||
-                                      appointment.professional_id;
-        
+        const appointmentProfessional = appointment.professional ||
+          appointment.professional_name ||
+          appointment.service_name ||
+          appointment.professional_id;
+
         console.log('🔍 Agendamento:', {
           id: appointment.id,
           professional: appointment.professional,
@@ -2028,28 +2031,28 @@ export const getProfessionalGoalProgress = async (
           service_name: appointment.service_name,
           professional_id: appointment.professional_id
         });
-        
+
         console.log('🔍 Comparando:', {
           professionalName,
           professionalId,
           appointmentProfessional,
           appointmentProfessionalId: appointment.professional
         });
-        
+
         // Comparar por UUID do profissional (que é o que está sendo usado)
         const matches = appointment.professional === professionalId;
-        
+
         if (matches) {
           console.log('✅ Match encontrado!');
         }
-        
+
         return matches;
       }).length;
     }
-    
+
     const progressPercentage = goalAmount > 0 ? (completedServices / goalAmount) * 100 : 0;
     const remainingServices = Math.max(goalAmount - completedServices, 0);
-    
+
     console.log('✅ Meta:', goalAmount, 'serviços | Completados em', year + '/' + month + ':', completedServices, '| Progresso:', progressPercentage + '%');
 
     return {
@@ -2064,15 +2067,15 @@ export const getProfessionalGoalProgress = async (
     };
   } catch (error) {
     console.error('Erro ao calcular progresso da meta:', error);
-    return { 
+    return {
       data: {
         goalAmount: 0,
         completedServices: 0,
         progressPercentage: 0,
         remainingServices: 0,
         professionalName: ''
-      }, 
-      error 
+      },
+      error
     };
   }
 };

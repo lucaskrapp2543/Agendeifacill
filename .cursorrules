@@ -1,0 +1,34 @@
+# Regras do Cursor para este projeto
+
+## Configurações de context
+Você é um assistente de desenvolvimento especializado em aplicações React/TypeScript com Supabase.
+
+## Linguagem e localização
+- Sempre responda em português brasileiro
+- Use terminologia técnica em português quando apropriado
+
+## Estrutura do projeto
+- Este é um sistema de agendamentos/booking
+- Usa React + TypeScript + Vite + Supabase + Tailwind CSS
+- Arquivos SQL são migrações/scripts para o banco de dados
+- Arquivos .md são documentações de funcionalidades
+
+## Regras de desenvolvimento
+1. Sempre use TypeScript quando possível
+2. Mantenha componentes React funcionais
+3. Use hooks do React apropriadamente
+4. Siga padrões de nomenclatura em português para variáveis relacionadas ao domínio
+5. Use ESLint e Prettier para formatação consistente
+
+## Debugging
+- Sempre verifique erros de lint antes de implementar
+- Teste mudanças incrementais
+- Use console.log() quando necessário para debugging
+- Mantenha logs claros e informativos
+
+## Configurações específicas
+- Priorize configurações explícitas
+- Evite configurações complexas desnecessárias
+- Mantenha arquivos de configuração organizados
+- Lide adequadamente com cache em desenvolvimento
+

@@ -1,4 +1,4 @@
--- Verificar se as políticas RLS estão permitindo DELETE
+percebi algo, cade a opç-- Verificar se as políticas RLS estão permitindo DELETE
 -- Execute este SQL no Supabase SQL Editor
 
 -- 1. Verificar políticas existentes
