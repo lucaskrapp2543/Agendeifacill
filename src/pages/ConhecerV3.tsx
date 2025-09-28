@@ -38,6 +38,15 @@ const ConhecerV3 = () => {
       businessType: type,
       step: 2
     }));
+
+    // Evento do pixel - Lead (interesse demonstrado)
+    if (window.fbq) {
+      window.fbq('track', 'Lead', {
+        content_name: `Quiz - Selecionou ${type}`,
+        content_category: 'Quiz Interaction'
+      });
+      console.log('✅ Pixel: Lead event disparado para', type);
+    }
   };
 
   const handleSystemResponse = (hasSystem: boolean) => {
@@ -145,10 +154,21 @@ const ConhecerV3 = () => {
         t.src=v;s=b.getElementsByTagName(e)[0];
         s.parentNode.insertBefore(t,s)}(window, document,'script',
         'https://connect.facebook.net/en_US/fbevents.js');
-        fbq('init', '760382943505536');
-        fbq('track', 'PageView');
       `;
       document.head.appendChild(script);
+
+      // Aguardar o script carregar e então inicializar
+      setTimeout(() => {
+        if (window.fbq) {
+          window.fbq('init', '760382943505536');
+          window.fbq('track', 'PageView');
+          console.log('✅ Meta Pixel carregado e PageView disparado');
+        }
+      }, 1000);
+    } else {
+      // Se já existe, apenas disparar PageView
+      window.fbq('track', 'PageView');
+      console.log('✅ Meta Pixel já existia, PageView disparado');
     }
   }, []);
 
@@ -820,7 +840,18 @@ const ConhecerV3 = () => {
 
                 <div className="space-y-3">
                   <button
-                    onClick={() => window.open('https://pay.kiwify.com.br/CeDVHG2', '_blank')}
+                    onClick={() => {
+                      // Evento do pixel - InitiateCheckout (início do checkout)
+                      if (window.fbq) {
+                        window.fbq('track', 'InitiateCheckout', {
+                          value: 47.90,
+                          currency: 'BRL',
+                          content_name: 'Agendei Fácil - Quiz Conversion'
+                        });
+                        console.log('✅ Pixel: InitiateCheckout disparado');
+                      }
+                      window.open('https://pay.kiwify.com.br/CeDVHG2', '_blank');
+                    }}
                     className="w-full p-4 sm:p-5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all duration-300 font-bold text-sm sm:text-base shadow-xl hover:shadow-2xl"
                     style={{
                       animation: 'scalePulse 1.5s ease-in-out infinite'

@@ -145,10 +145,21 @@ const ConhecerV2 = () => {
         t.src=v;s=b.getElementsByTagName(e)[0];
         s.parentNode.insertBefore(t,s)}(window, document,'script',
         'https://connect.facebook.net/en_US/fbevents.js');
-        fbq('init', '760382943505536');
-        fbq('track', 'PageView');
       `;
       document.head.appendChild(script);
+
+      // Aguardar o script carregar e então inicializar
+      setTimeout(() => {
+        if (window.fbq) {
+          window.fbq('init', '760382943505536');
+          window.fbq('track', 'PageView');
+          console.log('✅ Meta Pixel carregado e PageView disparado');
+        }
+      }, 1000);
+    } else {
+      // Se já existe, apenas disparar PageView
+      window.fbq('track', 'PageView');
+      console.log('✅ Meta Pixel já existia, PageView disparado');
     }
   }, []);
 
@@ -359,13 +370,13 @@ const ConhecerV2 = () => {
                       key={reason}
                       onClick={() => handleReasonToggle(reason)}
                       className={`w-full p-4 sm:p-5 text-left rounded-lg border transition-colors flex items-center gap-4 ${quizState.selectedReasons.includes(reason)
-                          ? 'bg-blue-50 border-blue-400 text-blue-900'
-                          : 'bg-gray-50 border-gray-300 text-gray-800 hover:bg-gray-100'
+                        ? 'bg-blue-50 border-blue-400 text-blue-900'
+                        : 'bg-gray-50 border-gray-300 text-gray-800 hover:bg-gray-100'
                         }`}
                     >
                       <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${quizState.selectedReasons.includes(reason)
-                          ? 'bg-blue-500 border-blue-500'
-                          : 'border-gray-400'
+                        ? 'bg-blue-500 border-blue-500'
+                        : 'border-gray-400'
                         }`}>
                         {quizState.selectedReasons.includes(reason) && (
                           <div className="w-3 h-3 bg-white rounded-full"></div>
