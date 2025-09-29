@@ -1,4 +1,3 @@
-import React from 'react';
 import { format } from 'date-fns';
 
 interface Service {
@@ -77,27 +76,27 @@ export function TimeSlotSelector({
   // Função para verificar se um horário já passou
   const isTimeInPast = (timeString: string): boolean => {
     if (!filterPastTimes) return false;
-    
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const selectedDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-    
+
     // Se não é hoje, não filtrar
     if (selectedDay.getTime() !== today.getTime()) {
       return false;
     }
-    
+
     // Se é hoje, verificar se o horário já passou
     const [hours, minutes] = timeString.split(':').map(Number);
     const slotTime = new Date(today.getTime() + hours * 60 * 60 * 1000 + minutes * 60 * 1000);
-    
+
     const isPast = slotTime <= now;
-    
+
     // Log de debug
     if (isPast) {
       console.log(`🕒 TimeSlotSelector - Horário ${timeString} já passou (agora: ${now.toLocaleTimeString()})`);
     }
-    
+
     return isPast;
   };
 
@@ -112,19 +111,19 @@ export function TimeSlotSelector({
     const slots: TimeSlot[] = [];
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
     const dayOfWeek = getDayOfWeek(selectedDate);
-    
+
     // Log de debug
     console.log(`🕒 TimeSlotSelector - Gerando horários com filtro de horários passados: ${filterPastTimes}`);
     console.log(`🕒 TimeSlotSelector - Dia da semana: ${dayOfWeek}`);
     console.log(`🕒 TimeSlotSelector - Horários personalizados do profissional:`, professionalWorkHours);
-    
+
     // Determinar quais horários usar: personalizados do profissional ou padrão do estabelecimento
     let effectiveBusinessHours = businessHours;
-    
+
     if (professionalWorkHours && professionalWorkHours[dayOfWeek] && professionalWorkHours[dayOfWeek].enabled) {
       const workDay = professionalWorkHours[dayOfWeek];
       console.log(`🕒 TimeSlotSelector - Usando horários personalizados do profissional para ${dayOfWeek}:`, workDay);
-      
+
       // Converter horários personalizados para o formato do businessHours
       // IMPORTANTE: Não tratar intervalo como segundo período, mas sim excluir esse período
       effectiveBusinessHours = {
@@ -134,12 +133,12 @@ export function TimeSlotSelector({
         open2: null, // Não usar segundo período para intervalo
         close2: null // Não usar segundo período para intervalo
       };
-      
+
       console.log(`🕒 TimeSlotSelector - Horários efetivos convertidos:`, effectiveBusinessHours);
     } else {
       console.log(`🕒 TimeSlotSelector - Usando horários padrão do estabelecimento`);
     }
-    
+
     // Se não houver horários de funcionamento ou não estiver habilitado, retornar array vazio
     if (!effectiveBusinessHours || !effectiveBusinessHours.enabled || (!selectedService && !selectedDuration)) {
       return slots;
@@ -157,7 +156,7 @@ export function TimeSlotSelector({
     }
 
     // Filtrar agendamentos para o dia específico
-    const relevantAppointments = existingAppointments.filter(apt => 
+    const relevantAppointments = existingAppointments.filter(apt =>
       apt.appointment_date === selectedDateString &&
       apt.status !== 'cancelled'
     );
@@ -168,18 +167,18 @@ export function TimeSlotSelector({
 
     // Determinar o intervalo baseado na configuração
     const interval = use15MinuteInterval ? 30 : 15;
-    
+
     // Gerar horários para o primeiro período
     if (effectiveBusinessHours.open1 && effectiveBusinessHours.close1) {
       const startMinutes = timeToMinutes(effectiveBusinessHours.open1);
       const endMinutes = timeToMinutes(effectiveBusinessHours.close1);
-      
+
       // Gerar slots com o intervalo configurado
       for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
         const hours = Math.floor(minutes / 60);
         const mins = minutes % 60;
         const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-        
+
         // Verificar se há conflito
         const serviceDuration = selectedService?.duration || selectedDuration || 30;
         const slotEndMinutes = minutes + serviceDuration;
@@ -210,7 +209,7 @@ export function TimeSlotSelector({
           if (workDay.break_start && workDay.break_end) {
             const breakStartMinutes = timeToMinutes(workDay.break_start);
             const breakEndMinutes = timeToMinutes(workDay.break_end);
-            
+
             // Verificar se o horário está dentro do intervalo de almoço
             if (minutes >= breakStartMinutes && minutes < breakEndMinutes) {
               isAvailable = false;
@@ -224,11 +223,16 @@ export function TimeSlotSelector({
           for (const appointment of relevantAppointments) {
             const aptStartMinutes = timeToMinutes(appointment.appointment_time);
             const aptEndMinutes = aptStartMinutes + appointment.duration;
-            
+
             // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
             if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
               isAvailable = false;
-              conflictReason = 'Horário Reservado';
+              // Verificar se é reserva avulsa
+              if (appointment.is_avulso) {
+                conflictReason = 'RESERVA AVULSA';
+              } else {
+                conflictReason = 'Horário Reservado';
+              }
               break;
             }
           }
@@ -258,12 +262,12 @@ export function TimeSlotSelector({
     if (effectiveBusinessHours.open2 && effectiveBusinessHours.close2) {
       const startMinutes = timeToMinutes(effectiveBusinessHours.open2);
       const endMinutes = timeToMinutes(effectiveBusinessHours.close2);
-      
+
       for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
         const hours = Math.floor(minutes / 60);
         const mins = minutes % 60;
         const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-        
+
         const serviceDuration = selectedService?.duration || selectedDuration || 30;
         const slotEndMinutes = minutes + serviceDuration;
         let isAvailable = true;
@@ -293,7 +297,7 @@ export function TimeSlotSelector({
           if (workDay.break_start && workDay.break_end) {
             const breakStartMinutes = timeToMinutes(workDay.break_start);
             const breakEndMinutes = timeToMinutes(workDay.break_end);
-            
+
             // Verificar se o horário está dentro do intervalo de almoço
             if (minutes >= breakStartMinutes && minutes < breakEndMinutes) {
               isAvailable = false;
@@ -307,11 +311,16 @@ export function TimeSlotSelector({
           for (const appointment of relevantAppointments) {
             const aptStartMinutes = timeToMinutes(appointment.appointment_time);
             const aptEndMinutes = aptStartMinutes + appointment.duration;
-            
+
             // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
             if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
               isAvailable = false;
-              conflictReason = 'Horário Reservado';
+              // Verificar se é reserva avulsa
+              if (appointment.is_avulso) {
+                conflictReason = 'RESERVA AVULSA';
+              } else {
+                conflictReason = 'Horário Reservado';
+              }
               break;
             }
           }
@@ -354,11 +363,12 @@ export function TimeSlotSelector({
       {timeSlots.map(({ time, isAvailable, reason }) => {
         const isSelected = selectedTime === time;
         const isReserved = reason === 'Horário Reservado';
+        const isAvulso = reason === 'RESERVA AVULSA';
         const isBlocked = reason === 'Horário Fechado';
         const isIntervalTime = reason === 'Horário de Intervalo';
         const isUltrapassedTime = reason === 'Serviço ultrapassaria horário';
         const isPastTime = reason === 'Horário já passou';
-        const isDisabled = !isAvailable || isReserved || isBlocked || isIntervalTime || isUltrapassedTime || isPastTime;
+        const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isIntervalTime || isUltrapassedTime || isPastTime;
 
         return (
           <button
@@ -368,19 +378,27 @@ export function TimeSlotSelector({
             disabled={isDisabled}
             className={`
               px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
-              ${isSelected 
-                ? 'bg-primary text-white shadow-lg scale-105' 
-                : isDisabled
-                  ? 'bg-red-600 text-white cursor-not-allowed'
-                  : 'bg-green-600 text-white hover:bg-green-700 hover:scale-105'
+              ${isSelected
+                ? 'bg-primary text-white shadow-lg scale-105'
+                : isAvulso
+                  ? 'bg-orange-100 text-orange-800 cursor-not-allowed'
+                  : isDisabled
+                    ? 'bg-red-600 text-white cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700 hover:scale-105'
               }
-              ${isReserved ? 'bg-red-600 text-white cursor-not-allowed' : ''}
             `}
           >
             <div className="flex flex-col items-center">
               <span>{time}</span>
-              {isReserved && (
-                <span className="text-xs mt-1 text-white">Horário Reservado</span>
+              {isAvulso && (
+                <span className="text-xs mt-1 text-orange-600">
+                  RESERVA AVULSA
+                </span>
+              )}
+              {isReserved && !isAvulso && (
+                <span className="text-xs mt-1 text-white">
+                  Horário Reservado
+                </span>
               )}
               {isBlocked && (
                 <span className="text-xs mt-1 text-white">Horário Fechado</span>

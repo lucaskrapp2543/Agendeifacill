@@ -134,6 +134,11 @@ export const useProfessionalPayments = (establishmentId: string, selectedMonth?:
     fetchPayments();
   }, [establishmentId, selectedMonth]);
 
+  // Monitorar mudanças nos pagamentos para re-renderizar componentes
+  useEffect(() => {
+    console.log('🔄 Pagamentos atualizados:', payments.length);
+  }, [payments]);
+
   return {
     payments,
     loading,

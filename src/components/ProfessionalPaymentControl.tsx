@@ -62,6 +62,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       toast.success(`Pagamento de ${formatCurrency(pendingAmount)} registrado para ${professionalName}`);
       onPaymentRecorded?.();
       setShowPaymentOptions(false);
+
+      // Forçar refresh da página após pagamento para garantir atualização
+      setTimeout(() => {
+        console.log('🔄 Fazendo refresh após pagamento');
+        window.location.reload();
+      }, 1000);
     } catch (error: any) {
       console.error('Erro ao registrar pagamento:', error);
       toast.error('Erro ao registrar pagamento: ' + error.message);
@@ -97,6 +103,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       setCustomAmount('');
       setShowCustomInput(false);
       setShowPaymentOptions(false);
+
+      // Forçar refresh da página após pagamento para garantir atualização
+      setTimeout(() => {
+        console.log('🔄 Fazendo refresh após pagamento customizado');
+        window.location.reload();
+      }, 1000);
     } catch (error: any) {
       console.error('Erro ao registrar pagamento:', error);
       toast.error('Erro ao registrar pagamento: ' + error.message);

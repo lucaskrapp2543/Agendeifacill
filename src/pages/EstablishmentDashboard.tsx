@@ -17,7 +17,7 @@ import PinPasswordModal from '../components/PinPasswordModal';
 import { ProfessionalPaymentControl } from '../components/ProfessionalPaymentControl';
 import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
-import { QuickAvailabilityChecker } from '../components/QuickAvailabilityChecker';
+import ReservarCliente from '../components/ReservarCliente';
 import { ServiceForm } from '../components/ServiceForm';
 import Sidebar from '../components/Sidebar';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
@@ -184,6 +184,7 @@ interface Appointment {
   establishment_observation?: string;
   is_subscriber?: boolean;
   is_child_service?: boolean;
+  is_avulso?: boolean;
   sold_products?: {
     id: string;
     product_id: string;
@@ -294,6 +295,9 @@ const EstablishmentDashboard = () => {
 
   // Estados para sorteio (Clientes Fiéis)
   const [showDrawModal, setShowDrawModal] = useState(false);
+
+  // Estados para Reservar Cliente
+  const [showReservarClienteModal, setShowReservarClienteModal] = useState(false);
 
   // Estados para Clientes Fiéis
   const [showLoyalForm, setShowLoyalForm] = useState(false);
@@ -2632,6 +2636,15 @@ const EstablishmentDashboard = () => {
   useEffect(() => {
     previousAppointmentsRef.current = appointments;
   }, [appointments]);
+
+  // Recalcular dados financeiros quando agendamentos mudarem
+  useEffect(() => {
+    if (appointments.length > 0 && establishment?.professionals) {
+      console.log('🔄 Recalculando dados financeiros devido a mudanças nos agendamentos');
+      // Forçar re-render dos dados financeiros
+      setForceUpdate(prev => prev + 1);
+    }
+  }, [appointments, establishment?.professionals]);
 
   // Listener para manter conexão com Service Worker
   useEffect(() => {
@@ -5806,19 +5819,6 @@ const EstablishmentDashboard = () => {
                           </div>
 
 
-                          {/* Quick Availability Checker - aparece quando um profissional específico está selecionado */}
-                          {selectedProfessional !== 'all' && establishment && (
-                            <div className="mt-4">
-                              <QuickAvailabilityChecker
-                                professionalId={selectedProfessional}
-                                professionalName={getProfessionalName(selectedProfessional)}
-                                establishmentId={establishment.id}
-                                services={establishment.services_with_prices || []}
-                                businessHours={establishment.business_hours || {}}
-                                professionalWorkHours={professionals.find(p => p.id === selectedProfessional)?.work_hours || null}
-                              />
-                            </div>
-                          )}
                         </div>
                       )}
 
@@ -6198,7 +6198,7 @@ const EstablishmentDashboard = () => {
                                 </span>
                                 <div className="flex items-center gap-2">
                                   <span className="text-white text-sm truncate">
-                                    {appointment.client_name}
+                                    {appointment.is_avulso ? 'CLIENTE AVULSO' : appointment.client_name}
                                   </span>
                                   {appointment.client_id && newClientsInfo[appointment.client_id] && (
                                     <span className="px-1 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">
@@ -6661,9 +6661,9 @@ const EstablishmentDashboard = () => {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
-                          title="Abrir página de agendamentos"
+                          title="Abrir página pública de agendamentos"
                         >
-                          Reservar Cliente
+                          Meu Link
                         </a>
                         <button
                           type="button"
@@ -6674,10 +6674,59 @@ const EstablishmentDashboard = () => {
                         </button>
                       </div>
                       <p className="text-sm text-gray-400">
-                        Clique em "Reservar Cliente" para acessar a página de agendamentos. Você pode fazer reservas para seus clientes através desta página, ou copie o link envie para seus clientes ou deixe na biografia do instagram.
+                        Acesse a página pública de agendamentos ou copie o link para compartilhar com seus clientes.
                       </p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {activeTab === 'reserve-client' && (
+                <div className="space-y-6">
+                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                        <User className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-white">Reservar Cliente</h2>
+                        <p className="text-gray-400">Faça reservas avulsas para seus clientes</p>
+                      </div>
+                    </div>
+
+                    <div className="mb-6">
+                      <p className="text-gray-300 mb-4">
+                        Aqui você pode criar uma reserva ou visualizar os horários disponíveis.
+                        <br /><br />
+                        Basta clicar em Reservar Cliente. Em seguida, o sistema solicitará que você escolha o profissional e o serviço desejado. Após a seleção, serão exibidos todos os horários disponíveis para a data escolhida.
+                        <br /><br />
+                        Ao selecionar um horário, você poderá criar a reserva para garantir que ninguém mais agende naquele mesmo horário, além de manter o controle de caixa dos atendimentos avulsos.
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          console.log('🔍 Abrindo modal ReservarCliente para establishment:', establishment?.id);
+                          setShowReservarClienteModal(true);
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors duration-200 flex items-center gap-3"
+                      >
+                        <User className="h-5 w-5" />
+                        Reservar ou ver horários
+                      </button>
+                    </div>
+
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <h3 className="text-lg font-semibold text-white mb-2">Como funciona:</h3>
+                      <ul className="text-gray-300 space-y-2 text-sm">
+                        <li>• Selecione o profissional desejado</li>
+                        <li>• Escolha o serviço e horário disponível</li>
+                        <li>• A reserva será criada como "CLIENTE AVULSO"</li>
+                        <li>• O horário ficará bloqueado para novos clientes</li>
+                        <li>• Aparecerá normalmente no painel de agendamentos</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -11469,6 +11518,17 @@ const EstablishmentDashboard = () => {
               : "Digite a senha de 4 dígitos para alterar configurações sensíveis"
         }
       />
+
+      {/* Modal de Reservar Cliente */}
+      {showReservarClienteModal && establishment && (
+        <ReservarCliente
+          establishmentId={establishment.id}
+          onClose={() => {
+            console.log('🔍 Fechando modal ReservarCliente');
+            setShowReservarClienteModal(false);
+          }}
+        />
+      )}
     </div>
   );
 };

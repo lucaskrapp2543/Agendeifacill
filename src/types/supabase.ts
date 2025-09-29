@@ -19,6 +19,7 @@ export interface Database {
           is_premium: boolean;
           payment_method?: string;
           is_subscriber?: boolean; // Nova coluna para indicar se é assinante
+          is_avulso?: boolean; // Nova coluna para indicar se é reserva avulsa
           price?: number; // Preço do agendamento
           total_price?: number; // Preço total incluindo produtos extras
         }
