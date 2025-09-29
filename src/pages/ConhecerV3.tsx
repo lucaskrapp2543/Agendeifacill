@@ -142,8 +142,15 @@ const ConhecerV3 = () => {
 
   // Meta Pixel - Carregar pixel do Facebook
   useEffect(() => {
-    // Carregar script do Facebook Pixel
-    if (!window.fbq) {
+    const loadPixel = () => {
+      // Verificar se já existe
+      if (window.fbq) {
+        window.fbq('track', 'PageView');
+        console.log('✅ Meta Pixel já existia, PageView disparado');
+        return;
+      }
+
+      // Carregar script do Facebook Pixel
       const script = document.createElement('script');
       script.innerHTML = `
         !function(f,b,e,v,n,t,s)
@@ -155,21 +162,40 @@ const ConhecerV3 = () => {
         s.parentNode.insertBefore(t,s)}(window, document,'script',
         'https://connect.facebook.net/en_US/fbevents.js');
       `;
+
+      // Adicionar tratamento de erro
+      script.onerror = () => {
+        console.error('❌ Erro ao carregar Facebook Pixel');
+      };
+
+      script.onload = () => {
+        console.log('✅ Script Facebook Pixel carregado');
+      };
+
       document.head.appendChild(script);
 
       // Aguardar o script carregar e então inicializar
-      setTimeout(() => {
+      const initPixel = () => {
         if (window.fbq) {
-          window.fbq('init', '760382943505536');
-          window.fbq('track', 'PageView');
-          console.log('✅ Meta Pixel carregado e PageView disparado');
+          try {
+            window.fbq('init', '760382943505536');
+            window.fbq('track', 'PageView');
+            console.log('✅ Meta Pixel inicializado e PageView disparado');
+          } catch (error) {
+            console.error('❌ Erro ao inicializar pixel:', error);
+          }
+        } else {
+          // Tentar novamente em 500ms
+          setTimeout(initPixel, 500);
         }
-      }, 1000);
-    } else {
-      // Se já existe, apenas disparar PageView
-      window.fbq('track', 'PageView');
-      console.log('✅ Meta Pixel já existia, PageView disparado');
-    }
+      };
+
+      // Aguardar 1 segundo para o script carregar
+      setTimeout(initPixel, 1000);
+    };
+
+    // Carregar pixel
+    loadPixel();
   }, []);
 
   return (

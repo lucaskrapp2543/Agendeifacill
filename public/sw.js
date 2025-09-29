@@ -21,7 +21,7 @@ const STATIC_FILES = [
 // Instalar Service Worker
 self.addEventListener('install', (event) => {
   console.log('🔧 Service Worker instalando...');
-  
+
   event.waitUntil(
     caches.open(STATIC_CACHE)
       .then((cache) => {
@@ -38,7 +38,7 @@ self.addEventListener('install', (event) => {
 // Ativar Service Worker
 self.addEventListener('activate', (event) => {
   console.log('🚀 Service Worker ativando...');
-  
+
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -61,12 +61,23 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
-  
+
+  // NÃO interceptar requisições do Facebook Pixel e Analytics
+  if (url.hostname.includes('facebook.net') ||
+    url.hostname.includes('connect.facebook.net') ||
+    url.hostname.includes('facebook.com') ||
+    url.hostname.includes('google-analytics.com') ||
+    url.hostname.includes('googletagmanager.com') ||
+    url.hostname.includes('doubleclick.net')) {
+    console.log('🔓 Permitindo requisição de analytics/pixel:', url.hostname);
+    return; // Deixar passar sem interceptar
+  }
+
   // Ignorar requisições não-HTTP
   if (!request.url.startsWith('http')) {
     return;
   }
-  
+
   // Estratégia para diferentes tipos de arquivos
   if (request.method === 'GET') {
     // Arquivos estáticos - Cache First
@@ -95,7 +106,7 @@ async function cacheFirst(request) {
     if (cachedResponse) {
       return cachedResponse;
     }
-    
+
     const networkResponse = await fetch(request);
     if (networkResponse.ok) {
       const cache = await caches.open(STATIC_CACHE);
@@ -151,7 +162,7 @@ async function networkFirstWithFallback(request) {
 async function staleWhileRevalidate(request) {
   const cache = await caches.open(DYNAMIC_CACHE);
   const cachedResponse = await cache.match(request);
-  
+
   const fetchPromise = fetch(request).then((networkResponse) => {
     if (networkResponse.ok) {
       cache.put(request, networkResponse.clone());
@@ -161,7 +172,7 @@ async function staleWhileRevalidate(request) {
     // Se a rede falhar, retornar cache se disponível
     return cachedResponse;
   });
-  
+
   return cachedResponse || fetchPromise;
 }
 
@@ -170,7 +181,7 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-  
+
   if (event.data && event.data.type === 'CLEAR_CACHE') {
     event.waitUntil(
       caches.keys().then((cacheNames) => {
