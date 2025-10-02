@@ -54,6 +54,7 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | null>(null);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
@@ -204,7 +205,7 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
   // Carregar horários disponíveis
   useEffect(() => {
     const loadTimeSlots = async () => {
-      if (!selectedService || !selectedDate) return;
+      if ((!selectedService && selectedServices.length === 0) || !selectedDate) return;
 
       setLoading(true);
       try {
@@ -240,16 +241,133 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
           console.log('⚠️ NENHUM AGENDAMENTO ENCONTRADO para a data:', selectedDate);
         }
 
-        // Gerar slots de 30 em 30 minutos das 8h às 18h
-        const slots: TimeSlot[] = [];
-        const startHour = 8;
-        const endHour = 18;
+        // Calcular duração total dos serviços selecionados
+        const totalDuration = selectedServices.length > 0
+          ? calculateTotalDuration(selectedServices)
+          : selectedService?.duration || 30;
 
-        for (let hour = startHour; hour < endHour; hour++) {
-          for (let minute = 0; minute < 60; minute += 30) {
-            const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        // Buscar horários do estabelecimento e do profissional
+        const establishmentHours = await supabase
+          .from('establishments')
+          .select('business_hours')
+          .eq('id', establishmentId)
+          .single();
+
+        const professionalHours = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishmentId)
+          .single();
+
+        // Determinar horários de trabalho para o dia da semana
+        const selectedDateObj = new Date(selectedDate + 'T00:00:00'); // Forçar timezone local
+        const dayOfWeek = selectedDateObj.getDay(); // 0 = domingo, 1 = segunda, etc.
+        const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][dayOfWeek];
+
+        console.log('🔍 DEBUG - Data selecionada:', selectedDate);
+        console.log('🔍 DEBUG - Data objeto:', selectedDateObj);
+        console.log('🔍 DEBUG - Dia da semana:', dayOfWeek, dayName);
+        console.log('🔍 DEBUG - Data formatada:', selectedDateObj.toLocaleDateString('pt-BR'));
+        console.log('🔍 DEBUG - Establishment hours:', establishmentHours.data);
+        console.log('🔍 DEBUG - Professional hours:', professionalHours.data);
+
+        let workHours = null;
+
+        // Primeiro, verificar se o profissional tem horários específicos para este dia
+        let hasProfessionalHours = false;
+
+        if (professionalHours.data?.professionals) {
+          const professional = professionalHours.data.professionals.find(p => p.id === selectedProfessional?.id);
+          if (professional?.work_hours?.[dayName]) {
+            const profHours = professional.work_hours[dayName];
+            console.log('🔍 Horários brutos do profissional para', dayName, ':', profHours);
+
+            // Só usar horários do profissional se estiver habilitado
+            if (profHours.enabled) {
+              // Converter formato do profissional para formato padrão
+              if (profHours.entry_time && profHours.exit_time) {
+                workHours = {
+                  enabled: profHours.enabled,
+                  open1: profHours.entry_time,
+                  close1: profHours.exit_time,
+                  open2: null,
+                  close2: null
+                };
+
+                // Se tem intervalo, ajustar
+                if (profHours.break_start && profHours.break_end) {
+                  workHours.close1 = profHours.break_start;
+                  workHours.open2 = profHours.break_end;
+                  workHours.close2 = profHours.exit_time;
+                }
+
+                hasProfessionalHours = true;
+                console.log('🔍 Usando horários específicos do profissional para', dayName, ':', workHours);
+              } else {
+                workHours = profHours;
+                hasProfessionalHours = true;
+              }
+            } else {
+              console.log('🔍 Profissional tem horário para', dayName, 'mas está DESABILITADO - usando horário do estabelecimento');
+            }
+          } else {
+            console.log('🔍 Profissional não tem horário específico para', dayName, '- usando horário do estabelecimento');
+          }
+        }
+
+        // Se não tem horário específico do profissional, usar horário do estabelecimento
+        if (!hasProfessionalHours && establishmentHours.data?.business_hours?.[dayName]) {
+          workHours = establishmentHours.data.business_hours[dayName];
+          console.log('🔍 Usando horários do estabelecimento para', dayName, ':', workHours);
+        }
+
+        // Se não tem nenhum horário definido, usar padrão 8h-18h
+        if (!workHours) {
+          workHours = { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null };
+          console.log('🔍 Usando horário padrão:', workHours);
+        }
+
+        console.log('🔍 DEBUG - Work hours final:', workHours);
+
+        // Verificar se o dia está habilitado
+        if (!workHours.enabled) {
+          console.log('⚠️ Dia não habilitado para trabalho');
+          setTimeSlots([]);
+          return;
+        }
+
+        // Gerar slots baseados nos horários de trabalho
+        const slots: TimeSlot[] = [];
+
+        // Função para converter horário para minutos
+        const timeToMinutes = (time: string) => {
+          const [hours, minutes] = time.split(':').map(Number);
+          return hours * 60 + minutes;
+        };
+
+        // Função para converter minutos para horário
+        const minutesToTime = (minutes: number) => {
+          const hours = Math.floor(minutes / 60);
+          const mins = minutes % 60;
+          return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+        };
+
+        // Gerar slots para o primeiro período
+        if (workHours.open1 && workHours.close1) {
+          const startMinutes = timeToMinutes(workHours.open1);
+          const endMinutes = timeToMinutes(workHours.close1);
+
+          console.log('🔍 DEBUG - Gerando slots período 1:', {
+            open1: workHours.open1,
+            close1: workHours.close1,
+            startMinutes,
+            endMinutes
+          });
+
+          for (let minutes = startMinutes; minutes < endMinutes; minutes += 30) {
+            const time = minutesToTime(minutes);
             const slotStart = new Date(`${selectedDate}T${time}:00`);
-            const slotEnd = new Date(slotStart.getTime() + selectedService.duration * 60000);
+            const slotEnd = new Date(slotStart.getTime() + totalDuration * 60000);
 
             // Verificar conflitos
             let available = true;
@@ -261,71 +379,21 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
               const professionalAppointments = appointments.filter(
                 appointment => {
                   const matchesId = appointment.professional === selectedProfessional?.id;
-
-                  console.log(`🔍 Comparando agendamento:`, {
-                    appointmentProfessional: appointment.professional,
-                    selectedId: selectedProfessional?.id,
-                    matchesId
-                  });
-
                   return matchesId;
                 }
               );
 
-              console.log(`🔍 Verificando slot ${time}:`, {
-                slotStart: slotStart.toISOString(),
-                slotEnd: slotEnd.toISOString(),
-                professionalAppointments: professionalAppointments.length
-              });
-
               for (const appointment of professionalAppointments) {
-                // Usar horário local sem conversão de fuso - CORRIGIDO
                 const apptStart = new Date(`${selectedDate}T${appointment.appointment_time}:00`);
                 const apptEnd = new Date(apptStart.getTime() + (appointment.duration || 30) * 60000);
 
-                console.log(`🔍 DEBUG - Comparando horários:`, {
-                  slotTime: time,
-                  slotStart: slotStart.toISOString(),
-                  slotEnd: slotEnd.toISOString(),
-                  appointmentTime: appointment.appointment_time,
-                  apptStart: apptStart.toISOString(),
-                  apptEnd: apptEnd.toISOString(),
-                  appointmentDuration: appointment.duration,
-                  isAvulso: appointment.is_avulso
-                });
+                // Verificar sobreposição
+                const hasOverlap = (slotStart < apptEnd && slotEnd > apptStart);
 
-                console.log(`🔍 Comparando slot ${time} com agendamento:`, {
-                  slotTime: time,
-                  slotStart: slotStart.toISOString(),
-                  slotEnd: slotEnd.toISOString(),
-                  appointmentTime: appointment.appointment_time,
-                  apptStart: apptStart.toISOString(),
-                  apptEnd: apptEnd.toISOString(),
-                  isAvulso: appointment.is_avulso,
-                  duration: appointment.duration
-                });
-
-                // Verificar se há sobreposição de horários
-                const hasOverlap = slotStart < apptEnd && slotEnd > apptStart;
-                const isExactMatch = slotStart.getTime() === apptStart.getTime();
-
-                console.log(`🔍 Verificação de conflito:`, {
-                  hasOverlap,
-                  isExactMatch,
-                  willBlock: hasOverlap || isExactMatch
-                });
-
-                if (hasOverlap || isExactMatch) {
+                if (hasOverlap) {
                   available = false;
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
-                  console.log(`❌ CONFLITO ENCONTRADO para ${time}:`, {
-                    available,
-                    isAvulso,
-                    reason,
-                    appointmentTime: appointment.appointment_time,
-                    appointmentDuration: appointment.duration
-                  });
                   break;
                 }
               }
@@ -335,10 +403,59 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
               time,
               available,
               isAvulso,
-              reason: available ? '' : (isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado')
+              reason
             });
           }
         }
+
+        // Gerar slots para o segundo período (se existir)
+        if (workHours.open2 && workHours.close2) {
+          const startMinutes = timeToMinutes(workHours.open2);
+          const endMinutes = timeToMinutes(workHours.close2);
+
+          for (let minutes = startMinutes; minutes < endMinutes; minutes += 30) {
+            const time = minutesToTime(minutes);
+            const slotStart = new Date(`${selectedDate}T${time}:00`);
+            const slotEnd = new Date(slotStart.getTime() + totalDuration * 60000);
+
+            // Verificar conflitos
+            let available = true;
+            let isAvulso = false;
+            let reason = '';
+
+            if (appointments) {
+              const professionalAppointments = appointments.filter(
+                appointment => appointment.professional === selectedProfessional?.id
+              );
+
+              for (const appointment of professionalAppointments) {
+                const apptStart = new Date(`${selectedDate}T${appointment.appointment_time}:00`);
+                const apptEnd = new Date(apptStart.getTime() + (appointment.duration || 30) * 60000);
+
+                const hasOverlap = (slotStart < apptEnd && slotEnd > apptStart);
+
+                if (hasOverlap) {
+                  available = false;
+                  isAvulso = appointment.is_avulso || false;
+                  reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
+                  break;
+                }
+              }
+            }
+
+            slots.push({
+              time,
+              available,
+              isAvulso,
+              reason
+            });
+          }
+        }
+
+        console.log('✅ Slots gerados:', slots.length);
+        console.log('✅ Slots disponíveis:', slots.filter(s => s.available).length);
+        console.log('✅ Slots bloqueados:', slots.filter(s => !s.available).length);
+        console.log('🔍 DEBUG - Todos os slots:', slots);
 
         setTimeSlots(slots);
       } catch (error) {
@@ -350,7 +467,7 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
     };
 
     loadTimeSlots();
-  }, [selectedService, selectedDate, selectedProfessional]);
+  }, [selectedService, selectedServices, selectedDate, selectedProfessional]);
 
   const handleProfessionalSelect = (professional: Professional) => {
     setSelectedProfessional(professional);
@@ -360,6 +477,48 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
     setStep('time');
+  };
+
+  const handleMultipleServiceToggle = (service: Service) => {
+    setSelectedServices(prev => {
+      const isSelected = prev.some(s => s.id === service.id);
+      if (isSelected) {
+        return prev.filter(s => s.id !== service.id);
+      } else {
+        return [...prev, service];
+      }
+    });
+  };
+
+  const handleMultipleServicesConfirm = () => {
+    if (selectedServices.length > 0) {
+      setStep('time');
+    }
+  };
+
+  // Calcular total de tempo e valor dos serviços selecionados
+  const calculateTotalDuration = (services: Service[]) => {
+    return services.reduce((total, service) => total + service.duration, 0);
+  };
+
+  const calculateTotalPrice = (services: Service[]) => {
+    return services.reduce((total, service) => total + service.price, 0);
+  };
+
+  const formatDuration = (minutes: number) => {
+    if (minutes >= 60) {
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}min` : `${hours}h`;
+    }
+    return `${minutes}min`;
+  };
+
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(price);
   };
 
   const handleCategorySelect = (category: ServiceCategory) => {
@@ -387,24 +546,36 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
   };
 
   const handleConfirmReservation = async () => {
-    if (!selectedProfessional || !selectedService || !selectedTime) return;
+    if (!selectedProfessional || (!selectedService && selectedServices.length === 0) || !selectedTime) return;
 
     setLoading(true);
     try {
+      // Determinar serviços a serem inseridos
+      const servicesToInsert = selectedServices.length > 0 ? selectedServices : [selectedService!];
+      const totalPrice = selectedServices.length > 0
+        ? calculateTotalPrice(selectedServices)
+        : selectedService!.price;
+      const totalDuration = selectedServices.length > 0
+        ? calculateTotalDuration(selectedServices)
+        : selectedService!.duration;
+
+      // Criar nome dos serviços
+      const serviceNames = servicesToInsert.map(s => s.name).join(', ');
+
       const { error } = await supabase
         .from('appointments')
         .insert({
           client_id: user?.id, // Usar ID do usuário atual (estabelecimento)
           establishment_id: establishmentId,
           professional: selectedProfessional.id, // Usar ID do profissional
-          service: selectedService.name,
+          service: serviceNames,
           client_name: 'CLIENTE AVULSO',
           appointment_date: selectedDate,
           appointment_time: selectedTime,
           status: 'confirmed',
-          price: selectedService.price,
-          total_price: selectedService.price,
-          duration: selectedService.duration,
+          price: totalPrice,
+          total_price: totalPrice,
+          duration: totalDuration,
           is_avulso: true
         });
 
@@ -418,22 +589,6 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
     } finally {
       setLoading(false);
     }
-  };
-
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(price);
-  };
-
-  const formatDuration = (minutes: number) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    if (hours > 0) {
-      return `${hours}h ${mins}min`;
-    }
-    return `${mins}min`;
   };
 
   return (
@@ -527,23 +682,68 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
                 <div className="mb-6">
                   <h4 className="text-md font-medium text-gray-700 mb-3">Serviços Diretos</h4>
                   <div className="grid grid-cols-1 gap-4">
-                    {services.map((service) => (
-                      <button
-                        key={service.id}
-                        onClick={() => handleServiceSelect(service)}
-                        className="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
-                      >
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <h4 className="font-semibold text-gray-800">{service.name}</h4>
-                            <p className="text-sm text-gray-600">
-                              {formatDuration(service.duration)} • {formatPrice(service.price)}
-                            </p>
+                    {services.map((service) => {
+                      const isSelected = selectedServices.some(s => s.id === service.id);
+                      return (
+                        <button
+                          key={service.id}
+                          onClick={() => handleMultipleServiceToggle(service)}
+                          className={`p-4 border-2 rounded-lg transition-all text-left ${isSelected
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
+                            }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-5 h-5 border-2 rounded flex items-center justify-center ${isSelected
+                                ? 'border-blue-500 bg-blue-500'
+                                : 'border-gray-300'
+                                }`}>
+                                {isSelected && (
+                                  <div className="w-2 h-2 bg-white rounded-full"></div>
+                                )}
+                              </div>
+                              <div>
+                                <h4 className="font-semibold text-gray-800">{service.name}</h4>
+                                <p className="text-sm text-gray-600">
+                                  {formatDuration(service.duration)} • {formatPrice(service.price)}
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
+
+                  {/* Resumo dos serviços selecionados */}
+                  {selectedServices.length > 0 && (
+                    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <h5 className="font-medium text-blue-900 mb-2">Serviços Selecionados:</h5>
+                      <div className="space-y-1">
+                        {selectedServices.map((service) => (
+                          <div key={service.id} className="flex justify-between text-sm text-blue-800">
+                            <span>{service.name}</span>
+                            <span>{formatDuration(service.duration)} • {formatPrice(service.price)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 pt-2 border-t border-blue-200">
+                        <div className="flex justify-between font-semibold text-blue-900">
+                          <span>Total:</span>
+                          <span>
+                            {formatDuration(calculateTotalDuration(selectedServices))} • {formatPrice(calculateTotalPrice(selectedServices))}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleMultipleServicesConfirm}
+                        className="mt-3 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                      >
+                        Continuar com {selectedServices.length} serviço{selectedServices.length > 1 ? 's' : ''}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -616,7 +816,7 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
           )}
 
           {/* Step 3: Selecionar Horário */}
-          {step === 'time' && selectedService && (
+          {step === 'time' && (selectedService || selectedServices.length > 0) && (
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold flex items-center text-gray-800">
@@ -677,7 +877,7 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
           )}
 
           {/* Step 4: Confirmar Reserva */}
-          {step === 'confirm' && selectedProfessional && selectedService && selectedTime && (
+          {step === 'confirm' && selectedProfessional && (selectedService || selectedServices.length > 0) && selectedTime && (
             <div>
               <h3 className="text-lg font-semibold mb-4 flex items-center text-gray-800">
                 <CheckCircle className="h-5 w-5 mr-2 text-gray-600" />
@@ -688,9 +888,30 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
                 <h4 className="font-semibold mb-2 text-gray-800">Detalhes da Reserva:</h4>
                 <div className="space-y-2 text-sm text-gray-700">
                   <p><strong>Profissional:</strong> {selectedProfessional.name}</p>
-                  <p><strong>Serviço:</strong> {selectedService.name}</p>
-                  <p><strong>Duração:</strong> {formatDuration(selectedService.duration)}</p>
-                  <p><strong>Preço:</strong> {formatPrice(selectedService.price)}</p>
+
+                  {selectedServices.length > 0 ? (
+                    <>
+                      <p><strong>Serviços:</strong></p>
+                      <ul className="ml-4 space-y-1">
+                        {selectedServices.map((service) => (
+                          <li key={service.id} className="flex justify-between">
+                            <span>{service.name}</span>
+                            <span>{formatDuration(service.duration)} • {formatPrice(service.price)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="border-t pt-2 mt-2">
+                        <p><strong>Total:</strong> {formatDuration(calculateTotalDuration(selectedServices))} • {formatPrice(calculateTotalPrice(selectedServices))}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p><strong>Serviço:</strong> {selectedService?.name}</p>
+                      <p><strong>Duração:</strong> {formatDuration(selectedService?.duration || 0)}</p>
+                      <p><strong>Preço:</strong> {formatPrice(selectedService?.price || 0)}</p>
+                    </>
+                  )}
+
                   <p><strong>Data:</strong> {new Date(selectedDate).toLocaleDateString('pt-BR')}</p>
                   <p><strong>Horário:</strong> {selectedTime}</p>
                   <p><strong>Cliente:</strong> CLIENTE AVULSO</p>
