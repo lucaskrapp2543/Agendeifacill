@@ -1,42 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { toast } from 'react-hot-toast';
 import {
-  Calendar,
-  Clock,
-  Users,
-  Smartphone,
-  BarChart3,
-  CheckCircle,
-  Star,
-  Menu,
-  X,
-  Scissors,
-  Car,
-  Sparkles,
-  Coffee,
   ArrowRight,
-  ArrowDown,
+  Calendar,
+  Car,
+  CheckCircle,
   ChevronDown,
-  Phone,
+  Clock,
+  Coffee,
+  DollarSign,
+  Lock,
   Mail,
   MapPin,
   MessageCircle,
   Rocket,
-  Eye,
-  DollarSign,
-  Lock,
-  ThumbsUp,
-  Pencil,
-  Crown,
-  Globe
+  Scissors,
+  Sparkles,
+  Star,
+  Users
 } from 'lucide-react';
-import { PromoBanner } from '../components/PromoBanner';
-import WhatsAppButton from '../components/WhatsAppButton';
-import DemoBooking from '../components/DemoBooking';
-import { PromoNotifications } from '../components/PromoNotifications';
-import FinanceCarousel from '../components/FinanceCarousel';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { CacheBuster } from '../components/CacheBuster';
+import { PromoNotifications } from '../components/PromoNotifications';
+import WhatsAppButton from '../components/WhatsAppButton';
 
 const pulseKeyframes = `
   @keyframes pulse-scale {
@@ -103,7 +88,7 @@ const LandingPage = () => {
 
   const onTouchEnd = () => {
     if (!touchStart || !touchEnd) return;
-    
+
     const distance = touchStart - touchEnd;
     const isLeftSwipe = distance > 50;
     const isRightSwipe = distance < -50;
@@ -309,10 +294,10 @@ const LandingPage = () => {
             />
           </div>
         </div>
-        
+
         {/* Linha divisória */}
         <div className="w-full border-t border-gray-600 opacity-50"></div>
-        
+
         {/* Linha inferior - Menu de navegação */}
         <nav className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
           <div className="flex items-center justify-center gap-6 sm:gap-8">
@@ -334,13 +319,13 @@ const LandingPage = () => {
                       console.log('Erro no prompt nativo:', error);
                     }
                   }
-                  
+
                   // Fallback: mostrar instruções manuais
                   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
                   const isAndroid = /Android/.test(navigator.userAgent);
-                  
+
                   let message = '';
-                  
+
                   if (isIOS) {
                     message = 'Para instalar o app:\n\n1. Toque no botão Compartilhar (□↑)\n2. Toque em "Adicionar à Tela Inicial"\n3. Toque em "Adicionar"';
                   } else if (isAndroid) {
@@ -348,10 +333,10 @@ const LandingPage = () => {
                   } else {
                     message = 'Para instalar o app:\n\n1. Clique nos 3 pontos (⋮)\n2. Clique em "Instalar Agendei Fácil"\n3. Clique em "Instalar"';
                   }
-                  
+
                   alert(message);
                 };
-                
+
                 handleInstall();
               }}
               className="text-white hover:text-blue-400 transition-colors duration-200 text-sm sm:text-base font-medium"
@@ -368,17 +353,17 @@ const LandingPage = () => {
         </nav>
       </div>
 
-             {/* Hero Section */}
-       <section className="pb-16 bg-gradient-to-br from-gray-900 via-black to-gray-900">
+      {/* Hero Section */}
+      <section className="pb-16 bg-gradient-to-br from-gray-900 via-black to-gray-900">
         <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8"> {/* Alterado px-4 para px-0 para mobile */}
           <div className="text-center"> {/* Removido max-w-4xl mx-auto */}
-                         <div className="flex flex-col items-center space-y-4 pt-0">
+            <div className="flex flex-col items-center space-y-4 pt-0">
               {/* Carrossel de imagens A1 e A2 */}
               <div className="w-full max-w-2xl mx-auto relative">
                 <div className="relative overflow-hidden rounded-lg">
                   {/* Imagens do carrossel */}
-                  <div 
-                    className="flex transition-transform duration-500 ease-in-out" 
+                  <div
+                    className="flex transition-transform duration-500 ease-in-out"
                     style={{ transform: `translateX(-${currentImageIndex * 100}%)` }}
                     onTouchStart={onTouchStart}
                     onTouchMove={onTouchMove}
@@ -399,7 +384,7 @@ const LandingPage = () => {
                       />
                     </div>
                   </div>
-                  
+
                   {/* Setas de navegação mais visíveis */}
                   <button
                     onClick={() => setCurrentImageIndex(0)}
@@ -415,26 +400,24 @@ const LandingPage = () => {
                   >
                     <ArrowRight className="h-5 w-5" />
                   </button>
-                  
+
                   {/* Indicadores de posição mais visíveis */}
                   <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2">
                     <button
                       onClick={() => setCurrentImageIndex(0)}
-                      className={`w-4 h-4 rounded-full transition-all duration-300 ${
-                        currentImageIndex === 0 ? 'bg-white scale-125' : 'bg-white/50 hover:bg-white/75'
-                      }`}
+                      className={`w-4 h-4 rounded-full transition-all duration-300 ${currentImageIndex === 0 ? 'bg-white scale-125' : 'bg-white/50 hover:bg-white/75'
+                        }`}
                       aria-label="Ir para imagem 1"
                     />
                     <button
                       onClick={() => setCurrentImageIndex(1)}
-                      className={`w-4 h-4 rounded-full transition-all duration-300 ${
-                        currentImageIndex === 1 ? 'bg-white scale-125' : 'bg-white/50 hover:bg-white/75'
-                      }`}
+                      className={`w-4 h-4 rounded-full transition-all duration-300 ${currentImageIndex === 1 ? 'bg-white scale-125' : 'bg-white/50 hover:bg-white/75'
+                        }`}
                       aria-label="Ir para imagem 2"
                     />
                   </div>
                 </div>
-                
+
                 {/* Indicativo de tempo - só no desktop */}
                 <div className="hidden md:block text-center mt-3">
                   <div className="inline-flex items-center gap-2 text-gray-400 text-sm bg-black/20 rounded-full px-3 py-1">
@@ -446,7 +429,7 @@ const LandingPage = () => {
 
               {/* Nova seção de destaque */}
               <div className="w-full max-w-3xl px-4">
-                <div className="bg-white rounded-2xl p-2 md:p-4 animate-pulse-custom shadow-lg" style={{ 
+                <div className="bg-white rounded-2xl p-2 md:p-4 animate-pulse-custom shadow-lg" style={{
                   animation: 'pulse-scale 2s infinite',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06)'
                 }}>
@@ -521,22 +504,22 @@ const LandingPage = () => {
                       <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                       <div className="flex items-center gap-4 relative z-10">
                         <div className="relative p-3 rounded-xl bg-white transition-all duration-300"
-                             style={{ 
-                               boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
-                               transition: 'all 0.3s ease'
-                             }}
-                             onMouseEnter={(e) => {
-                               e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
-                             }}
-                             onMouseLeave={(e) => {
-                               e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
-                             }}>
+                          style={{
+                            boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
+                            transition: 'all 0.3s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
+                          }}>
                           <Scissors className="h-6 w-6" style={{ color: '#2ddedb' }} />
                         </div>
                         <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Barbearia</span>
                       </div>
                       <div className="bg-white p-3 rounded-full transition-all duration-300 relative z-10"
-                           style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
+                        style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
                         <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
                     </Link>
@@ -558,22 +541,22 @@ const LandingPage = () => {
                       <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                       <div className="flex items-center gap-4 relative z-10">
                         <div className="relative p-3 rounded-xl bg-white transition-all duration-300"
-                             style={{ 
-                               boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
-                               transition: 'all 0.3s ease'
-                             }}
-                             onMouseEnter={(e) => {
-                               e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
-                             }}
-                             onMouseLeave={(e) => {
-                               e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
-                             }}>
+                          style={{
+                            boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
+                            transition: 'all 0.3s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
+                          }}>
                           <Car className="h-6 w-6" style={{ color: '#2ddedb' }} />
                         </div>
                         <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Lava-car</span>
                       </div>
                       <div className="bg-white p-3 rounded-full transition-all duration-300 relative z-10"
-                           style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
+                        style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
                         <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
                     </Link>
@@ -595,26 +578,26 @@ const LandingPage = () => {
                       <div className="absolute inset-0 bg-gradient-to-r from-[#2ddedb]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                       <div className="flex items-center gap-4 relative z-10">
                         <div className="relative p-3 rounded-xl bg-white transition-all duration-300"
-                             style={{ 
-                               boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
-                               transition: 'all 0.3s ease'
-                             }}
-                             onMouseEnter={(e) => {
-                               e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
-                             }}
-                             onMouseLeave={(e) => {
-                               e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
-                             }}>
+                          style={{
+                            boxShadow: '0 0 15px rgba(45, 222, 219, 0.2)',
+                            transition: 'all 0.3s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow = '0 0 25px rgba(45, 222, 219, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = '0 0 15px rgba(45, 222, 219, 0.2)';
+                          }}>
                           <Sparkles className="h-6 w-6" style={{ color: '#2ddedb' }} />
                         </div>
                         <span className="text-xl group-hover:text-[#2ddedb] transition-colors duration-300">Demonstração Salão de beleza</span>
                       </div>
                       <div className="bg-white p-3 rounded-full transition-all duration-300 relative z-10"
-                           style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
+                        style={{ boxShadow: '0 0 10px rgba(45, 222, 219, 0.2)' }}>
                         <ArrowRight className="h-5 w-5" style={{ color: '#2ddedb' }} />
                       </div>
                     </button>
-                    
+
                     {/* Botão SER AGENDEI FÁCIL */}
                     <button
                       onClick={() => {
@@ -624,7 +607,7 @@ const LandingPage = () => {
                         }
                       }}
                       className="text-gray-800 font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 shadow-lg inline-block w-full sm:w-auto flex items-center justify-center gap-2"
-                      style={{ 
+                      style={{
                         background: 'white',
                         transition: 'all 0.3s ease',
                         animation: 'pulse-scale 2s infinite',
@@ -663,7 +646,7 @@ const LandingPage = () => {
                       <div className="space-y-4">
                         {/* Página exclusiva */}
                         <div className="border-b border-gray-100 pb-4">
-                          <div 
+                          <div
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('pagina-exclusiva')}
                           >
@@ -697,7 +680,7 @@ const LandingPage = () => {
 
                         {/* Não perca clientes */}
                         <div className="border-b border-gray-100 pb-4">
-                          <div 
+                          <div
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('nao-perca-clientes')}
                           >
@@ -721,7 +704,7 @@ const LandingPage = () => {
 
                         {/* Controle de agendamentos */}
                         <div className="border-b border-gray-100 pb-4">
-                          <div 
+                          <div
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('controle-agendamentos')}
                           >
@@ -745,7 +728,7 @@ const LandingPage = () => {
 
                         {/* Formas de pagamento */}
                         <div className="border-b border-gray-100 pb-4">
-                          <div 
+                          <div
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('formas-pagamento')}
                           >
@@ -769,7 +752,7 @@ const LandingPage = () => {
 
                         {/* Clube de Assinantes */}
                         <div className="border-b border-gray-100 pb-4">
-                          <div 
+                          <div
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('clube-assinantes')}
                           >
@@ -793,7 +776,7 @@ const LandingPage = () => {
 
                         {/* Repescagem de clientes */}
                         <div className="border-b border-gray-100 pb-4">
-                          <div 
+                          <div
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('repescagem-clientes')}
                           >
@@ -817,7 +800,7 @@ const LandingPage = () => {
 
                         {/* Colaboradores */}
                         <div className="border-b border-gray-100 pb-4">
-                          <div 
+                          <div
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('colaboradores')}
                           >
@@ -841,7 +824,7 @@ const LandingPage = () => {
 
                         {/* Controle financeiro total */}
                         <div className="pb-4">
-                          <div 
+                          <div
                             className="flex items-center justify-between cursor-pointer py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors"
                             onClick={() => toggleDropdown('controle-financeiro')}
                           >
@@ -909,7 +892,7 @@ const LandingPage = () => {
                   <h2 className="text-3xl font-bold text-center mb-12">
                     Recursos Principais
                   </h2>
-                  
+
                   {/* Indicativo para arrastar - só no mobile */}
                   <div className="md:hidden text-center mb-4">
                     <div className="inline-flex items-center gap-2 text-blue-400 text-sm">
@@ -918,7 +901,7 @@ const LandingPage = () => {
                       <ArrowRight className="h-4 w-4 animate-pulse" />
                     </div>
                   </div>
-                  
+
                   {/* Features Grid - Desktop */}
                   <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-3 gap-6 mt-12">
                     {features.map((feature, index) => (
@@ -934,7 +917,7 @@ const LandingPage = () => {
                       </div>
                     ))}
                   </div>
-                  
+
                   {/* Features Carousel - Mobile */}
                   <div className="md:hidden mt-8 w-full overflow-hidden" style={{ maxWidth: '100vw' }}>
                     <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-hide" style={{ overscrollBehavior: 'contain', touchAction: 'pan-x', maxWidth: '100%' }}>
@@ -1080,17 +1063,17 @@ const LandingPage = () => {
                       <li className="flex items-center">
                         <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Profissionais ilimitados</span>
-              </li>
-                            <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
-                <span className="text-gray-300">Controle de % para colaboradores</span>
-              </li>
-              <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
-                <span className="text-gray-300">Cálculo por base taxa da maquininha</span>
-              </li>
-              <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                        <span className="text-gray-300">Controle de % para colaboradores</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                        <span className="text-gray-300">Cálculo por base taxa da maquininha</span>
+                      </li>
+                      <li className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
                         <span className="text-gray-300">Serviços ilimitados</span>
                       </li>
                       <li className="flex items-center">

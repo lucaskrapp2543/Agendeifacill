@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../types/supabase';
 import { addMonths } from 'date-fns';
+import type { Database } from '../types/supabase';
 
 // These environment variables need to be set after connecting to Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -379,7 +379,7 @@ export const createEstablishment = async (establishmentData: any) => {
     has_parking: establishmentData.has_parking ?? false,
     has_accessibility: establishmentData.has_accessibility ?? false,
     wifi_password: establishmentData.wifi_password || null,
-    pin_password: establishmentData.pin_password || '0000', // Senha padrão "0000"
+    pin_password: establishmentData.pin_password || null, // Sem senha padrão
     professionals_pins: [] // Array vazio para pins dos profissionais
   };
 

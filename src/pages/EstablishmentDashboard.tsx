@@ -4059,10 +4059,12 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     try {
-      // Se o pinPassword estiver vazio, isso removerá a proteção por senha
+      // Se o pinPassword estiver vazio ou for '0000', isso removerá a proteção por senha
+      const finalPassword = pinPassword && pinPassword !== '0000' ? pinPassword : null;
+
       const { error } = await supabase
         .from('establishments')
-        .update({ pin_password: pinPassword || null })
+        .update({ pin_password: finalPassword })
         .eq('id', establishment.id);
 
       if (error) throw error;
@@ -4070,10 +4072,10 @@ const EstablishmentDashboard = () => {
       // Atualiza os dados do estabelecimento localmente
       setEstablishment({
         ...establishment,
-        pin_password: pinPassword || undefined
+        pin_password: finalPassword || undefined
       });
 
-      toast.success(pinPassword ? 'Senha salva com sucesso!' : 'Proteção por senha removida com sucesso!');
+      toast.success(finalPassword ? 'Senha salva com sucesso!' : 'Proteção por senha removida com sucesso!');
     } catch (error) {
       console.error('Erro ao salvar senha:', error);
       toast.error('Erro ao salvar senha');
@@ -6892,7 +6894,7 @@ const EstablishmentDashboard = () => {
                           </button>
                         </div>
                         <p className="text-sm text-gray-400 mt-1">
-                          {establishment?.pin_password ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
+                          {establishment?.pin_password && establishment.pin_password !== '0000' ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
                         </p>
                       </div>
                     </div>

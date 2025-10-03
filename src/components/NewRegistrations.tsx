@@ -1,23 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
-import { toast } from 'react-hot-toast';
-import { 
-  FileText, 
-  User, 
-  Building, 
-  Mail, 
+import {
+  Building,
   Calendar,
   CheckCircle,
-  XCircle,
   Clock,
-  Eye,
-  Trash2,
-  MessageSquare,
+  FileText,
   Filter,
-  Search,
+  Lock,
+  Mail,
+  MessageSquare,
   Phone,
-  Lock
+  Search,
+  Trash2,
+  User,
+  UserPlus,
+  XCircle
 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { toast } from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 
 interface RegistrationForm {
   id: string;
@@ -102,6 +102,108 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
     }
   };
 
+  const createAccount = async (registration: RegistrationForm) => {
+    if (!confirm(`Tem certeza que deseja criar uma conta de estabelecimento para ${registration.establishment_name}?`)) {
+      return;
+    }
+
+    try {
+      // 1. Criar usuário no Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: registration.email,
+        password: registration.password,
+        options: {
+          data: {
+            role: 'establishment',
+            full_name: registration.client_name,
+            establishment_name: registration.establishment_name
+          }
+        }
+      });
+
+      if (authError) {
+        console.error('Erro ao criar usuário:', authError);
+        toast.error(`Erro ao criar usuário: ${authError.message}`);
+        return;
+      }
+
+      if (!authData.user) {
+        toast.error('Erro: usuário não foi criado');
+        return;
+      }
+
+      // 2. Gerar código único para o estabelecimento
+      const establishmentCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+      // 3. Criar estabelecimento na tabela establishments
+      const { error: establishmentError } = await supabase
+        .from('establishments')
+        .insert({
+          name: registration.establishment_name,
+          code: establishmentCode,
+          description: `Estabelecimento criado automaticamente para ${registration.client_name}`,
+          owner_id: authData.user.id, // Vincular ao usuário criado
+          business_hours: {
+            monday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+            tuesday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+            wednesday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+            thursday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+            friday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+            saturday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+            sunday: { enabled: false, open1: null, close1: null, open2: null, close2: null }
+          },
+          services_with_prices: [],
+          professionals: [],
+          profile_image_url: null,
+          affiliate_link: null,
+          custom_photo_1_url: null,
+          custom_photo_2_url: null,
+          custom_photo_3_url: null,
+          custom_photo_4_url: null,
+          custom_photo_5_url: null,
+          custom_photo_6_url: null,
+          custom_photo_7_url: null,
+          carousel_position: 'below',
+          has_wifi: false,
+          has_parking: false,
+          has_accessibility: false,
+          wifi_password: null,
+          pin_password: null,
+          professionals_pins: [],
+          whatsapp: registration.client_whatsapp || null,
+          payment_status: 'unpaid',
+          plan_type: 'monthly',
+          payment_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
+          is_deleted: false,
+          is_blocked: false
+        });
+
+      if (establishmentError) {
+        console.error('Erro ao criar estabelecimento:', establishmentError);
+        toast.error(`Erro ao criar estabelecimento: ${establishmentError.message}`);
+        return;
+      }
+
+      // 4. Atualizar status da inscrição para aprovada
+      await supabase
+        .from('registration_forms')
+        .update({
+          status: 'approved',
+          processed_at: new Date().toISOString(),
+          processed_by: (await supabase.auth.getUser()).data.user?.id,
+          notes: `Conta criada automaticamente. Código: ${establishmentCode}. Email: ${registration.email}, Senha: ${registration.password}. O usuário pode fazer login imediatamente.`
+        })
+        .eq('id', registration.id);
+
+      toast.success(`Conta criada com sucesso! Código: ${establishmentCode}. Email: ${registration.email}, Senha: ${registration.password}`);
+      setSelectedRegistration(null);
+      fetchRegistrations();
+    } catch (error) {
+      console.error('Erro ao criar conta:', error);
+      toast.error('Erro ao criar conta');
+    }
+  };
+
   const deleteRegistration = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir esta inscrição?')) {
       return;
@@ -129,12 +231,12 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
 
   const filteredRegistrations = registrations.filter(reg => {
     const matchesStatus = filterStatus === 'all' || reg.status === filterStatus;
-    const matchesSearch = searchTerm === '' || 
+    const matchesSearch = searchTerm === '' ||
       reg.client_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       reg.establishment_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       reg.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (reg.client_whatsapp && reg.client_whatsapp.includes(searchTerm));
-    
+
     return matchesStatus && matchesSearch;
   });
 
@@ -266,11 +368,10 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                     <div
                       key={registration.id}
                       onClick={() => setSelectedRegistration(registration)}
-                      className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                        selectedRegistration?.id === registration.id
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                      }`}
+                      className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedRegistration?.id === registration.id
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
@@ -301,7 +402,7 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="flex flex-col items-end gap-2">
                           <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(registration.status)}`}>
                             {getStatusIcon(registration.status)}
@@ -327,7 +428,7 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">
                     Detalhes da Inscrição
                   </h3>
-                  
+
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -466,6 +567,17 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                       </button>
                     </div>
                   </div>
+                )}
+
+                {/* Botão CRIAR CONTA */}
+                {selectedRegistration.status === 'pending' && (
+                  <button
+                    onClick={() => createAccount(selectedRegistration)}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 mb-3"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    CRIAR CONTA
+                  </button>
                 )}
 
                 {/* Botão de exclusão */}
