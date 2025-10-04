@@ -86,8 +86,8 @@ function App() {
             <Router>
               <PWARedirect />
               <Routes>
-                <Route path="/" element={<LandingPage />} />
-                <Route path="/landing" element={<LandingVendas />} />
+                <Route path="/" element={<LandingVendas />} />
+                <Route path="/landing" element={<LandingPage />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/recovery-password" element={<RecoveryPassword />} />
