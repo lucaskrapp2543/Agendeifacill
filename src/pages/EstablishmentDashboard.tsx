@@ -599,12 +599,18 @@ const EstablishmentDashboard = () => {
     professionals: boolean;
     subscribers: boolean;
     config: boolean;
+    reserveClient: boolean;
+    appointments: boolean;
+    dashboard: boolean;
   }>({
     products: true,
     services: true,
     professionals: true,
     subscribers: true,
-    config: true
+    config: true,
+    reserveClient: true,
+    appointments: true,
+    dashboard: true
   });
 
   // Função para carregar preferências dos tutoriais
@@ -5793,6 +5799,64 @@ const EstablishmentDashboard = () => {
               {/* Tab de Agendamentos */}
               {activeTab === 'appointments' && (
                 <>
+                  {/* Vídeo Tutorial de Agendamentos */}
+                  {showTutorials.appointments && (
+                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                            <span className="text-red-600 text-xl">📺</span>
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Agendamentos</h3>
+                            <p className="text-sm text-gray-600">Aprenda a gerenciar seus agendamentos e clientes</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => toggleTutorial('appointments')}
+                          className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                        >
+                          Ocultar Tutorial
+                        </button>
+                      </div>
+
+                      <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                        <iframe
+                          className="absolute top-0 left-0 w-full h-full"
+                          src="https://www.youtube.com/embed/cgGofX9mlY4"
+                          title="Tutorial: Como Gerenciar Agendamentos"
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                        ></iframe>
+                      </div>
+
+                      <div className="mt-3 text-center">
+                        <a
+                          href="https://youtu.be/cgGofX9mlY4"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          Assistir no YouTube
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Botão para mostrar tutorial se estiver oculto */}
+                  {!showTutorials.appointments && (
+                    <div className="mb-6 text-center">
+                      <button
+                        onClick={() => toggleTutorial('appointments')}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                      >
+                        <span>📺</span>
+                        <span>Mostrar Tutorial</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Filtros Compactos */}
                   <div className="bg-white rounded-lg p-4 border border-gray-200">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -6685,6 +6749,64 @@ const EstablishmentDashboard = () => {
 
               {activeTab === 'reserve-client' && (
                 <div className="space-y-6">
+                  {/* Vídeo Tutorial */}
+                  {showTutorials.reserveClient && (
+                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                            <span className="text-red-600 text-xl">📺</span>
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Reservar Clientes</h3>
+                            <p className="text-sm text-gray-600">Aprenda a fazer reservas avulsas para seus clientes</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => toggleTutorial('reserveClient')}
+                          className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                        >
+                          Ocultar Tutorial
+                        </button>
+                      </div>
+
+                      <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                        <iframe
+                          className="absolute top-0 left-0 w-full h-full"
+                          src="https://www.youtube.com/embed/vL_E1P1xptU"
+                          title="Tutorial: Como Reservar Clientes"
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                        ></iframe>
+                      </div>
+
+                      <div className="mt-3 text-center">
+                        <a
+                          href="https://youtu.be/vL_E1P1xptU"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          Assistir no YouTube
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Botão para mostrar tutorial se estiver oculto */}
+                  {!showTutorials.reserveClient && (
+                    <div className="mb-6 text-center">
+                      <button
+                        onClick={() => toggleTutorial('reserveClient')}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                      >
+                        <span>📺</span>
+                        <span>Mostrar Tutorial</span>
+                      </button>
+                    </div>
+                  )}
+
                   <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
@@ -7795,6 +7917,64 @@ const EstablishmentDashboard = () => {
 
               {activeTab === 'financial-dashboard' && isDashboardUnlocked && (
                 <div className="space-y-6">
+                  {/* Vídeo Tutorial do Dashboard Financeiro */}
+                  {showTutorials.dashboard && (
+                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                            <span className="text-red-600 text-xl">📺</span>
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Usar o Dashboard</h3>
+                            <p className="text-sm text-gray-600">Aprenda a navegar e usar todas as funcionalidades do sistema</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => toggleTutorial('dashboard')}
+                          className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                        >
+                          Ocultar Tutorial
+                        </button>
+                      </div>
+
+                      <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                        <iframe
+                          className="absolute top-0 left-0 w-full h-full"
+                          src="https://www.youtube.com/embed/5cIGlklZLr0"
+                          title="Tutorial: Como Usar o Dashboard"
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                        ></iframe>
+                      </div>
+
+                      <div className="mt-3 text-center">
+                        <a
+                          href="https://youtu.be/5cIGlklZLr0"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          Assistir no YouTube
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Botão para mostrar tutorial se estiver oculto */}
+                  {!showTutorials.dashboard && (
+                    <div className="mb-6 text-center">
+                      <button
+                        onClick={() => toggleTutorial('dashboard')}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                      >
+                        <span>📺</span>
+                        <span>Mostrar Tutorial</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Dashboard Financeiro com Despesas */}
                   <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex items-center justify-between mb-6">
