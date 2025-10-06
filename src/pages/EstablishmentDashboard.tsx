@@ -2978,38 +2978,70 @@ const EstablishmentDashboard = () => {
   const isBirthdayThisMonth = (birthday: string | null) => {
     if (!birthday) return false;
     const currentMonth = new Date().getMonth();
-    const birthdayDate = new Date(birthday);
+    const birthdayDate = new Date(birthday + 'T12:00:00'); // Corrigir timezone
     return birthdayDate.getMonth() === currentMonth;
   };
 
-  // Função para salvar aniversário do cliente (localStorage)
-  const saveBirthday = async (clientId: string, birthday: string) => {
+  // Função para salvar aniversário do cliente (Supabase + localStorage como fallback)
+  const saveBirthday = async (clientWhatsapp: string, birthday: string) => {
     try {
-      console.log('🎂 Salvando aniversário localmente:', { clientId, birthday });
+      console.log('🎂 Salvando aniversário:', { clientWhatsapp, birthday });
 
-      // Buscar o cliente na lista local para pegar o nome
-      const client = clients.find(c => c.id === clientId);
+      // Buscar o cliente na lista local pelo WhatsApp para pegar o nome
+      const client = clients.find(c => c.whatsapp === clientWhatsapp);
       if (!client) {
         toast('Cliente não encontrado.', 'error');
         return;
       }
 
-      // Salvar no localStorage
-      const storageKey = `client_birthdays_${establishment?.id}`;
-      const savedBirthdays = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      if (!birthday) {
+        toast('Por favor, selecione uma data.', 'error');
+        return;
+      }
 
-      // Usar o WhatsApp como chave única (mais confiável que o ID)
-      savedBirthdays[client.whatsapp] = {
-        name: client.name,
-        birthday: birthday,
-        savedAt: new Date().toISOString()
-      };
+      // 1. Tentar salvar no Supabase
+      try {
+        // Corrigir timezone: garantir que a data seja salva corretamente sem ajuste de fuso horário
+        const birthdayDate = new Date(birthday + 'T12:00:00'); // Adicionar horário do meio-dia para evitar problema de timezone
+        const formattedBirthday = birthdayDate.toISOString().split('T')[0]; // Formato YYYY-MM-DD
 
-      localStorage.setItem(storageKey, JSON.stringify(savedBirthdays));
+        console.log('📅 Data original:', birthday);
+        console.log('📅 Data formatada para salvar:', formattedBirthday);
 
-      console.log('✅ Aniversário salvo no localStorage:', savedBirthdays[client.whatsapp]);
+        const { data, error } = await supabase
+          .from('client_birthdays')
+          .upsert({
+            establishment_id: establishment?.id,
+            client_whatsapp: clientWhatsapp,
+            client_name: client.name,
+            birthday: formattedBirthday
+          }, {
+            onConflict: 'establishment_id,client_whatsapp'
+          });
 
-      toast('Aniversário atualizado com sucesso!', 'success');
+        if (error) throw error;
+
+        console.log('✅ Aniversário salvo no Supabase:', data);
+        toast('Aniversário atualizado com sucesso!', 'success');
+
+      } catch (supabaseError: any) {
+        console.warn('⚠️ Erro ao salvar no Supabase, usando localStorage:', supabaseError.message);
+
+        // 2. Fallback: Salvar no localStorage se Supabase falhar
+        const storageKey = `client_birthdays_${establishment?.id}`;
+        const savedBirthdays = JSON.parse(localStorage.getItem(storageKey) || '{}');
+
+        savedBirthdays[client.whatsapp] = {
+          name: client.name,
+          birthday: birthday,
+          savedAt: new Date().toISOString()
+        };
+
+        localStorage.setItem(storageKey, JSON.stringify(savedBirthdays));
+        console.log('✅ Aniversário salvo no localStorage (fallback)');
+        toast('Aniversário atualizado com sucesso!', 'success');
+      }
+
       setEditingClientBirthday(null);
       setNewBirthday('');
 
@@ -3022,7 +3054,37 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  // Função para carregar aniversários do localStorage
+  // Função para carregar aniversários do Supabase
+  const loadBirthdaysFromSupabase = async (): Promise<Record<string, { birthday: string; name: string }>> => {
+    if (!establishment?.id) return {};
+
+    try {
+      const { data, error } = await supabase
+        .from('client_birthdays')
+        .select('client_whatsapp, client_name, birthday')
+        .eq('establishment_id', establishment.id);
+
+      if (error) throw error;
+
+      // Converter array para objeto indexado por whatsapp
+      const birthdaysMap: Record<string, { birthday: string; name: string }> = {};
+      data?.forEach(item => {
+        birthdaysMap[item.client_whatsapp] = {
+          birthday: item.birthday,
+          name: item.client_name
+        };
+      });
+
+      console.log('🎂 Aniversários carregados do Supabase:', birthdaysMap);
+      return birthdaysMap;
+
+    } catch (error: any) {
+      console.warn('⚠️ Erro ao carregar aniversários do Supabase:', error.message);
+      return {};
+    }
+  };
+
+  // Função para carregar aniversários do localStorage (fallback)
   const loadBirthdaysFromStorage = () => {
     if (!establishment?.id) return {};
 
@@ -3879,12 +3941,16 @@ const EstablishmentDashboard = () => {
         }
       });
 
-      // Carregar aniversários do localStorage e aplicar aos clientes
-      const savedBirthdays = loadBirthdaysFromStorage();
-      console.log('🎂 Aniversários carregados do localStorage:', savedBirthdays);
+      // Carregar aniversários do Supabase primeiro, depois localStorage como fallback
+      const supabaseBirthdays = await loadBirthdaysFromSupabase();
+      const localBirthdays = loadBirthdaysFromStorage();
+
+      // Mesclar: Supabase tem prioridade
+      const allBirthdays = { ...localBirthdays, ...supabaseBirthdays };
+      console.log('🎂 Aniversários mesclados (Supabase + localStorage):', allBirthdays);
 
       uniqueClients.forEach(client => {
-        const savedBirthday = savedBirthdays[client.whatsapp];
+        const savedBirthday = allBirthdays[client.whatsapp];
         if (savedBirthday) {
           client.birthday = savedBirthday.birthday;
           console.log(`✅ Aniversário aplicado ao cliente ${client.name}:`, savedBirthday.birthday);
@@ -8538,7 +8604,7 @@ const EstablishmentDashboard = () => {
                           {/* Campo de aniversário */}
                           <div className="text-gray-700 flex items-center gap-2 mb-4">
                             <span className="text-gray-500">🎂</span>
-                            {editingClientBirthday === client.id ? (
+                            {editingClientBirthday === client.whatsapp ? (
                               <div className="flex items-center gap-2">
                                 <input
                                   type="date"
@@ -8547,7 +8613,7 @@ const EstablishmentDashboard = () => {
                                   className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary"
                                 />
                                 <button
-                                  onClick={() => saveBirthday(client.id, newBirthday)}
+                                  onClick={() => saveBirthday(client.whatsapp, newBirthday)}
                                   className="text-green-600 hover:text-green-800"
                                   title="Salvar"
                                 >
@@ -8568,18 +8634,18 @@ const EstablishmentDashboard = () => {
                               <div className="flex items-center gap-2">
                                 <span className="text-sm">
                                   {client.birthday
-                                    ? new Date(client.birthday).toLocaleDateString('pt-BR')
+                                    ? new Date(client.birthday + 'T12:00:00').toLocaleDateString('pt-BR')
                                     : 'Não informado'
                                   }
                                 </span>
                                 <button
                                   onClick={() => {
                                     console.log('🎯 Cliente clicado para editar:', {
-                                      clientId: client.id,
+                                      clientWhatsapp: client.whatsapp,
                                       clientName: client.name,
                                       currentBirthday: client.birthday
                                     });
-                                    setEditingClientBirthday(client.id);
+                                    setEditingClientBirthday(client.whatsapp);
                                     setNewBirthday(client.birthday || '');
                                   }}
                                   className="text-blue-600 hover:text-blue-800 text-xs"
