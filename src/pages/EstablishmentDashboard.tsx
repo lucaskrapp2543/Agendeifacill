@@ -8372,7 +8372,7 @@ const EstablishmentDashboard = () => {
                                     <summary className="text-gray-500 hover:text-gray-700">
                                       Ver serviços individuais
                                     </summary>
-                                    <div className="mt-2 space-y-1 bg-gray-100 p-2 rounded">
+                                    <div className="mt-2 space-y-2 bg-gray-100 p-3 rounded">
                                       {professionalAppointments
                                         .filter(apt => apt.status === 'completed')
                                         .map((apt, index) => {
@@ -8393,14 +8393,44 @@ const EstablishmentDashboard = () => {
                                             netValue = (baseValue * (professional?.percentage || 0)) / 100;
                                           }
 
+                                          // Formatar data e horário
+                                          const appointmentDate = new Date(apt.appointment_date + 'T' + apt.appointment_time);
+                                          const formattedDate = format(appointmentDate, "dd/MM/yyyy", { locale: ptBR });
+                                          const formattedTime = apt.appointment_time || '00:00';
+
+                                          // Mapear forma de pagamento
+                                          const paymentMethodMap: Record<string, string> = {
+                                            'dinheiro': 'Dinheiro',
+                                            'pix': 'PIX',
+                                            'credito': 'Crédito',
+                                            'debito': 'Débito',
+                                            'pendente': 'Pendente'
+                                          };
+                                          const paymentMethodLabel = paymentMethodMap[apt.payment_method || 'pendente'] || apt.payment_method || 'Pendente';
+
                                           return (
-                                            <div key={index} className="flex justify-between text-xs">
-                                              <span className="text-gray-600">
-                                                {apt.client_name} - {formatCurrency(baseValue)}
-                                              </span>
-                                              <span className="text-blue-600">
-                                                → {formatCurrency(netValue)}
-                                              </span>
+                                            <div key={index} className="border-b border-gray-200 pb-2 last:border-0">
+                                              <div className="flex justify-between items-start mb-1">
+                                                <span className="text-gray-700 font-medium">
+                                                  {apt.client_name}
+                                                </span>
+                                                <span className="text-blue-600 font-semibold">
+                                                  → {formatCurrency(netValue)}
+                                                </span>
+                                              </div>
+                                              <div className="flex justify-between items-center text-xs">
+                                                <div className="flex gap-3">
+                                                  <span className="text-gray-600">
+                                                    💰 {formatCurrency(baseValue)}
+                                                  </span>
+                                                  <span className="text-purple-600 font-medium">
+                                                    {paymentMethodLabel}
+                                                  </span>
+                                                </div>
+                                                <span className="text-gray-500">
+                                                  📅 {formattedDate} às {formattedTime}
+                                                </span>
+                                              </div>
                                             </div>
                                           );
                                         })}
