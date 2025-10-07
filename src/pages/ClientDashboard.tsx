@@ -356,6 +356,50 @@ const ClientDashboard = () => {
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-white">Meus Agendamentos</h1>
+
+            {/* Botão Agendar Novamente */}
+            {appointments.length > 0 && (
+              <button
+                onClick={() => {
+                  // Pegar o estabelecimento do último agendamento
+                  const lastAppointment = appointments[0]; // Já está ordenado por data de criação (mais recente primeiro)
+
+                  // Extrair o establishment_id do appointment
+                  // Buscar no Supabase para pegar o código do estabelecimento
+                  const fetchEstablishmentCode = async () => {
+                    try {
+                      const { data: appointmentData, error: appointmentError } = await supabase
+                        .from('appointments')
+                        .select('establishment_id')
+                        .eq('id', lastAppointment.id)
+                        .single();
+
+                      if (appointmentError) throw appointmentError;
+
+                      const { data: establishmentData, error: establishmentError } = await supabase
+                        .from('establishments')
+                        .select('code')
+                        .eq('id', appointmentData.establishment_id)
+                        .single();
+
+                      if (establishmentError) throw establishmentError;
+
+                      // Redirecionar para a página de booking
+                      navigate(`/booking/${establishmentData.code}`);
+                    } catch (error) {
+                      console.error('Erro ao buscar código do estabelecimento:', error);
+                      toast.error('Erro ao redirecionar para agendamento');
+                    }
+                  };
+
+                  fetchEstablishmentCode();
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+              >
+                <Calendar className="h-5 w-5" />
+                <span className="font-medium">Agendar novamente</span>
+              </button>
+            )}
           </div>
 
           {/* Status das Notificações */}
@@ -420,8 +464,8 @@ const ClientDashboard = () => {
                                   }
                                 }}
                                 className={`px-3 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-1 ${shouldShowReminderIndicator
-                                    ? 'bg-yellow-500 text-black animate-pulse hover:bg-yellow-400 shadow-lg'
-                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                  ? 'bg-yellow-500 text-black animate-pulse hover:bg-yellow-400 shadow-lg'
+                                  : 'bg-blue-600 text-white hover:bg-blue-700'
                                   }`}
                                 title={shouldShowReminderIndicator ? "🏆 Clique para ativar seu lembrete!" : "Criar lembrete no seu calendário"}
                               >
@@ -489,12 +533,12 @@ const ClientDashboard = () => {
                             📊 Status
                           </h4>
                           <span className={`font-medium text-lg ${appointment.status === 'cancelled'
-                              ? 'text-red-500'
-                              : appointment.status === 'completed'
-                                ? 'text-green-600'
-                                : appointment.status === 'confirmed'
-                                  ? 'text-green-500'
-                                  : 'text-yellow-500'
+                            ? 'text-red-500'
+                            : appointment.status === 'completed'
+                              ? 'text-green-600'
+                              : appointment.status === 'confirmed'
+                                ? 'text-green-500'
+                                : 'text-yellow-500'
                             }`}>
                             {appointment.status === 'cancelled'
                               ? '❌ Cancelado'
@@ -543,9 +587,9 @@ const ClientDashboard = () => {
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm text-gray-400">Status do Pagamento:</span>
                             <span className={`text-sm font-medium px-3 py-1 rounded-full ${appointment.pix_payment_status === 'confirmado' ? 'bg-green-900/20 text-green-500' :
-                                appointment.pix_payment_status === 'enviado' ? 'bg-yellow-900/20 text-yellow-500' :
-                                  appointment.pix_payment_status === 'rejeitado' ? 'bg-red-900/20 text-red-500' :
-                                    'bg-gray-900/20 text-gray-400'
+                              appointment.pix_payment_status === 'enviado' ? 'bg-yellow-900/20 text-yellow-500' :
+                                appointment.pix_payment_status === 'rejeitado' ? 'bg-red-900/20 text-red-500' :
+                                  'bg-gray-900/20 text-gray-400'
                               }`}>
                               {appointment.pix_payment_status === 'confirmado' ? '✅ Confirmado' :
                                 appointment.pix_payment_status === 'enviado' ? '⏳ Em análise' :
