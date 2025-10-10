@@ -122,19 +122,28 @@ export function TimeSlotSelector({
 
     if (professionalWorkHours && professionalWorkHours[dayOfWeek] && professionalWorkHours[dayOfWeek].enabled) {
       const workDay = professionalWorkHours[dayOfWeek];
-      console.log(`🕒 TimeSlotSelector - Usando horários personalizados do profissional para ${dayOfWeek}:`, workDay);
 
-      // Converter horários personalizados para o formato do businessHours
-      // IMPORTANTE: Não tratar intervalo como segundo período, mas sim excluir esse período
-      effectiveBusinessHours = {
-        enabled: true,
-        open1: workDay.entry_time || '08:00',
-        close1: workDay.exit_time || '17:00',
-        open2: null, // Não usar segundo período para intervalo
-        close2: null // Não usar segundo período para intervalo
-      };
+      // IMPORTANTE: Só usar horários personalizados se eles REALMENTE existirem!
+      const hasCustomHours = workDay.entry_time && workDay.exit_time;
 
-      console.log(`🕒 TimeSlotSelector - Horários efetivos convertidos:`, effectiveBusinessHours);
+      if (hasCustomHours) {
+        console.log(`🕒 TimeSlotSelector - Usando horários personalizados do profissional para ${dayOfWeek}:`, workDay);
+
+        // Converter horários personalizados para o formato do businessHours
+        // IMPORTANTE: Não tratar intervalo como segundo período, mas sim excluir esse período
+        effectiveBusinessHours = {
+          enabled: true,
+          open1: workDay.entry_time || businessHours.open1,
+          close1: workDay.exit_time || businessHours.close1,
+          open2: null, // Não usar segundo período para intervalo
+          close2: null // Não usar segundo período para intervalo
+        };
+
+        console.log(`🕒 TimeSlotSelector - Horários efetivos convertidos:`, effectiveBusinessHours);
+      } else {
+        console.log(`🕒 TimeSlotSelector - Profissional sem horários personalizados configurados, usando horários do estabelecimento`);
+        effectiveBusinessHours = businessHours;
+      }
     } else {
       console.log(`🕒 TimeSlotSelector - Usando horários padrão do estabelecimento`);
     }
