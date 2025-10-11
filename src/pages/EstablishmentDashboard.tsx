@@ -326,11 +326,13 @@ const EstablishmentDashboard = () => {
   const [hasWifi, setHasWifi] = useState(false); // Novo estado para Wi-fi
   const [hasParking, setHasParking] = useState(false); // Novo estado para Estacionamento
   const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
+  const [hasAirConditioning, setHasAirConditioning] = useState(false); // Novo estado para Ar-Condicionado
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
   const [requireCancellationRequest, setRequireCancellationRequest] = useState(false); // Exigir solicitação de cancelamento via WhatsApp
   const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
+  const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState<string[]>(['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
   const [carouselPosition, setCarouselPosition] = useState<'behind' | 'below'>('behind'); // Posição do carrossel
   const [cardBrandTaxes, setCardBrandTaxes] = useState<Record<string, number>>({
     visa: 3.5,
@@ -1866,6 +1868,7 @@ const EstablishmentDashboard = () => {
         has_wifi: hasWifi, // Salva a comodidade Wi-fi
         has_parking: hasParking, // Salva a comodidade Estacionamento
         has_accessibility: hasAccessibility, // Salva a comodidade Acessibilidade
+        has_air_conditioning: hasAirConditioning, // Salva a comodidade Ar-Condicionado
         wifi_password: wifiPassword.trim(), // Salva a senha do Wi-Fi
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
@@ -1959,6 +1962,7 @@ const EstablishmentDashboard = () => {
         has_wifi: hasWifi, // Atualiza a comodidade Wi-fi
         has_parking: hasParking, // Atualiza a comodidade Estacionamento
         has_accessibility: hasAccessibility, // Atualiza a comodidade Acessibilidade
+        has_air_conditioning: hasAirConditioning, // Atualiza a comodidade Ar-Condicionado
         wifi_password: wifiPassword.trim(), // Atualiza a senha do Wi-Fi
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
@@ -1966,6 +1970,7 @@ const EstablishmentDashboard = () => {
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
         show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
         carousel_position: carouselPosition, // Posição do carrossel
+        payment_methods_enabled: paymentMethodsEnabled, // Formas de pagamento ativas
       };
 
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -2427,11 +2432,13 @@ const EstablishmentDashboard = () => {
         setHasWifi(establishmentData.has_wifi ?? false); // Usa ?? false para garantir um booleano
         setHasParking(establishmentData.has_parking ?? false);
         setHasAccessibility(establishmentData.has_accessibility ?? false);
+        setHasAirConditioning(establishmentData.has_air_conditioning ?? false);
         setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
         setRequireCancellationRequest(establishmentData.require_cancellation_request ?? false); // Exigir solicitação de cancelamento
         setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
+        setPaymentMethodsEnabled(establishmentData.payment_methods_enabled || ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
         setCarouselPosition(establishmentData.carousel_position || 'behind'); // Posição do carrossel
 
         // Carrega as taxas por bandeira de cartão
@@ -4235,6 +4242,24 @@ const EstablishmentDashboard = () => {
     } catch (error) {
       console.error('Erro ao salvar taxas de cartão:', error);
       toast('Erro ao salvar taxas de cartão', 'error');
+    }
+  };
+
+  // Função para alternar forma de pagamento
+  const handleTogglePaymentMethod = (method: string) => {
+    // Se está tentando desmarcar e só resta 1 método, não permite
+    if (paymentMethodsEnabled.includes(method) && paymentMethodsEnabled.length === 1) {
+      toast('Deve haver pelo menos uma forma de pagamento ativa', 'error');
+      return;
+    }
+
+    // Alternar o método
+    if (paymentMethodsEnabled.includes(method)) {
+      // Remover
+      setPaymentMethodsEnabled(paymentMethodsEnabled.filter(m => m !== method));
+    } else {
+      // Adicionar
+      setPaymentMethodsEnabled([...paymentMethodsEnabled, method]);
     }
   };
 
@@ -7392,6 +7417,15 @@ const EstablishmentDashboard = () => {
                         />
                         <span className="text-white">Acessibilidade</span>
                       </label>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={hasAirConditioning}
+                          onChange={(e) => setHasAirConditioning(e.target.checked)}
+                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                        />
+                        <span className="text-white">Local Climatizado</span>
+                      </label>
 
                       <label className="flex items-center space-x-2">
                         <input
@@ -8209,6 +8243,108 @@ const EstablishmentDashboard = () => {
                       >
                         Salvar Taxas
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Formas de Pagamento Disponíveis */}
+                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
+                    <h3 className="text-lg font-medium text-white mb-2">Formas de Pagamento Disponíveis</h3>
+                    <p className="text-sm text-gray-400 mb-4">
+                      Selecione quais formas de pagamento estarão disponíveis para seus clientes no booking.
+                      <span className="text-yellow-400 font-medium"> Pelo menos uma deve estar ativa.</span>
+                    </p>
+
+                    <div className="space-y-3">
+                      {/* PIX */}
+                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={paymentMethodsEnabled.includes('pix')}
+                          onChange={() => handleTogglePaymentMethod('pix')}
+                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-2xl">💸</span>
+                          <span className="text-white font-medium">PIX</span>
+                        </div>
+                        {paymentMethodsEnabled.includes('pix') && (
+                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                        )}
+                      </label>
+
+                      {/* Cartão de Crédito */}
+                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={paymentMethodsEnabled.includes('credito')}
+                          onChange={() => handleTogglePaymentMethod('credito')}
+                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-2xl">💳</span>
+                          <span className="text-white font-medium">Cartão de Crédito</span>
+                        </div>
+                        {paymentMethodsEnabled.includes('credito') && (
+                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                        )}
+                      </label>
+
+                      {/* Cartão de Débito */}
+                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={paymentMethodsEnabled.includes('debito')}
+                          onChange={() => handleTogglePaymentMethod('debito')}
+                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-2xl">💳</span>
+                          <span className="text-white font-medium">Cartão de Débito</span>
+                        </div>
+                        {paymentMethodsEnabled.includes('debito') && (
+                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                        )}
+                      </label>
+
+                      {/* Dinheiro */}
+                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={paymentMethodsEnabled.includes('dinheiro')}
+                          onChange={() => handleTogglePaymentMethod('dinheiro')}
+                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-2xl">💵</span>
+                          <span className="text-white font-medium">Dinheiro</span>
+                        </div>
+                        {paymentMethodsEnabled.includes('dinheiro') && (
+                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                        )}
+                      </label>
+
+                      {/* Pagar no Local */}
+                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={paymentMethodsEnabled.includes('pagar_local')}
+                          onChange={() => handleTogglePaymentMethod('pagar_local')}
+                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-2xl">🏪</span>
+                          <span className="text-white font-medium">Pagar no Local</span>
+                        </div>
+                        {paymentMethodsEnabled.includes('pagar_local') && (
+                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                        )}
+                      </label>
+                    </div>
+
+                    <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                      <p className="text-sm text-blue-300">
+                        💡 <strong>Dica:</strong> As formas de pagamento desativadas não aparecerão para os clientes durante o agendamento.
+                      </p>
                     </div>
                   </div>
 

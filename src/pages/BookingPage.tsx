@@ -1,22 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import { useAuth } from '../context/AuthContext';
-import { supabase, getSubscriptions } from '../lib/supabase';
+import { AlertCircle, Calendar, ChevronDown, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AppointmentForm } from '../components/AppointmentForm';
-import { PhotoCarousel } from '../components/PhotoCarousel';
-import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { Calendar } from 'lucide-react';
-import { LogOut } from 'lucide-react';
-import { PlusCircle } from 'lucide-react';
-import { Phone } from 'lucide-react'; // Certifique-se de que Phone está importado
-import { AlertCircle } from 'lucide-react'; // Corrigido de ExclamationCircle para AlertCircle
-import { Crown } from 'lucide-react';
-import ReadMore from '../components/ReadMore';
 import { LoginRequiredModal } from '../components/LoginRequiredModal';
+import ReadMore from '../components/ReadMore';
+import { useAuth } from '../context/AuthContext';
+import { getSubscriptions, supabase } from '../lib/supabase';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 
@@ -25,10 +16,10 @@ export default function BookingPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut } = useAuth();
-  
+
   console.log('🔍 DEBUG - BookingPage - user:', user);
   console.log('🔍 DEBUG - BookingPage - user.id:', user?.id);
-  
+
   const [establishment, setEstablishment] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -41,8 +32,8 @@ export default function BookingPage() {
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
   const [showBusinessHours, setShowBusinessHours] = useState(false);
   const [duplicateCarouselIndex, setDuplicateCarouselIndex] = useState(0);
-  
-  
+
+
   // Funções para o carrossel duplicado - Filtrar apenas fotos selecionadas
   const duplicatePhotos = [
     establishment?.custom_photo_1_url,
@@ -70,7 +61,7 @@ export default function BookingPage() {
   });
 
   const goToPreviousDuplicate = () => {
-    setDuplicateCarouselIndex((prevIndex) => 
+    setDuplicateCarouselIndex((prevIndex) =>
       prevIndex === 0 ? duplicatePhotos.length - 1 : prevIndex - 1
     );
   };
@@ -82,7 +73,7 @@ export default function BookingPage() {
   const goToSlideDuplicate = (index: number) => {
     setDuplicateCarouselIndex(index);
   };
-  
+
   // Estados para agendamento assinante
   const [showSubscriberBooking, setShowSubscriberBooking] = useState(false);
   const [selectedSubscriberService, setSelectedSubscriberService] = useState<any>(null);
@@ -94,10 +85,10 @@ export default function BookingPage() {
   // Função para converter agendamento normal para assinante
   const handleConvertToSubscriber = (subscriberData: any) => {
     console.log('🔄 Convertendo agendamento para assinante:', subscriberData);
-    
+
     // Salvar dados do assinante
     setConvertedSubscriberData(subscriberData);
-    
+
     // Configurar o serviço de assinante - compatível com novo e antigo sistema
     const subscriberService = {
       id: subscriberData.subscription_id || subscriberData.subscriptions?.id,
@@ -105,15 +96,15 @@ export default function BookingPage() {
       service_duration: subscriberData.subscriptions?.service_duration || 30,
       weekdays: subscriberData.subscriptions?.weekdays || []
     };
-    
+
     console.log('🔧 Serviço de assinante configurado:', subscriberService);
-    
+
     setSelectedSubscriberService(subscriberService);
-    
+
     // Fechar formulário normal e abrir formulário de assinante
     setShowBookingForm(false);
     setShowSubscriberBooking(true);
-    
+
     // Scroll para a seção de assinante
     setTimeout(() => {
       const subscriberSection = document.querySelector('[data-subscriber-booking]');
@@ -121,7 +112,7 @@ export default function BookingPage() {
         subscriberSection.scrollIntoView({ behavior: 'smooth' });
       }
     }, 100);
-    
+
     toast.success('Convertido para agendamento de assinante! 🎯');
   };
 
@@ -219,7 +210,7 @@ export default function BookingPage() {
       console.log('🔍 Buscando estabelecimento com código:', id);
       console.log('🔗 URL do Supabase:', import.meta.env.VITE_SUPABASE_URL || 'NÃO DEFINIDA');
       console.log('🔑 Chave do Supabase:', import.meta.env.VITE_SUPABASE_ANON_KEY ? 'DEFINIDA' : 'NÃO DEFINIDA');
-      
+
       // Primeiro, vamos verificar se há estabelecimentos no banco
       console.log('📊 Verificando estabelecimentos disponíveis...');
       const { data: allEstablishments, error: countError } = await supabase
@@ -234,11 +225,11 @@ export default function BookingPage() {
         console.log('📊 Estabelecimentos disponíveis:', allEstablishments?.map(e => `${e.code} - ${e.name}`) || []);
         console.log('📊 Total encontrados:', allEstablishments?.length || 0);
       }
-      
+
       console.log('🎯 Buscando especificamente pelo código:', id);
-        const { data, error } = await supabase
-          .from('establishments')
-          .select(`
+      const { data, error } = await supabase
+        .from('establishments')
+        .select(`
             *,
             pix_payment_link,
             review_link,
@@ -251,8 +242,8 @@ export default function BookingPage() {
             custom_photo_7_url,
             carousel_position
           `)
-          .eq('code', id)
-          .single();
+        .eq('code', id)
+        .single();
 
       if (error) {
         console.error('❌ Erro ao buscar estabelecimento:', error);
@@ -269,7 +260,7 @@ export default function BookingPage() {
 
       console.log('✅ Estabelecimento encontrado:', data);
       setEstablishment(data);
-      
+
     } catch (error: any) {
       console.error('❌ Error fetching establishment:', error);
       console.error('❌ Error name:', error.name);
@@ -308,18 +299,18 @@ export default function BookingPage() {
     }
 
     console.log('🔍 Buscando assinaturas para establishment:', establishment.id);
-    
+
     try {
       const { data: subscriptionsData, error } = await getSubscriptions(establishment.id);
       console.log('📋 Assinaturas encontradas:', subscriptionsData);
       console.log('❌ Erro (se houver):', error);
-      
+
       if (error) {
         console.error('❌ Erro ao buscar assinaturas:', error);
         setSubscriptions([]);
         return;
       }
-      
+
       if (subscriptionsData && Array.isArray(subscriptionsData)) {
         setSubscriptions(subscriptionsData);
         console.log('✅ Assinaturas carregadas:', subscriptionsData.length, 'planos');
@@ -341,14 +332,14 @@ export default function BookingPage() {
 
     const message = `Quero ser assinante ${subscriptionName.toLowerCase()}`;
     let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
-    
+
     // Adicionar código do país se não tiver
     if (!phoneNumber.startsWith('55')) {
       phoneNumber = '55' + phoneNumber;
     }
-    
+
     const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-    
+
     window.open(whatsappUrl, '_blank');
     setShowSubscriptionsDropdown(false);
   };
@@ -361,14 +352,14 @@ export default function BookingPage() {
 
     const message = 'Quero informações sobre Assinantes.';
     let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
-    
+
     // Adicionar código do país se não tiver
     if (!phoneNumber.startsWith('55')) {
       phoneNumber = '55' + phoneNumber;
     }
-    
+
     const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-    
+
     window.open(whatsappUrl, '_blank');
     setShowSubscriptionsDropdown(false);
   };
@@ -395,7 +386,7 @@ export default function BookingPage() {
         });
         setShowBookingForm(false); // Esconder formulário após agendamento demonstrativo
         setShowDemoSuccessModal(true); // Exibir modal de sucesso de demonstração
-        
+
         // REDIRECIONAMENTO ESPECÍFICO: APENAS para /booking/3814
         if (id === '3814') {
           // Aguardar um pouco para o usuário ver a mensagem de sucesso
@@ -403,7 +394,7 @@ export default function BookingPage() {
             navigate('/conhecer');
           }, 2000); // 2 segundos de delay
         }
-        
+
         return; // Sair da função para não salvar no banco
       }
 
@@ -413,7 +404,7 @@ export default function BookingPage() {
       // 🔥 VALIDAÇÃO DE 1 AGENDAMENTO POR SEMANA PARA ASSINANTES
       if (appointmentData.is_subscriber && user?.id) {
         console.log('🔍 Validando limitação de 1 agendamento por semana...');
-        
+
         const validation = await validateOneWeekLimit(
           user.id,
           establishment.id,
@@ -432,7 +423,7 @@ export default function BookingPage() {
       // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
       if (appointmentData.is_subscriber && user?.id) {
         console.log('🔍 Validando remarcação no mesmo dia...');
-        
+
         const sameDayValidation = await validateSameDayReschedule(
           user.id,
           establishment.id,
@@ -466,7 +457,7 @@ export default function BookingPage() {
       if (error) throw error;
 
       toast.success('Agendamento realizado com sucesso!');
-      
+
       // Store appointment data for dashboard reminder modal
       const appointmentInfo = {
         serviceName: appointmentData.service || 'Serviço não especificado',
@@ -477,11 +468,11 @@ export default function BookingPage() {
         appointmentId: user?.id
       };
       localStorage.setItem('reminder_creation_data', JSON.stringify(appointmentInfo));
-      
+
       // Atualizar lista de agendamentos após sucesso
       await fetchExistingAppointments();
       setShowBookingForm(false); // Esconder formulário após agendamento
-      
+
       // Redirecionar sempre para o dashboard apropriado
       if (isEstablishmentOwner) {
         navigate('/dashboard/establishment');
@@ -509,7 +500,7 @@ export default function BookingPage() {
       setShowLoginModal(true);
       return;
     }
-    
+
     setShowBookingForm(true);
   };
 
@@ -562,7 +553,7 @@ export default function BookingPage() {
   // Pegar o dia da semana em inglês (como está no banco de dados)
   const dayOfWeek = format(selectedDate, 'EEEE').toLowerCase(); // segunda-feira -> monday
   const businessHoursForDay = establishment.business_hours[dayOfWeek];
-  
+
   // Debug para verificar o mapeamento
   console.log('🗓️ Data selecionada:', format(selectedDate, 'dd/MM/yyyy'));
   console.log('📅 Dia da semana (inglês):', dayOfWeek);
@@ -572,7 +563,7 @@ export default function BookingPage() {
   // Converter formato dos horários do banco de dados para o formato da interface
   const convertBusinessHours = (businessHours: any) => {
     if (!businessHours) return null;
-    
+
     const { open, close, enabled } = businessHours;
     return {
       enabled: enabled || false,
@@ -610,8 +601,8 @@ export default function BookingPage() {
             </Link>
             {user && (
               <div className="flex items-center gap-3">
-                <Link 
-                  to="/dashboard/client" 
+                <Link
+                  to="/dashboard/client"
                   className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
                 >
                   <Calendar className="w-5 h-5" />
@@ -658,7 +649,7 @@ export default function BookingPage() {
                       target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
                     }}
                   />
-                  
+
                   {/* Overlay escuro para melhor contraste dos botões */}
                   <div className="absolute inset-0 bg-black bg-opacity-20"></div>
                 </div>
@@ -687,11 +678,10 @@ export default function BookingPage() {
                     <button
                       key={index}
                       onClick={() => goToSlideDuplicate(index)}
-                      className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                        index === duplicateCarouselIndex
+                      className={`w-3 h-3 rounded-full transition-all duration-200 ${index === duplicateCarouselIndex
                           ? 'bg-white'
                           : 'bg-white bg-opacity-50 hover:bg-opacity-75'
-                      }`}
+                        }`}
                       aria-label={`Ir para foto ${index + 1}`}
                     />
                   ))}
@@ -742,8 +732,8 @@ export default function BookingPage() {
             <h1 className="text-2xl font-bold text-gray-900">{establishment?.name}</h1>
             {establishment?.description && (
               <p className="text-gray-600">
-                <ReadMore 
-                  text={establishment.description} 
+                <ReadMore
+                  text={establishment.description}
                   maxLength={60}
                   className="text-gray-600"
                 />
@@ -798,7 +788,7 @@ export default function BookingPage() {
                     <img src="/coroa.png" alt="Coroa" className="h-6 w-6 relative z-10" />
                     <span className="relative z-10">SER ASSINANTE</span>
                   </button>
-                  
+
                   {showSubscriptionsDropdown && (
                     <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
                       {subscriptions.map((subscription) => (
@@ -816,7 +806,7 @@ export default function BookingPage() {
                                 📅 {subscription.weekdays.map((day: string) => {
                                   const dayNames = {
                                     'monday': 'Seg',
-                                    'tuesday': 'Ter', 
+                                    'tuesday': 'Ter',
                                     'wednesday': 'Qua',
                                     'thursday': 'Qui',
                                     'friday': 'Sex',
@@ -852,7 +842,7 @@ export default function BookingPage() {
                           </div>
                         </div>
                       ))}
-                      
+
                       {/* Item fixo SABER MAIS */}
                       <div className="p-3 border-t border-gray-200 bg-gray-50">
                         <button
@@ -877,11 +867,10 @@ export default function BookingPage() {
                   href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${
-                    establishment?.review_link 
-                      ? 'text-gray-700' 
+                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.review_link
+                      ? 'text-gray-700'
                       : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
-                  }`}
+                    }`}
                   style={establishment?.review_link ? {
                     background: '#ffffff',
                     borderRadius: '30px',
@@ -906,11 +895,10 @@ export default function BookingPage() {
                   href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${
-                    establishment?.location_link 
-                      ? 'text-gray-700' 
+                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.location_link
+                      ? 'text-gray-700'
                       : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
-                  }`}
+                    }`}
                   style={establishment?.location_link ? {
                     background: '#ffffff',
                     borderRadius: '30px',
@@ -934,20 +922,19 @@ export default function BookingPage() {
               {/* Imagens INSTAGRAM, PIX e WHATSAPP lado a lado */}
               <div className="flex items-center justify-center gap-6 relative my-6">
                 {/* Linha esquerda - vai da borda até antes do Instagram com distância */}
-                <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{width: 'calc(50% - 120px)'}}></div>
-                
+                <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{ width: 'calc(50% - 120px)' }}></div>
+
                 {/* Linha direita - vai depois do WhatsApp até a borda com distância */}
-                <div className="absolute right-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{width: 'calc(50% - 120px)'}}></div>
+                <div className="absolute right-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{ width: 'calc(50% - 120px)' }}></div>
                 {/* Instagram */}
                 <a
                   href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`transition-all duration-200 ${
-                    establishment?.social_media_link 
-                      ? 'hover:opacity-80 cursor-pointer' 
+                  className={`transition-all duration-200 ${establishment?.social_media_link
+                      ? 'hover:opacity-80 cursor-pointer'
                       : 'opacity-50 cursor-not-allowed'
-                  }`}
+                    }`}
                 >
                   <img src="/INST.png" alt="Instagram" className="h-12 w-12" />
                 </a>
@@ -957,7 +944,7 @@ export default function BookingPage() {
                   onClick={() => {
                     console.log('🔍 PIX Click - establishment:', establishment);
                     console.log('🔍 PIX Click - pix_key:', establishment?.pix_key);
-                    
+
                     if (establishment?.pix_key) {
                       // Método que funciona no mobile e desktop
                       const copyToClipboard = (text: string) => {
@@ -968,11 +955,11 @@ export default function BookingPage() {
                         input.style.opacity = '0';
                         input.style.left = '-9999px';
                         document.body.appendChild(input);
-                        
+
                         // Selecionar e copiar
                         input.select();
                         input.setSelectionRange(0, 99999); // Para mobile
-                        
+
                         try {
                           const successful = document.execCommand('copy');
                           if (successful) {
@@ -989,7 +976,7 @@ export default function BookingPage() {
                           document.body.removeChild(input);
                         }
                       };
-                      
+
                       copyToClipboard(establishment.pix_key);
                     } else {
                       console.log('❌ PIX não disponível');
@@ -997,11 +984,10 @@ export default function BookingPage() {
                     }
                   }}
                   disabled={!establishment?.pix_key}
-                  className={`transition-all duration-200 ${
-                    establishment?.pix_key 
-                      ? 'hover:opacity-80 cursor-pointer' 
+                  className={`transition-all duration-200 ${establishment?.pix_key
+                      ? 'hover:opacity-80 cursor-pointer'
                       : 'opacity-50 cursor-not-allowed'
-                  }`}
+                    }`}
                 >
                   <img src="/PIX.png" alt="PIX" className="h-12 w-12" />
                 </button>
@@ -1017,11 +1003,10 @@ export default function BookingPage() {
                   })() : '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`transition-all duration-200 ${
-                    establishment?.whatsapp 
-                      ? 'hover:opacity-80 cursor-pointer' 
+                  className={`transition-all duration-200 ${establishment?.whatsapp
+                      ? 'hover:opacity-80 cursor-pointer'
                       : 'opacity-50 cursor-not-allowed'
-                  }`}
+                    }`}
                 >
                   <img src="/wppicon.png" alt="WhatsApp" className="h-12 w-12" />
                 </a>
@@ -1061,7 +1046,7 @@ export default function BookingPage() {
                                     📅 {subscription.weekdays.map((day: string) => {
                                       const dayNames = {
                                         'monday': 'Seg',
-                                        'tuesday': 'Ter', 
+                                        'tuesday': 'Ter',
                                         'wednesday': 'Qua',
                                         'thursday': 'Qui',
                                         'friday': 'Sex',
@@ -1096,12 +1081,12 @@ export default function BookingPage() {
                           ← Voltar
                         </button>
                       </div>
-                      
+
                       <p className="text-sm text-gray-600 mb-4">
                         📅 Dias disponíveis: {selectedSubscriberService.weekdays?.map((day: string) => {
                           const dayNames = {
                             'monday': 'Segunda',
-                            'tuesday': 'Terça', 
+                            'tuesday': 'Terça',
                             'wednesday': 'Quarta',
                             'thursday': 'Quinta',
                             'friday': 'Sexta',
@@ -1129,108 +1114,118 @@ export default function BookingPage() {
               {/* Carrossel de Fotos embaixo (se configurado ou padrão) */}
               {(establishment?.carousel_position === 'below' || !establishment?.carousel_position) && (
                 <div className="mt-4 mb-2 rounded-lg overflow-hidden">
-                <div className="relative">
-                  <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100">
-                    {/* Imagem atual */}
-                    <div className="relative w-full h-full">
-                      <img
-                        src={duplicatePhotos[duplicateCarouselIndex]}
-                        alt={`Foto ${duplicateCarouselIndex + 1}`}
-                        className="w-full h-full object-cover transition-opacity duration-500"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
-                          target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
-                        }}
-                      />
-                      
-                      {/* Overlay escuro para melhor contraste dos botões */}
-                      <div className="absolute inset-0 bg-black bg-opacity-20"></div>
-                    </div>
-
-                    {/* Botão Anterior */}
-                    <button
-                      onClick={goToPreviousDuplicate}
-                      className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
-                      aria-label="Foto anterior"
-                    >
-                      <ChevronLeft className="w-5 h-5" />
-                    </button>
-
-                    {/* Botão Próximo */}
-                    <button
-                      onClick={goToNextDuplicate}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
-                      aria-label="Próxima foto"
-                    >
-                      <ChevronRight className="w-5 h-5" />
-                    </button>
-
-                    {/* Indicadores (bolinhas) - No lado esquerdo */}
-                    <div className="absolute left-4 top-1/2 transform -translate-y-1/2 flex flex-col space-y-2 z-10">
-                      {duplicatePhotos.map((_, index) => (
-                        <button
-                          key={index}
-                          onClick={() => goToSlideDuplicate(index)}
-                          className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                            index === duplicateCarouselIndex
-                              ? 'bg-white'
-                              : 'bg-white bg-opacity-50 hover:bg-opacity-75'
-                          }`}
-                          aria-label={`Ir para foto ${index + 1}`}
+                  <div className="relative">
+                    <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100">
+                      {/* Imagem atual */}
+                      <div className="relative w-full h-full">
+                        <img
+                          src={duplicatePhotos[duplicateCarouselIndex]}
+                          alt={`Foto ${duplicateCarouselIndex + 1}`}
+                          className="w-full h-full object-cover transition-opacity duration-500"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
+                            target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
+                          }}
                         />
-                      ))}
-                    </div>
 
-                    {/* Contador */}
-                    <div className="absolute top-4 right-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-full text-sm z-10">
-                      {duplicateCarouselIndex + 1} / {duplicatePhotos.length}
+                        {/* Overlay escuro para melhor contraste dos botões */}
+                        <div className="absolute inset-0 bg-black bg-opacity-20"></div>
+                      </div>
+
+                      {/* Botão Anterior */}
+                      <button
+                        onClick={goToPreviousDuplicate}
+                        className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+                        aria-label="Foto anterior"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+
+                      {/* Botão Próximo */}
+                      <button
+                        onClick={goToNextDuplicate}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white p-2 rounded-full transition-all duration-200 z-10"
+                        aria-label="Próxima foto"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+
+                      {/* Indicadores (bolinhas) - No lado esquerdo */}
+                      <div className="absolute left-4 top-1/2 transform -translate-y-1/2 flex flex-col space-y-2 z-10">
+                        {duplicatePhotos.map((_, index) => (
+                          <button
+                            key={index}
+                            onClick={() => goToSlideDuplicate(index)}
+                            className={`w-3 h-3 rounded-full transition-all duration-200 ${index === duplicateCarouselIndex
+                                ? 'bg-white'
+                                : 'bg-white bg-opacity-50 hover:bg-opacity-75'
+                              }`}
+                            aria-label={`Ir para foto ${index + 1}`}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Contador */}
+                      <div className="absolute top-4 right-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-full text-sm z-10">
+                        {duplicateCarouselIndex + 1} / {duplicatePhotos.length}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
               )}
 
-              {/* Seção de Comodidades */}
-              <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Clique no item para obter informações
-                </p>
-                <div className="grid grid-cols-3 gap-3">
-                  {/* Wi-fi */}
-                  <div 
-                    onClick={() => {
-                      if (establishment?.wifi_password) {
-                        navigator.clipboard.writeText(establishment.wifi_password);
-                        toast.success('Senha do Wi-Fi copiada!');
-                      }
-                    }}
-                    className={`flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-pointer bg-white shadow-md hover:shadow-lg border border-gray-200
-                      ${establishment?.has_wifi ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'}`}
-                    title={establishment?.has_wifi && establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : establishment?.has_wifi ? "Wi-Fi disponível" : "Wi-Fi indisponível"}
-                  >
-                    <img src={`/wifi.png?v=${Date.now()}`} alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
-                    <span className="text-sm font-medium text-gray-900">Wi-fi</span>
-                  </div>
+              {/* Seção de Comodidades - Só mostra se houver pelo menos 1 ativa */}
+              {(establishment?.has_wifi || establishment?.has_parking || establishment?.has_accessibility || establishment?.has_air_conditioning) && (
+                <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Clique no item para obter informações
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {/* Wi-fi - Só mostra se estiver ativo */}
+                    {establishment?.has_wifi && (
+                      <div
+                        onClick={() => {
+                          if (establishment?.wifi_password) {
+                            navigator.clipboard.writeText(establishment.wifi_password);
+                            toast.success('Senha do Wi-Fi copiada!');
+                          }
+                        }}
+                        className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-pointer bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50"
+                        title={establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : "Wi-Fi disponível"}
+                      >
+                        <img src={`/wifi.png?v=${Date.now()}`} alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900">Wi-fi</span>
+                      </div>
+                    )}
 
-                  {/* Estacionamento */}
-                  <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200
-                    ${establishment?.has_parking ? 'hover:bg-gray-50' : 'opacity-50'}`}
-                  >
-                    <img src={`/car.png?v=${Date.now()}`} alt="Estacionamento" className="h-8 w-8 mb-2 text-blue-500" />
-                    <span className="text-sm font-medium text-gray-900">Estacion.</span>
-                  </div>
+                    {/* Estacionamento - Só mostra se estiver ativo */}
+                    {establishment?.has_parking && (
+                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
+                        <img src={`/car.png?v=${Date.now()}`} alt="Estacionamento" className="h-8 w-8 mb-2 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900">Estacion.</span>
+                      </div>
+                    )}
 
-                  {/* Acessibilidade */}
-                  <div className={`flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200
-                    ${establishment?.has_accessibility ? 'hover:bg-gray-50' : 'opacity-50'}`}
-                  >
-                    <img src={`/wheelchair.png?v=${Date.now()}`} alt="Acessibilidade" className="h-8 w-8 mb-2 text-blue-500" />
-                    <span className="text-sm font-medium text-gray-900">Acessib.</span>
+                    {/* Acessibilidade - Só mostra se estiver ativo */}
+                    {establishment?.has_accessibility && (
+                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
+                        <img src={`/wheelchair.png?v=${Date.now()}`} alt="Acessibilidade" className="h-8 w-8 mb-2 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900">Acessib.</span>
+                      </div>
+                    )}
+
+                    {/* Local Climatizado (Ar-Condicionado) - Só mostra se estiver ativo */}
+                    {establishment?.has_air_conditioning && (
+                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
+                        <img src={`/arcondicionado.png?v=${Date.now()}`} alt="Local Climatizado" className="h-8 w-8 mb-2 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900 text-center">Climatizado</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Seção de Profissionais */}
               {establishment?.professionals && establishment.professionals.length > 0 && (
@@ -1238,13 +1233,12 @@ export default function BookingPage() {
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Profissionais</h3>
                   {establishment.professionals.length <= 3 ? (
                     // Layout normal para 3 ou menos profissionais
-                    <div className={`flex flex-wrap gap-4 ${
-                      establishment.professionals.length === 1 
-                        ? 'justify-center' 
-                        : establishment.professionals.length === 2 
-                        ? 'justify-center' 
-                        : ''
-                    }`}>
+                    <div className={`flex flex-wrap gap-4 ${establishment.professionals.length === 1
+                        ? 'justify-center'
+                        : establishment.professionals.length === 2
+                          ? 'justify-center'
+                          : ''
+                      }`}>
                       {establishment.professionals.map((professional: any) => (
                         <div key={professional.id} className="flex flex-col items-center">
                           <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-gray-200 shadow-md">
@@ -1310,13 +1304,12 @@ export default function BookingPage() {
                       <p className="text-sm text-gray-500">Clique para ver os horários</p>
                     </div>
                   </div>
-                  <ChevronDown 
-                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${
-                      showBusinessHours ? 'rotate-180' : ''
-                    }`}
+                  <ChevronDown
+                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${showBusinessHours ? 'rotate-180' : ''
+                      }`}
                   />
                 </button>
-                
+
                 {showBusinessHours && establishment?.business_hours && (
                   <div className="space-y-2">
                     {[
@@ -1337,15 +1330,15 @@ export default function BookingPage() {
 
                       const formatHorario = (horarios: any) => {
                         if (!horarios?.open1) return 'Fechado';
-                        
+
                         let horario = `${horarios.open1} - `;
-                        
+
                         if (horarios.open2 && horarios.close2) {
                           horario += `${horarios.close1} e ${horarios.open2} - ${horarios.close2}`;
                         } else {
                           horario += horarios.close1;
                         }
-                        
+
                         return horario;
                       };
 
@@ -1353,16 +1346,14 @@ export default function BookingPage() {
                       const horarioText = formatHorario(horarios);
 
                       return (
-                        <div 
-                          key={dia} 
-                          className={`flex justify-between items-center p-3 rounded-lg ${
-                            isOpen ? 'bg-green-50' : 'bg-gray-50'
-                          }`}
+                        <div
+                          key={dia}
+                          className={`flex justify-between items-center p-3 rounded-lg ${isOpen ? 'bg-green-50' : 'bg-gray-50'
+                            }`}
                         >
                           <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full ${
-                              isOpen ? 'bg-green-500' : 'bg-gray-400'
-                            }`}></div>
+                            <div className={`w-2 h-2 rounded-full ${isOpen ? 'bg-green-500' : 'bg-gray-400'
+                              }`}></div>
                             <span className="text-sm font-medium text-gray-900">{dia}</span>
                             {isHoje && (
                               <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
@@ -1370,9 +1361,8 @@ export default function BookingPage() {
                               </span>
                             )}
                           </div>
-                          <span className={`text-sm font-medium ${
-                            isOpen ? 'text-green-600' : 'text-gray-500'
-                          }`}>
+                          <span className={`text-sm font-medium ${isOpen ? 'text-green-600' : 'text-gray-500'
+                            }`}>
                             {horarioText}
                           </span>
                         </div>
@@ -1385,9 +1375,9 @@ export default function BookingPage() {
               {/* Imagem Melhor do Brasil */}
               {establishment?.show_best_of_brazil_image && (
                 <div className="mt-6 mb-4">
-                  <img 
-                    src="/melhordobrasil.png" 
-                    alt="Melhor do Brasil" 
+                  <img
+                    src="/melhordobrasil.png"
+                    alt="Melhor do Brasil"
                     className="w-full h-auto rounded-lg shadow-lg"
                   />
                 </div>
@@ -1409,7 +1399,7 @@ export default function BookingPage() {
 
           {/* Formulário de Agendamento */}
           {showBookingForm && (
-            <div 
+            <div
               ref={bookingFormRef}
               className="bg-white rounded-lg shadow-md p-6 text-gray-900"
             >
@@ -1421,7 +1411,7 @@ export default function BookingPage() {
                 onSelectDate={setSelectedDate}
                 existingAppointments={existingAppointments}
                 onConvertToSubscriber={handleConvertToSubscriber}
-                // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
+              // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
               />
             </div>
           )}
@@ -1459,7 +1449,7 @@ export default function BookingPage() {
                                 📅 {subscription.weekdays.map((day: string) => {
                                   const dayNames = {
                                     'monday': 'Seg',
-                                    'tuesday': 'Ter', 
+                                    'tuesday': 'Ter',
                                     'wednesday': 'Qua',
                                     'thursday': 'Qui',
                                     'friday': 'Sex',
@@ -1494,13 +1484,13 @@ export default function BookingPage() {
                       ← Voltar
                     </button>
                   </div>
-                  
+
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                     <p className="text-sm text-blue-800">
                       <strong>Dias disponíveis:</strong> {selectedSubscriberService.weekdays?.map((day: string) => {
                         const dayNames = {
                           'monday': 'Segunda-feira',
-                          'tuesday': 'Terça-feira', 
+                          'tuesday': 'Terça-feira',
                           'wednesday': 'Quarta-feira',
                           'thursday': 'Quinta-feira',
                           'friday': 'Sexta-feira',

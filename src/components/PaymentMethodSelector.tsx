@@ -6,6 +6,7 @@ interface PaymentMethodSelectorProps {
   showPixOptions?: boolean;
   pixPaymentMethod?: 'pix_now' | 'pix_local' | null;
   onPixMethodSelect?: (method: 'pix_now' | 'pix_local') => void;
+  enabledMethods?: string[]; // Formas de pagamento habilitadas pelo estabelecimento
 }
 
 export const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({
@@ -13,15 +14,21 @@ export const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({
   onMethodSelect,
   showPixOptions = false,
   pixPaymentMethod,
-  onPixMethodSelect
+  onPixMethodSelect,
+  enabledMethods
 }) => {
-  const paymentMethods = [
+  const allPaymentMethods = [
     { value: 'pix', label: 'PIX', icon: '💳', color: 'bg-green-500' },
     { value: 'credito', label: 'CRÉDITO', icon: '💳', color: 'bg-blue-500' },
     { value: 'debito', label: 'DÉBITO', icon: '💳', color: 'bg-purple-500' },
     { value: 'dinheiro', label: 'DINHEIRO', icon: '💵', color: 'bg-yellow-500' },
     { value: 'pagar_local', label: 'PAGAR NO LOCAL', icon: '🏪', color: 'bg-orange-500' }
   ];
+
+  // Filtrar métodos de pagamento com base nas configurações do estabelecimento
+  const paymentMethods = enabledMethods && enabledMethods.length > 0
+    ? allPaymentMethods.filter(method => enabledMethods.includes(method.value))
+    : allPaymentMethods;
 
   return (
     <div className="space-y-4">
@@ -56,22 +63,20 @@ export const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({
             <button
               type="button"
               onClick={() => onPixMethodSelect('pix_now')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                pixPaymentMethod === 'pix_now' 
-                  ? 'bg-primary text-white' 
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${pixPaymentMethod === 'pix_now'
+                  ? 'bg-primary text-white'
                   : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-              }`}
+                }`}
             >
               ✅ Pagar agora
             </button>
             <button
               type="button"
               onClick={() => onPixMethodSelect('pix_local')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                pixPaymentMethod === 'pix_local' 
-                  ? 'bg-primary text-white' 
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${pixPaymentMethod === 'pix_local'
+                  ? 'bg-primary text-white'
                   : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-              }`}
+                }`}
             >
               🏪 Pagar no local
             </button>
