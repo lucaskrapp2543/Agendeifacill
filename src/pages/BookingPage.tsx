@@ -679,8 +679,8 @@ export default function BookingPage() {
                       key={index}
                       onClick={() => goToSlideDuplicate(index)}
                       className={`w-3 h-3 rounded-full transition-all duration-200 ${index === duplicateCarouselIndex
-                          ? 'bg-white'
-                          : 'bg-white bg-opacity-50 hover:bg-opacity-75'
+                        ? 'bg-white'
+                        : 'bg-white bg-opacity-50 hover:bg-opacity-75'
                         }`}
                       aria-label={`Ir para foto ${index + 1}`}
                     />
@@ -868,8 +868,8 @@ export default function BookingPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.review_link
-                      ? 'text-gray-700'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                    ? 'text-gray-700'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
                     }`}
                   style={establishment?.review_link ? {
                     background: '#ffffff',
@@ -896,8 +896,8 @@ export default function BookingPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.location_link
-                      ? 'text-gray-700'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                    ? 'text-gray-700'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
                     }`}
                   style={establishment?.location_link ? {
                     background: '#ffffff',
@@ -932,8 +932,8 @@ export default function BookingPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`transition-all duration-200 ${establishment?.social_media_link
-                      ? 'hover:opacity-80 cursor-pointer'
-                      : 'opacity-50 cursor-not-allowed'
+                    ? 'hover:opacity-80 cursor-pointer'
+                    : 'opacity-50 cursor-not-allowed'
                     }`}
                 >
                   <img src="/INST.png" alt="Instagram" className="h-12 w-12" />
@@ -985,8 +985,8 @@ export default function BookingPage() {
                   }}
                   disabled={!establishment?.pix_key}
                   className={`transition-all duration-200 ${establishment?.pix_key
-                      ? 'hover:opacity-80 cursor-pointer'
-                      : 'opacity-50 cursor-not-allowed'
+                    ? 'hover:opacity-80 cursor-pointer'
+                    : 'opacity-50 cursor-not-allowed'
                     }`}
                 >
                   <img src="/PIX.png" alt="PIX" className="h-12 w-12" />
@@ -1004,8 +1004,8 @@ export default function BookingPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`transition-all duration-200 ${establishment?.whatsapp
-                      ? 'hover:opacity-80 cursor-pointer'
-                      : 'opacity-50 cursor-not-allowed'
+                    ? 'hover:opacity-80 cursor-pointer'
+                    : 'opacity-50 cursor-not-allowed'
                     }`}
                 >
                   <img src="/wppicon.png" alt="WhatsApp" className="h-12 w-12" />
@@ -1158,8 +1158,8 @@ export default function BookingPage() {
                             key={index}
                             onClick={() => goToSlideDuplicate(index)}
                             className={`w-3 h-3 rounded-full transition-all duration-200 ${index === duplicateCarouselIndex
-                                ? 'bg-white'
-                                : 'bg-white bg-opacity-50 hover:bg-opacity-75'
+                              ? 'bg-white'
+                              : 'bg-white bg-opacity-50 hover:bg-opacity-75'
                               }`}
                             aria-label={`Ir para foto ${index + 1}`}
                           />
@@ -1195,6 +1195,9 @@ export default function BookingPage() {
                         className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-pointer bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50"
                         title={establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : "Wi-Fi disponível"}
                       >
+                        {establishment?.wifi_network_name && (
+                          <span className="text-xs font-semibold text-blue-600 mb-1 text-center">{establishment.wifi_network_name}</span>
+                        )}
                         <img src={`/wifi.png?v=${Date.now()}`} alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
                         <span className="text-sm font-medium text-gray-900">Wi-fi</span>
                       </div>
@@ -1234,10 +1237,10 @@ export default function BookingPage() {
                   {establishment.professionals.length <= 3 ? (
                     // Layout normal para 3 ou menos profissionais
                     <div className={`flex flex-wrap gap-4 ${establishment.professionals.length === 1
+                      ? 'justify-center'
+                      : establishment.professionals.length === 2
                         ? 'justify-center'
-                        : establishment.professionals.length === 2
-                          ? 'justify-center'
-                          : ''
+                        : ''
                       }`}>
                       {establishment.professionals.map((professional: any) => (
                         <div key={professional.id} className="flex flex-col items-center">

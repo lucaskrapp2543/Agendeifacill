@@ -328,6 +328,7 @@ const EstablishmentDashboard = () => {
   const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
   const [hasAirConditioning, setHasAirConditioning] = useState(false); // Novo estado para Ar-Condicionado
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
+  const [wifiNetworkName, setWifiNetworkName] = useState(''); // Nome da rede Wi-Fi
   const [requireCancellationRequest, setRequireCancellationRequest] = useState(false); // Exigir solicitação de cancelamento via WhatsApp
   const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
@@ -1870,6 +1871,7 @@ const EstablishmentDashboard = () => {
         has_accessibility: hasAccessibility, // Salva a comodidade Acessibilidade
         has_air_conditioning: hasAirConditioning, // Salva a comodidade Ar-Condicionado
         wifi_password: wifiPassword.trim(), // Salva a senha do Wi-Fi
+        wifi_network_name: wifiNetworkName.trim(), // Salva o nome da rede Wi-Fi
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
@@ -1964,6 +1966,7 @@ const EstablishmentDashboard = () => {
         has_accessibility: hasAccessibility, // Atualiza a comodidade Acessibilidade
         has_air_conditioning: hasAirConditioning, // Atualiza a comodidade Ar-Condicionado
         wifi_password: wifiPassword.trim(), // Atualiza a senha do Wi-Fi
+        wifi_network_name: wifiNetworkName.trim(), // Atualiza o nome da rede Wi-Fi
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
@@ -2434,6 +2437,7 @@ const EstablishmentDashboard = () => {
         setHasAccessibility(establishmentData.has_accessibility ?? false);
         setHasAirConditioning(establishmentData.has_air_conditioning ?? false);
         setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
+        setWifiNetworkName(establishmentData.wifi_network_name || ''); // Nome da rede Wi-Fi
         setRequireCancellationRequest(establishmentData.require_cancellation_request ?? false); // Exigir solicitação de cancelamento
         setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
@@ -7378,8 +7382,8 @@ const EstablishmentDashboard = () => {
                       Selecione as comodidades disponíveis no seu estabelecimento:
                     </p>
                     <div className="space-y-4">
-                      {/* Wi-fi + Senha */}
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 space-y-2 sm:space-y-0">
+                      {/* Wi-fi + Senha + Nome da Rede */}
+                      <div className="space-y-2">
                         <label className="inline-flex items-center space-x-2">
                           <input
                             type="checkbox"
@@ -7390,13 +7394,22 @@ const EstablishmentDashboard = () => {
                           <span className="text-white">Wi-fi</span>
                         </label>
                         {hasWifi && (
-                          <input
-                            type="text"
-                            placeholder="Senha do Wi-Fi"
-                            value={wifiPassword}
-                            onChange={(e) => setWifiPassword(e.target.value)}
-                            className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
-                          />
+                          <div className="flex flex-col sm:flex-row gap-3 ml-7">
+                            <input
+                              type="text"
+                              placeholder="Senha do Wi-Fi"
+                              value={wifiPassword}
+                              onChange={(e) => setWifiPassword(e.target.value)}
+                              className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Nome da rede (ex: Barbearia WiFi)"
+                              value={wifiNetworkName}
+                              onChange={(e) => setWifiNetworkName(e.target.value)}
+                              className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                          </div>
                         )}
                       </div>
                       <label className="flex items-center space-x-2">

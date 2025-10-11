@@ -32,6 +32,8 @@ export const supabase: SupabaseClient<Database> = createClient(
       flowType: 'pkce',
       // Configurações otimizadas para PWA
       debug: false,
+      // Permitir múltiplas sessões simultâneas (PC + Celular)
+      multiTabPersistence: true,
       // Configurações específicas para PWA
       storage: {
         getItem: (key: string) => {
