@@ -130,7 +130,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'service-categories',
-      label: 'Serviços (com dropdown)',
+      label: 'Serviços (Por categoria)',
       icon: Layers,
       onClick: () => handleItemClick(() => onTabChange('service-categories')),
       isActive: activeTab === 'service-categories'
@@ -153,7 +153,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'dashboard',
-      label: 'Dashboard',
+      label: 'Financeiro',
       icon: BarChart3,
       onClick: () => handleItemClick(() => {
         if (establishment?.pin_password && establishment.pin_password.length > 0 && !isDashboardUnlocked) {

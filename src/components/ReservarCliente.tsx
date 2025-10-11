@@ -34,6 +34,14 @@ interface ServiceSubcategory {
   display_order: number;
 }
 
+interface Subscription {
+  id: string;
+  name: string;
+  service_name: string;
+  service_duration: number;
+  price: number;
+}
+
 interface TimeSlot {
   time: string;
   available: boolean;
@@ -65,6 +73,10 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<ServiceSubcategory | null>(null);
   const [showCategoryServices, setShowCategoryServices] = useState(false);
+
+  // Estados para assinantes
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
 
   // Carregar profissionais
   useEffect(() => {
@@ -105,6 +117,41 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
     } else {
       console.error('❌ establishmentId não fornecido');
     }
+  }, [establishmentId]);
+
+  // Carregar clubes de assinatura
+  useEffect(() => {
+    const loadSubscriptions = async () => {
+      if (!establishmentId) {
+        console.log('⚠️ establishmentId não fornecido para carregar assinaturas');
+        return;
+      }
+
+      try {
+        console.log('🔍 Carregando assinaturas para establishment:', establishmentId);
+
+        // Buscar TODAS as assinaturas (SEM filtro is_active pois a coluna não existe!)
+        const { data: subs, error: subsError } = await supabase
+          .from('subscriptions')
+          .select('*')
+          .eq('establishment_id', establishmentId);
+
+        if (subsError) {
+          console.error('❌ Erro ao carregar assinaturas:', subsError);
+          throw subsError;
+        }
+
+        console.log('✅ Assinaturas encontradas:', subs);
+        console.log('✅ Total de assinaturas:', subs?.length || 0);
+        console.log('✅ Detalhes:', subs);
+
+        setSubscriptions(subs || []);
+      } catch (error) {
+        console.error('❌ Erro ao carregar assinaturas:', error);
+      }
+    };
+
+    loadSubscriptions();
   }, [establishmentId]);
 
   // Carregar categorias de serviços
@@ -540,6 +587,20 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
     setStep('time');
   };
 
+  const handleSubscriptionSelect = (subscription: Subscription) => {
+    setSelectedSubscription(subscription);
+    // Converter assinatura para formato de serviço (com preço R$ 0,00)
+    // Usar o NOME DO CLUBE + serviço para identificação
+    const serviceFromSubscription: Service = {
+      id: subscription.id,
+      name: `${subscription.name} (${subscription.service_name})`, // Ex: "Club Mensal (Cabelo e Barba)"
+      price: 0, // Assinantes não pagam
+      duration: subscription.service_duration
+    };
+    setSelectedService(serviceFromSubscription);
+    setStep('time');
+  };
+
   const handleTimeSelect = (time: string) => {
     setSelectedTime(time);
     setStep('confirm');
@@ -562,6 +623,9 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
       // Criar nome dos serviços
       const serviceNames = servicesToInsert.map(s => s.name).join(', ');
 
+      // Verificar se é um agendamento de assinante
+      const isSubscriber = selectedSubscription !== null;
+
       const { error } = await supabase
         .from('appointments')
         .insert({
@@ -569,14 +633,15 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
           establishment_id: establishmentId,
           professional: selectedProfessional.id, // Usar ID do profissional
           service: serviceNames,
-          client_name: 'CLIENTE AVULSO',
+          client_name: isSubscriber ? 'ASSINANTE' : 'CLIENTE AVULSO',
           appointment_date: selectedDate,
           appointment_time: selectedTime,
           status: 'confirmed',
           price: totalPrice,
           total_price: totalPrice,
           duration: totalDuration,
-          is_avulso: true
+          is_avulso: true,
+          is_subscriber: isSubscriber // Salvar se é assinante
         });
 
       if (error) throw error;
@@ -812,6 +877,53 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
                   )}
                 </div>
               )}
+
+              {/* DEBUG: Mostrar quantidade de assinaturas carregadas */}
+              <div className="mt-4 p-3 bg-yellow-100 border border-yellow-300 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  🔍 <strong>DEBUG:</strong> {subscriptions.length} assinaturas carregadas
+                </p>
+                {subscriptions.length === 0 && (
+                  <p className="text-xs text-yellow-700 mt-1">
+                    Se você tem clubes de assinatura cadastrados, verifique o console do navegador (F12)
+                  </p>
+                )}
+              </div>
+
+              {/* Clubes de Assinatura */}
+              {subscriptions.length > 0 ? (
+                <div className="space-y-4 mt-6">
+                  <h4 className="text-md font-medium text-gray-700">Assinantes</h4>
+                  <div className="grid grid-cols-1 gap-4">
+                    {subscriptions.map((subscription) => (
+                      <button
+                        key={subscription.id}
+                        onClick={() => handleSubscriptionSelect(subscription)}
+                        className="p-4 border-2 border-purple-200 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-all text-left"
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h4 className="font-semibold text-gray-800">{subscription.name}</h4>
+                            <p className="text-sm text-gray-600">
+                              {subscription.service_name} • {formatDuration(subscription.service_duration)} • <span className="text-green-600 font-semibold">GRATUITO</span>
+                            </p>
+                          </div>
+                          <div className="text-purple-600">👑</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-6 p-4 bg-gray-100 border border-gray-300 rounded-lg">
+                  <p className="text-sm text-gray-700">
+                    ℹ️ <strong>Nenhum clube de assinatura encontrado.</strong>
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Cadastre clubes de assinatura na aba "Assinantes" do dashboard para que eles apareçam aqui.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -908,13 +1020,13 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
                     <>
                       <p><strong>Serviço:</strong> {selectedService?.name}</p>
                       <p><strong>Duração:</strong> {formatDuration(selectedService?.duration || 0)}</p>
-                      <p><strong>Preço:</strong> {formatPrice(selectedService?.price || 0)}</p>
+                      <p><strong>Preço:</strong> {selectedSubscription ? <span className="text-green-600 font-semibold">GRATUITO</span> : formatPrice(selectedService?.price || 0)}</p>
                     </>
                   )}
 
                   <p><strong>Data:</strong> {new Date(selectedDate).toLocaleDateString('pt-BR')}</p>
                   <p><strong>Horário:</strong> {selectedTime}</p>
-                  <p><strong>Cliente:</strong> CLIENTE AVULSO</p>
+                  <p><strong>Cliente:</strong> {selectedSubscription ? <span className="text-purple-600 font-semibold">ASSINANTE 👑</span> : 'CLIENTE AVULSO'}</p>
                 </div>
               </div>
 

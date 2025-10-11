@@ -436,6 +436,10 @@ const EstablishmentDashboard = () => {
   const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
 
+  // Estados para edição de nome de cliente avulso
+  const [editingClientName, setEditingClientName] = useState<string | null>(null);
+  const [editingClientNameValue, setEditingClientNameValue] = useState('');
+
   // Estados para observações dos agendamentos
   const [showObservationModal, setShowObservationModal] = useState(false);
   const [selectedAppointmentForObservation, setSelectedAppointmentForObservation] = useState<string | null>(null);
@@ -5164,6 +5168,64 @@ const EstablishmentDashboard = () => {
     setEditingValue('');
   };
 
+  // Função para iniciar edição do nome do cliente avulso
+  const handleEditClientName = (appointmentId: string, currentName: string) => {
+    setEditingClientName(appointmentId);
+    setEditingClientNameValue(currentName);
+  };
+
+  // Função para salvar o novo nome do cliente avulso
+  const handleSaveClientName = async (appointmentId: string) => {
+    if (!establishment) return;
+
+    const newName = editingClientNameValue.trim();
+    if (!newName) {
+      toast('Nome não pode estar vazio', 'error');
+      return;
+    }
+
+    // Encontrar o agendamento para saber se é assinante ou avulso
+    const appointment = appointments.find(apt => apt.id === appointmentId);
+    if (!appointment) return;
+
+    // Adicionar prefixo ASSINANTE ou CLIENTE AVULSO ao nome
+    const prefix = appointment.is_subscriber ? 'ASSINANTE' : 'CLIENTE AVULSO';
+    const finalName = `${prefix} - ${newName}`;
+
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          client_name: finalName
+        })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      // Atualizar localmente
+      setAppointments(
+        appointments.map((apt) =>
+          apt.id === appointmentId
+            ? { ...apt, client_name: finalName }
+            : apt
+        )
+      );
+
+      setEditingClientName(null);
+      setEditingClientNameValue('');
+      toast('Nome atualizado com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao atualizar nome:', error);
+      toast('Erro ao atualizar nome', 'error');
+    }
+  };
+
+  // Função para cancelar edição do nome
+  const handleCancelEditClientName = () => {
+    setEditingClientName(null);
+    setEditingClientNameValue('');
+  };
+
   // Função para abrir modal de observações do PROFISSIONAL
   const handleOpenObservationModal = (appointmentId: string, currentObservation?: string) => {
     setSelectedAppointmentForObservation(appointmentId);
@@ -6464,9 +6526,67 @@ const EstablishmentDashboard = () => {
                                       {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
                                     </span>
                                     <div className="flex items-center gap-2">
-                                      <span className="text-white text-sm truncate">
-                                        {appointment.is_avulso ? 'CLIENTE AVULSO' : appointment.client_name}
-                                      </span>
+                                      {/* Edição de nome para cliente avulso */}
+                                      {appointment.is_avulso && editingClientName === appointment.id ? (
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="text"
+                                            value={editingClientNameValue}
+                                            onChange={(e) => setEditingClientNameValue(e.target.value)}
+                                            className="px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white w-32"
+                                            placeholder="Nome do cliente"
+                                            autoFocus
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                handleSaveClientName(appointment.id);
+                                              } else if (e.key === 'Escape') {
+                                                handleCancelEditClientName();
+                                              }
+                                            }}
+                                          />
+                                          <button
+                                            onClick={() => handleSaveClientName(appointment.id)}
+                                            className="text-green-400 hover:text-green-300 text-xs"
+                                            title="Salvar"
+                                          >
+                                            ✓
+                                          </button>
+                                          <button
+                                            onClick={handleCancelEditClientName}
+                                            className="text-red-400 hover:text-red-300 text-xs"
+                                            title="Cancelar"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <span className="text-white text-sm truncate flex items-center gap-1">
+                                            {appointment.is_subscriber ? (
+                                              // Assinante: sempre mostrar com coroa
+                                              <>{appointment.client_name || 'ASSINANTE'} 👑</>
+                                            ) : appointment.is_avulso ? (
+                                              // Cliente Avulso: mostrar o nome salvo
+                                              appointment.client_name || 'CLIENTE AVULSO'
+                                            ) : (
+                                              // Cliente normal: mostrar o nome
+                                              appointment.client_name
+                                            )}
+                                          </span>
+                                          {(appointment.is_avulso || appointment.is_subscriber) && (
+                                            <button
+                                              onClick={() => handleEditClientName(
+                                                appointment.id,
+                                                '' // Sempre começar vazio para digitar o nome
+                                              )}
+                                              className="text-blue-400 hover:text-blue-300 text-xs"
+                                              title="Editar nome do cliente"
+                                            >
+                                              ✏️
+                                            </button>
+                                          )}
+                                        </>
+                                      )}
                                       {appointment.client_id && newClientsInfo[appointment.client_id] && (
                                         <span className="px-1 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">
                                           Novo
