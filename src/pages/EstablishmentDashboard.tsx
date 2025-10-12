@@ -437,6 +437,13 @@ const EstablishmentDashboard = () => {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
 
+  // Estados para modal de lembrete
+  const [showReminderConfirm, setShowReminderConfirm] = useState(false);
+  const [appointmentForReminder, setAppointmentForReminder] = useState<Appointment | null>(null);
+
+  // Estado para modal informativo de lembrete
+  const [showReminderInfoModal, setShowReminderInfoModal] = useState(false);
+
   // Estados para edição de valor do agendamento
   const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -2101,6 +2108,76 @@ const EstablishmentDashboard = () => {
   const handleCancelClick = (appointmentId: string) => {
     setAppointmentToCancel(appointmentId);
     setShowCancelConfirm(true);
+  };
+
+  // Função para abrir modal de lembrete
+  const handleOpenReminderModal = (appointment: Appointment) => {
+    setAppointmentForReminder(appointment);
+    setShowReminderConfirm(true);
+  };
+
+  // Função para enviar lembrete via WhatsApp
+  const handleSendReminder = () => {
+    if (!appointmentForReminder) return;
+
+    try {
+      const clientWhatsapp = appointmentForReminder.client_whatsapp;
+      if (!clientWhatsapp) {
+        toast('WhatsApp do cliente não encontrado', 'error');
+        return;
+      }
+
+      // Formatar data e hora
+      const appointmentDate = format(parseISO(appointmentForReminder.appointment_date), 'dd/MM/yyyy');
+      const appointmentTime = appointmentForReminder.appointment_time;
+      const professionalName = getProfessionalName(appointmentForReminder.professional);
+      const establishmentName = establishment?.name || 'nossa barbearia';
+      const serviceName = appointmentForReminder.service;
+
+      // Montar mensagem do lembrete
+      const reminderMessage = `💈 Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName} ✂️
+
+📅 Data e horário: ${appointmentDate} às ${appointmentTime}
+💇‍♂️ Profissional: ${professionalName}
+💼 Serviço: ${serviceName}
+
+Estamos te aguardando! 😎✂️`;
+
+      // Formatar número do WhatsApp
+      let phoneNumber = clientWhatsapp.replace(/\D/g, '');
+      if (!phoneNumber.startsWith('55')) {
+        phoneNumber = '55' + phoneNumber;
+      }
+
+      // Abrir WhatsApp
+      const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(reminderMessage)}`;
+      window.open(whatsappUrl, '_blank');
+
+      // Fechar modal e mostrar sucesso
+      setShowReminderConfirm(false);
+      setAppointmentForReminder(null);
+      toast('Lembrete enviado via WhatsApp!', 'success');
+
+    } catch (error) {
+      console.error('Erro ao enviar lembrete:', error);
+      toast('Erro ao enviar lembrete', 'error');
+    }
+  };
+
+  // Função para fechar modal de lembrete
+  const handleCloseReminderModal = () => {
+    setShowReminderConfirm(false);
+    setAppointmentForReminder(null);
+  };
+
+  // Função para abrir modal informativo de lembrete
+  const handleOpenReminderInfoModal = () => {
+    setShowReminderInfoModal(true);
+  };
+
+  // Função para fechar modal informativo de lembrete
+  const handleCloseReminderInfoModal = () => {
+    setShowReminderInfoModal(false);
   };
 
   // Função para gerar Nota Fiscal (XML)
@@ -6698,6 +6775,17 @@ const EstablishmentDashboard = () => {
                         </span>
                       </div>
                     </div>
+
+                    {/* Botão de lembrete para clientes */}
+                    <div className="mt-3 flex justify-center">
+                      <button
+                        onClick={() => handleOpenReminderInfoModal()}
+                        className="px-3 py-2 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
+                        title="Dicas sobre envio de lembretes"
+                      >
+                        📬 Enviar lembrete para clientes
+                      </button>
+                    </div>
                   </div>
 
                   {/* Modal da Legenda */}
@@ -6898,13 +6986,22 @@ const EstablishmentDashboard = () => {
                                   </div>
                                 </div>
 
-                                {/* Botão "clique para ver" com seta */}
+                                {/* Botão "Enviar lembrete" e "clique para ver" */}
                                 {!appointmentDropdowns[appointment.id] && (
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs text-white/70">
-                                      clique para ver
-                                    </span>
-                                    <ChevronDown className="h-4 w-4 text-white/70" />
+                                    <button
+                                      onClick={() => handleOpenReminderModal(appointment)}
+                                      className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                                      title="Enviar lembrete via WhatsApp"
+                                    >
+                                      📱 Enviar lembrete
+                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-white/70">
+                                        clique para ver
+                                      </span>
+                                      <ChevronDown className="h-4 w-4 text-white/70" />
+                                    </div>
                                   </div>
                                 )}
                               </div>
@@ -7280,6 +7377,7 @@ const EstablishmentDashboard = () => {
                                             >
                                               📄 Gerar NF
                                             </button>
+
                                           </div>
 
                                           {/* Linha 3: Botão de Observações */}
@@ -12460,6 +12558,84 @@ const EstablishmentDashboard = () => {
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
               >
                 Sim, Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmação para enviar lembrete */}
+      {showReminderConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                <span className="text-blue-600 text-xl">📱</span>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Enviar Lembrete
+              </h3>
+            </div>
+
+            <p className="text-gray-700 mb-6 leading-relaxed">
+              Você irá enviar um lembrete para o seu cliente sobre o agendamento via WhatsApp.
+            </p>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={handleCloseReminderModal}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+              >
+                ✕
+              </button>
+              <button
+                onClick={handleSendReminder}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                📱 Enviar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal informativo sobre lembretes */}
+      {showReminderInfoModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                <span className="text-yellow-600 text-xl">💡</span>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Dica importante:
+              </h3>
+            </div>
+
+            <div className="text-gray-700 mb-6 leading-relaxed space-y-3">
+              <p>
+                Você pode reforçar a presença do seu cliente e evitar esquecimentos! ✂️
+              </p>
+
+              <p>
+                Caso ele não tenha ativado as notificações automáticas, basta clicar em <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold">"Enviar lembrete"</span> dentro do agendamento. 📅
+              </p>
+
+              <p>
+                Assim, o sistema envia uma mensagem completa no WhatsApp do cliente, com todas as informações do agendamento — horário, serviço e profissional — pra ele não esquecer de comparecer. 🕒
+              </p>
+
+              <p>
+                Muitos barbeiros usam esse recurso no dia dos atendimentos para lembrar todos os clientes de forma rápida e prática! 💬💈
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleCloseReminderInfoModal}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+              >
+                ✕
               </button>
             </div>
           </div>
