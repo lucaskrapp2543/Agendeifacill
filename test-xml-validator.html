@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Validador de XML - Nota Fiscal</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+    }
+
+    .upload-area {
+      border: 2px dashed #007bff;
+      border-radius: 10px;
+      padding: 40px;
+      text-align: center;
+      margin: 20px 0;
+      background-color: #f8f9fa;
+    }
+
+    .upload-area:hover {
+      background-color: #e9ecef;
+    }
+
+    input[type="file"] {
+      margin: 10px 0;
+    }
+
+    .results {
+      margin-top: 20px;
+      padding: 20px;
+      border-radius: 5px;
+    }
+
+    .success {
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+
+    .info {
+      background-color: #d1ecf1;
+      border: 1px solid #bee5eb;
+      color: #0c5460;
+    }
+
+    .xml-preview {
+      background-color: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      padding: 15px;
+      margin: 10px 0;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 5px;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    .field {
+      margin: 10px 0;
+      padding: 10px;
+      background-color: #f8f9fa;
+      border-radius: 5px;
+    }
+
+    .field strong {
+      color: #495057;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>🧪 Validador de XML - Nota Fiscal</h1>
+
+    <div class="upload-area">
+      <h3>📄 Faça upload do arquivo XML da Nota Fiscal</h3>
+      <input type="file" id="xmlFile" accept=".xml" />
+      <br>
+      <button onclick="validateXML()">🔍 Validar XML</button>
+      <button onclick="clearResults()">🗑️ Limpar</button>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <script>
+    function validateXML() {
+      const fileInput = document.getElementById('xmlFile');
+      const file = fileInput.files[0];
+
+      if (!file) {
+        showError('Por favor, selecione um arquivo XML primeiro.');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const xmlContent = e.target.result;
+        processXML(xmlContent);
+      };
+      reader.readAsText(file);
+    }
+
+    function processXML(xmlContent) {
+      const resultsDiv = document.getElementById('results');
+
+      try {
+        // Tentar fazer parse do XML
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlContent, "application/xml");
+
+        // Verificar se há erros de parsing
+        const parserError = xmlDoc.querySelector('parsererror');
+        if (parserError) {
+          showError('❌ XML inválido: ' + parserError.textContent);
+          return;
+        }
+
+        // Extrair dados da NFe
+        const nfeData = extractNFEData(xmlDoc);
+
+        // Mostrar resultados
+        showSuccess(nfeData, xmlContent);
+
+      } catch (error) {
+        showError('❌ Erro ao processar XML: ' + error.message);
+      }
+    }
+
+    function extractNFEData(xmlDoc) {
+      const data = {};
+
+      try {
+        // Dados básicos
+        data.numeroNF = xmlDoc.querySelector('nNF')?.textContent || 'N/A';
+        data.dataEmissao = xmlDoc.querySelector('dhEmi')?.textContent || 'N/A';
+        data.naturezaOperacao = xmlDoc.querySelector('natOp')?.textContent || 'N/A';
+
+        // Emitente (estabelecimento)
+        data.emitente = {
+          cnpj: xmlDoc.querySelector('emit CNPJ')?.textContent || 'N/A',
+          nome: xmlDoc.querySelector('emit xNome')?.textContent || 'N/A'
+        };
+
+        // Destinatário (cliente)
+        data.destinatario = {
+          cpf: xmlDoc.querySelector('dest CPF')?.textContent || 'N/A',
+          nome: xmlDoc.querySelector('dest xNome')?.textContent || 'N/A'
+        };
+
+        // Produto/Serviço
+        data.produto = {
+          codigo: xmlDoc.querySelector('prod cProd')?.textContent || 'N/A',
+          descricao: xmlDoc.querySelector('prod xProd')?.textContent || 'N/A',
+          valor: xmlDoc.querySelector('prod vProd')?.textContent || 'N/A'
+        };
+
+        // Totais
+        data.totais = {
+          valorProdutos: xmlDoc.querySelector('total vProd')?.textContent || 'N/A',
+          valorNF: xmlDoc.querySelector('total vNF')?.textContent || 'N/A',
+          valorICMS: xmlDoc.querySelector('total vICMS')?.textContent || 'N/A'
+        };
+
+        // Informações adicionais
+        data.informacoesAdicionais = xmlDoc.querySelector('infAdic infCpl')?.textContent || 'N/A';
+
+      } catch (error) {
+        console.error('Erro ao extrair dados:', error);
+      }
+
+      return data;
+    }
+
+    function showSuccess(data, xmlContent) {
+      const resultsDiv = document.getElementById('results');
+
+      resultsDiv.innerHTML = `
+                <div class="results success">
+                    <h3>✅ XML Válido!</h3>
+                    <p>O arquivo XML foi processado com sucesso. Aqui estão os dados extraídos:</p>
+                    
+                    <div class="field">
+                        <strong>📋 Dados da Nota Fiscal:</strong><br>
+                        Número: ${data.numeroNF}<br>
+                        Data de Emissão: ${data.dataEmissao}<br>
+                        Natureza da Operação: ${data.naturezaOperacao}
+                    </div>
+                    
+                    <div class="field">
+                        <strong>🏢 Emitente (Estabelecimento):</strong><br>
+                        CNPJ: ${data.emitente.cnpj}<br>
+                        Nome: ${data.emitente.nome}
+                    </div>
+                    
+                    <div class="field">
+                        <strong>👤 Destinatário (Cliente):</strong><br>
+                        CPF: ${data.destinatario.cpf}<br>
+                        Nome: ${data.destinatario.nome}
+                    </div>
+                    
+                    <div class="field">
+                        <strong>🛠️ Produto/Serviço:</strong><br>
+                        Código: ${data.produto.codigo}<br>
+                        Descrição: ${data.produto.descricao}<br>
+                        Valor: R$ ${data.produto.valor}
+                    </div>
+                    
+                    <div class="field">
+                        <strong>💰 Totais:</strong><br>
+                        Valor dos Produtos: R$ ${data.totais.valorProdutos}<br>
+                        Valor da NF: R$ ${data.totais.valorNF}<br>
+                        ICMS: R$ ${data.totais.valorICMS}
+                    </div>
+                    
+                    <div class="field">
+                        <strong>📝 Informações Adicionais:</strong><br>
+                        ${data.informacoesAdicionais}
+                    </div>
+                    
+                    <details>
+                        <summary><strong>🔍 Visualizar XML Completo</strong></summary>
+                        <div class="xml-preview">${xmlContent}</div>
+                    </details>
+                </div>
+            `;
+    }
+
+    function showError(message) {
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = `
+                <div class="results error">
+                    <h3>❌ Erro na Validação</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+    }
+
+    function clearResults() {
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('xmlFile').value = '';
+    }
+
+    // Permitir drag and drop
+    const uploadArea = document.querySelector('.upload-area');
+
+    uploadArea.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      uploadArea.style.backgroundColor = '#e9ecef';
+    });
+
+    uploadArea.addEventListener('dragleave', function (e) {
+      e.preventDefault();
+      uploadArea.style.backgroundColor = '#f8f9fa';
+    });
+
+    uploadArea.addEventListener('drop', function (e) {
+      e.preventDefault();
+      uploadArea.style.backgroundColor = '#f8f9fa';
+
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        document.getElementById('xmlFile').files = files;
+        validateXML();
+      }
+    });
+  </script>
+</body>
+
+</html>

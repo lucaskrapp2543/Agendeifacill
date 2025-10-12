@@ -62,6 +62,8 @@ interface Establishment {
   limit_subscribers_one_week?: boolean;
   punish_client_on_cancel?: boolean; // Adicionado
   payment_methods_enabled?: string[]; // Formas de pagamento habilitadas
+  require_cpf?: boolean; // Solicitar CPF no agendamento
+  whatsapp?: string; // WhatsApp do estabelecimento
 }
 
 interface AppointmentFormProps {
@@ -123,6 +125,7 @@ export function AppointmentForm({
 
   const [clientName, setClientName] = useState('');
   const [clientWhatsapp, setClientWhatsapp] = useState('');
+  const [clientCpf, setClientCpf] = useState('');
 
   // Estados para dados do perfil do cliente
   const [clientProfileData, setClientProfileData] = useState<any>(null);
@@ -574,6 +577,14 @@ export function AppointmentForm({
       missingFields.push('nome do cliente');
     }
 
+    // Validar CPF se o estabelecimento solicitar
+    if (establishment?.require_cpf && !isSubscriberBooking) {
+      const cpfNumbers = clientCpf.replace(/\D/g, '');
+      if (cpfNumbers.length !== 11) {
+        missingFields.push('CPF válido (11 dígitos)');
+      }
+    }
+
     // Para assinantes, não validar serviço nem forma de pagamento
     if (!isSubscriberBooking) {
       if (useMultiService) {
@@ -694,6 +705,7 @@ export function AppointmentForm({
       const appointmentData = {
         client_name: isSubscriberBooking ? `${clientName} (ASSINANTE)` : clientName, // Adicionar (ASSINANTE) apenas no envio
         client_whatsapp: whatsappNumbers,
+        client_cpf: establishment?.require_cpf && clientCpf ? clientCpf.replace(/\D/g, '') : null, // Adicionar CPF se solicitado
         service: isSubscriberBooking && subscriberService ? subscriberService.name : serviceNames,
         professional: selectedProfessional?.id || '',
         appointment_date: format(selectedDate, 'yyyy-MM-dd'),
@@ -745,6 +757,19 @@ export function AppointmentForm({
   const handleWhatsappChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatWhatsapp(e.target.value);
     setClientWhatsapp(formatted);
+  };
+
+  const formatCpf = (value: string) => {
+    const numbers = value.replace(/\D/g, '');
+    if (numbers.length <= 3) return numbers;
+    if (numbers.length <= 6) return `${numbers.slice(0, 3)}.${numbers.slice(3)}`;
+    if (numbers.length <= 9) return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6)}`;
+    return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6, 9)}-${numbers.slice(9, 11)}`;
+  };
+
+  const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatCpf(e.target.value);
+    setClientCpf(formatted);
   };
 
   // Pegar o dia da semana em inglês (como está no banco de dados)
@@ -840,36 +865,62 @@ export function AppointmentForm({
               Esse é seu WhatsApp?
             </p>
           )}
+        </div>
 
+        {/* 3. CPF (Condicional - Só aparece se o estabelecimento solicitar) */}
+        {establishment?.require_cpf && !isSubscriberBooking && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <div className="flex items-center gap-2">
+                <span>3. CPF</span>
+                <span className="text-red-500 font-bold">*</span>
+              </div>
+            </label>
+            <input
+              type="text"
+              value={clientCpf}
+              onChange={handleCpfChange}
+              className="w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 bg-white"
+              placeholder="000.000.000-00"
+              required
+              maxLength={14}
+            />
+            <p className="mt-1 text-xs text-gray-500 italic">
+              ℹ️ Este estabelecimento solicita CPF pois emite nota fiscal dos serviços.
+            </p>
+          </div>
+        )}
+
+        <div>
           {/* Notificação de assinante detectado */}
           {showSubscriberNotification && detectedSubscriber && (
             <div className={`mt-3 p-3 border rounded-lg ${detectedSubscriber.is_expired
-                ? 'bg-red-50 border-red-200'
-                : 'bg-green-50 border-green-200'
+              ? 'bg-red-50 border-red-200'
+              : 'bg-green-50 border-green-200'
               }`}>
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${detectedSubscriber.is_expired
-                    ? 'bg-red-500'
-                    : 'bg-green-500 animate-pulse'
+                  ? 'bg-red-500'
+                  : 'bg-green-500 animate-pulse'
                   }`}></div>
                 <span className={`text-sm font-medium ${detectedSubscriber.is_expired
-                    ? 'text-red-800'
-                    : 'text-green-800'
+                  ? 'text-red-800'
+                  : 'text-green-800'
                   }`}>
                   {detectedSubscriber.is_expired ? '⚠️ Plano Vencido Detectado!' : '🎯 Assinante detectado automaticamente!'}
                 </span>
               </div>
 
               <p className={`text-sm mt-1 ${detectedSubscriber.is_expired
-                  ? 'text-red-700'
-                  : 'text-green-700'
+                ? 'text-red-700'
+                : 'text-green-700'
                 }`}>
                 <strong>Plano:</strong> {detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado'}
               </p>
 
               <p className={`text-sm ${detectedSubscriber.is_expired
-                  ? 'text-red-700'
-                  : 'text-green-700'
+                ? 'text-red-700'
+                : 'text-green-700'
                 }`}>
                 <strong>Válido até:</strong> {format(new Date(detectedSubscriber.end_date), 'dd/MM/yyyy', { locale: ptBR })}
               </p>
@@ -1068,8 +1119,8 @@ export function AppointmentForm({
                     setSelectedSubcategory(null);
                   }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${!useMultiService && !useCategoryService
-                      ? 'bg-primary text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                     }`}
                 >
                   Um Serviço
@@ -1088,8 +1139,8 @@ export function AppointmentForm({
                     setSelectedSubcategory(null);
                   }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${useMultiService && !useCategoryService
-                      ? 'bg-primary text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                     }`}
                 >
                   Múltiplos Serviços (até 4)
@@ -1106,8 +1157,8 @@ export function AppointmentForm({
                   setSelectedServices([]);
                 }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${useCategoryService
-                    ? 'bg-red-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
               >
                 SERVIÇOS
@@ -1178,7 +1229,7 @@ export function AppointmentForm({
                           onChange={(e) => {
                             const subcategory = serviceCategories
                               .find(cat => cat.id === selectedCategory)
-                              ?.subcategories.find(sub => sub.id === e.target.value);
+                              ?.subcategories.find((sub: any) => sub.id === e.target.value);
                             setSelectedSubcategory(subcategory);
                           }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-gray-900 bg-white"
@@ -1333,7 +1384,7 @@ export function AppointmentForm({
                 existingAppointments={filteredExistingAppointments} // Passar agendamentos filtrados
                 selectedTime={selectedTime}
                 onTimeSelect={setSelectedTime}
-                filterPastTimes={user && !isEstablishmentOwner} // Filtrar horários passados apenas para clientes logados
+                filterPastTimes={!!(user && !isEstablishmentOwner)} // Filtrar horários passados apenas para clientes logados
                 businessHours={businessHours}
                 use15MinuteInterval={establishment.use_15_minute_interval ?? false}
                 selectedProfessional={selectedProfessional?.id}
@@ -1513,8 +1564,8 @@ export function AppointmentForm({
           type="submit"
           disabled={isLoading}
           className={`w-full py-3 px-4 rounded-md text-white font-medium ${isLoading
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-primary hover:bg-primary/90'
+            ? 'bg-gray-400 cursor-not-allowed'
+            : 'bg-primary hover:bg-primary/90'
             }`}
         >
           {isLoading ? 'Agendando...' : 'Confirmar Agendamento'}

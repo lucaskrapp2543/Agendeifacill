@@ -164,6 +164,7 @@ interface Appointment {
   client_id: string;
   client_name: string;
   client_whatsapp?: string;
+  client_cpf?: string;
   establishment_id: string;
   service: string;
   professional: string;
@@ -331,6 +332,7 @@ const EstablishmentDashboard = () => {
   const [wifiNetworkName, setWifiNetworkName] = useState(''); // Nome da rede Wi-Fi
   const [requireCancellationRequest, setRequireCancellationRequest] = useState(false); // Exigir solicitação de cancelamento via WhatsApp
   const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
+  const [requireCpf, setRequireCpf] = useState(false); // Solicitar CPF no agendamento
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
   const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState<string[]>(['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
@@ -1874,6 +1876,7 @@ const EstablishmentDashboard = () => {
         wifi_network_name: wifiNetworkName.trim(), // Salva o nome da rede Wi-Fi
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
+        require_cpf: requireCpf, // Solicitar CPF no agendamento
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
       };
 
@@ -1969,6 +1972,7 @@ const EstablishmentDashboard = () => {
         wifi_network_name: wifiNetworkName.trim(), // Atualiza o nome da rede Wi-Fi
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
+        require_cpf: requireCpf, // Solicitar CPF no agendamento
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
         show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
@@ -2097,6 +2101,221 @@ const EstablishmentDashboard = () => {
   const handleCancelClick = (appointmentId: string) => {
     setAppointmentToCancel(appointmentId);
     setShowCancelConfirm(true);
+  };
+
+  // Função para gerar Nota Fiscal (XML)
+  const handleGenerateNF = (appointment: Appointment) => {
+    try {
+      console.log('📄 Gerando NF para agendamento:', appointment);
+
+      // Verificar se tem CPF (obrigatório para NF)
+      if (!appointment.client_cpf) {
+        toast('CPF do cliente é obrigatório para gerar Nota Fiscal', 'error');
+        return;
+      }
+
+      // Dados do agendamento
+      const nfData = {
+        cliente: {
+          nome: appointment.client_name,
+          cpf: appointment.client_cpf.replace(/\D/g, ''), // Apenas números
+        },
+        servico: {
+          descricao: appointment.service,
+          valor: appointment.total_price || appointment.price || 0,
+          duracao: appointment.duration || 30,
+        },
+        agendamento: {
+          data: appointment.appointment_date,
+          hora: appointment.appointment_time,
+          profissional: getProfessionalName(appointment.professional),
+        },
+        estabelecimento: {
+          nome: establishment?.name || 'Estabelecimento',
+          cnpj: '00000000000000', // Placeholder - você pode adicionar CNPJ nas configurações
+        }
+      };
+
+      // Gerar XML da Nota Fiscal
+      const xmlContent = generateNFXML(nfData);
+
+      // Criar e baixar arquivo
+      downloadXML(xmlContent, appointment.id, appointment.appointment_date);
+
+      toast('Nota Fiscal gerada com sucesso!', 'success');
+
+    } catch (error) {
+      console.error('Erro ao gerar NF:', error);
+      toast('Erro ao gerar Nota Fiscal', 'error');
+    }
+  };
+
+  // Função para escapar caracteres especiais do XML
+  const escapeXML = (str: string): string => {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  // Função para gerar XML da Nota Fiscal
+  const generateNFXML = (nfData: any): string => {
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[-:]/g, '').split('.')[0];
+    const numeroNF = `NF${timestamp}`;
+
+    // Escapar dados que podem conter caracteres especiais
+    const nomeCliente = escapeXML(nfData.cliente.nome);
+    const nomeEstabelecimento = escapeXML(nfData.estabelecimento.nome);
+    const descricaoServico = escapeXML(nfData.servico.descricao);
+    const nomeProfissional = escapeXML(nfData.agendamento.profissional);
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+  <infNFe Id="NFe${numeroNF}" versao="4.00">
+    <ide>
+      <cUF>35</cUF>
+      <cNF>${numeroNF}</cNF>
+      <natOp>Venda de servicos</natOp>
+      <mod>55</mod>
+      <serie>1</serie>
+      <nNF>${numeroNF}</nNF>
+      <dhEmi>${now.toISOString()}</dhEmi>
+      <tpNF>1</tpNF>
+      <idDest>1</idDest>
+      <cMunFG>3550308</cMunFG>
+      <tpImp>1</tpImp>
+      <tpEmis>1</tpEmis>
+      <cDV>1</cDV>
+      <tpAmb>2</tpAmb>
+      <finNFe>1</finNFe>
+      <indFinal>1</indFinal>
+      <indPres>1</indPres>
+      <procEmi>0</procEmi>
+      <verProc>1.0</verProc>
+    </ide>
+    
+    <emit>
+      <CNPJ>${nfData.estabelecimento.cnpj}</CNPJ>
+      <xNome>${nomeEstabelecimento}</xNome>
+      <enderEmit>
+        <xLgr>Rua Exemplo</xLgr>
+        <nro>123</nro>
+        <xBairro>Centro</xBairro>
+        <cMun>3550308</cMun>
+        <xMun>Sao Paulo</xMun>
+        <UF>SP</UF>
+        <CEP>01234567</CEP>
+      </enderEmit>
+      <IE>123456789</IE>
+      <CRT>3</CRT>
+    </emit>
+    
+    <dest>
+      <CPF>${nfData.cliente.cpf}</CPF>
+      <xNome>${nomeCliente}</xNome>
+      <enderDest>
+        <xLgr>Endereco do Cliente</xLgr>
+        <nro>S/N</nro>
+        <xBairro>Bairro</xBairro>
+        <cMun>3550308</cMun>
+        <xMun>Sao Paulo</xMun>
+        <UF>SP</UF>
+        <CEP>01234567</CEP>
+      </enderDest>
+    </dest>
+    
+    <det nItem="1">
+      <prod>
+        <cProd>001</cProd>
+        <cEAN></cEAN>
+        <xProd>${descricaoServico}</xProd>
+        <NCM>96020000</NCM>
+        <CFOP>5102</CFOP>
+        <uCom>UN</uCom>
+        <qCom>1.0000</qCom>
+        <vUnCom>${nfData.servico.valor.toFixed(2)}</vUnCom>
+        <vProd>${nfData.servico.valor.toFixed(2)}</vProd>
+        <cEANTrib></cEANTrib>
+        <uTrib>UN</uTrib>
+        <qTrib>1.0000</qTrib>
+        <vUnTrib>${nfData.servico.valor.toFixed(2)}</vUnTrib>
+        <indTot>1</indTot>
+      </prod>
+      <imposto>
+        <vTotTrib>0.00</vTotTrib>
+        <ICMS>
+          <ICMS00>
+            <orig>0</orig>
+            <CST>00</CST>
+            <modBC>3</modBC>
+            <vBC>${nfData.servico.valor.toFixed(2)}</vBC>
+            <pICMS>18.00</pICMS>
+            <vICMS>${(nfData.servico.valor * 0.18).toFixed(2)}</vICMS>
+          </ICMS00>
+        </ICMS>
+      </imposto>
+    </det>
+    
+    <total>
+      <ICMSTot>
+        <vBC>${nfData.servico.valor.toFixed(2)}</vBC>
+        <vICMS>${(nfData.servico.valor * 0.18).toFixed(2)}</vICMS>
+        <vICMSDeson>0.00</vICMSDeson>
+        <vFCP>0.00</vFCP>
+        <vBCST>0.00</vBCST>
+        <vST>0.00</vST>
+        <vFCPST>0.00</vFCPST>
+        <vFCPSTRet>0.00</vFCPSTRet>
+        <vProd>${nfData.servico.valor.toFixed(2)}</vProd>
+        <vFrete>0.00</vFrete>
+        <vSeg>0.00</vSeg>
+        <vDesc>0.00</vDesc>
+        <vII>0.00</vII>
+        <vIPI>0.00</vIPI>
+        <vIPIDevol>0.00</vIPIDevol>
+        <vPIS>0.00</vPIS>
+        <vCOFINS>0.00</vCOFINS>
+        <vOutro>0.00</vOutro>
+        <vNF>${nfData.servico.valor.toFixed(2)}</vNF>
+        <vTotTrib>0.00</vTotTrib>
+      </ICMSTot>
+    </total>
+    
+    <transp>
+      <modFrete>9</modFrete>
+    </transp>
+    
+    <infAdic>
+      <infCpl>
+        Agendamento: ${nfData.agendamento.data} as ${nfData.agendamento.hora}
+        Profissional: ${nomeProfissional}
+        Duracao: ${nfData.servico.duracao} minutos
+      </infCpl>
+    </infAdic>
+  </infNFe>
+</NFe>`;
+
+    return xml;
+  };
+
+  // Função para fazer download do XML
+  const downloadXML = (xmlContent: string, appointmentId: string, appointmentDate: string) => {
+    const blob = new Blob([xmlContent], { type: 'application/xml' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    // Nome do arquivo: NF_Data_ID.xml
+    const fileName = `NF_${appointmentDate.replace(/-/g, '')}_${appointmentId.substring(0, 8)}.xml`;
+
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   const confirmCancel = async () => {
@@ -2259,6 +2478,7 @@ const EstablishmentDashboard = () => {
           client_id,
           client_name,
           client_whatsapp,
+          client_cpf,
           establishment_id,
           service,
           professional,
@@ -2440,6 +2660,7 @@ const EstablishmentDashboard = () => {
         setWifiNetworkName(establishmentData.wifi_network_name || ''); // Nome da rede Wi-Fi
         setRequireCancellationRequest(establishmentData.require_cancellation_request ?? false); // Exigir solicitação de cancelamento
         setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
+        setRequireCpf(establishmentData.require_cpf ?? false); // Solicitar CPF no agendamento
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
         setPaymentMethodsEnabled(establishmentData.payment_methods_enabled || ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
@@ -3045,7 +3266,46 @@ const EstablishmentDashboard = () => {
       let currentMinutes = convertToMinutes(startTime);
       const endMinutes = convertToMinutes(endTime);
 
-      while (currentMinutes < endMinutes) {
+      // 1. Primeiro, coletar TODOS os horários únicos dos agendamentos
+      const appointmentTimes = new Set<number>();
+      filteredAppointments.forEach(apt => {
+        const aptStartMinutes = convertToMinutes(apt.appointment_time);
+        const aptDuration = apt.duration || 30;
+        const aptEndMinutes = aptStartMinutes + aptDuration;
+
+        // Adicionar horário de início
+        appointmentTimes.add(aptStartMinutes);
+
+        // Adicionar horários intermediários (a cada 15 minutos dentro da duração)
+        let checkMinutes = aptStartMinutes + 15;
+        while (checkMinutes < aptEndMinutes) {
+          appointmentTimes.add(checkMinutes);
+          checkMinutes += 15;
+        }
+      });
+
+      // 2. Gerar slots padrão + slots de agendamentos não-padrão
+      const allSlots = new Set<number>();
+
+      // Adicionar slots padrão (30 em 30 ou 15 em 15)
+      let standardMinutes = convertToMinutes(startTime);
+      while (standardMinutes < endMinutes) {
+        allSlots.add(standardMinutes);
+        standardMinutes += intervalMinutes;
+      }
+
+      // Adicionar horários de agendamentos que não seguem o padrão
+      appointmentTimes.forEach(time => {
+        if (time >= convertToMinutes(startTime) && time < endMinutes) {
+          allSlots.add(time);
+        }
+      });
+
+      // 3. Converter para array e ordenar
+      const sortedSlots = Array.from(allSlots).sort((a, b) => a - b);
+
+      // 4. Processar cada slot
+      sortedSlots.forEach(currentMinutes => {
         const timeString = convertToTimeString(currentMinutes);
 
         // Verificar se há um agendamento neste horário exato
@@ -3059,7 +3319,7 @@ const EstablishmentDashboard = () => {
           // Verificar se este horário está dentro da duração de algum agendamento
           const occupyingAppointment = filteredAppointments.find(apt => {
             const aptStartMinutes = convertToMinutes(apt.appointment_time);
-            const aptDuration = apt.duration || 30; // Duração em minutos
+            const aptDuration = apt.duration || 30;
             const aptEndMinutes = aptStartMinutes + aptDuration;
 
             // Este horário está entre o início e o fim do agendamento?
@@ -3078,9 +3338,7 @@ const EstablishmentDashboard = () => {
             slots.push({ _isEmpty: true, _time: timeString });
           }
         }
-
-        currentMinutes += intervalMinutes;
-      }
+      });
     };
 
     if (hoursForDay.open1 && hoursForDay.close1) {
@@ -6705,6 +6963,17 @@ const EstablishmentDashboard = () => {
                                           </div>
                                         )}
                                       </div>
+
+                                      {/* CPF - Só exibir se existir */}
+                                      {appointment.client_cpf && (
+                                        <div className="mt-2 px-3 py-2 bg-white/5 rounded-md border border-white/10">
+                                          <span className="text-xs text-white/60 font-medium">CPF:</span>
+                                          <span className="text-sm text-white ml-2">
+                                            {appointment.client_cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
+                                          </span>
+                                        </div>
+                                      )}
+
                                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/90">
                                         <span className="inline-flex items-center gap-1">
                                           <Calendar className="h-4 w-4" />
@@ -7002,6 +7271,14 @@ const EstablishmentDashboard = () => {
                                               title="Cancelar agendamento"
                                             >
                                               ❌ CANCELAR
+                                            </button>
+
+                                            <button
+                                              onClick={() => handleGenerateNF(appointment)}
+                                              className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
+                                              title="Gerar Nota Fiscal (XML)"
+                                            >
+                                              📄 Gerar NF
                                             </button>
                                           </div>
 
@@ -7466,6 +7743,21 @@ const EstablishmentDashboard = () => {
                           <span className="text-white">Clientes assinantes não podem desmarcar e remarcar no mesmo dia</span>
                           <span className="text-xs text-gray-400">
                             Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia. Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={requireCpf}
+                          onChange={(e) => setRequireCpf(e.target.checked)}
+                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-white">Pedir CPF antes do agendamento</span>
+                          <span className="text-xs text-gray-400">
+                            Se ativada, os clientes serão obrigados a informar o CPF durante o agendamento. Útil para estabelecimentos que emitem nota fiscal.
                           </span>
                         </div>
                       </label>
