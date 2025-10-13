@@ -1781,7 +1781,16 @@ const EstablishmentDashboard = () => {
       const { error } = await supabase
         .from('establishments')
         .update({
-          professionals,
+          professionals: professionals.map(p => ({
+            id: p.id,
+            name: p.name.trim(),
+            specialties: p.specialties || [],
+            percentage: p.percentage || 100,
+            photo_url: (p as any).photo_url,
+            offers_child_service: p.offers_child_service || false,
+            work_hours: p.work_hours || null,
+            absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
+          })).filter(p => p.name),
           professionals_pins: updatedPins
         })
         .eq('id', establishment.id);
@@ -1856,7 +1865,8 @@ const EstablishmentDashboard = () => {
           id: p.id,
           name: p.name.trim(),
           specialties: p.specialties.filter(s => s.trim()),
-          percentage: p.percentage || 100 // Manter o percentual
+          percentage: p.percentage || 100, // Manter o percentual
+          absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
         })).filter(p => p.name),
         services_with_prices: servicesWithPrices.map(s => ({
           id: s.id,
@@ -1948,7 +1958,8 @@ const EstablishmentDashboard = () => {
           percentage: p.percentage || 100, // Manter o percentual
           photo_url: (p as any).photo_url, // Preservar a foto do profissional
           offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
-          work_hours: p.work_hours || null // PRESERVAR horários de trabalho personalizados
+          work_hours: p.work_hours || null, // PRESERVAR horários de trabalho personalizados
+          absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
         })).filter(p => p.name),
         services_with_prices: servicesWithPrices.map(s => ({
           id: s.id,
