@@ -2774,6 +2774,11 @@ Estamos te aguardando! 😎✂️`;
 
         setProfessionals(professionalsWithPercentage);
 
+        // Auto-selecionar profissional se houver apenas 1
+        if (professionalsWithPercentage.length === 1 && selectedProfessional === '') {
+          setSelectedProfessional(professionalsWithPercentage[0].id);
+        }
+
         // Inicializar ausências dos profissionais
         const absencesData: Record<string, string[]> = {};
         professionalsWithPercentage.forEach((prof: any) => {
