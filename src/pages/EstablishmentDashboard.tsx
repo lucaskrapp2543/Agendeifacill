@@ -448,6 +448,17 @@ const EstablishmentDashboard = () => {
   const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
 
+  // Estados para histórico de valores
+  const [appointmentValueHistory, setAppointmentValueHistory] = useState<Record<string, {
+    originalValue: number;
+    changes: Array<{
+      value: number;
+      date: string;
+      timestamp: string;
+    }>;
+  }>>({});
+  const [showHistoryDropdown, setShowHistoryDropdown] = useState<string | null>(null);
+
   // Estados para edição de nome de cliente avulso
   const [editingClientName, setEditingClientName] = useState<string | null>(null);
   const [editingClientNameValue, setEditingClientNameValue] = useState('');
@@ -5514,21 +5525,55 @@ Estamos te aguardando! 😎✂️`;
     }
 
     try {
+      // Buscar valor atual do agendamento
+      const currentAppointment = appointments.find(apt => apt.id === appointmentId);
+      const oldValue = currentAppointment?.price || 0;
+
+      // Calcular total correto: valor base + produtos vendidos + serviços extras
+      const soldProductsTotal = currentAppointment?.sold_products?.reduce((sum, product) =>
+        sum + (product.quantity * product.unit_price), 0) || 0;
+      const additionalProductsTotal = currentAppointment?.additional_products?.reduce((sum, product) =>
+        sum + product.price, 0) || 0;
+      const correctTotal = newValue + soldProductsTotal + additionalProductsTotal;
+
       const { error } = await supabase
         .from('appointments')
         .update({
           price: newValue,
-          total_price: newValue // Atualizar também o total_price
+          total_price: correctTotal // Total = valor base + serviços extras
         })
         .eq('id', appointmentId);
 
       if (error) throw error;
 
+      // Atualizar histórico de valores
+      setAppointmentValueHistory(prev => {
+        const currentHistory = prev[appointmentId] || {
+          originalValue: oldValue,
+          changes: []
+        };
+
+        // Adicionar nova alteração ao histórico
+        const newChange = {
+          value: newValue,
+          date: format(new Date(), 'dd/MM/yyyy'),
+          timestamp: new Date().toISOString()
+        };
+
+        return {
+          ...prev,
+          [appointmentId]: {
+            ...currentHistory,
+            changes: [...currentHistory.changes, newChange]
+          }
+        };
+      });
+
       // Atualizar o estado local
       setAppointments(prevAppointments =>
         prevAppointments.map(apt =>
           apt.id === appointmentId
-            ? { ...apt, price: newValue, total_price: newValue }
+            ? { ...apt, price: newValue, total_price: correctTotal }
             : apt
         )
       );
@@ -5546,6 +5591,17 @@ Estamos te aguardando! 😎✂️`;
   const handleCancelEditValue = () => {
     setEditingAppointmentValue(null);
     setEditingValue('');
+  };
+
+  // Função para alternar dropdown do histórico
+  const toggleHistoryDropdown = (appointmentId: string) => {
+    setShowHistoryDropdown(prev => prev === appointmentId ? null : appointmentId);
+  };
+
+  // Função para verificar se tem histórico de alterações
+  const hasValueHistory = (appointmentId: string): boolean => {
+    const history = appointmentValueHistory[appointmentId];
+    return history && history.changes.length > 0;
   };
 
   // Função para iniciar edição do nome do cliente avulso
@@ -7170,6 +7226,49 @@ Estamos te aguardando! 😎✂️`;
                                           )}
                                         </div>
                                       </div>
+
+                                      {/* Botão de Histórico - Só aparece se houve alterações */}
+                                      {hasValueHistory(appointment.id) && (
+                                        <div className="relative">
+                                          <button
+                                            onClick={() => toggleHistoryDropdown(appointment.id)}
+                                            className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                          >
+                                            📊 Histórico
+                                          </button>
+
+                                          {/* Dropdown do Histórico */}
+                                          {showHistoryDropdown === appointment.id && (
+                                            <div className="absolute top-6 left-0 bg-gray-800 border border-gray-600 rounded-lg p-3 shadow-lg z-10 min-w-64">
+                                              <div className="text-xs text-gray-300 mb-2 font-medium">
+                                                Histórico de Alterações de Valor
+                                              </div>
+                                              <div className="space-y-2">
+                                                {appointmentValueHistory[appointment.id] && (
+                                                  <>
+                                                    <div className="text-xs text-gray-400 border-b border-gray-600 pb-1">
+                                                      Valor Original: {formatCurrency(appointmentValueHistory[appointment.id].originalValue)}
+                                                    </div>
+                                                    {appointmentValueHistory[appointment.id].changes.map((change, index) => (
+                                                      <div key={index} className="flex justify-between items-center text-xs">
+                                                        <span className="text-white">{formatCurrency(change.value)}</span>
+                                                        <span className="text-gray-400">{change.date}</span>
+                                                      </div>
+                                                    ))}
+                                                  </>
+                                                )}
+                                              </div>
+                                              <button
+                                                onClick={() => setShowHistoryDropdown(null)}
+                                                className="mt-2 text-xs text-gray-400 hover:text-white"
+                                              >
+                                                ✕ Fechar
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
                                       {appointment.additional_products && appointment.additional_products.length > 0 && (
                                         <div className="flex flex-col">
                                           <span className="text-sm text-white/80 mb-1">Produtos/Serviços Adicionais:</span>
