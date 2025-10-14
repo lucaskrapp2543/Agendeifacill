@@ -468,6 +468,9 @@ const EstablishmentDashboard = () => {
   const [selectedAppointmentForObservation, setSelectedAppointmentForObservation] = useState<string | null>(null);
   const [observationText, setObservationText] = useState('');
 
+  // Estados para filtro de pagamento nos serviços individuais
+  const [paymentFilter, setPaymentFilter] = useState<string>('todos');
+
   // Estados para relatório de taxas
   const [taxesReport, setTaxesReport] = useState<any>(null);
   const [isLoadingTaxes, setIsLoadingTaxes] = useState(false);
@@ -9284,8 +9287,94 @@ Estamos te aguardando! 😎✂️`;
                                       Ver serviços individuais
                                     </summary>
                                     <div className="mt-2 space-y-2 bg-gray-100 p-3 rounded">
+                                      {/* Filtros de pagamento */}
+                                      <div className="mb-4">
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                          {[
+                                            { key: 'todos', label: 'Todos' },
+                                            { key: 'pix', label: 'PIX' },
+                                            { key: 'dinheiro', label: 'Dinheiro' },
+                                            { key: 'debito', label: 'Débito' },
+                                            { key: 'credito', label: 'Crédito' }
+                                          ].map(filter => (
+                                            <button
+                                              key={filter.key}
+                                              onClick={() => setPaymentFilter(filter.key)}
+                                              className={`px-3 py-1 text-xs rounded-full transition-colors ${paymentFilter === filter.key
+                                                  ? 'bg-blue-600 text-white'
+                                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                }`}
+                                            >
+                                              {filter.label}
+                                            </button>
+                                          ))}
+                                        </div>
+
+                                        {/* Resumo por filtro */}
+                                        {(() => {
+                                          const filteredAppointments = professionalAppointments
+                                            .filter(apt => apt.status === 'completed')
+                                            .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter);
+
+                                          const grossTotal = filteredAppointments.reduce((total, apt) => {
+                                            const baseValue = apt.total_price || apt.price || 0;
+                                            return total + baseValue;
+                                          }, 0);
+
+                                          const netTotal = filteredAppointments.reduce((total, apt) => {
+                                            const baseValue = apt.total_price || apt.price || 0;
+                                            let netValue;
+
+                                            if (professional.percentage === 100) {
+                                              // Para dono: bruto - taxa de cartão (se houver)
+                                              const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                              if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                                const cardTax = (baseValue * paymentTax) / 100;
+                                                netValue = baseValue - cardTax;
+                                              } else {
+                                                netValue = baseValue;
+                                              }
+                                            } else {
+                                              // Para outros profissionais: recebem % do valor BRUTO (sem taxa)
+                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                            }
+                                            return total + netValue;
+                                          }, 0);
+
+                                          const filterLabel = paymentFilter === 'todos' ? 'Todos' :
+                                            paymentFilter === 'pix' ? 'PIX' :
+                                              paymentFilter === 'dinheiro' ? 'Dinheiro' :
+                                                paymentFilter === 'debito' ? 'Débito' :
+                                                  paymentFilter === 'credito' ? 'Crédito' : 'Todos';
+
+                                          return (
+                                            <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
+                                              <h4 className="font-semibold text-gray-800 mb-2">
+                                                Resumo - {filterLabel} ({filteredAppointments.length} serviços)
+                                              </h4>
+                                              <div className="grid grid-cols-2 gap-4 text-sm">
+                                                <div>
+                                                  <span className="text-gray-600">Vendas Brutas:</span>
+                                                  <span className="font-semibold text-green-600 ml-1">
+                                                    {formatCurrency(grossTotal)}
+                                                  </span>
+                                                </div>
+                                                <div>
+                                                  <span className="text-gray-600">Vendas Líquidas:</span>
+                                                  <span className="font-semibold text-blue-600 ml-1">
+                                                    {formatCurrency(netTotal)}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
+
+                                      {/* Lista de serviços filtrados */}
                                       {professionalAppointments
                                         .filter(apt => apt.status === 'completed')
+                                        .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter)
                                         .map((apt, index) => {
                                           const baseValue = apt.total_price || apt.price || 0;
                                           let netValue;
