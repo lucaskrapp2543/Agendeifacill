@@ -1,16 +1,20 @@
 import {
   BarChart3,
   Calendar,
+  Camera,
   CheckCircle,
   Mail,
   Menu,
   MessageCircle,
   Phone,
   Rocket,
+  Search,
   Shield,
+  Smartphone,
   Sparkles,
   Target,
   Users,
+  Wifi,
   X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -291,12 +295,111 @@ const LandingVendas = () => {
       {/* Testimonials Section */}
       <section id="testimonials" className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Imagem paginaextra */}
-          <div className="flex justify-center mb-8">
+          {/* Seção Página Exclusiva - Moderna e Organizada */}
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-100 rounded-2xl md:rounded-3xl p-4 sm:p-6 md:p-8 lg:p-12 mb-8 md:mb-12 border border-blue-200 shadow-xl">
+            <div className="text-center mb-6 md:mb-10">
+              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-3 md:mb-4 leading-tight">
+                Você ganha uma página{' '}
+                <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent font-extrabold">
+                  EXCLUSIVA
+                </span>{' '}
+                só sua!
+              </h2>
+              <p className="text-lg sm:text-xl md:text-2xl text-gray-700 mb-6 md:mb-8 font-medium px-2">
+                Nela o seu cliente encontra tudo em um só lugar:
+              </p>
+            </div>
+
+            {/* Grid de Features - Mobile Otimizado */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mb-8 md:mb-10">
+              {/* Feature 1 - Fotos */}
+              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
+                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Camera className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
+                  </div>
+                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">SUAS FOTOS</h3>
+                </div>
+                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Galeria completa do seu estabelecimento</p>
+              </div>
+
+              {/* Feature 2 - Redes Sociais */}
+              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
+                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-green-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Smartphone className="w-5 h-5 md:w-6 md:h-6 text-green-600" />
+                  </div>
+                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">SUAS REDES SOCIAIS</h3>
+                </div>
+                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Links diretos para Instagram, Facebook e WhatsApp</p>
+              </div>
+
+              {/* Feature 3 - Google Reviews */}
+              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
+                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-yellow-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Search className="w-5 h-5 md:w-6 md:h-6 text-yellow-600" />
+                  </div>
+                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">LINK AVALIAÇÃO GOOGLE</h3>
+                </div>
+                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Avaliações e comentários dos clientes</p>
+              </div>
+
+              {/* Feature 4 - Agendamento */}
+              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
+                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Calendar className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
+                  </div>
+                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">BOTÃO DE AGENDAMENTO</h3>
+                </div>
+                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Cliente agenda com você em poucos cliques!</p>
+              </div>
+
+              {/* Feature 5 - Wi-Fi */}
+              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100 sm:col-span-2 lg:col-span-1">
+                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-orange-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Wifi className="w-5 h-5 md:w-6 md:h-6 text-orange-600" />
+                  </div>
+                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">WI-FI</h3>
+                </div>
+                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Cliente clica e já copia a senha automaticamente</p>
+              </div>
+            </div>
+
+            {/* Benefícios - Mobile Otimizado */}
+            <div className="text-center space-y-3 md:space-y-4 mb-6 md:mb-8 px-2">
+              <p className="text-lg md:text-xl text-gray-700 font-medium leading-relaxed">
+                Todas as informações importantes sobre o seu espaço.
+              </p>
+              <p className="text-lg md:text-xl text-gray-700 font-medium leading-relaxed">
+                Diga adeus 👋 aos vários QR Codes e links espalhados!
+              </p>
+              <p className="text-xl md:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent leading-tight">
+                Agora é apenas um link completo, moderno e profissional pra divulgar o seu negócio! 💙
+              </p>
+            </div>
+
+            {/* Call to Action - Mobile Otimizado */}
+            <div className="text-center">
+              <div className="inline-flex items-center space-x-1 md:space-x-2 bg-white rounded-full px-4 md:px-6 py-2 md:py-3 shadow-lg border border-gray-200">
+                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse"></div>
+                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                <span className="text-base md:text-lg font-bold text-gray-900 ml-1 md:ml-2 whitespace-nowrap">EXEMPLO ABAIXO</span>
+                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.6s' }}></div>
+                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.8s' }}></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Imagem paginaextra - Mobile Otimizada */}
+          <div className="flex justify-center mb-6 md:mb-8 px-2">
             <img
               src="/paginaextra.png"
-              alt="Conteúdo extra"
-              className="max-w-full h-auto rounded-lg shadow-lg"
+              alt="Exemplo de página exclusiva"
+              className="w-full max-w-md md:max-w-2xl lg:max-w-4xl h-auto rounded-lg md:rounded-xl shadow-2xl border border-gray-200"
             />
           </div>
 
