@@ -291,6 +291,15 @@ const LandingVendas = () => {
       {/* Testimonials Section */}
       <section id="testimonials" className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Imagem paginaextra */}
+          <div className="flex justify-center mb-8">
+            <img
+              src="/paginaextra.png"
+              alt="Conteúdo extra"
+              className="max-w-full h-auto rounded-lg shadow-lg"
+            />
+          </div>
+
           <div className="text-center mb-16 px-4">
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-4">
               O que nossos clientes dizem
