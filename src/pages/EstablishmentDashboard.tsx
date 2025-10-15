@@ -9301,8 +9301,8 @@ Estamos te aguardando! 😎✂️`;
                                               key={filter.key}
                                               onClick={() => setPaymentFilter(filter.key)}
                                               className={`px-3 py-1 text-xs rounded-full transition-colors ${paymentFilter === filter.key
-                                                  ? 'bg-blue-600 text-white'
-                                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                                                 }`}
                                             >
                                               {filter.label}

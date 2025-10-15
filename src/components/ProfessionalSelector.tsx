@@ -347,15 +347,15 @@ export function ProfessionalSelector({
       </h3>
 
       <div className="flex flex-wrap gap-4">
-        {/* Opção "Qualquer Profissional" - Só aparece se houver mais de 1 profissional */}
-        {professionals.length > 1 && (
+        {/* Opção "Qualquer Profissional" - Só aparece se houver mais de 1 profissional E não for no contexto de booking */}
+        {professionals.length > 1 && showGoalProgress !== false && (
           <div className="flex flex-col items-center">
             <button
               type="button"
               onClick={() => onSelectProfessional(null)}
               className={`relative w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 ${selectedProfessional === null
-                  ? 'bg-blue-600 text-white shadow-lg scale-105'
-                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                ? 'bg-blue-600 text-white shadow-lg scale-105'
+                : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                 }`}
             >
               <Users className="w-6 h-6" />
@@ -381,8 +381,8 @@ export function ProfessionalSelector({
                   type="button"
                   onClick={() => onSelectProfessional(professional.id)}
                   className={`relative w-16 h-16 rounded-full overflow-hidden transition-all duration-200 ${selectedProfessional === professional.id
-                      ? 'ring-3 ring-blue-600 shadow-lg scale-105'
-                      : 'ring-2 ring-gray-200 hover:ring-blue-400'
+                    ? 'ring-3 ring-blue-600 shadow-lg scale-105'
+                    : 'ring-2 ring-gray-200 hover:ring-blue-400'
                     }`}
                 >
                   <img
@@ -441,8 +441,8 @@ export function ProfessionalSelector({
                       type="button"
                       onClick={() => onSelectProfessional(professional.id)}
                       className={`relative w-16 h-16 rounded-full overflow-hidden transition-all duration-200 ${selectedProfessional === professional.id
-                          ? 'ring-3 ring-blue-600 shadow-lg scale-105'
-                          : 'ring-2 ring-gray-200 hover:ring-blue-400'
+                        ? 'ring-3 ring-blue-600 shadow-lg scale-105'
+                        : 'ring-2 ring-gray-200 hover:ring-blue-400'
                         }`}
                     >
                       <img
