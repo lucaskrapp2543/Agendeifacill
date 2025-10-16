@@ -197,6 +197,13 @@ const LandingVendas = () => {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12 px-4">
+              <Link
+                to="/testefree"
+                className="bg-green-600 hover:bg-green-700 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold transition-all transform hover:scale-105 flex items-center justify-center shadow-lg"
+              >
+                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+                TESTE GRÁTIS
+              </Link>
               <a
                 href="#pricing"
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold transition-all transform hover:scale-105 flex items-center justify-center"
@@ -285,6 +292,17 @@ const LandingVendas = () => {
                     <span className="text-red-600 font-extrabold">40%</span> do que oferecemos{' '}
                     <span className="text-green-600 font-extrabold">tem muito mais</span>.
                   </p>
+                </div>
+
+                {/* Botão TESTE GRÁTIS centralizado */}
+                <div className="text-center">
+                  <Link
+                    to="/testefree"
+                    className="inline-flex items-center bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-xl text-lg font-bold transition-all transform hover:scale-105 shadow-lg"
+                  >
+                    <Sparkles className="w-5 h-5 mr-2" />
+                    TESTE GRÁTIS AGORA
+                  </Link>
                 </div>
               </div>
             </div>
@@ -612,14 +630,22 @@ const LandingVendas = () => {
                     <span className="text-gray-700 text-sm">Notificações em tempo real de agendamentos ou cancelamentos</span>
                   </li>
                 </ul>
-                <a
-                  href="https://pay.kiwify.com.br/E2dUF4p"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                >
-                  Começar Agora
-                </a>
+                <div className="space-y-3">
+                  <Link
+                    to="/testefree"
+                    className="block w-full py-3 px-6 text-center text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors font-semibold"
+                  >
+                    TESTE GRÁTIS
+                  </Link>
+                  <a
+                    href="https://pay.kiwify.com.br/E2dUF4p"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                  >
+                    Começar Agora
+                  </a>
+                </div>
               </div>
             </div>
 
@@ -658,14 +684,22 @@ const LandingVendas = () => {
                     <span className="text-white">4 meses totalmente grátis</span>
                   </li>
                 </ul>
-                <a
-                  href="https://wa.me/5548991265320?text=Quero%20ser%20Anual"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block w-full py-3 px-6 text-center text-white bg-white text-blue-600 hover:bg-gray-100 rounded-lg transition-colors font-semibold"
-                >
-                  Começar Agora
-                </a>
+                <div className="space-y-3">
+                  <Link
+                    to="/testefree"
+                    className="block w-full py-3 px-6 text-center text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors font-semibold"
+                  >
+                    TESTE GRÁTIS
+                  </Link>
+                  <a
+                    href="https://wa.me/5548991265320?text=Quero%20ser%20Anual"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full py-3 px-6 text-center text-white bg-white text-blue-600 hover:bg-gray-100 rounded-lg transition-colors font-semibold"
+                  >
+                    Começar Agora
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -683,6 +717,13 @@ const LandingVendas = () => {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link
+              to="/testefree"
+              className="bg-green-600 hover:bg-green-700 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold transition-all transform hover:scale-105 inline-flex items-center justify-center shadow-lg"
+            >
+              <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+              TESTE GRÁTIS
+            </Link>
             <a
               href="#pricing"
               className="bg-white text-blue-600 hover:bg-gray-100 px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold transition-all transform hover:scale-105 inline-flex items-center justify-center"
@@ -763,6 +804,17 @@ const LandingVendas = () => {
           </div>
         </div>
       </footer>
+
+      {/* Botão TESTE GRÁTIS Flutuante */}
+      <div className="fixed bottom-6 right-6 z-50">
+        <Link
+          to="/testefree"
+          className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-full shadow-2xl transition-all transform hover:scale-110 flex items-center gap-2 font-bold text-sm animate-pulse"
+        >
+          <Sparkles className="w-5 h-5" />
+          TESTE GRÁTIS
+        </Link>
+      </div>
     </div>
   );
 };

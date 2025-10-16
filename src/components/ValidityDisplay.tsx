@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Calendar, Clock } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface ValidityDisplayProps {
@@ -9,7 +9,7 @@ interface ValidityDisplayProps {
 interface EstablishmentValidity {
   payment_due_date: string;
   payment_status: 'paid' | 'unpaid' | 'expired';
-  plan_type: 'monthly' | 'annual';
+  plan_type: 'monthly' | 'annual' | 'trial';
 }
 
 export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentId }) => {
@@ -55,7 +55,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
     const dueDate = new Date(validity.payment_due_date);
     const timeDiff = dueDate.getTime() - today.getTime();
     const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
-    
+
     setDaysRemaining(daysDiff);
   };
 
@@ -70,7 +70,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
 
   const getStatusColor = () => {
     if (!validity) return 'text-gray-400';
-    
+
     if (validity.payment_status === 'expired' || daysRemaining < 0) {
       return 'text-red-500';
     } else if (daysRemaining <= 7) {
@@ -82,7 +82,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
 
   const getStatusIcon = () => {
     if (!validity) return <Calendar className="h-4 w-4" />;
-    
+
     if (validity.payment_status === 'expired' || daysRemaining < 0) {
       return <AlertTriangle className="h-4 w-4" />;
     } else if (daysRemaining <= 7) {
@@ -94,7 +94,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
 
   const getStatusText = () => {
     if (!validity) return 'Carregando...';
-    
+
     if (validity.payment_status === 'expired' || daysRemaining < 0) {
       return 'Vencido';
     } else if (daysRemaining === 0) {
@@ -139,13 +139,13 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
         <Calendar className="h-5 w-5 text-blue-500" />
         <h3 className="text-lg font-semibold text-white">Validade Agendei Fácil</h3>
       </div>
-      
+
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-gray-300">Data de vencimento:</span>
           <span className="text-white font-medium">{formatDate(validity.payment_due_date)}</span>
         </div>
-        
+
         <div className="flex items-center justify-between">
           <span className="text-gray-300">Status:</span>
           <div className={`flex items-center gap-2 ${getStatusColor()}`}>
@@ -153,35 +153,35 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
             <span className="font-medium">{getStatusText()}</span>
           </div>
         </div>
-        
+
         <div className="flex items-center justify-between">
           <span className="text-gray-300">Plano:</span>
           <span className="text-white font-medium capitalize">
             {validity.plan_type === 'monthly' ? 'Mensal' : 'Anual'}
           </span>
         </div>
-        
+
         {daysRemaining > 0 && (
           <div className="mt-4 p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
             <div className="flex items-center gap-2 text-blue-400">
               <Clock className="h-4 w-4" />
               <span className="text-sm">
-                {daysRemaining === 1 
-                  ? 'Falta 1 dia para o vencimento' 
+                {daysRemaining === 1
+                  ? 'Falta 1 dia para o vencimento'
                   : `Faltam ${daysRemaining} dias para o vencimento`
                 }
               </span>
             </div>
           </div>
         )}
-        
+
         {(validity.payment_status === 'expired' || daysRemaining < 0) && (
           <div className="mt-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
             <div className="flex items-center gap-2 text-red-400">
               <AlertTriangle className="h-4 w-4" />
               <span className="text-sm">
-                {daysRemaining < 0 
-                  ? `Vencido há ${Math.abs(daysRemaining)} dias` 
+                {daysRemaining < 0
+                  ? `Vencido há ${Math.abs(daysRemaining)} dias`
                   : 'Plano vencido'
                 }
               </span>

@@ -27,6 +27,7 @@ import Login from './pages/Login';
 import NotFound from './pages/NotFound';
 import PremiumDashboard from './pages/PremiumDashboard';
 import Register from './pages/Register';
+import RegistrationFreeSuccess from './pages/RegistrationFreeSuccess';
 import RegistrationSuccess from './pages/RegistrationSuccess';
 import { Success } from './pages/Success';
 import Suporte060622 from './pages/Suporte060622';
@@ -41,6 +42,7 @@ import ConhecerV4 from './pages/ConhecerV4';
 import ConhecerV5 from './pages/ConhecerV5';
 import RecoveryPassword from './pages/RecoveryPassword';
 import ResetPassword from './pages/ResetPassword';
+import TesteFree from './pages/TesteFree';
 import VerTestesFree from './pages/VerTestesFree';
 import VerUsuariosGratis060622 from './pages/VerUsuariosGratis060622';
 
@@ -98,6 +100,7 @@ function App() {
                 <Route path="/conhecerv4" element={<ConhecerV4 />} />
                 <Route path="/conhecerv5" element={<ConhecerV5 />} />
                 <Route path="/cadastroag" element={<CadastroAg />} />
+                <Route path="/testefree" element={<TesteFree />} />
                 <Route path="/suporte060622" element={<Suporte060622 />} />
 
                 <Route path="/verusuariosgratis060622" element={<VerUsuariosGratis060622 />} />
@@ -159,6 +162,7 @@ function App() {
 
                 <Route path="/success" element={<Success />} />
                 <Route path="/registration-success" element={<RegistrationSuccess />} />
+                <Route path="/registrationfree-success" element={<RegistrationFreeSuccess />} />
 
                 {/* Rota dinâmica para agendamento direto */}
                 <Route path="/:slug" element={<EstablishmentDirectBooking />} />

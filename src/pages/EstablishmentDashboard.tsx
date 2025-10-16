@@ -27,6 +27,7 @@ import { TransferAppointmentModal } from '../components/TransferAppointmentModal
 import { useToast } from '../components/ui/Toaster';
 import { UpdateButton } from '../components/UpdateButton';
 import { ValidityDisplay } from '../components/ValidityDisplay';
+import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
 import { addExpense, createEstablishment, deleteExpense, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
@@ -6501,6 +6502,10 @@ Estamos te aguardando! 😎✂️`;
                       {codeCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                     </button>
                   </div>
+                </div>
+                {/* Validade do Sistema */}
+                <div className="mt-2">
+                  <ValidityHeader establishmentId={establishment.id} />
                 </div>
               </div>
 

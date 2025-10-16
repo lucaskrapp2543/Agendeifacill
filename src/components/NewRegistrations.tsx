@@ -33,6 +33,7 @@ interface RegistrationForm {
   notes?: string;
   ip_address?: string;
   user_agent?: string;
+  account_type?: 'paid' | 'test'; // Tipo de conta: paid (cadastroag) ou test (testefree)
 }
 
 interface NewRegistrationsProps {
@@ -44,6 +45,7 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRegistration, setSelectedRegistration] = useState<RegistrationForm | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [filterAccountType, setFilterAccountType] = useState<'all' | 'paid' | 'test'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -231,14 +233,19 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
 
   const filteredRegistrations = registrations.filter(reg => {
     const matchesStatus = filterStatus === 'all' || reg.status === filterStatus;
+    const matchesAccountType = filterAccountType === 'all' || (reg.account_type || 'paid') === filterAccountType;
     const matchesSearch = searchTerm === '' ||
       reg.client_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       reg.establishment_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       reg.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (reg.client_whatsapp && reg.client_whatsapp.includes(searchTerm));
 
-    return matchesStatus && matchesSearch;
+    return matchesStatus && matchesAccountType && matchesSearch;
   });
+
+  // Separar por tipo de conta
+  const paidRegistrations = filteredRegistrations.filter(reg => (reg.account_type || 'paid') === 'paid');
+  const testRegistrations = filteredRegistrations.filter(reg => reg.account_type === 'test');
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -300,7 +307,7 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
               <div>
                 <h2 className="text-2xl font-bold">Novas Inscrições</h2>
                 <p className="text-blue-100">
-                  {registrations.length} inscrição(ões) encontrada(s)
+                  {paidRegistrations.length} cliente(s) pago(s) | {testRegistrations.length} cliente(s) teste
                 </p>
               </div>
             </div>
@@ -339,12 +346,26 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                   <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value as any)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
                   >
                     <option value="all">Todos</option>
                     <option value="pending">Pendentes</option>
                     <option value="approved">Aprovados</option>
                     <option value="rejected">Rejeitados</option>
+                  </select>
+                </div>
+
+                {/* Filtro de tipo de conta */}
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-gray-400" />
+                  <select
+                    value={filterAccountType}
+                    onChange={(e) => setFilterAccountType(e.target.value as any)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                  >
+                    <option value="all">Todos os tipos</option>
+                    <option value="paid">Clientes Pagos</option>
+                    <option value="test">Clientes Teste</option>
                   </select>
                 </div>
               </div>
@@ -363,58 +384,142 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                   <p className="text-sm">Não há inscrições que correspondam aos filtros</p>
                 </div>
               ) : (
-                <div className="space-y-2 p-4">
-                  {filteredRegistrations.map((registration) => (
-                    <div
-                      key={registration.id}
-                      onClick={() => setSelectedRegistration(registration)}
-                      className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedRegistration?.id === registration.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                        }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <User className="w-4 h-4 text-gray-400" />
-                            <span className="font-medium text-gray-900 truncate">
-                              {registration.client_name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <Building className="w-4 h-4 text-gray-400" />
-                            <span className="text-sm text-gray-600 truncate">
-                              {registration.establishment_name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Mail className="w-4 h-4 text-gray-400" />
-                            <span className="text-sm text-gray-500 truncate">
-                              {registration.email}
-                            </span>
-                          </div>
-                          {registration.client_whatsapp && (
-                            <div className="flex items-center gap-2">
-                              <Phone className="w-4 h-4 text-gray-400" />
-                              <span className="text-sm text-gray-500 truncate">
-                                {registration.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}
-                              </span>
-                            </div>
-                          )}
-                        </div>
+                <div className="space-y-6 p-4">
+                  {/* Seção Clientes Pagos */}
+                  {(filterAccountType === 'all' || filterAccountType === 'paid') && paidRegistrations.length > 0 && (
+                    <div>
+                      <div className="bg-blue-50 border-b-2 border-blue-300 px-4 py-2 mb-2 rounded-t-lg">
+                        <h3 className="text-sm font-bold text-blue-800 flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4" />
+                          CLIENTES PAGOS ({paidRegistrations.length})
+                        </h3>
+                      </div>
+                      <div className="space-y-2">
+                        {paidRegistrations.map((registration) => (
+                          <div
+                            key={registration.id}
+                            onClick={() => setSelectedRegistration(registration)}
+                            className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedRegistration?.id === registration.id
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                              }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <User className="w-4 h-4 text-gray-400" />
+                                  <span className="font-medium text-gray-900 truncate">
+                                    {registration.client_name}
+                                  </span>
+                                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
+                                    PAGO
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Building className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm text-gray-600 truncate">
+                                    {registration.establishment_name}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Mail className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm text-gray-500 truncate">
+                                    {registration.email}
+                                  </span>
+                                </div>
+                                {registration.client_whatsapp && (
+                                  <div className="flex items-center gap-2">
+                                    <Phone className="w-4 h-4 text-gray-400" />
+                                    <span className="text-sm text-gray-500 truncate">
+                                      {registration.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
 
-                        <div className="flex flex-col items-end gap-2">
-                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(registration.status)}`}>
-                            {getStatusIcon(registration.status)}
-                            {getStatusText(registration.status)}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {formatDate(registration.created_at)}
-                          </span>
-                        </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(registration.status)}`}>
+                                  {getStatusIcon(registration.status)}
+                                  {getStatusText(registration.status)}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  {formatDate(registration.created_at)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Seção Clientes Teste */}
+                  {(filterAccountType === 'all' || filterAccountType === 'test') && testRegistrations.length > 0 && (
+                    <div>
+                      <div className="bg-green-50 border-b-2 border-green-300 px-4 py-2 mb-2 rounded-t-lg">
+                        <h3 className="text-sm font-bold text-green-800 flex items-center gap-2">
+                          <UserPlus className="w-4 h-4" />
+                          CLIENTES TESTE ({testRegistrations.length})
+                        </h3>
+                      </div>
+                      <div className="space-y-2">
+                        {testRegistrations.map((registration) => (
+                          <div
+                            key={registration.id}
+                            onClick={() => setSelectedRegistration(registration)}
+                            className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedRegistration?.id === registration.id
+                              ? 'border-green-500 bg-green-50'
+                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                              }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <User className="w-4 h-4 text-gray-400" />
+                                  <span className="font-medium text-gray-900 truncate">
+                                    {registration.client_name}
+                                  </span>
+                                  <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-semibold">
+                                    TESTE
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Building className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm text-gray-600 truncate">
+                                    {registration.establishment_name}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Mail className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm text-gray-500 truncate">
+                                    {registration.email}
+                                  </span>
+                                </div>
+                                {registration.client_whatsapp && (
+                                  <div className="flex items-center gap-2">
+                                    <Phone className="w-4 h-4 text-gray-400" />
+                                    <span className="text-sm text-gray-500 truncate">
+                                      {registration.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex flex-col items-end gap-2">
+                                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(registration.status)}`}>
+                                  {getStatusIcon(registration.status)}
+                                  {getStatusText(registration.status)}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  {formatDate(registration.created_at)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -430,6 +535,16 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                   </h3>
 
                   <div className="space-y-4">
+                    {/* Badge de tipo de conta */}
+                    <div>
+                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold ${(selectedRegistration.account_type || 'paid') === 'paid'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-green-100 text-green-800'
+                        }`}>
+                        {(selectedRegistration.account_type || 'paid') === 'paid' ? 'CLIENTE PAGO' : 'CLIENTE TESTE'}
+                      </span>
+                    </div>
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Nome do Cliente
@@ -471,7 +586,10 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                             {selectedRegistration.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')}
                           </span>
                           <a
-                            href={`https://wa.me/55${selectedRegistration.client_whatsapp}?text=Olá,%20seja%20muito%20bem-vindo%20ao%20Agendei%20Fácil!%20🚀%0A%0ASomos%20o%20sistema%20de%20agendamentos%20mais%20completo%20do%20mercado%20e%20a%20sua%20conta%20foi%20criada%20com%20sucesso.%20🎉%0A%0AEu%20sou%20o%20Fernando,%20seu%20suporte%20pessoal,%20e%20estarei%20sempre%20à%20disposição%20para%20te%20ajudar.%0APodemos%20liberar%20seu%20acesso%20agora?%20✅`}
+                            href={`https://wa.me/55${selectedRegistration.client_whatsapp}?text=${selectedRegistration.account_type === 'test'
+                              ? 'Quero%20ativar%20minha%20conta%20de%20teste'
+                              : 'Olá,%20seja%20muito%20bem-vindo%20ao%20Agendei%20Fácil!%20🚀%0A%0ASomos%20o%20sistema%20de%20agendamentos%20mais%20completo%20do%20mercado%20e%20a%20sua%20conta%20foi%20criada%20com%20sucesso.%20🎉%0A%0AEu%20sou%20o%20Fernando,%20seu%20suporte%20pessoal,%20e%20estarei%20sempre%20à%20disposição%20para%20te%20ajudar.%0APodemos%20liberar%20seu%20acesso%20agora?%20✅'
+                              }`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="ml-2 bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-1 text-sm"

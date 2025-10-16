@@ -1,31 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
-import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
-import { AppDownloadLinks } from '../components/AppDownloadLinks';
-import { PWADownloadLink } from '../components/PWADownloadLink';
-import { NewRegistrations } from '../components/NewRegistrations';
-import { 
-  Building2, 
-  Calendar, 
-  DollarSign, 
-  Users, 
-  CheckCircle, 
-  XCircle, 
+import {
   AlertTriangle,
-  RefreshCw,
-  LogOut,
-  Search,
-  Filter,
-  Trash2,
-  Lock,
-  Unlock,
+  Building2,
+  CheckCircle,
   Eye,
   EyeOff,
   FileText,
-  Bell
+  Lock,
+  LogOut,
+  RefreshCw,
+  Search,
+  Trash2,
+  Unlock,
+  XCircle
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
+import { AppDownloadLinks } from '../components/AppDownloadLinks';
+import { NewRegistrations } from '../components/NewRegistrations';
+import { PWADownloadLink } from '../components/PWADownloadLink';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 interface Establishment {
   id: string;
@@ -34,7 +29,7 @@ interface Establishment {
   owner_id: string;
   created_at: string;
   payment_status: 'paid' | 'unpaid' | 'expired';
-  plan_type: 'monthly' | 'annual';
+  plan_type: 'monthly' | 'annual' | 'trial';
   payment_due_date: string;
   owner_email?: string;
   is_deleted?: boolean;
@@ -81,21 +76,21 @@ const AdminDashboard = () => {
     const checkAuth = async () => {
       try {
         const { data: { user: currentUser } } = await supabase.auth.getUser();
-        
+
         if (!currentUser) {
           navigate('/login');
           return;
         }
-        
+
         // Verificar se é conta de suporte
         const isSupport = currentUser.email === 'suporteagendeifacil@gmail.com';
-        
+
         if (!isSupport) {
           toast.error('Acesso negado. Apenas conta de suporte pode acessar esta página.');
           navigate('/');
           return;
         }
-        
+
         // Se chegou até aqui, pode carregar dados
         fetchEstablishments();
         fetchPendingRegistrationsCount();
@@ -104,7 +99,7 @@ const AdminDashboard = () => {
         navigate('/login');
       }
     };
-    
+
     checkAuth();
   }, []);
 
@@ -132,7 +127,7 @@ const AdminDashboard = () => {
       }
 
       const newCount = count || 0;
-      
+
       // Se o número aumentou, mostrar notificação
       if (newCount > pendingRegistrationsCount && pendingRegistrationsCount > 0) {
         toast.success(`🎉 Nova inscrição detectada! Total: ${newCount}`, {
@@ -140,17 +135,17 @@ const AdminDashboard = () => {
           icon: '📝'
         });
       }
-      
+
       setPendingRegistrationsCount(newCount);
     } catch (error) {
       console.error('Erro:', error);
     }
   };
 
-    const fetchEstablishments = async () => {
+  const fetchEstablishments = async () => {
     try {
       setIsLoading(true);
-      
+
       // Buscar todos os estabelecimentos (não excluídos)
       const { data: establishmentsData, error: establishmentsError } = await supabase
         .from('establishments')
@@ -187,8 +182,8 @@ const AdminDashboard = () => {
           payment_due_date: establishment.payment_due_date || establishment.created_at,
           is_blocked: establishment.is_blocked || false
         };
-        
-                 return processedEstablishment;
+
+        return processedEstablishment;
       });
 
       // Combinar dados dos estabelecimentos excluídos
@@ -206,7 +201,7 @@ const AdminDashboard = () => {
 
       setEstablishments(establishmentsWithEmails);
       setDeletedEstablishments(deletedWithEmails);
-      
+
       // Verificar e atualizar status vencidos automaticamente
       await checkAndUpdateExpiredStatus();
     } catch (error) {
@@ -220,12 +215,25 @@ const AdminDashboard = () => {
   const updatePaymentStatus = async (establishmentId: string, status: 'paid' | 'unpaid' | 'expired') => {
     try {
       let updateData: any = { payment_status: status };
-      
-      // Se está marcando como PAGO, calcular próximo vencimento
+
+      // Se está marcando como PAGO, calcular próximo vencimento baseado no tipo de plano
       if (status === 'paid') {
+        const establishment = establishments.find(est => est.id === establishmentId);
         const today = new Date();
-        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
-        updateData.payment_due_date = nextMonth.toISOString().split('T')[0];
+        let nextDueDate: Date;
+
+        if (establishment?.plan_type === 'trial') {
+          // Plano de 7 dias: adiciona 7 dias
+          nextDueDate = new Date(today.getTime() + (7 * 24 * 60 * 60 * 1000));
+        } else if (establishment?.plan_type === 'annual') {
+          // Plano anual: adiciona 1 ano
+          nextDueDate = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());
+        } else {
+          // Plano mensal: adiciona 1 mês (padrão)
+          nextDueDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+        }
+
+        updateData.payment_due_date = nextDueDate.toISOString().split('T')[0];
       }
 
       const { error } = await supabase
@@ -235,14 +243,14 @@ const AdminDashboard = () => {
 
       if (error) throw error;
 
-      setEstablishments(prev => 
-        prev.map(est => 
-          est.id === establishmentId 
-            ? { 
-                ...est, 
-                payment_status: status,
-                payment_due_date: status === 'paid' ? updateData.payment_due_date : est.payment_due_date
-              }
+      setEstablishments(prev =>
+        prev.map(est =>
+          est.id === establishmentId
+            ? {
+              ...est,
+              payment_status: status,
+              payment_due_date: status === 'paid' ? updateData.payment_due_date : est.payment_due_date
+            }
             : est
         )
       );
@@ -254,7 +262,7 @@ const AdminDashboard = () => {
     }
   };
 
-  const updatePlanType = async (establishmentId: string, planType: 'monthly' | 'annual') => {
+  const updatePlanType = async (establishmentId: string, planType: 'monthly' | 'annual' | 'trial') => {
     try {
       const { error } = await supabase
         .from('establishments')
@@ -263,9 +271,9 @@ const AdminDashboard = () => {
 
       if (error) throw error;
 
-      setEstablishments(prev => 
-        prev.map(est => 
-          est.id === establishmentId 
+      setEstablishments(prev =>
+        prev.map(est =>
+          est.id === establishmentId
             ? { ...est, plan_type: planType }
             : est
         )
@@ -287,9 +295,9 @@ const AdminDashboard = () => {
 
       if (error) throw error;
 
-      setEstablishments(prev => 
-        prev.map(est => 
-          est.id === establishmentId 
+      setEstablishments(prev =>
+        prev.map(est =>
+          est.id === establishmentId
             ? { ...est, payment_due_date: dueDate }
             : est
         )
@@ -305,7 +313,7 @@ const AdminDashboard = () => {
   // Função para bloquear/desbloquear estabelecimento
   const toggleBlockEstablishment = async (establishmentId: string, isBlocked: boolean) => {
     try {
-      
+
       const { data, error } = await supabase
         .from('establishments')
         .update({ is_blocked: !isBlocked })
@@ -317,9 +325,9 @@ const AdminDashboard = () => {
         throw error;
       }
 
-      setEstablishments(prev => 
-        prev.map(est => 
-          est.id === establishmentId 
+      setEstablishments(prev =>
+        prev.map(est =>
+          est.id === establishmentId
             ? { ...est, is_blocked: !isBlocked }
             : est
         )
@@ -335,17 +343,17 @@ const AdminDashboard = () => {
   // Função para remover para a lixeira (mover para estabelecimentos excluídos)
   const removeFromList = async (establishmentId: string) => {
     let establishmentToDelete: Establishment | undefined;
-    
+
     try {
       // Encontrar o estabelecimento para adicionar à lista de excluídos
       establishmentToDelete = establishments.find(est => est.id === establishmentId);
       if (establishmentToDelete) {
         setDeletedEstablishments(prev => [...prev, establishmentToDelete]);
       }
-      
+
       // Remover da lista de estabelecimentos ativos
       setEstablishments(prev => prev.filter(est => est.id !== establishmentId));
-      
+
       // Marcar como excluído no banco de dados
       const { error } = await supabase
         .from('establishments')
@@ -373,10 +381,10 @@ const AdminDashboard = () => {
       if (establishmentToDelete) {
         setDeletedEstablishments(prev => [...prev, establishmentToDelete]);
       }
-      
+
       // Remover da lista de estabelecimentos ativos
       setEstablishments(prev => prev.filter(est => est.id !== establishmentId));
-      
+
       // Marcar como excluído no banco de dados
       const { error } = await supabase
         .from('establishments')
@@ -404,10 +412,10 @@ const AdminDashboard = () => {
       if (establishmentToRestore) {
         setEstablishments(prev => [...prev, establishmentToRestore]);
       }
-      
+
       // Remover da lista de estabelecimentos excluídos
       setDeletedEstablishments(prev => prev.filter(est => est.id !== establishmentId));
-      
+
       // Marcar como não excluído no banco de dados
       const { error } = await supabase
         .from('establishments')
@@ -458,13 +466,13 @@ const AdminDashboard = () => {
       // Mostrar a senha real e informações do usuário
       setUserPassword(userData.real_password || 'Senha não encontrada');
       setUserInfo(userData);
-      
+
       if (userData.password_found) {
         toast.success('Usuário encontrado! Senha descoberta!');
       } else {
         toast.warning('Usuário encontrado, mas senha não é comum');
       }
-      
+
     } catch (error) {
       console.error('Erro ao buscar usuário:', error);
       toast.error('Erro ao buscar usuário');
@@ -487,9 +495,9 @@ const AdminDashboard = () => {
     try {
       // Gerar senha aleatória
       const secondPassword = Math.random().toString(36).slice(-8);
-      
+
       console.log('🔑 Criando segunda senha:', secondPassword);
-      
+
       const { data, error } = await supabase
         .rpc('set_second_password', {
           establishment_id: establishmentId,
@@ -504,7 +512,7 @@ const AdminDashboard = () => {
 
       console.log('✅ SEGUNDA SENHA CRIADA!');
       console.log('📊 Dados retornados:', data);
-      
+
       // Verificar se foi salva
       const { data: checkData, error: checkError } = await supabase
         .rpc('get_establishment_second_password', {
@@ -516,9 +524,9 @@ const AdminDashboard = () => {
       } else {
         console.log('✅ VERIFICAÇÃO:', checkData);
       }
-      
+
       toast.success(`🔑 Segunda senha criada: ${secondPassword}`);
-      
+
     } catch (error) {
       console.error('💥 ERRO:', error);
       toast.error(`Erro: ${error.message}`);
@@ -529,7 +537,7 @@ const AdminDashboard = () => {
   const checkAndUpdateExpiredStatus = async () => {
     try {
       const today = new Date();
-      
+
       // 1. Verificar estabelecimentos que venceu (não pagos)
       const expiredEstablishments = establishments.filter(est => {
         if (est.payment_status === 'paid') return false; // Pulos não podem estar vencidos
@@ -561,10 +569,10 @@ const AdminDashboard = () => {
       }
 
       // Atualizar estado local
-      setEstablishments(prev => 
+      setEstablishments(prev =>
         prev.map(est => {
           const dueDate = new Date(est.payment_due_date);
-          
+
           if (est.payment_status === 'paid' && dueDate < today) {
             // Pagos que venceu → voltar para unpaid
             return { ...est, payment_status: 'unpaid' };
@@ -572,7 +580,7 @@ const AdminDashboard = () => {
             // Não pagos que venceu → marcar como expired
             return { ...est, payment_status: 'expired' };
           }
-          
+
           return est;
         })
       );
@@ -606,12 +614,12 @@ const AdminDashboard = () => {
 
   const filteredEstablishments = establishments.filter(establishment => {
     const matchesSearch = establishment.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         establishment.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         establishment.owner_email.toLowerCase().includes(searchTerm.toLowerCase());
-    
+      establishment.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      establishment.owner_email.toLowerCase().includes(searchTerm.toLowerCase());
+
     const matchesStatus = filterStatus === 'all' || establishment.payment_status === filterStatus;
     const matchesPlan = filterPlan === 'all' || establishment.plan_type === filterPlan;
-    
+
     return matchesSearch && matchesStatus && matchesPlan;
   });
 
@@ -671,7 +679,7 @@ const AdminDashboard = () => {
                   <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-ping"></div>
                 )}
               </button>
-              
+
               <button
                 onClick={() => setShowPasswordModal(true)}
                 className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -692,9 +700,9 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-             <div className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6">
-                 {/* Stats */}
-         <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
+      <div className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6">
+        {/* Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <Building2 className="h-8 w-8 text-blue-600" />
@@ -704,7 +712,7 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <CheckCircle className="h-8 w-8 text-green-600" />
@@ -716,7 +724,7 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <AlertTriangle className="h-8 w-8 text-yellow-600" />
@@ -728,14 +736,14 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <XCircle className="h-8 w-8 text-red-600" />
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Vencidos</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {establishments.filter(e => 
+                  {establishments.filter(e =>
                     e.payment_status === 'expired' || isExpired(e.payment_due_date)
                   ).length}
                 </p>
@@ -743,93 +751,94 @@ const AdminDashboard = () => {
             </div>
           </div>
 
-                     <div className="bg-white rounded-lg shadow p-6">
-             <div className="flex items-center">
-               <Lock className="h-8 w-8 text-red-600" />
-               <div className="ml-4">
-                 <p className="text-sm font-medium text-gray-600">Bloqueados</p>
-                 <p className="text-2xl font-bold text-gray-900">
-                   {establishments.filter(e => e.is_blocked).length}
-                 </p>
-               </div>
-             </div>
-           </div>
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <Lock className="h-8 w-8 text-red-600" />
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Bloqueados</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {establishments.filter(e => e.is_blocked).length}
+                </p>
+              </div>
+            </div>
+          </div>
 
-           <div className="bg-white rounded-lg shadow p-6">
-             <div className="flex items-center">
-               <Trash2 className="h-8 w-8 text-gray-600" />
-               <div className="ml-4">
-                 <p className="text-sm font-medium text-gray-600">Na Lixeira</p>
-                 <p className="text-2xl font-bold text-gray-900">
-                   {deletedEstablishments.length}
-                 </p>
-               </div>
-             </div>
-           </div>
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <Trash2 className="h-8 w-8 text-gray-600" />
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Na Lixeira</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {deletedEstablishments.length}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
-                 {/* Filters */}
-         <div className="bg-white rounded-lg shadow p-4 mb-6">
-           <div className="flex flex-col sm:flex-row gap-3">
-             <div className="flex-1">
-               <div className="relative">
-                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                 <input
-                   type="text"
-                   placeholder="Buscar..."
-                   value={searchTerm}
-                   onChange={(e) => setSearchTerm(e.target.value)}
-                   className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                 />
-               </div>
-             </div>
-             
-             <select
-               value={filterStatus}
-               onChange={(e) => setFilterStatus(e.target.value as any)}
-               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-             >
-               <option value="all">Todos Status</option>
-               <option value="paid">Pagos</option>
-               <option value="unpaid">Pendentes</option>
-               <option value="expired">Vencidos</option>
-             </select>
-             
-             <select
-               value={filterPlan}
-               onChange={(e) => setFilterPlan(e.target.value as any)}
-               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-             >
-               <option value="all">Todos Planos</option>
-               <option value="monthly">Mensal</option>
-               <option value="annual">Anual</option>
-             </select>
-             
-             <button
-               onClick={fetchEstablishments}
-               className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-1 text-sm"
-             >
-               <RefreshCw className="h-4 w-4" />
-               <span>Atualizar</span>
-             </button>
-             
-             <button
-               onClick={checkAndUpdateExpiredStatus}
-               className="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-1 text-sm"
-               title="Verificar e atualizar status vencidos"
-             >
-               <AlertTriangle className="h-4 w-4" />
-               <span>Verificar Vencidos</span>
-             </button>
-           </div>
-         </div>
+        {/* Filters */}
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                />
+              </div>
+            </div>
+
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            >
+              <option value="all">Todos Status</option>
+              <option value="paid">Pagos</option>
+              <option value="unpaid">Pendentes</option>
+              <option value="expired">Vencidos</option>
+            </select>
+
+            <select
+              value={filterPlan}
+              onChange={(e) => setFilterPlan(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            >
+              <option value="all">Todos Planos</option>
+              <option value="monthly">Mensal</option>
+              <option value="annual">Anual</option>
+              <option value="trial">7 dias</option>
+            </select>
+
+            <button
+              onClick={fetchEstablishments}
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-1 text-sm"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Atualizar</span>
+            </button>
+
+            <button
+              onClick={checkAndUpdateExpiredStatus}
+              className="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-1 text-sm"
+              title="Verificar e atualizar status vencidos"
+            >
+              <AlertTriangle className="h-4 w-4" />
+              <span>Verificar Vencidos</span>
+            </button>
+          </div>
+        </div>
 
         {/* Establishments List */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">Estabelecimentos</h2>
           </div>
-          
+
           {isLoading ? (
             <div className="p-8 text-center">
               <RefreshCw className="h-8 w-8 text-blue-600 animate-spin mx-auto mb-4" />
@@ -843,77 +852,78 @@ const AdminDashboard = () => {
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                                 <thead className="bg-gray-50">
-                   <tr>
-                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
-                       Estabelecimento
-                     </th>
-                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
-                       Código
-                     </th>
-                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
-                       Status
-                     </th>
-                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
-                       Plano
-                     </th>
-                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                       Vencimento
-                     </th>
-                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">
-                       Ações
-                     </th>
-                   </tr>
-                 </thead>
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
+                      Estabelecimento
+                    </th>
+                    <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                      Código
+                    </th>
+                    <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                      Status
+                    </th>
+                    <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                      Plano
+                    </th>
+                    <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                      Vencimento
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">
+                      Ações
+                    </th>
+                  </tr>
+                </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                                     {filteredEstablishments.map((establishment) => (
-                     <tr key={establishment.id} className={isExpired(establishment.payment_due_date) ? 'bg-red-50' : ''}>
-                       <td className="px-3 py-4">
-                         <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
-                         <div className="text-xs text-gray-500">
-                           {new Date(establishment.created_at).toLocaleDateString('pt-BR')}
-                         </div>
-                       </td>
-                       
-                       <td className="px-2 py-4">
-                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                           {establishment.code}
-                         </span>
-                       </td>
-                       
-                       <td className="px-2 py-4">
-                         <div className="flex items-center">
-                           {getStatusIcon(establishment)}
-                           <span className={`ml-1 text-xs font-medium ${getStatusColor(establishment)}`}>
-                             {establishment.is_blocked ? 'Bloqueado' : 
-                              establishment.payment_status === 'paid' ? 'Pago' : 
-                              establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date) ? 'Vencido' : 'Pendente'}
-                           </span>
-                         </div>
-                       </td>
-                       
-                       <td className="px-2 py-4">
-                         <select
-                           value={establishment.plan_type}
-                           onChange={(e) => updatePlanType(establishment.id, e.target.value as 'monthly' | 'annual')}
-                           className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
-                         >
-                           <option value="monthly">Mensal</option>
-                           <option value="annual">Anual</option>
-                         </select>
-                       </td>
-                       
-                       <td className="px-2 py-4">
-                         <input
-                           type="date"
-                           value={establishment.payment_due_date.split('T')[0]}
-                           onChange={(e) => updatePaymentDueDate(establishment.id, e.target.value)}
-                           className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
-                         />
-                       </td>
-                       
-                       <td className="px-3 py-4 text-sm font-medium">
-                                                 <div className="flex flex-wrap gap-1">
+                  {filteredEstablishments.map((establishment) => (
+                    <tr key={establishment.id} className={isExpired(establishment.payment_due_date) ? 'bg-red-50' : ''}>
+                      <td className="px-3 py-4">
+                        <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(establishment.created_at).toLocaleDateString('pt-BR')}
+                        </div>
+                      </td>
+
+                      <td className="px-2 py-4">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          {establishment.code}
+                        </span>
+                      </td>
+
+                      <td className="px-2 py-4">
+                        <div className="flex items-center">
+                          {getStatusIcon(establishment)}
+                          <span className={`ml-1 text-xs font-medium ${getStatusColor(establishment)}`}>
+                            {establishment.is_blocked ? 'Bloqueado' :
+                              establishment.payment_status === 'paid' ? 'Pago' :
+                                establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date) ? 'Vencido' : 'Pendente'}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="px-2 py-4">
+                        <select
+                          value={establishment.plan_type}
+                          onChange={(e) => updatePlanType(establishment.id, e.target.value as 'monthly' | 'annual' | 'trial')}
+                          className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
+                        >
+                          <option value="monthly">Mensal</option>
+                          <option value="annual">Anual</option>
+                          <option value="trial">7 dias</option>
+                        </select>
+                      </td>
+
+                      <td className="px-2 py-4">
+                        <input
+                          type="date"
+                          value={establishment.payment_due_date.split('T')[0]}
+                          onChange={(e) => updatePaymentDueDate(establishment.id, e.target.value)}
+                          className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
+                        />
+                      </td>
+
+                      <td className="px-3 py-4 text-sm font-medium">
+                        <div className="flex flex-wrap gap-1">
                           <button
                             onClick={() => createSecondPassword(establishment.id, establishment.name)}
                             className="text-green-600 hover:text-green-900 text-xs px-2 py-0.5 border border-green-300 rounded hover:bg-green-50 font-medium"
@@ -921,52 +931,51 @@ const AdminDashboard = () => {
                           >
                             2ª Senha
                           </button>
-                           <button
-                             onClick={() => updatePaymentStatus(establishment.id, 'paid')}
-                             className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50"
-                             title="Marcar Pago"
-                           >
-                             Pago
-                           </button>
-                           <button
-                             onClick={() => updatePaymentStatus(establishment.id, 'unpaid')}
-                             className="text-yellow-600 hover:text-yellow-900 text-xs px-1 py-0.5 border border-yellow-300 rounded hover:bg-yellow-50"
-                             title="Marcar Pendente"
-                           >
-                             Pend
-                           </button>
-                           <button
-                             onClick={() => updatePaymentStatus(establishment.id, 'expired')}
-                             className="text-red-600 hover:text-red-900 text-xs px-1 py-0.5 border border-red-300 rounded hover:bg-red-50"
-                             title="Marcar Vencido"
-                           >
-                             Venc
-                           </button>
-                           <button
-                             onClick={() => toggleBlockEstablishment(establishment.id, establishment.is_blocked || false)}
-                             className={`text-xs px-1 py-0.5 border rounded flex items-center ${
-                               establishment.is_blocked 
-                                 ? 'text-green-600 border-green-300 hover:bg-green-50 hover:text-green-900' 
-                                 : 'text-red-600 border-red-300 hover:bg-red-50 hover:text-red-900'
-                             }`}
-                             title={establishment.is_blocked ? 'Desbloquear' : 'Bloquear'}
-                           >
-                             {establishment.is_blocked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                           </button>
-                           <button
-                             onClick={() => removeFromList(establishment.id)}
-                             className="text-gray-600 hover:text-gray-900 text-xs px-1 py-0.5 border border-gray-300 rounded hover:bg-gray-50"
-                             title="Remover da Lista"
-                           >
-                             <Trash2 className="h-3 w-3" />
-                           </button>
-                         </div>
+                          <button
+                            onClick={() => updatePaymentStatus(establishment.id, 'paid')}
+                            className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50"
+                            title="Marcar Pago"
+                          >
+                            Pago
+                          </button>
+                          <button
+                            onClick={() => updatePaymentStatus(establishment.id, 'unpaid')}
+                            className="text-yellow-600 hover:text-yellow-900 text-xs px-1 py-0.5 border border-yellow-300 rounded hover:bg-yellow-50"
+                            title="Marcar Pendente"
+                          >
+                            Pend
+                          </button>
+                          <button
+                            onClick={() => updatePaymentStatus(establishment.id, 'expired')}
+                            className="text-red-600 hover:text-red-900 text-xs px-1 py-0.5 border border-red-300 rounded hover:bg-red-50"
+                            title="Marcar Vencido"
+                          >
+                            Venc
+                          </button>
+                          <button
+                            onClick={() => toggleBlockEstablishment(establishment.id, establishment.is_blocked || false)}
+                            className={`text-xs px-1 py-0.5 border rounded flex items-center ${establishment.is_blocked
+                              ? 'text-green-600 border-green-300 hover:bg-green-50 hover:text-green-900'
+                              : 'text-red-600 border-red-300 hover:bg-red-50 hover:text-red-900'
+                              }`}
+                            title={establishment.is_blocked ? 'Desbloquear' : 'Bloquear'}
+                          >
+                            {establishment.is_blocked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                          </button>
+                          <button
+                            onClick={() => removeFromList(establishment.id)}
+                            className="text-gray-600 hover:text-gray-900 text-xs px-1 py-0.5 border border-gray-300 rounded hover:bg-gray-50"
+                            title="Remover da Lista"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              
+
               {filteredEstablishments.length === 0 && (
                 <div className="text-center py-8">
                   <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -974,51 +983,51 @@ const AdminDashboard = () => {
                 </div>
               )}
 
-                                                           {/* Estabelecimentos Excluídos - Lixeira */}
-                {deletedEstablishments.length > 0 && (
-                  <div className="border-t border-gray-200 pt-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-                        <Trash2 className="h-5 w-5 text-gray-500 mr-2" />
-                        Lixeira ({deletedEstablishments.length})
-                      </h3>
-                      <button
-                        onClick={() => setShowDeleted(!showDeleted)}
-                        className="text-sm text-gray-600 hover:text-gray-900"
-                      >
-                        {showDeleted ? 'Ocultar' : 'Mostrar'} lixeira
-                      </button>
-                    </div>
-                    
-                    {showDeleted && (
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <div className="space-y-3">
-                          {deletedEstablishments.map(establishment => (
-                            <div key={establishment.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
-                              <div className="flex items-center space-x-4">
-                                <div>
-                                  <span className="text-sm font-medium text-gray-900">{establishment.name}</span>
-                                  <div className="flex space-x-2 mt-1">
-                                    <span className="text-xs text-gray-500">Código: {establishment.code}</span>
-                                    <span className="text-xs text-gray-500">•</span>
-                                    <span className="text-xs text-gray-500">{establishment.owner_email}</span>
-                                  </div>
+              {/* Estabelecimentos Excluídos - Lixeira */}
+              {deletedEstablishments.length > 0 && (
+                <div className="border-t border-gray-200 pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <Trash2 className="h-5 w-5 text-gray-500 mr-2" />
+                      Lixeira ({deletedEstablishments.length})
+                    </h3>
+                    <button
+                      onClick={() => setShowDeleted(!showDeleted)}
+                      className="text-sm text-gray-600 hover:text-gray-900"
+                    >
+                      {showDeleted ? 'Ocultar' : 'Mostrar'} lixeira
+                    </button>
+                  </div>
+
+                  {showDeleted && (
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="space-y-3">
+                        {deletedEstablishments.map(establishment => (
+                          <div key={establishment.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+                            <div className="flex items-center space-x-4">
+                              <div>
+                                <span className="text-sm font-medium text-gray-900">{establishment.name}</span>
+                                <div className="flex space-x-2 mt-1">
+                                  <span className="text-xs text-gray-500">Código: {establishment.code}</span>
+                                  <span className="text-xs text-gray-500">•</span>
+                                  <span className="text-xs text-gray-500">{establishment.owner_email}</span>
                                 </div>
                               </div>
-                              <button
-                                onClick={() => restoreEstablishment(establishment.id)}
-                                className="text-blue-600 hover:text-blue-900 text-xs px-3 py-1 border border-blue-300 rounded hover:bg-blue-50 flex items-center"
-                              >
-                                <RefreshCw className="h-3 w-3 mr-1" />
-                                Restaurar
-                              </button>
                             </div>
-                          ))}
-                        </div>
+                            <button
+                              onClick={() => restoreEstablishment(establishment.id)}
+                              className="text-blue-600 hover:text-blue-900 text-xs px-3 py-1 border border-blue-300 rounded hover:bg-blue-50 flex items-center"
+                            >
+                              <RefreshCw className="h-3 w-3 mr-1" />
+                              Restaurar
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1037,7 +1046,7 @@ const AdminDashboard = () => {
                 <XCircle className="h-6 w-6" />
               </button>
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
@@ -1052,7 +1061,7 @@ const AdminDashboard = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
-              
+
               <button
                 onClick={checkUserPassword}
                 disabled={isLoadingPassword}
@@ -1065,7 +1074,7 @@ const AdminDashboard = () => {
                 )}
                 Ver Acesso
               </button>
-              
+
               {userInfo && (
                 <div className="mt-4 space-y-3">
                   <div className="p-3 bg-blue-50 rounded-lg">
@@ -1082,7 +1091,7 @@ const AdminDashboard = () => {
                       )}
                     </div>
                   </div>
-                  
+
                   <div className={`p-3 rounded-lg border ${userInfo.password_found ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Senha Real do Usuário:
@@ -1092,9 +1101,8 @@ const AdminDashboard = () => {
                         type={showPassword ? "text" : "password"}
                         value={userPassword}
                         readOnly
-                        className={`flex-1 px-3 py-2 border rounded-lg bg-white text-gray-900 text-sm font-mono ${
-                          userInfo.password_found ? 'border-green-300 text-green-800' : 'border-yellow-300 text-yellow-800'
-                        }`}
+                        className={`flex-1 px-3 py-2 border rounded-lg bg-white text-gray-900 text-sm font-mono ${userInfo.password_found ? 'border-green-300 text-green-800' : 'border-yellow-300 text-yellow-800'
+                          }`}
                       />
                       <button
                         type="button"
@@ -1109,8 +1117,8 @@ const AdminDashboard = () => {
                       </button>
                     </div>
                     <p className={`text-xs mt-1 ${userInfo.password_found ? 'text-green-600' : 'text-yellow-600'}`}>
-                      {userInfo.password_found 
-                        ? '✅ Senha descoberta com sucesso!' 
+                      {userInfo.password_found
+                        ? '✅ Senha descoberta com sucesso!'
                         : '⚠️ Senha não é comum (não foi possível descobrir)'
                       }
                     </p>
@@ -1118,7 +1126,7 @@ const AdminDashboard = () => {
                 </div>
               )}
             </div>
-            
+
             <div className="mt-6 flex justify-end space-x-3">
               <button
                 onClick={closePasswordModal}
@@ -1146,7 +1154,7 @@ const AdminDashboard = () => {
         <div className="max-w-4xl mx-auto space-y-6">
           {/* PWA Link (App Web) */}
           <PWADownloadLink />
-          
+
           {/* Links de Lojas */}
           <AppDownloadLinks />
         </div>
