@@ -146,6 +146,8 @@ export interface Database {
           establishment_id: string;
           name: string;
           amount: number;
+          professional?: string;
+          expense_date: string;
           created_at: string;
           updated_at: string;
         };
@@ -153,10 +155,14 @@ export interface Database {
           establishment_id: string;
           name: string;
           amount: number;
+          professional?: string;
+          expense_date: string;
         };
         Update: {
           name?: string;
           amount?: number;
+          professional?: string;
+          expense_date?: string;
         };
       }
     }

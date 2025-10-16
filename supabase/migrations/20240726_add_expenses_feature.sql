@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS establishment_expenses (
     establishment_id UUID NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
+    professional TEXT,
+    expense_date DATE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -15,6 +17,8 @@ CREATE TABLE IF NOT EXISTS establishment_expenses (
 COMMENT ON TABLE establishment_expenses IS 'Despesas cadastradas pelos estabelecimentos';
 COMMENT ON COLUMN establishment_expenses.name IS 'Nome/descrição da despesa';
 COMMENT ON COLUMN establishment_expenses.amount IS 'Valor da despesa em reais';
+COMMENT ON COLUMN establishment_expenses.professional IS 'Nome do profissional que registrou a despesa';
+COMMENT ON COLUMN establishment_expenses.expense_date IS 'Data específica da despesa (para filtro por mês)';
 
 -- Índices para performance
 CREATE INDEX IF NOT EXISTS idx_establishment_expenses_establishment_id 

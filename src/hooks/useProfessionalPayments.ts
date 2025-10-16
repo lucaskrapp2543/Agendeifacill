@@ -104,9 +104,25 @@ export const useProfessionalPayments = (establishmentId: string, selectedMonth?:
   const getPaymentSummary = (professionalId: string): PaymentSummary => {
     const professionalPayments = payments.filter(p => p.professional_id === professionalId);
 
-    const totalPaid = professionalPayments.reduce((sum, payment) => sum + payment.amount, 0);
+    // Separar pagamentos positivos (pagamentos) e negativos (retiradas)
+    const positivePayments = professionalPayments.filter(p => p.amount > 0);
+    const negativePayments = professionalPayments.filter(p => p.amount < 0);
+
+    // Total pago = soma dos pagamentos positivos
+    const totalPaid = positivePayments.reduce((sum, payment) => sum + payment.amount, 0);
+
+    // Total retirado = soma dos valores negativos (convertidos para positivo)
+    const totalWithdrawn = Math.abs(negativePayments.reduce((sum, payment) => sum + payment.amount, 0));
+
     const lastPayment = professionalPayments[0]; // Já ordenado por data decrescente
     const paymentCount = professionalPayments.length;
+
+    console.log('💰 Resumo de pagamentos para', professionalId, ':', {
+      totalPaid,
+      totalWithdrawn,
+      paymentCount,
+      allPayments: professionalPayments.map(p => ({ amount: p.amount, date: p.payment_date }))
+    });
 
     return {
       totalPaid,

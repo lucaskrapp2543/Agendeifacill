@@ -1,13 +1,14 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Image as ImageIcon, Layers, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 import { DraggableServiceList } from '../components/DraggableServiceList';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
+import { ExpensesManager } from '../components/ExpensesManager';
 import { FinancialDashboard } from '../components/FinancialDashboard';
 import { GoalModalSimple } from '../components/GoalModalSimple';
 import { GoalProgressBar } from '../components/GoalProgressBar';
@@ -28,7 +29,7 @@ import { UpdateButton } from '../components/UpdateButton';
 import { ValidityDisplay } from '../components/ValidityDisplay';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
-import { addExpense, createEstablishment, deleteExpense, getEstablishmentPremiumSubscribers, getExpenses, getExpensesTotal, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
+import { addExpense, createEstablishment, deleteExpense, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
 
 interface BusinessHours {
   enabled: boolean;
@@ -109,7 +110,7 @@ interface Establishment {
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw';
 
 interface AdditionalProduct {
   name: string;
@@ -426,6 +427,7 @@ const EstablishmentDashboard = () => {
   // Estados para despesas
   const [expenses, setExpenses] = useState<any[]>([]);
   const [expensesTotal, setExpensesTotal] = useState(0);
+  const [allProfessionalPayments, setAllProfessionalPayments] = useState<any[]>([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [showExpensesList, setShowExpensesList] = useState(false);
   const [newExpenseName, setNewExpenseName] = useState('');
@@ -3027,13 +3029,66 @@ Estamos te aguardando! 😎✂️`;
     }
   }, [establishment, activeTab]);
 
+  // Funções para gerenciar despesas
+  const loadExpenses = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    try {
+      // Calcular período do mês selecionado
+      const startDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+      const endDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+
+      console.log('💰 Carregando despesas para o mês:', selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
+      console.log('📅 Período:', startDate.toISOString(), 'até', endDate.toISOString());
+      console.log('🔍 Establishment ID:', establishment.id);
+
+      const expensesData = await getExpensesByMonth(establishment.id, startDate.toISOString(), endDate.toISOString());
+
+      console.log('💰 Despesas carregadas:', expensesData.length);
+      console.log('📋 Despesas encontradas:', expensesData);
+
+      setExpenses(expensesData);
+
+      // Calcular total das despesas do mês
+      const total = expensesData.reduce((sum, expense) => sum + expense.amount, 0);
+      setExpensesTotal(total);
+
+      console.log('💰 Total de despesas:', total);
+    } catch (error) {
+      console.error('❌ Erro ao carregar despesas:', error);
+    }
+  }, [establishment?.id, selectedMonth]);
+
+  const loadProfessionalPayments = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('professional_payments')
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .order('payment_date', { ascending: false });
+
+      if (error) {
+        console.error('❌ Erro ao carregar pagamentos profissionais:', error);
+        return;
+      }
+
+      setAllProfessionalPayments(data || []);
+      console.log('💰 Pagamentos profissionais carregados:', data?.length || 0);
+    } catch (error) {
+      console.error('❌ Erro ao carregar pagamentos profissionais:', error);
+    }
+  }, [establishment?.id]);
+
   // Carregar assinantes pagos e despesas quando trocar de aba ou estabelecimento mudar
   useEffect(() => {
     if (establishment?.id && establishment.professionals && establishment.professionals.length > 0) {
       loadPaidSubscribers();
       loadExpenses();
+      loadProfessionalPayments();
     }
-  }, [establishment?.id, activeTab, establishment?.professionals]);
+  }, [establishment?.id, activeTab, establishment?.professionals, selectedMonth, loadExpenses, loadProfessionalPayments]);
 
   // Removido useEffect que causava loop infinito
 
@@ -3133,8 +3188,29 @@ Estamos te aguardando! 😎✂️`;
       return total;
     }, 0);
 
-    // Líquido do estabelecimento = Líquido total - O que você paga para outros
-    return totalGross - expenses - totalCardTaxes - totalPaidToOthers;
+    // Calcular total de retiradas dos profissionais (valores negativos)
+    // Buscar pagamentos do mês atual para calcular retiradas
+    const currentMonthPayments = allProfessionalPayments.filter(payment => {
+      const paymentDate = new Date(payment.payment_date);
+      return paymentDate.getFullYear() === selectedMonth.getFullYear() &&
+        paymentDate.getMonth() === selectedMonth.getMonth();
+    });
+
+    const totalWithdrawals = currentMonthPayments
+      .filter(payment => payment.amount < 0)
+      .reduce((total, payment) => total + Math.abs(payment.amount), 0);
+
+    console.log('💰 Cálculo Líquido Estabelecimento:', {
+      totalGross,
+      expenses,
+      totalCardTaxes,
+      totalPaidToOthers,
+      totalWithdrawals,
+      result: totalGross - expenses - totalCardTaxes - totalPaidToOthers + totalWithdrawals
+    });
+
+    // Líquido do estabelecimento = Líquido total - O que você paga para outros + Retiradas
+    return totalGross - expenses - totalCardTaxes - totalPaidToOthers + totalWithdrawals;
   };
 
   // Função para calcular valor bruto mensal do profissional selecionado
@@ -3603,23 +3679,6 @@ Estamos te aguardando! 😎✂️`;
   };
 
   // Função para buscar assinantes pagos do Supabase
-  // Funções para gerenciar despesas
-  const loadExpenses = async () => {
-    if (!establishment?.id) return;
-
-    try {
-      const expensesData = await getExpenses(establishment.id);
-      setExpenses(expensesData);
-
-      const total = await getExpensesTotal(establishment.id);
-      setExpensesTotal(total);
-
-      console.log('💰 Despesas carregadas:', expensesData);
-      console.log('💰 Total de despesas:', total);
-    } catch (error) {
-      console.error('❌ Erro ao carregar despesas:', error);
-    }
-  };
 
   const handleAddExpense = async () => {
     if (!newExpenseName.trim() || !newExpenseAmount.trim()) {
@@ -6030,9 +6089,10 @@ Estamos te aguardando! 😎✂️`;
 
   // Função para atualizar o mês selecionado
   const handleMonthChange = async (newMonth: Date) => {
+    console.log('📅 Mudando mês para:', newMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
     setSelectedMonth(newMonth);
     await fetchMonthlyAppointments(newMonth);
-    await loadExpenses(); // Recarregar despesas também
+    // loadExpenses será chamado automaticamente pelo useEffect quando selectedMonth mudar
   };
 
   // Função para fechar o modal de senha e voltar para agendamentos
@@ -11029,6 +11089,7 @@ Estamos te aguardando! 😎✂️`;
                 professionals={establishment.professionals || []}
                 selectedMonth={selectedMonth}
                 onMonthChange={setSelectedMonth}
+                establishmentId={establishment?.id}
               />
             </div>
           )}
@@ -11054,6 +11115,16 @@ Estamos te aguardando! 😎✂️`;
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Tab de Despesas */}
+          {activeTab === 'expenses' && (
+            <ExpensesManager
+              establishmentId={establishment?.id || ''}
+              selectedMonth={selectedMonth}
+              onMonthChange={setSelectedMonth}
+              professionals={establishment?.professionals || []}
+            />
           )}
 
           {/* Tab de Serviços com Dropdown */}

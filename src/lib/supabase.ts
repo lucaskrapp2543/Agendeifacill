@@ -33,7 +33,7 @@ export const supabase: SupabaseClient<Database> = createClient(
       // Configurações otimizadas para PWA
       debug: false,
       // Permitir múltiplas sessões simultâneas (PC + Celular)
-      multiTabPersistence: true,
+      // multiTabPersistence: true, // Removido - não é uma propriedade válida
       // Configurações específicas para PWA
       storage: {
         getItem: (key: string) => {
@@ -1611,51 +1611,6 @@ const getSubscriptionById = async (subscriptionId: string) => {
   return { data, error };
 };
 
-// Funções para gerenciar despesas
-export const addExpense = async (establishmentId: string, name: string, amount: number) => {
-  const { data, error } = await supabase
-    .from('establishment_expenses')
-    .insert([
-      {
-        establishment_id: establishmentId,
-        name,
-        amount
-      }
-    ])
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-};
-
-export const getExpenses = async (establishmentId: string) => {
-  const { data, error } = await supabase
-    .from('establishment_expenses')
-    .select('*')
-    .eq('establishment_id', establishmentId)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data;
-};
-
-export const deleteExpense = async (expenseId: string) => {
-  const { error } = await supabase
-    .from('establishment_expenses')
-    .delete()
-    .eq('id', expenseId);
-
-  if (error) throw error;
-};
-
-export const getExpensesTotal = async (establishmentId: string) => {
-  const { data, error } = await supabase
-    .rpc('get_establishment_expenses_total', { est_id: establishmentId });
-
-  if (error) throw error;
-  return data || 0;
-};
 
 // Função para verificar se um usuário é um novo cliente e buscar seus dados
 export const getClientProfileData = async (userId: string) => {
@@ -2137,5 +2092,133 @@ export const getEstablishmentGoals = async (
   } catch (error) {
     console.error('Erro ao buscar metas do estabelecimento:', error);
     return { data: null, error };
+  }
+};
+
+/**
+ * Funções para gerenciar despesas do estabelecimento
+ */
+
+/**
+ * Adiciona uma nova despesa
+ */
+export const addExpense = async (
+  establishmentId: string,
+  name: string,
+  amount: number
+) => {
+  try {
+    const { data, error } = await supabase
+      .from('establishment_expenses')
+      .insert({
+        establishment_id: establishmentId,
+        name: name,
+        amount: amount
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Erro ao adicionar despesa:', error);
+      throw error;
+    }
+
+    return { data, error: null };
+  } catch (error) {
+    console.error('Erro ao adicionar despesa:', error);
+    return { data: null, error };
+  }
+};
+
+/**
+ * Obtém todas as despesas de um estabelecimento
+ */
+export const getExpenses = async (establishmentId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('establishment_expenses')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Erro ao buscar despesas:', error);
+      throw error;
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Erro ao buscar despesas:', error);
+    return [];
+  }
+};
+
+/**
+ * Obtém despesas de um estabelecimento filtradas por mês
+ */
+export const getExpensesByMonth = async (establishmentId: string, startDate: string, endDate: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('establishment_expenses')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .gte('created_at', startDate)
+      .lte('created_at', endDate)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Erro ao buscar despesas por mês:', error);
+      throw error;
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Erro ao buscar despesas por mês:', error);
+    return [];
+  }
+};
+
+/**
+ * Obtém o total de despesas de um estabelecimento
+ */
+export const getExpensesTotal = async (establishmentId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('establishment_expenses')
+      .select('amount')
+      .eq('establishment_id', establishmentId);
+
+    if (error) {
+      console.error('Erro ao calcular total de despesas:', error);
+      throw error;
+    }
+
+    const total = (data || []).reduce((sum, expense) => sum + expense.amount, 0);
+    return total;
+  } catch (error) {
+    console.error('Erro ao calcular total de despesas:', error);
+    return 0;
+  }
+};
+
+/**
+ * Remove uma despesa
+ */
+export const deleteExpense = async (expenseId: string) => {
+  try {
+    const { error } = await supabase
+      .from('establishment_expenses')
+      .delete()
+      .eq('id', expenseId);
+
+    if (error) {
+      console.error('Erro ao deletar despesa:', error);
+      throw error;
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error('Erro ao deletar despesa:', error);
+    return { error };
   }
 };

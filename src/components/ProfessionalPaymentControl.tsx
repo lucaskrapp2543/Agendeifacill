@@ -1,8 +1,9 @@
-import { Check, EyeOff, History } from 'lucide-react';
+import { Check, EyeOff, History, Minus } from 'lucide-react';
 import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useProfessionalLiquidValue } from '../hooks/useProfessionalLiquidValue';
 import { useProfessionalPayments } from '../hooks/useProfessionalPayments';
+import { supabase } from '../lib/supabase';
 
 interface ProfessionalPaymentControlProps {
   establishmentId: string;
@@ -33,6 +34,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
   const [customAmount, setCustomAmount] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+
+  // Estados para o botão "PEGAR VALOR"
+  const [showTakeValueModal, setShowTakeValueModal] = useState(false);
+  const [takeValueAmount, setTakeValueAmount] = useState('');
+  const [takeValueReason, setTakeValueReason] = useState('');
 
   // Usar hook para calcular valor líquido correto
   const {
@@ -125,6 +131,80 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     setShowPaymentOptions(true);
   };
 
+  const handleTakeValueClick = () => {
+    if (currentLiquidDisplay <= 0) {
+      toast.error('Não há valor disponível para retirar');
+      return;
+    }
+    setShowTakeValueModal(true);
+  };
+
+  const handleTakeValue = async () => {
+    const amount = parseFloat(takeValueAmount.replace(',', '.'));
+
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Digite um valor válido');
+      return;
+    }
+
+    if (amount > currentLiquidDisplay) {
+      toast.error(`Valor não pode ser maior que ${formatCurrency(currentLiquidDisplay)}`);
+      return;
+    }
+
+    if (!takeValueReason.trim()) {
+      toast.error('Digite o motivo da retirada');
+      return;
+    }
+
+    if (isProcessing) {
+      toast.error('Processando... Aguarde!');
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      // Registrar como "pagamento negativo" para o profissional
+      // Isso vai diminuir o valor líquido dele e aumentar o caixa do estabelecimento
+      const { data, error } = await supabase
+        .from('professional_payments')
+        .insert({
+          establishment_id: establishmentId,
+          professional_id: professionalId,
+          professional_name: professionalName,
+          amount: -amount, // VALOR NEGATIVO para "retirar" do profissional
+          payment_date: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Erro ao registrar retirada:', error);
+        throw error;
+      }
+
+      console.log('✅ Retirada registrada com sucesso:', data);
+
+      toast.success(`Valor de ${formatCurrency(amount)} retirado de ${professionalName} e adicionado ao caixa`);
+      setTakeValueAmount('');
+      setTakeValueReason('');
+      setShowTakeValueModal(false);
+      onPaymentRecorded?.();
+
+      // Forçar refresh da página após retirada
+      setTimeout(() => {
+        console.log('🔄 Fazendo refresh após retirada de valor');
+        window.location.reload();
+      }, 1000);
+    } catch (error: any) {
+      console.error('Erro ao retirar valor:', error);
+      toast.error('Erro ao retirar valor: ' + error.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
@@ -179,8 +259,21 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             </button>
           )}
 
+          {/* Botão PEGAR VALOR */}
+          {currentLiquidDisplay > 0 && !showTakeValueModal && (
+            <button
+              onClick={handleTakeValueClick}
+              disabled={isProcessing || loading}
+              className="flex items-center space-x-1 px-3 py-1 bg-orange-600 text-white text-sm font-medium rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              title={`Retirar valor de ${professionalName} para o caixa`}
+            >
+              <Minus className="w-4 h-4" />
+              <span>PEGAR VALOR</span>
+            </button>
+          )}
+
           {/* Mensagem quando não há valor pendente */}
-          {pendingAmount <= 0 && !isProcessing && (
+          {pendingAmount <= 0 && currentLiquidDisplay <= 0 && !isProcessing && (
             <div className="flex items-center space-x-1 px-3 py-1 bg-gray-100 text-gray-600 text-sm rounded">
               <Check className="w-4 h-4" />
               <span>Em dia</span>
@@ -296,15 +389,15 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                 className="flex items-center justify-between bg-gray-50 rounded-lg p-2"
               >
                 <div className="flex-1">
-                  <div className="text-sm font-medium text-gray-700">
-                    {formatCurrency(payment.amount)}
+                  <div className={`text-sm font-medium ${payment.amount > 0 ? 'text-gray-700' : 'text-orange-600'}`}>
+                    {payment.amount > 0 ? formatCurrency(payment.amount) : formatCurrency(Math.abs(payment.amount))}
                   </div>
                   <div className="text-xs text-gray-500">
                     {formatDate(payment.payment_date)}
                   </div>
                 </div>
-                <div className="text-xs text-green-600 font-medium">
-                  ✓ Pago
+                <div className={`text-xs font-medium ${payment.amount > 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                  {payment.amount > 0 ? '✓ Pago' : '↩ Retirado'}
                 </div>
               </div>
             ))}
@@ -343,6 +436,88 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             `Nenhum pagamento registrado em ${selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}` :
             'Nenhum pagamento registrado ainda'
           }
+        </div>
+      )}
+
+      {/* Modal PEGAR VALOR */}
+      {showTakeValueModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">
+                Retirar Valor - {professionalName}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowTakeValueModal(false);
+                  setTakeValueAmount('');
+                  setTakeValueReason('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Valor disponível */}
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-sm text-gray-600">Valor disponível:</div>
+                <div className="text-lg font-medium text-gray-900">
+                  {formatCurrency(currentLiquidDisplay)}
+                </div>
+              </div>
+
+              {/* Valor a retirar */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Valor a retirar
+                </label>
+                <input
+                  type="text"
+                  value={takeValueAmount}
+                  onChange={(e) => setTakeValueAmount(e.target.value)}
+                  placeholder={`Máximo: ${formatCurrency(currentLiquidDisplay)}`}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+
+              {/* Motivo da retirada */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Motivo da retirada
+                </label>
+                <input
+                  type="text"
+                  value={takeValueReason}
+                  onChange={(e) => setTakeValueReason(e.target.value)}
+                  placeholder="Ex: Quebrou equipamento, adiantamento, etc."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+
+              {/* Botões */}
+              <div className="flex space-x-3 pt-4">
+                <button
+                  onClick={handleTakeValue}
+                  disabled={isProcessing || !takeValueAmount || !takeValueReason.trim()}
+                  className="flex-1 px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProcessing ? 'Processando...' : 'Confirmar Retirada'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowTakeValueModal(false);
+                    setTakeValueAmount('');
+                    setTakeValueReason('');
+                  }}
+                  className="px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded hover:bg-gray-600"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

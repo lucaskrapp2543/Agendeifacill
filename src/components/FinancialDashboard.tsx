@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { format, startOfMonth, endOfMonth, parseISO, subMonths, addMonths, isSameMonth } from 'date-fns';
+import { endOfMonth, format, isSameMonth, parseISO, startOfMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { supabase } from '../lib/supabase';
 
 declare const Chart: any;
 
@@ -30,6 +31,7 @@ interface FinancialDashboardProps {
   professionals: Professional[];
   selectedMonth: Date;
   onMonthChange: (newMonth: Date) => void;
+  establishmentId?: string;
 }
 
 const COLORS = [
@@ -41,14 +43,16 @@ const COLORS = [
   'rgba(255, 159, 64, 0.8)'
 ];
 
-export const FinancialDashboard = ({ appointments, professionals, selectedMonth, onMonthChange }: FinancialDashboardProps) => {
+export const FinancialDashboard = ({ appointments, professionals, selectedMonth, onMonthChange, establishmentId }: FinancialDashboardProps) => {
   const [professionalStats, setProfessionalStats] = useState<any[]>([]);
   const [additionalProductStats, setAdditionalProductStats] = useState<any[]>([]);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [serviceStats, setServiceStats] = useState<any[]>([]);
   const [dailyRevenue, setDailyRevenue] = useState<any[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<any[]>([]);
-  
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [totalExpenses, setTotalExpenses] = useState(0);
+
   // Estado para controlar quais seções estão expandidas
   const [expandedSections, setExpandedSections] = useState({
     summary: true,
@@ -75,8 +79,59 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
     onMonthChange(newMonth);
   };
 
+  // Carregar despesas
+  const loadExpenses = useCallback(async () => {
+    if (!establishmentId) return;
+
+    try {
+      // Filtrar despesas pelo mês selecionado
+      const startDate = startOfMonth(selectedMonth);
+      const endDate = endOfMonth(selectedMonth);
+
+      console.log('💰 Carregando despesas para o mês:', format(selectedMonth, 'MMMM yyyy', { locale: ptBR }));
+      console.log('📅 Período:', startDate.toISOString(), 'até', endDate.toISOString());
+      console.log('🔍 Establishment ID:', establishmentId);
+
+      console.log('🔍 Query Supabase:');
+      console.log('- establishment_id:', establishmentId);
+      console.log('- startDate:', startDate.toISOString());
+      console.log('- endDate:', endDate.toISOString());
+
+      const { data, error } = await supabase
+        .from('establishment_expenses')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString());
+
+      if (error) {
+        console.error('Erro ao carregar despesas:', error);
+        return;
+      }
+
+      console.log('💰 Despesas carregadas:', data?.length || 0);
+      console.log('📋 Despesas encontradas:', data);
+
+      // Log das datas das despesas
+      if (data && data.length > 0) {
+        console.log('📅 Datas das despesas:');
+        data.forEach((expense, index) => {
+          console.log(`  ${index + 1}. ${expense.name}: ${expense.created_at}`);
+        });
+      }
+
+      setExpenses(data || []);
+      const total = (data || []).reduce((sum, expense) => sum + expense.amount, 0);
+      setTotalExpenses(total);
+      console.log('💰 Total de despesas:', total);
+    } catch (error) {
+      console.error('Erro ao carregar despesas:', error);
+    }
+  }, [establishmentId, selectedMonth]);
+
   useEffect(() => {
     calculateStats();
+    loadExpenses();
 
     // Cleanup function
     return () => {
@@ -90,7 +145,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         }
       });
     };
-  }, [appointments, selectedMonth]);
+  }, [appointments, selectedMonth, establishmentId, loadExpenses]);
 
   useEffect(() => {
     if (professionalChartRef.current && professionalStats.length > 0 && expandedSections.professional) {
@@ -423,17 +478,17 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
     appointments.forEach(appointment => {
       if (appointment.status === 'completed') {
         const appointmentDate = parseISO(appointment.appointment_date);
-        const monthIndex = last12Months.findIndex(month => 
+        const monthIndex = last12Months.findIndex(month =>
           isSameMonth(month.date, appointmentDate)
         );
-        
+
         if (monthIndex !== -1) {
           // Calcular o valor total incluindo produtos adicionais
           let totalValue = appointment.price || 0;
 
           // Adicionar valores dos produtos adicionais
           if (appointment.additional_products && appointment.additional_products.length > 0) {
-            const additionalValue = appointment.additional_products.reduce((sum, product) => 
+            const additionalValue = appointment.additional_products.reduce((sum, product) =>
               sum + (product.price || 0), 0);
             totalValue += additionalValue;
           }
@@ -480,11 +535,11 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
-        
+
         <h2 className="text-xl font-semibold text-white">
           {selectedMonth ? format(selectedMonth, 'MMMM yyyy', { locale: ptBR }) : 'Carregando...'}
         </h2>
-        
+
         <button
           onClick={handleNextMonth}
           className="p-2 text-gray-400 hover:text-white transition-colors"
@@ -495,7 +550,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
 
       {/* Resumo do mês */}
       <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-        <div 
+        <div
           className="flex items-center justify-between cursor-pointer"
           onClick={() => toggleSection('summary')}
         >
@@ -505,15 +560,38 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
           </button>
         </div>
         {expandedSections.summary && (
-          <div className="mt-4 text-3xl font-bold text-white">
-            {formatCurrency(totalRevenue)}
+          <div className="mt-4 space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-lg text-gray-300">Receita Bruta:</span>
+              <span className="text-2xl font-bold text-green-400">{formatCurrency(totalRevenue)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-lg text-gray-300">Total de Despesas:</span>
+              <span className="text-2xl font-bold text-red-400">{formatCurrency(totalExpenses)}</span>
+            </div>
+            <div className="text-sm text-gray-400">
+              {expenses.length} despesa{expenses.length !== 1 ? 's' : ''} em {format(selectedMonth, 'MMMM yyyy', { locale: ptBR })}
+            </div>
+            {expenses.length === 0 && (
+              <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3">
+                <p className="text-yellow-200 text-sm">
+                  ⚠️ Nenhuma despesa para este mês. Acesse "Despesas" no menu para adicionar.
+                </p>
+              </div>
+            )}
+            <div className="border-t border-gray-700 pt-4">
+              <div className="flex justify-between items-center">
+                <span className="text-lg text-gray-300">Lucro Líquido:</span>
+                <span className="text-3xl font-bold text-white">{formatCurrency(totalRevenue - totalExpenses)}</span>
+              </div>
+            </div>
           </div>
         )}
       </div>
 
       {/* Gráfico de receita por profissional */}
       <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-        <div 
+        <div
           className="flex items-center justify-between cursor-pointer"
           onClick={() => toggleSection('professional')}
         >
@@ -532,7 +610,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
       {/* Gráfico de produtos adicionais */}
       {additionalProductStats.length > 0 && (
         <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-          <div 
+          <div
             className="flex items-center justify-between cursor-pointer"
             onClick={() => toggleSection('products')}
           >
@@ -551,7 +629,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
 
       {/* Gráfico de receita diária */}
       <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-        <div 
+        <div
           className="flex items-center justify-between cursor-pointer"
           onClick={() => toggleSection('daily')}
         >
@@ -569,7 +647,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
 
       {/* Gráfico de receita mensal */}
       <div className="bg-[#1a1b1c] p-6 rounded-lg border border-gray-800">
-        <div 
+        <div
           className="flex items-center justify-between cursor-pointer"
           onClick={() => toggleSection('monthly')}
         >

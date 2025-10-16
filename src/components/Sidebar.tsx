@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock,
   Crown,
+  DollarSign,
   Layers,
   Link,
   LogOut,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -163,6 +164,13 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       }),
       isActive: activeTab === 'financial-dashboard'
+    },
+    {
+      id: 'expenses',
+      label: 'Despesas',
+      icon: DollarSign,
+      onClick: () => handleItemClick(() => onTabChange('expenses')),
+      isActive: activeTab === 'expenses'
     },
     {
       id: 'professionals',
