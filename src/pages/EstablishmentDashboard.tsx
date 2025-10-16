@@ -667,6 +667,20 @@ const EstablishmentDashboard = () => {
 
   // Função para alternar visibilidade de um tutorial específico
   const toggleTutorial = (tutorialType: keyof typeof showTutorials) => {
+    // Se está tentando ocultar o tutorial (valor atual é true)
+    if (showTutorials[tutorialType]) {
+      const confirmacao = window.confirm(
+        '⚠️ Deseja mesmo ocultar este tutorial?\n\n' +
+        'Este vídeo pode tirar várias dúvidas futuras.\n' +
+        'Você já assistiu ao vídeo completo?\n\n' +
+        'Você poderá mostrar o tutorial novamente clicando no botão "Mostrar Tutorial".'
+      );
+
+      if (!confirmacao) {
+        return; // Cancela a ação se o usuário clicar em "Cancelar"
+      }
+    }
+
     const newPreferences = {
       ...showTutorials,
       [tutorialType]: !showTutorials[tutorialType]
@@ -6563,7 +6577,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
                         <iframe
                           className="absolute top-0 left-0 w-full h-full"
-                          src="https://www.youtube.com/embed/cgGofX9mlY4"
+                          src="https://www.youtube.com/embed/AuVqhvdRc6Y"
                           title="Tutorial: Como Gerenciar Agendamentos"
                           frameBorder="0"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -6573,7 +6587,7 @@ Estamos te aguardando! 😎✂️`;
 
                       <div className="mt-3 text-center">
                         <a
-                          href="https://youtu.be/cgGofX9mlY4"
+                          href="https://youtu.be/AuVqhvdRc6Y"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800 text-sm font-medium"
