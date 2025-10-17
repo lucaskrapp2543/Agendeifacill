@@ -587,14 +587,12 @@ const ClientDashboard = () => {
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm text-gray-400">Status do Pagamento:</span>
                             <span className={`text-sm font-medium px-3 py-1 rounded-full ${appointment.pix_payment_status === 'confirmado' ? 'bg-green-900/20 text-green-500' :
-                              appointment.pix_payment_status === 'enviado' ? 'bg-yellow-900/20 text-yellow-500' :
-                                appointment.pix_payment_status === 'rejeitado' ? 'bg-red-900/20 text-red-500' :
-                                  'bg-gray-900/20 text-gray-400'
+                              appointment.pix_payment_status === 'rejeitado' ? 'bg-red-900/20 text-red-500' :
+                                'bg-gray-900/20 text-gray-400'
                               }`}>
                               {appointment.pix_payment_status === 'confirmado' ? '✅ Confirmado' :
-                                appointment.pix_payment_status === 'enviado' ? '⏳ Em análise' :
-                                  appointment.pix_payment_status === 'rejeitado' ? '❌ Rejeitado' :
-                                    '⏳ Pendente'}
+                                appointment.pix_payment_status === 'rejeitado' ? '❌ Rejeitado' :
+                                  '✅ Confirmado'}
                             </span>
                           </div>
 

@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { getEstablishmentByCode, createAppointment, signIn, signUp, supabase } from '../lib/supabase';
-import { Calendar, Clock, User, MapPin, Phone, Mail, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { ArrowLeft, Calendar, Eye, EyeOff, MapPin } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { BusinessHoursSelector } from '../components/BusinessHoursSelector';
-import { useToast } from '../components/ui/Toaster';
 import ReadMore from '../components/ReadMore';
-import type { Establishment, BusinessHours, Professional, Service } from '../types/supabase';
+import { useToast } from '../components/ui/Toaster';
+import { useAuth } from '../context/AuthContext';
+import { createAppointment, signIn, supabase } from '../lib/supabase';
+import type { Establishment } from '../types/supabase';
 
 const EstablishmentDirectBooking: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -60,11 +59,11 @@ const EstablishmentDirectBooking: React.FC = () => {
       setExistingAppointments([]);
       return;
     }
-    
+
     try {
       console.log('🔍 INICIANDO BUSCA DE AGENDAMENTOS - EstablishmentDirectBooking');
       console.log('📍 Parâmetros da busca:', { establishmentId, date, professional });
-      
+
       // Buscar apenas dados necessários para verificar disponibilidade (sem dados pessoais)
       const { data, error } = await supabase
         .from('appointments')
@@ -73,7 +72,7 @@ const EstablishmentDirectBooking: React.FC = () => {
         .eq('appointment_date', date)
         .eq('professional', professional)
         .neq('status', 'cancelled');
-        
+
       if (error) {
         console.log('❌ ERRO na consulta de agendamentos:', error);
         console.log('📝 Detalhes do erro:', {
@@ -86,10 +85,10 @@ const EstablishmentDirectBooking: React.FC = () => {
         setExistingAppointments([]);
         return;
       }
-      
+
       console.log('✅ CONSULTA REALIZADA COM SUCESSO');
       console.log('📊 Agendamentos encontrados:', data?.length || 0);
-      
+
       if (data && data.length > 0) {
         console.log('📋 DETALHES DOS AGENDAMENTOS ENCONTRADOS:');
         data.forEach((apt, index) => {
@@ -98,12 +97,12 @@ const EstablishmentDirectBooking: React.FC = () => {
       } else {
         console.log('✅ NENHUM AGENDAMENTO ENCONTRADO - Todos os horários deveriam estar disponíveis!');
       }
-      
+
       setExistingAppointments(data || []);
-      
+
       // Log adicional para confirmar o que foi setado no estado
       console.log('📝 Estado existingAppointments atualizado com:', data?.length || 0, 'agendamentos');
-      
+
     } catch (error) {
       console.log('💥 ERRO CATCH ao carregar agendamentos:', error);
       console.log('📝 Tipo do erro:', typeof error);
@@ -117,7 +116,7 @@ const EstablishmentDirectBooking: React.FC = () => {
     try {
       console.log('🔍 Tentando buscar estabelecimento diretamente no Supabase...');
       console.log('📊 Código extraído:', code);
-      
+
       // Busca direta no Supabase com acesso público
       const { data, error } = await supabase
         .from('establishments')
@@ -143,37 +142,37 @@ const EstablishmentDirectBooking: React.FC = () => {
         `)
         .eq('code', code)
         .maybeSingle(); // Usar maybeSingle() em vez de single() para evitar erro se não encontrar
-      
+
       if (error) {
         console.log('❌ Erro na busca:', error);
-        
+
         // Se erro for de RLS/permissão, tentar busca mais básica
         if (error.code === 'PGRST116' || error.message?.includes('406') || error.message?.includes('RLS')) {
           console.log('🔄 Tentando busca básica devido a erro de RLS...');
-          
+
           const basicResult = await supabase
             .from('establishments')
             .select('id, name, description, code, services_with_prices, professionals, business_hours, profile_image_url')
             .eq('code', code)
             .limit(1);
-          
+
           if (basicResult.data && basicResult.data.length > 0) {
             console.log('✅ Estabelecimento encontrado com busca básica:', basicResult.data[0]);
             return { data: basicResult.data[0], error: null };
           }
         }
-        
+
         return { data: null, error };
       }
-      
+
       if (!data) {
         console.log('⚠️ Estabelecimento não encontrado');
         return { data: null, error: { message: 'Estabelecimento não encontrado' } };
       }
-      
+
       console.log('✅ Estabelecimento encontrado:', data);
       return { data, error: null };
-      
+
     } catch (err: any) {
       console.error('💥 Erro catch loadEstablishmentDirect:', err);
       return { data: null, error: err };
@@ -184,27 +183,27 @@ const EstablishmentDirectBooking: React.FC = () => {
   useEffect(() => {
     const loadEstablishment = async () => {
       if (!slug) return;
-      
+
       try {
         setLoading(true);
         setError(null);
-        
+
         const code = extractCodeFromSlug(slug);
-        
+
         if (!code) {
           setError('Código do estabelecimento inválido');
           return;
         }
-        
+
         if (code.length !== 4) {
           setError('Código deve ter 4 dígitos');
           return;
         }
 
         console.log('🚀 Iniciando busca do estabelecimento...');
-        
+
         const { data, error } = await loadEstablishmentDirect(code);
-        
+
         const establishmentDataFetched: Establishment | null = data as Establishment | null; // Forçar tipagem
 
         if (error) {
@@ -212,12 +211,12 @@ const EstablishmentDirectBooking: React.FC = () => {
           setError('Estabelecimento não encontrado');
           return;
         }
-        
+
         if (!establishmentDataFetched) {
           setError('Estabelecimento não encontrado');
           return;
         }
-        
+
         // Garantir que os campos obrigatórios existam e aplicar valores padrão
         const establishmentData: Establishment = {
           ...establishmentDataFetched, // Usar o objeto com tipagem forçada
@@ -265,7 +264,7 @@ const EstablishmentDirectBooking: React.FC = () => {
           created_at: establishmentDataFetched.created_at,
           updated_at: establishmentDataFetched.updated_at,
         };
-        
+
         setEstablishment(establishmentData);
         setLoading(false);
       } catch (error) {
@@ -315,11 +314,11 @@ const EstablishmentDirectBooking: React.FC = () => {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthFormLoading(true);
-    
+
     try {
       const { data, error } = await signIn(authData.email, authData.password);
       if (error) throw error;
-      
+
       setShowAuth(false);
       // Recarregar a página para atualizar o estado de autenticação
       window.location.reload();
@@ -334,12 +333,12 @@ const EstablishmentDirectBooking: React.FC = () => {
   // Handle agendamento
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user) {
       setShowAuth(true);
       return;
     }
-    
+
     if (!selectedService || !selectedProfessional || !selectedDate || !selectedTime || !clientName.trim() || !paymentMethod) {
       alert('Por favor, preencha todos os campos');
       return;
@@ -349,12 +348,12 @@ const EstablishmentDirectBooking: React.FC = () => {
       alert('Por favor, envie o comprovante do PIX');
       return;
     }
-    
+
     setBookingLoading(true);
-    
+
     try {
       let pixProofUrl = '';
-      
+
       if (paymentMethod === 'pix_now' && pixProofFile) {
         // Upload do comprovante
         const { data: uploadData, error: uploadError } = await supabase.storage
@@ -362,12 +361,12 @@ const EstablishmentDirectBooking: React.FC = () => {
           .upload(`${Date.now()}_${pixProofFile.name}`, pixProofFile);
 
         if (uploadError) throw uploadError;
-        
+
         // Gerar URL pública
         const { data: { publicUrl } } = supabase.storage
           .from('pix_proofs')
           .getPublicUrl(uploadData.path);
-          
+
         pixProofUrl = publicUrl;
       }
 
@@ -384,16 +383,16 @@ const EstablishmentDirectBooking: React.FC = () => {
         duration: selectedService.duration,
         payment_method: paymentMethod === 'pix_now' ? 'pix' : 'pagar_local',
         pix_proof_url: pixProofUrl,
-        pix_payment_status: paymentMethod === 'pix_now' ? 'enviado' : 'pendente'
+        pix_payment_status: paymentMethod === 'pix_now' ? 'confirmado' : 'confirmado'
       };
-      
+
       const { data, error } = await createAppointment(appointmentData);
-      
+
       if (error) throw error;
-      
+
       alert('Agendamento realizado com sucesso!');
       navigate('/dashboard/client');
-      
+
     } catch (error: any) {
       console.error('Erro ao criar agendamento:', error);
       alert(`Erro: ${error.message}`);
@@ -453,7 +452,7 @@ const EstablishmentDirectBooking: React.FC = () => {
             <ArrowLeft size={20} className="mr-2" />
             Voltar
           </button>
-          
+
           <div className="flex items-center space-x-4">
             {establishment?.profile_image_url && (
               <img
@@ -465,8 +464,8 @@ const EstablishmentDirectBooking: React.FC = () => {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{establishment?.name || 'Estabelecimento'}</h1>
               <p className="text-gray-600">
-                <ReadMore 
-                  text={establishment?.description || 'Descrição não disponível'} 
+                <ReadMore
+                  text={establishment?.description || 'Descrição não disponível'}
                   maxLength={60}
                   className="text-gray-600"
                 />
@@ -510,7 +509,7 @@ const EstablishmentDirectBooking: React.FC = () => {
               )}
             </div>
           </div>
-          
+
           {/* Botão Premium se houver link afiliado */}
           {establishment?.affiliate_link && (
             <div className="mt-4">
@@ -557,13 +556,13 @@ const EstablishmentDirectBooking: React.FC = () => {
           {/* Informações do Estabelecimento */}
           <div className="bg-white rounded-lg shadow-md p-6 text-gray-900" style={{ backgroundColor: '#ffffff', color: '#111827' }}>
             <h2 className="text-xl font-bold mb-4">Informações</h2>
-            
+
             <div className="space-y-3">
               <div className="flex items-center text-gray-600">
                 <MapPin size={18} className="mr-3" />
                 <span>Endereço disponível no agendamento</span>
               </div>
-              
+
               {establishment?.business_hours && typeof establishment.business_hours === 'object' && (
                 <div>
                   <h3 className="font-semibold mb-2">Horários de Funcionamento:</h3>
@@ -571,21 +570,21 @@ const EstablishmentDirectBooking: React.FC = () => {
                     {Object.entries(establishment.business_hours).map(([day, hours]: [string, any]) => {
                       // Verificar se hours é um objeto válido
                       if (!hours || typeof hours !== 'object') return null;
-                      
+
                       return (
                         <div key={day} className="flex justify-between">
                           <span className="capitalize">
                             {day === 'monday' ? 'Segunda' :
-                             day === 'tuesday' ? 'Terça' :
-                             day === 'wednesday' ? 'Quarta' :
-                             day === 'thursday' ? 'Quinta' :
-                             day === 'friday' ? 'Sexta' :
-                             day === 'saturday' ? 'Sábado' : 'Domingo'}:
+                              day === 'tuesday' ? 'Terça' :
+                                day === 'wednesday' ? 'Quarta' :
+                                  day === 'thursday' ? 'Quinta' :
+                                    day === 'friday' ? 'Sexta' :
+                                      day === 'saturday' ? 'Sábado' : 'Domingo'}:
                           </span>
                           <span>
                             {hours.enabled === true ? (
                               // Verificar se tem intervalo (open2 e close2 diferentes de open1 e close1)
-                              hours.open2 && hours.close2 && (hours.open2 !== hours.close1) ? 
+                              hours.open2 && hours.close2 && (hours.open2 !== hours.close1) ?
                                 `${hours.open1 || ''} - ${hours.close1 || ''} e ${hours.open2 || ''} - ${hours.close2 || ''}` :
                                 `${hours.open1 || ''} - ${hours.close2 || ''}`
                             ) : 'Fechado'}
@@ -606,10 +605,10 @@ const EstablishmentDirectBooking: React.FC = () => {
                   {establishment.services_with_prices.map((service: any, index: number) => {
                     // Verificar se service é um objeto válido
                     if (!service || typeof service !== 'object') return null;
-                    
+
                     const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
                     const isSelected = selectedService?.id === service.id;
-                    
+
                     return (
                       <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
                         <span>{service.name || 'Serviço'}</span>
@@ -625,14 +624,14 @@ const EstablishmentDirectBooking: React.FC = () => {
           {/* Formulário de Agendamento */}
           <div className="bg-white rounded-lg shadow-md p-6 text-gray-900" style={{ backgroundColor: '#ffffff', color: '#111827' }}>
             <h2 className="text-xl font-bold mb-4">Fazer Agendamento</h2>
-            
+
             {!user ? (
               <div className="text-center py-8">
                 <div className="mb-6">
                   <Calendar className="h-12 w-12 mx-auto mb-3 text-blue-600" />
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">Pronto para agendar?</h3>
                   <p className="text-gray-600 mb-4">
-                    Você pode ver todas as informações do estabelecimento, horários e serviços.<br/>
+                    Você pode ver todas as informações do estabelecimento, horários e serviços.<br />
                     Para fazer um agendamento, faça login ou crie sua conta gratuita.
                   </p>
                 </div>
@@ -686,15 +685,14 @@ const EstablishmentDirectBooking: React.FC = () => {
                         if (!service || typeof service !== 'object') return null;
                         const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
                         const isSelected = selectedService?.id === service.id;
-                        
+
                         return (
                           <button
                             key={service.id}
                             type="button"
                             onClick={() => setSelectedService(service)}
-                            className={`w-full p-4 rounded-lg ${
-                              isSelected ? 'bg-[#242628] text-white' : 'bg-gray-50 text-gray-900'
-                            }`}
+                            className={`w-full p-4 rounded-lg ${isSelected ? 'bg-[#242628] text-white' : 'bg-gray-50 text-gray-900'
+                              }`}
                           >
                             <div className="flex flex-col items-start gap-1">
                               <span className="text-base font-medium">{service.name}</span>
@@ -782,18 +780,16 @@ const EstablishmentDirectBooking: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handlePaymentMethodChange('pix_now')}
-                            className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                              paymentMethod === 'pix_now'
-                                ? 'bg-green-50 border-green-500 text-green-700'
-                                : 'border-gray-300 hover:bg-gray-50'
-                            }`}
+                            className={`w-full p-3 rounded-lg border text-left transition-colors ${paymentMethod === 'pix_now'
+                              ? 'bg-green-50 border-green-500 text-green-700'
+                              : 'border-gray-300 hover:bg-gray-50'
+                              }`}
                           >
                             <div className="flex items-center">
-                              <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
-                                paymentMethod === 'pix_now'
-                                  ? 'border-green-500 bg-green-500'
-                                  : 'border-gray-400'
-                              }`} />
+                              <div className={`w-4 h-4 rounded-full border-2 mr-3 ${paymentMethod === 'pix_now'
+                                ? 'border-green-500 bg-green-500'
+                                : 'border-gray-400'
+                                }`} />
                               <span>Pagar agora via PIX</span>
                             </div>
                           </button>
@@ -801,18 +797,16 @@ const EstablishmentDirectBooking: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handlePaymentMethodChange('pix_local')}
-                            className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                              paymentMethod === 'pix_local'
-                                ? 'bg-orange-50 border-orange-500 text-orange-700'
-                                : 'border-gray-300 hover:bg-gray-50'
-                            }`}
+                            className={`w-full p-3 rounded-lg border text-left transition-colors ${paymentMethod === 'pix_local'
+                              ? 'bg-orange-50 border-orange-500 text-orange-700'
+                              : 'border-gray-300 hover:bg-gray-50'
+                              }`}
                           >
                             <div className="flex items-center">
-                              <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
-                                paymentMethod === 'pix_local'
-                                  ? 'border-orange-500 bg-orange-500'
-                                  : 'border-gray-400'
-                              }`} />
+                              <div className={`w-4 h-4 rounded-full border-2 mr-3 ${paymentMethod === 'pix_local'
+                                ? 'border-orange-500 bg-orange-500'
+                                : 'border-gray-400'
+                                }`} />
                               <span>Pagar no local</span>
                             </div>
                           </button>
@@ -876,10 +870,9 @@ const EstablishmentDirectBooking: React.FC = () => {
                   <button
                     type="submit"
                     disabled={bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile)}
-                    className={`btn-primary w-full mt-6 ${
-                      (bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile))
+                    className={`btn-primary w-full mt-6 ${(bookingLoading || !selectedService || !selectedProfessional || !selectedTime || !clientName || !paymentMethod || (paymentMethod === 'pix_now' && !pixProofFile))
                       && 'opacity-50 cursor-not-allowed'
-                    }`}
+                      }`}
                   >
                     {bookingLoading ? 'Agendando...' : 'Confirmar Agendamento'}
                   </button>

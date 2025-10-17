@@ -21,6 +21,7 @@ import { ProfessionalSelector } from '../components/ProfessionalSelector';
 import ReservarCliente from '../components/ReservarCliente';
 import { ServiceForm } from '../components/ServiceForm';
 import Sidebar from '../components/Sidebar';
+import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 import { TimeSelector } from '../components/TimeSelector';
 import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
@@ -57,6 +58,12 @@ interface Professional {
       exit_time?: string;
     };
   } | null; // Horários personalizados de trabalho do profissional
+  specific_services?: { // ✅ Serviços específicos do profissional
+    id: string;
+    name: string;
+    price: number;
+    duration: number;
+  }[];
 }
 
 interface ProfessionalPin {
@@ -492,6 +499,10 @@ const EstablishmentDashboard = () => {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [selectedProfessionalForGoal, setSelectedProfessionalForGoal] = useState<string | null>(null);
   const [professionalGoals, setProfessionalGoals] = useState<Record<string, number>>({});
+
+  // ✅ Estados para serviços específicos dos profissionais
+  const [showSpecificServiceModal, setShowSpecificServiceModal] = useState(false);
+  const [selectedProfessionalForSpecificService, setSelectedProfessionalForSpecificService] = useState<string | null>(null);
   // Estado para serviços selecionados das metas
   const [professionalSelectedServices, setProfessionalSelectedServices] = useState<Record<string, string[]>>({});
   // Estado para dados de progresso das metas
@@ -1685,7 +1696,9 @@ const EstablishmentDashboard = () => {
       id: uuidv4(),
       name: '',
       specialties: [],
-      percentage: 100 // Percentual padrão de 100%
+      percentage: 100, // Percentual padrão de 100%
+      whatsapp: '', // ✅ Campo WhatsApp
+      specific_services: [] // ✅ Campo serviços específicos
     };
 
     // Adiciona a senha padrão '0000' para o novo profissional
@@ -1821,6 +1834,7 @@ const EstablishmentDashboard = () => {
             percentage: p.percentage || 100,
             photo_url: (p as any).photo_url,
             whatsapp: p.whatsapp || null, // ✅ ADICIONAR CAMPO WHATSAPP
+            specific_services: (p as any).specific_services || [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
             offers_child_service: p.offers_child_service || false,
             work_hours: p.work_hours || null,
             absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
@@ -1991,6 +2005,8 @@ const EstablishmentDashboard = () => {
           specialties: p.specialties || [], // PRESERVAR especialidades
           percentage: p.percentage || 100, // Manter o percentual
           photo_url: (p as any).photo_url, // Preservar a foto do profissional
+          whatsapp: p.whatsapp || null, // ✅ PRESERVAR WHATSAPP!
+          specific_services: (p as any).specific_services || [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
           offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
           work_hours: p.work_hours || null, // PRESERVAR horários de trabalho personalizados
           absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
@@ -2760,6 +2776,8 @@ Estamos te aguardando! 😎✂️`;
       }
 
       if (establishmentData) {
+        // ✅ CORRIGIDO: Só sobrescrever se não há dados locais mais recentes
+        // Isso evita perder modificações locais (como serviços específicos)
         setEstablishment(establishmentData);
         setEstablishmentName(establishmentData.name || '');
         setEstablishmentDescription(establishmentData.description || '');
@@ -2799,12 +2817,17 @@ Estamos te aguardando! 😎✂️`;
         // Carrega a configuração da imagem "Melhor do Brasil"
         setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
 
-        // Carrega os profissionais e serviços
-        const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: Professional) => ({
-          ...prof,
+        // ✅ CORRIGIDO: Carrega os profissionais preservando TODOS os campos existentes
+        const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: any) => ({
+          ...prof, // ✅ Preserva TODOS os campos existentes (incluindo specific_services, whatsapp, etc.)
           percentage: prof.percentage !== undefined ? prof.percentage : 100 // Só usar 100 se realmente não existir
         }));
 
+        console.log('🔧 DEBUG - Carregando profissionais:', professionalsWithPercentage);
+        console.log('🔧 DEBUG - Serviços específicos encontrados:', professionalsWithPercentage.map(p => ({
+          name: p.name,
+          specific_services: (p as any).specific_services
+        })));
 
         setProfessionals(professionalsWithPercentage);
 
@@ -4608,15 +4631,22 @@ Estamos te aguardando! 😎✂️`;
   };
 
   const handlePixPaymentStatusChange = async (appointmentId: string, status: string) => {
+    console.log('🔧 DEBUG - Atualizando status PIX:', { appointmentId, status });
+
     try {
       const { error } = await supabase
         .from('appointments')
         .update({ pix_payment_status: status })
         .eq('id', appointmentId);
 
+      console.log('🔧 DEBUG - Resultado da query:', { error });
+
       if (error) {
+        console.error('❌ Erro na query:', error);
         throw error;
       }
+
+      console.log('✅ Status PIX atualizado com sucesso!');
 
       await Promise.all([
         fetchAppointments(),
@@ -4625,7 +4655,7 @@ Estamos te aguardando! 😎✂️`;
 
       toast('Status do pagamento PIX atualizado com sucesso', 'success');
     } catch (error) {
-      console.error('Erro ao atualizar status do pagamento PIX:', error);
+      console.error('❌ Erro ao atualizar status do pagamento PIX:', error);
       toast('Erro ao atualizar status do pagamento PIX', 'error');
     }
   };
@@ -5188,6 +5218,67 @@ Estamos te aguardando! 😎✂️`;
     setShowGoalModal(false);
     setSelectedProfessionalForGoal(null);
     setGoalModalCurrentMonth(new Date()); // Reset para o mês atual
+  };
+
+  // ✅ Funções para gerenciar serviços específicos dos profissionais
+  const handleOpenSpecificServiceModal = (professionalId: string) => {
+    setSelectedProfessionalForSpecificService(professionalId);
+    setShowSpecificServiceModal(true);
+  };
+
+  const handleCloseSpecificServiceModal = () => {
+    setShowSpecificServiceModal(false);
+    setSelectedProfessionalForSpecificService(null);
+  };
+
+  const handleSaveSpecificService = async (services: any[]) => {
+    if (!selectedProfessionalForSpecificService || !establishment) return;
+
+    console.log('🔧 DEBUG - Salvando serviços específicos:', {
+      professionalId: selectedProfessionalForSpecificService,
+      services,
+      establishmentId: establishment.id
+    });
+
+    try {
+      // Atualizar o profissional com os novos serviços específicos
+      const updatedProfessionals = professionals.map(professional =>
+        professional.id === selectedProfessionalForSpecificService
+          ? { ...professional, specific_services: services }
+          : professional
+      );
+
+      console.log('🔧 DEBUG - Profissionais atualizados:', updatedProfessionals);
+
+      setProfessionals(updatedProfessionals);
+
+      // Salvar no banco de dados
+      console.log('🔧 DEBUG - Salvando no banco...');
+      const { error } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar serviços específicos:', error);
+        toast.error('Erro ao salvar serviços específicos');
+        return;
+      }
+
+      console.log('✅ Serviços específicos salvos com sucesso!');
+
+      // ✅ IMPORTANTE: Atualizar também o estado do establishment para manter sincronizado
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
+
+      toast.success('Serviços específicos salvos com sucesso!');
+      handleCloseSpecificServiceModal();
+    } catch (error) {
+      console.error('❌ Erro ao salvar serviços específicos:', error);
+      toast.error('Erro ao salvar serviços específicos');
+    }
   };
 
   const handleSaveGoal = async (goalAmount: number, selectedServices: string[]) => {
@@ -7481,13 +7572,12 @@ Estamos te aguardando! 😎✂️`;
 
                                         {appointment.payment_method === 'pix' && (
                                           <select
-                                            value={appointment.pix_payment_status || 'pending'}
+                                            value={appointment.pix_payment_status || 'confirmado'}
                                             onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
                                             className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
                                           >
-                                            <option value="pending" className="bg-green-700 text-white">Aguardando PIX</option>
-                                            <option value="confirmed" className="bg-green-700 text-white">PIX Confirmado</option>
-                                            <option value="rejected" className="bg-green-700 text-white">PIX Rejeitado</option>
+                                            <option value="confirmado" className="bg-green-700 text-white">PIX Confirmado</option>
+                                            <option value="rejeitado" className="bg-green-700 text-white">PIX Rejeitado</option>
                                           </select>
                                         )}
                                       </div>
@@ -9999,6 +10089,17 @@ Estamos te aguardando! 😎✂️`;
             />
           )}
 
+          {/* ✅ Modal de Serviços Específicos do Profissional */}
+          {showSpecificServiceModal && selectedProfessionalForSpecificService && (
+            <SpecificServiceModal
+              isOpen={showSpecificServiceModal}
+              onClose={handleCloseSpecificServiceModal}
+              onSave={handleSaveSpecificService}
+              professionalName={professionals.find(p => p.id === selectedProfessionalForSpecificService)?.name || ''}
+              currentServices={professionals.find(p => p.id === selectedProfessionalForSpecificService)?.specific_services || []}
+            />
+          )}
+
           {/* Modal de Bloqueio de Horários */}
           {showBlockTimeModal && selectedProfessionalForBlock && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -11897,6 +11998,18 @@ Estamos te aguardando! 😎✂️`;
                           />
                         </div>
                       )}
+
+                      {/* ✅ Campo de Serviço Específico */}
+                      <div className="space-y-2">
+                        <label className="block text-sm text-gray-400">Serviço Específico</label>
+                        <button
+                          onClick={() => handleOpenSpecificServiceModal(professional.id)}
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <span>🔧</span>
+                          <span>SERVIÇO ESPECÍFICO</span>
+                        </button>
+                      </div>
 
                       {/* Campo de Ausência */}
                       <div className="space-y-2">

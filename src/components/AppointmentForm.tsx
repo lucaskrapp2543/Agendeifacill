@@ -305,6 +305,42 @@ export function AppointmentForm({
   }, [establishment?.id, establishment?.services_with_prices]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // ✅ FUNÇÃO PARA COMBINAR SERVIÇOS GERAIS COM SERVIÇOS ESPECÍFICOS DO PROFISSIONAL
+  const getCombinedServices = () => {
+    const generalServices = establishment?.services_with_prices || [];
+
+    if (!selectedProfessional) {
+      return generalServices;
+    }
+
+    // Buscar serviços específicos do profissional selecionado
+    const professional = establishment?.professionals?.find(p => p.id === selectedProfessional.id);
+    const specificServices = (professional as any)?.specific_services || [];
+
+    // ✅ MODIFICADO: Mostrar serviços específicos mesmo se não houver serviços gerais
+    const combinedServices = [
+      ...generalServices,
+      ...specificServices.map((specific: any) => ({
+        id: `specific-${specific.id}`,
+        name: `${specific.name} (${professional?.name})`,
+        price: specific.price,
+        duration: specific.duration
+      }))
+    ];
+
+    // ✅ Se não há serviços gerais mas há serviços específicos, retorna apenas os específicos
+    if (generalServices.length === 0 && specificServices.length > 0) {
+      return specificServices.map((specific: any) => ({
+        id: `specific-${specific.id}`,
+        name: `${specific.name} (${professional?.name})`,
+        price: specific.price,
+        duration: specific.duration
+      }));
+    }
+
+    return combinedServices;
+  };
+
   const [pixProofUrl, setPixProofUrl] = useState<string | null>(null);
   const [pixPaymentMethod, setPixPaymentMethod] = useState<'pix_now' | 'pix_local' | null>(null);
 
@@ -662,8 +698,13 @@ export function AppointmentForm({
     return <div>Erro: Dados do estabelecimento não disponíveis</div>;
   }
 
-  // Só verificar serviços se não estiver usando categorias
-  if (!useCategoryService && (!establishment.services_with_prices || establishment.services_with_prices.length === 0)) {
+  // ✅ MODIFICADO: Verificar se há serviços gerais OU serviços específicos de QUALQUER profissional
+  const hasGeneralServices = establishment.services_with_prices && establishment.services_with_prices.length > 0;
+  const hasSpecificServices = establishment.professionals?.some(p => (p as any).specific_services && (p as any).specific_services.length > 0);
+  const hasAnyServices = hasGeneralServices || hasSpecificServices || useCategoryService;
+
+  // Só verificar serviços se não estiver usando categorias E não houver nenhum serviço disponível
+  if (!useCategoryService && !hasAnyServices) {
     console.log('❌ AppointmentForm: Sem serviços disponíveis');
     return <div>Erro: Nenhum serviço disponível neste estabelecimento</div>;
   }
@@ -1490,17 +1531,46 @@ export function AppointmentForm({
 
 
 
-        {/* 3. SERVIÇO - Oculto para assinantes */}
+        {/* 3. PROFISSIONAL */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            3. Escolha o Profissional
+          </label>
+          <ProfessionalSelector
+            professionals={establishment.professionals}
+            selectedProfessional={selectedProfessional?.id || null}
+            onSelectProfessional={(professionalId) => {
+              const professional = establishment.professionals.find(p => p.id === professionalId);
+
+              // ✅ LIMPAR APENAS A SELEÇÃO ATUAL (não os modos)
+              // Isso evita que serviços específicos de um profissional apareçam com outro
+              setSelectedService(undefined);
+              setSelectedServices([]);
+              setSelectedSubcategory(undefined);
+              setSelectedCategoryServices([]);
+
+              // ✅ NÃO LIMPAR OS MODOS (useMultiService, useCategoryService)
+              // Isso mantém a interface funcionando
+
+              setSelectedProfessional(professional || undefined);
+            }}
+            establishmentId={establishment.id || establishment.establishment_id || ''}
+            selectedDate={selectedDate}
+            showGoalProgress={false}
+          />
+        </div>
+
+        {/* 4. SERVIÇO - Oculto para assinantes */}
         {!isSubscriberBooking && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              3. Escolha o Serviço
+              4. Escolha o Serviço
             </label>
 
             {/* Toggle para escolher entre seleção única, múltipla ou categorias */}
             <div className="mb-4 flex gap-2">
-              {/* Mostrar "Um Serviço" apenas se houver serviços nas configurações */}
-              {establishment?.services_with_prices && establishment.services_with_prices.length > 0 && (
+              {/* ✅ MODIFICADO: Mostrar "Um Serviço" se houver serviços gerais OU específicos */}
+              {(hasGeneralServices || hasSpecificServices) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1519,8 +1589,8 @@ export function AppointmentForm({
                 </button>
               )}
 
-              {/* Mostrar "Múltiplos Serviços" apenas se houver serviços nas configurações */}
-              {establishment?.services_with_prices && establishment.services_with_prices.length > 0 && (
+              {/* ✅ MODIFICADO: Mostrar "Múltiplos Serviços" se houver serviços gerais OU específicos */}
+              {(hasGeneralServices || hasSpecificServices) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1560,7 +1630,7 @@ export function AppointmentForm({
             {/* Renderizar componente apropriado */}
             {useMultiService ? (
               <MultiServiceSelector
-                services={establishment.services_with_prices}
+                services={getCombinedServices()}
                 selectedServices={selectedServices}
                 onSelectServices={setSelectedServices}
                 maxServices={4}
@@ -1736,7 +1806,7 @@ export function AppointmentForm({
               </div>
             ) : (
               <ServiceList
-                services={establishment.services_with_prices}
+                services={getCombinedServices()}
                 selectedService={selectedService}
                 onSelectService={setSelectedService}
               />
@@ -1764,23 +1834,6 @@ export function AppointmentForm({
           </div>
         )}
 
-        {/* 4. PROFISSIONAL */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            4. Escolha o Profissional
-          </label>
-          <ProfessionalSelector
-            professionals={establishment.professionals}
-            selectedProfessional={selectedProfessional?.id || null}
-            onSelectProfessional={(professionalId) => {
-              const professional = establishment.professionals.find(p => p.id === professionalId);
-              setSelectedProfessional(professional);
-            }}
-            establishmentId={establishment.id || establishment.establishment_id || ''}
-            selectedDate={selectedDate}
-            showGoalProgress={false}
-          />
-        </div>
 
         {/* 5. DATA */}
         <div>
