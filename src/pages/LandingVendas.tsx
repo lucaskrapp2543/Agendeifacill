@@ -18,7 +18,7 @@ import {
   X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { PromoNotifications } from '../components/PromoNotifications';
 import WhatsAppButton from '../components/WhatsAppButton';
 
@@ -26,6 +26,11 @@ const LandingVendas = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  // ✅ ESTADO PARA CONTROLAR O POPUP "VOCÊ JÁ É ASSINANTE?"
+  const [showSubscriberModal, setShowSubscriberModal] = useState(false);
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -43,6 +48,30 @@ const LandingVendas = () => {
 
   const prevImage = () => {
     setCurrentImageIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  // ✅ FUNÇÃO PARA MOSTRAR POPUP EM VEZ DE NAVEGAR DIRETO
+  const handleLogin = () => {
+    setShowSubscriberModal(true);
+  };
+
+  // ✅ FUNÇÃO PARA IR PARA LOGIN (quando clica SIM)
+  const handleGoToLogin = () => {
+    setShowSubscriberModal(false);
+    navigate('/login');
+  };
+
+  // ✅ FUNÇÃO PARA IR PARA SEÇÃO DE PREÇOS (quando clica NÃO)
+  const handleGoToPricing = () => {
+    setShowSubscriberModal(false);
+    // Scroll para a seção de preços
+    const pricingSection = document.getElementById('pricing');
+    if (pricingSection) {
+      pricingSection.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }
   };
 
   const features = [
@@ -147,12 +176,12 @@ const LandingVendas = () => {
               >
                 Instalar App
               </button>
-              <Link
-                to="/login"
+              <button
+                onClick={handleLogin}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
               >
                 Login
-              </Link>
+              </button>
             </div>
 
             <button
@@ -804,6 +833,49 @@ const LandingVendas = () => {
           </div>
         </div>
       </footer>
+
+      {/* ✅ POPUP "VOCÊ JÁ É ASSINANTE AGENDEI FÁCIL?" */}
+      {showSubscriberModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="bg-[#18191a] rounded-xl p-8 shadow-lg relative w-96 max-w-full text-center border border-blue-500/40">
+            <button
+              className="absolute top-3 right-3 text-gray-400 hover:text-white text-xl font-bold"
+              onClick={() => setShowSubscriberModal(false)}
+              aria-label="Fechar"
+            >
+              ×
+            </button>
+
+            {/* Ícone */}
+            <div className="mx-auto mb-4 w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+              <span className="text-2xl">🤔</span>
+            </div>
+
+            {/* Título */}
+            <h3 className="text-white text-xl font-bold mb-2">
+              Você já é assinante Agendei Fácil?
+            </h3>
+
+            {/* Botões */}
+            <div className="flex flex-col gap-3 mt-6">
+              <button
+                onClick={handleGoToLogin}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
+              >
+                ✅ SIM - Já sou assinante
+              </button>
+
+              <button
+                onClick={handleGoToPricing}
+                className="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
+              >
+                ❌ NÃO - Quero conhecer os planos
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* Botão TESTE GRÁTIS Flutuante */}
       <div className="fixed bottom-6 right-6 z-50">

@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import {
   Building,
   Calendar,
@@ -110,8 +111,20 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
     }
 
     try {
-      // 1. Criar usuário no Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // ✅ SALVAR A SESSÃO DO ADMIN ANTES DE CRIAR O USUÁRIO
+      const currentAdminUser = await supabase.auth.getUser();
+      const adminUserId = currentAdminUser.data.user?.id;
+      const adminEmail = currentAdminUser.data.user?.email;
+
+      // ✅ SOLUÇÃO: Criar usuário usando uma nova instância do cliente Supabase
+      // Isso evita que a sessão atual seja afetada
+      const tempSupabase = createClient(
+        import.meta.env.VITE_SUPABASE_URL || '',
+        import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+      );
+
+      // 1. Criar usuário usando o cliente temporário
+      const { data: authData, error: authError } = await tempSupabase.auth.signUp({
         email: registration.email,
         password: registration.password,
         options: {
@@ -133,6 +146,8 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
         toast.error('Erro: usuário não foi criado');
         return;
       }
+
+      console.log('✅ Usuário criado com sucesso sem afetar a sessão do admin');
 
       // 2. Gerar código único para o estabelecimento
       const establishmentCode = Math.floor(1000 + Math.random() * 9000).toString();
@@ -192,7 +207,7 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
         .update({
           status: 'approved',
           processed_at: new Date().toISOString(),
-          processed_by: (await supabase.auth.getUser()).data.user?.id,
+          processed_by: adminUserId, // ✅ USAR O ID DO ADMIN SALVO ANTERIORMENTE
           notes: `Conta criada automaticamente. Código: ${establishmentCode}. Email: ${registration.email}, Senha: ${registration.password}. O usuário pode fazer login imediatamente.`
         })
         .eq('id', registration.id);
