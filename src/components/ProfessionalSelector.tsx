@@ -8,6 +8,7 @@ interface Professional {
   id: string;
   name: string;
   photo_url?: string;
+  whatsapp?: string;
 }
 
 interface ProfessionalSelectorProps {
@@ -488,6 +489,30 @@ export function ProfessionalSelector({
                   <span className="text-sm font-medium text-gray-700 mt-2 text-center max-w-20">
                     {professional.name}
                   </span>
+
+                  {/* Ícone WhatsApp do profissional */}
+                  {professional.whatsapp && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cleanWhatsapp = professional.whatsapp?.replace(/\D/g, '');
+                        const whatsappUrl = `https://wa.me/55${cleanWhatsapp}?text=Olá`;
+                        window.open(whatsappUrl, '_blank');
+                      }}
+                      className="mt-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+                      title={`Falar com ${professional.name} no WhatsApp`}
+                    >
+                      <img
+                        src="/wppiconpro.png"
+                        alt="WhatsApp"
+                        className="w-4 h-4"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                        }}
+                      />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

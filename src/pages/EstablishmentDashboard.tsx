@@ -46,6 +46,7 @@ interface Professional {
   specialties: string[];
   percentage?: number; // Campo para percentual do profissional (opcional)
   photo_url?: string; // Campo para foto do profissional
+  whatsapp?: string; // Campo para WhatsApp do profissional
   offers_child_service?: boolean; // Campo para indicar se oferece serviço infantil
   work_hours?: {
     [key: string]: {
@@ -1791,6 +1792,7 @@ const EstablishmentDashboard = () => {
     try {
       console.log('💾 Salvando profissionais:', professionals);
       console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
+      console.log('📱 Verificando WhatsApp:', professionals.map(p => ({ name: p.name, whatsapp: p.whatsapp })));
 
       // Garantir que todos os profissionais tenham pins (senha padrão "0000" se não tiver)
       let updatedPins = establishment.professionals_pins || [];
@@ -1818,6 +1820,7 @@ const EstablishmentDashboard = () => {
             specialties: p.specialties || [],
             percentage: p.percentage || 100,
             photo_url: (p as any).photo_url,
+            whatsapp: p.whatsapp || null, // ✅ ADICIONAR CAMPO WHATSAPP
             offers_child_service: p.offers_child_service || false,
             work_hours: p.work_hours || null,
             absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
@@ -1979,8 +1982,8 @@ const EstablishmentDashboard = () => {
 
     try {
       const establishmentData = {
-        name: establishmentName.trim(),
-        description: establishmentDescription.trim(),
+        name: establishment?.name?.trim() || '',
+        description: establishment?.description?.trim() || '',
         business_hours: businessHours,
         professionals: professionals.map(p => ({
           id: p.id,
@@ -4762,21 +4765,42 @@ Estamos te aguardando! 😎✂️`;
   const handleInputChange = async (field: string, value: string) => {
     if (!establishment) return;
 
+    console.log('🔧 DEBUG - handleInputChange chamada:', {
+      field,
+      value,
+      establishmentId: establishment.id,
+      currentValue: establishment[field]
+    });
+
+    // ✅ PRIMEIRO: Atualizar o estado local IMEDIATAMENTE (otimista)
+    setEstablishment({
+      ...establishment,
+      [field]: value
+    });
+
     try {
       const { error } = await supabase
         .from('establishments')
         .update({ [field]: value })
         .eq('id', establishment.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error(`❌ Erro do Supabase ao atualizar ${field}:`, error);
 
-      setEstablishment({
-        ...establishment,
-        [field]: value
-      });
+        // ❌ SE DER ERRO: Reverter o estado local
+        setEstablishment({
+          ...establishment,
+          [field]: establishment[field] // Volta ao valor original
+        });
+
+        throw error;
+      }
+
+      console.log(`✅ Campo ${field} atualizado com sucesso no banco!`);
+      toast.success(`${field} atualizado com sucesso!`);
     } catch (error) {
-      console.error(`Erro ao atualizar ${field}:`, error);
-      toast.error(`Erro ao atualizar ${field}`);
+      console.error(`❌ Erro ao atualizar ${field}:`, error);
+      toast.error(`Erro ao atualizar ${field}: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -11825,6 +11849,29 @@ Estamos te aguardando! 😎✂️`;
                             </button>
                           </div>
                         )}
+                      </div>
+
+                      {/* Campo de WhatsApp do profissional */}
+                      <div className="space-y-2">
+                        <label className="block text-sm text-gray-400">WhatsApp do profissional</label>
+                        <input
+                          type="text"
+                          value={professional.whatsapp || ''}
+                          onChange={(e) => {
+                            // Formatar WhatsApp automaticamente
+                            let value = e.target.value.replace(/\D/g, '');
+                            if (value.length > 2) {
+                              value = value.replace(/^(\d{2})(\d)/, '($1) $2');
+                            }
+                            if (value.length > 10) {
+                              value = value.replace(/(\d{4})(\d)/, '$1-$2');
+                            }
+                            handleProfessionalChange(professional.id, 'whatsapp', value);
+                          }}
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          placeholder="(47) 99999-9999"
+                          maxLength={15}
+                        />
                       </div>
 
                       {/* Campo de Meta */}

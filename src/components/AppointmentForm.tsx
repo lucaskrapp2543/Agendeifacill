@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { checkWhatsAppSubscriber, getClientDataFromAuth, getClientProfileData, isNewClient, supabase, testMigration } from '../lib/supabase';
+import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validateSubscriberBooking } from '../utils/subscriberBookingValidation';
 import { DatePicker } from './DatePicker';
@@ -13,6 +14,7 @@ import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { PixPaymentForm } from './PixPaymentForm';
 import { ProfessionalSelector } from './ProfessionalSelector';
 import { ServiceList } from './ServiceList';
+import { SubscriptionLimitModal } from './SubscriptionLimitModal';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
 interface Service {
@@ -81,6 +83,8 @@ interface AppointmentFormProps {
   subscriberService?: any; // Serviço de assinante para restringir dias
   isSubscriberBooking?: boolean; // Indica se é agendamento de assinante
   onConvertToSubscriber?: (subscriberData: any) => void; // Callback para converter para assinante
+  subscriberDetectionDisabled?: boolean; // Estado externo para desabilitar detecção
+  onSubscriberDetectionDisabledChange?: (disabled: boolean) => void; // Callback para mudar o estado
 }
 
 export function AppointmentForm({
@@ -91,7 +95,9 @@ export function AppointmentForm({
   existingAppointments = [],
   subscriberService,
   isSubscriberBooking = false,
-  onConvertToSubscriber
+  onConvertToSubscriber,
+  subscriberDetectionDisabled: externalSubscriberDetectionDisabled,
+  onSubscriberDetectionDisabledChange
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
@@ -302,16 +308,118 @@ export function AppointmentForm({
   const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
   const [isCheckingSubscriber, setIsCheckingSubscriber] = useState(false);
 
+  // Usar estado externo se fornecido, senão usar estado local
+  const subscriberDetectionDisabled = externalSubscriberDetectionDisabled ?? false;
+  const setSubscriberDetectionDisabled = (disabled: boolean) => {
+    console.log('🔧 DEBUG - setSubscriberDetectionDisabled chamado:', {
+      disabled,
+      hasCallback: !!onSubscriberDetectionDisabledChange,
+      externalValue: externalSubscriberDetectionDisabled
+    });
+    if (onSubscriberDetectionDisabledChange) {
+      onSubscriberDetectionDisabledChange(disabled);
+    }
+  };
+
+  // Log quando o componente monta
+  console.log('🏗️ AppointmentForm MONTADO - Estado inicial de subscriberDetectionDisabled:', {
+    subscriberDetectionDisabled,
+    externalSubscriberDetectionDisabled,
+    hasCallback: !!onSubscriberDetectionDisabledChange
+  });
+
   // Estados para validação de agendamento de assinantes
   const [subscriberBookingError, setSubscriberBookingError] = useState<string | null>(null);
   const [isValidatingBooking, setIsValidatingBooking] = useState(false);
   const [showSubscriberNotification, setShowSubscriberNotification] = useState(false);
 
+  // Log quando estados de assinante mudam
+  useEffect(() => {
+    console.log('🚨 DEBUG - subscriberDetectionDisabled mudou para:', subscriberDetectionDisabled);
+  }, [subscriberDetectionDisabled]);
+
+  useEffect(() => {
+    console.log('🚨 DEBUG - detectedSubscriber mudou para:', detectedSubscriber ? 'EXISTE' : 'NULL');
+  }, [detectedSubscriber]);
+
+  useEffect(() => {
+    console.log('🚨 DEBUG - showSubscriberNotification mudou para:', showSubscriberNotification);
+  }, [showSubscriberNotification]);
+
+  // Estados para modal de limite excedido
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitModalData, setLimitModalData] = useState<{
+    currentUsage: number;
+    monthlyLimit: number;
+    subscriptionName: string;
+  } | null>(null);
+
   // Estados para validação de remarcação no mesmo dia
 
   // Estados para validação de 1 agendamento por semana
   const [oneWeekLimitError, setOneWeekLimitError] = useState<string | null>(null);
+
+  // Estados para validação de limite mensal
+  const [monthlyLimitValidationDisabled, setMonthlyLimitValidationDisabled] = useState(false);
+  const [monthlyLimitError, setMonthlyLimitError] = useState<string | null>(null);
+  const [monthlyLimitData, setMonthlyLimitData] = useState<{
+    currentUsage: number;
+    monthlyLimit: number | null;
+    subscriptionName: string;
+  } | null>(null);
   const [isValidatingOneWeek, setIsValidatingOneWeek] = useState(false);
+
+  // Função para validar limite mensal de assinantes
+  const validateMonthlyLimit = async () => {
+    console.log('🔍 validateMonthlyLimit chamada com:', {
+      clientWhatsapp,
+      establishmentId: establishment?.id,
+      monthlyLimitValidationDisabled
+    });
+
+    // Se a validação foi desabilitada (usuário escolheu agendar como normal), não validar
+    if (monthlyLimitValidationDisabled) {
+      console.log('✅ Validação de limite mensal DESABILITADA - usuário agendando como normal');
+      setMonthlyLimitError(null);
+      setMonthlyLimitData(null);
+      return;
+    }
+
+    if (!clientWhatsapp || !establishment?.id) {
+      console.log('❌ Dados insuficientes para validar limite mensal');
+      setMonthlyLimitError(null);
+      setMonthlyLimitData(null);
+      return;
+    }
+
+    try {
+      console.log('🔍 Chamando checkMonthlyLimit...');
+      const limitCheck = await checkMonthlyLimit(clientWhatsapp, establishment.id);
+      console.log('📊 Resultado do checkMonthlyLimit:', limitCheck);
+
+      if (!limitCheck.canBook && limitCheck.errorMessage) {
+        console.log('🚫 Limite mensal excedido:', limitCheck.errorMessage);
+        setMonthlyLimitError(limitCheck.errorMessage);
+        setMonthlyLimitData({
+          currentUsage: limitCheck.currentUsage,
+          monthlyLimit: limitCheck.monthlyLimit,
+          subscriptionName: limitCheck.subscriptionName
+        });
+      } else {
+        console.log('✅ Limite mensal OK - pode agendar');
+        setMonthlyLimitError(null);
+        setMonthlyLimitData({
+          currentUsage: limitCheck.currentUsage,
+          monthlyLimit: limitCheck.monthlyLimit,
+          subscriptionName: limitCheck.subscriptionName
+        });
+      }
+    } catch (error) {
+      console.error('❌ Erro ao validar limite mensal:', error);
+      setMonthlyLimitError(null);
+      setMonthlyLimitData(null);
+    }
+  };
 
 
   // Função para validar agendamento de assinantes
@@ -428,6 +536,7 @@ export function AppointmentForm({
       console.log('🔄 DEBUG - Executando validações...');
       validateSubscriberBookingDate(selectedDate);
       validateOneWeekLimitDate(selectedDate);
+      validateMonthlyLimit(); // Nova validação de limite mensal
     } else {
       console.log('🔄 DEBUG - Condições não atendidas para executar validações');
     }
@@ -435,8 +544,22 @@ export function AppointmentForm({
 
   // Detectar automaticamente se o WhatsApp é de um assinante usando o novo sistema
   useEffect(() => {
+    console.log('🔄 DEBUG - useEffect detecção de assinante executado:', {
+      clientWhatsapp: !!clientWhatsapp,
+      establishmentId: !!establishment?.id,
+      isSubscriberBooking,
+      subscriberDetectionDisabled
+    });
     const checkSubscriber = async () => {
-      if (clientWhatsapp && clientWhatsapp.length >= 10 && !isSubscriberBooking) {
+      console.log('🔍 DEBUG - checkSubscriber chamado:', {
+        clientWhatsapp: !!clientWhatsapp,
+        whatsappLength: clientWhatsapp?.length,
+        isSubscriberBooking,
+        subscriberDetectionDisabled,
+        shouldCheck: clientWhatsapp && clientWhatsapp.length >= 10 && !isSubscriberBooking && !subscriberDetectionDisabled
+      });
+
+      if (clientWhatsapp && clientWhatsapp.length >= 10 && !isSubscriberBooking && !subscriberDetectionDisabled) {
         setIsCheckingSubscriber(true);
         try {
           // Primeiro tentar o novo sistema de assinantes
@@ -508,7 +631,26 @@ export function AppointmentForm({
     // Debounce para evitar muitas verificações
     const timeoutId = setTimeout(checkSubscriber, 1000);
     return () => clearTimeout(timeoutId);
-  }, [clientWhatsapp, establishment.id || establishment.establishment_id, isSubscriberBooking]);
+  }, [clientWhatsapp, establishment.id || establishment.establishment_id, isSubscriberBooking, subscriberDetectionDisabled]);
+
+  // VALIDAÇÃO DE LIMITE MENSAL quando já é assinante
+  useEffect(() => {
+    console.log('🔍 DEBUG - useEffect limite mensal:', {
+      clientWhatsapp: !!clientWhatsapp,
+      establishmentId: !!establishment?.id,
+      isSubscriberBooking,
+      clientWhatsappValue: clientWhatsapp,
+      establishmentIdValue: establishment?.id
+    });
+
+    // SEMPRE validar limite quando tem WhatsApp e establishment, independente de isSubscriberBooking
+    if (clientWhatsapp && establishment?.id) {
+      console.log('🔍 SEMPRE validando limite mensal...');
+      validateMonthlyLimit();
+    } else {
+      console.log('❌ Condições não atendidas para validar limite mensal');
+    }
+  }, [clientWhatsapp, establishment?.id, isSubscriberBooking]);
 
   // Verificar se os dados essenciais existem
   if (!establishment) {
@@ -644,6 +786,25 @@ export function AppointmentForm({
       return;
     }
 
+    // VALIDAÇÃO DE LIMITE MENSAL - BLOQUEAR AGENDAMENTO SE EXCEDEU LIMITE
+    if (monthlyLimitError) {
+      console.log('❌ Agendamento bloqueado por limite mensal:', monthlyLimitError);
+
+      // Scroll para a mensagem de erro (que já está visível)
+      setTimeout(() => {
+        const errorElement = document.querySelector('[data-monthly-limit-error]');
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Destacar a mensagem com uma animação
+          errorElement.classList.add('animate-bounce');
+          setTimeout(() => {
+            errorElement.classList.remove('animate-bounce');
+          }, 1000);
+        }
+      }, 100);
+
+      return;
+    }
 
     // VALIDAÇÃO DE 1 AGENDAMENTO POR SEMANA - BLOQUEAR SE ASSINANTE JÁ TEM AGENDAMENTO NA SEMANA
     if (oneWeekLimitError) {
@@ -726,6 +887,21 @@ export function AppointmentForm({
     } catch (error: any) {
       console.error('❌ Erro ao agendar:', error);
 
+      // Verificar se é erro de limite excedido
+      if (error.message?.includes('atingiu o limite dos seus serviços como assinante')) {
+        // Extrair informações do erro para o modal
+        const match = error.message.match(/(\d+)\/(\d+) serviços utilizados/);
+        if (match) {
+          setLimitModalData({
+            currentUsage: parseInt(match[1]),
+            monthlyLimit: parseInt(match[2]),
+            subscriptionName: 'Assinatura Ativa' // Pode ser melhorado depois
+          });
+          setShowLimitModal(true);
+          return;
+        }
+      }
+
       // Tratamento específico para diferentes tipos de erro
       let errorMessage = 'Erro ao realizar agendamento. Tente novamente.';
 
@@ -770,6 +946,22 @@ export function AppointmentForm({
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatCpf(e.target.value);
     setClientCpf(formatted);
+  };
+
+  // Funções para o modal de limite excedido
+  const handleRenewSubscription = () => {
+    setShowLimitModal(false);
+    // Aqui você pode implementar a lógica para renovar assinatura
+    // Por exemplo, redirecionar para página de pagamento ou mostrar modal de renovação
+    alert('Funcionalidade de renovação será implementada em breve!');
+  };
+
+  const handleBookAsNormal = () => {
+    setShowLimitModal(false);
+    // Marcar como agendamento normal (não assinante)
+    // Isso pode ser feito alterando o is_subscriber para false
+    // Por enquanto, vamos apenas fechar o modal
+    alert('Você pode agendar como cliente normal. O valor será cobrado individualmente.');
   };
 
   // Pegar o dia da semana em inglês (como está no banco de dados)
@@ -893,111 +1085,159 @@ export function AppointmentForm({
 
         <div>
           {/* Notificação de assinante detectado */}
-          {showSubscriberNotification && detectedSubscriber && (
-            <div className={`mt-3 p-3 border rounded-lg ${detectedSubscriber.is_expired
-              ? 'bg-red-50 border-red-200'
-              : 'bg-green-50 border-green-200'
-              }`}>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${detectedSubscriber.is_expired
-                  ? 'bg-red-500'
-                  : 'bg-green-500 animate-pulse'
-                  }`}></div>
-                <span className={`text-sm font-medium ${detectedSubscriber.is_expired
-                  ? 'text-red-800'
-                  : 'text-green-800'
-                  }`}>
-                  {detectedSubscriber.is_expired ? '⚠️ Plano Vencido Detectado!' : '🎯 Assinante detectado automaticamente!'}
-                </span>
-              </div>
-
-              <p className={`text-sm mt-1 ${detectedSubscriber.is_expired
-                ? 'text-red-700'
-                : 'text-green-700'
-                }`}>
-                <strong>Plano:</strong> {detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado'}
-              </p>
-
-              <p className={`text-sm ${detectedSubscriber.is_expired
-                ? 'text-red-700'
-                : 'text-green-700'
-                }`}>
-                <strong>Válido até:</strong> {format(new Date(detectedSubscriber.end_date), 'dd/MM/yyyy', { locale: ptBR })}
-              </p>
-
-              {detectedSubscriber.is_expired && (
-                <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded">
-                  <p className="text-sm text-red-800 font-medium">
-                    {detectedSubscriber.expiration_message || 'Seu plano venceu. Renove para continuar agendando.'}
-                  </p>
+          {(() => {
+            const shouldShow = showSubscriberNotification && detectedSubscriber;
+            console.log('🎨 DEBUG - RENDERIZAÇÃO da notificação verde:', {
+              showSubscriberNotification,
+              detectedSubscriber: detectedSubscriber ? 'EXISTE' : 'NULL',
+              shouldShow
+            });
+            return shouldShow;
+          })() && (
+              <div
+                className={`mt-3 p-3 border rounded-lg ${detectedSubscriber.is_expired
+                  ? 'bg-red-50 border-red-200'
+                  : 'bg-green-50 border-green-200'
+                  }`}
+                ref={(el) => {
+                  if (el) {
+                    console.log('✅ NOTIFICAÇÃO VERDE ESTÁ SENDO RENDERIZADA NA TELA!', {
+                      detectedSubscriber,
+                      showSubscriberNotification,
+                      subscriberDetectionDisabled
+                    });
+                  }
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${detectedSubscriber.is_expired
+                    ? 'bg-red-500'
+                    : 'bg-green-500 animate-pulse'
+                    }`}></div>
+                  <span className={`text-sm font-medium ${detectedSubscriber.is_expired
+                    ? 'text-red-800'
+                    : 'text-green-800'
+                    }`}>
+                    {detectedSubscriber.is_expired ? '⚠️ Plano Vencido Detectado!' : '🎯 Assinante detectado automaticamente!'}
+                  </span>
                 </div>
-              )}
 
-              {!detectedSubscriber.is_expired ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Converter para agendamento de assinante
-                      setShowSubscriberNotification(false);
-                      console.log('🔄 Convertendo para agendamento de assinante:', detectedSubscriber);
+                <p className={`text-sm mt-1 ${detectedSubscriber.is_expired
+                  ? 'text-red-700'
+                  : 'text-green-700'
+                  }`}>
+                  <strong>Plano:</strong> {detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado'}
+                </p>
 
-                      // Chamar callback para o componente pai
-                      if (onConvertToSubscriber) {
-                        onConvertToSubscriber(detectedSubscriber);
-                      }
-                    }}
-                    className="mt-2 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
-                  >
-                    Usar como Assinante
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSubscriberNotification(false)}
-                    className="mt-2 ml-2 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
-                  >
-                    Continuar Normal
-                  </button>
-                </>
-              ) : (
-                <div className="mt-2 flex flex-col gap-2">
-                  <p className="text-sm text-red-700 font-medium">
-                    Para agendar, você precisa renovar seu plano.
-                  </p>
-                  <div className="flex gap-2">
+                <p className={`text-sm ${detectedSubscriber.is_expired
+                  ? 'text-red-700'
+                  : 'text-green-700'
+                  }`}>
+                  <strong>Válido até:</strong> {format(new Date(detectedSubscriber.end_date), 'dd/MM/yyyy', { locale: ptBR })}
+                </p>
+
+                {detectedSubscriber.is_expired && (
+                  <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded">
+                    <p className="text-sm text-red-800 font-medium">
+                      {detectedSubscriber.expiration_message || 'Seu plano venceu. Renove para continuar agendando.'}
+                    </p>
+                  </div>
+                )}
+
+                {!detectedSubscriber.is_expired ? (
+                  <>
                     <button
                       type="button"
-                      onClick={() => setShowSubscriberNotification(false)}
-                      className="flex-1 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
+                      onClick={async () => {
+                        // Converter para agendamento de assinante
+                        setShowSubscriberNotification(false);
+                        console.log('🔄 Convertendo para agendamento de assinante:', detectedSubscriber);
+
+                        // VALIDAR LIMITE MENSAL antes de converter
+                        if (clientWhatsapp && establishment?.id) {
+                          console.log('🔍 Verificando limite mensal antes de converter...');
+                          const limitCheck = await checkMonthlyLimit(clientWhatsapp, establishment.id);
+
+                          if (!limitCheck.canBook && limitCheck.errorMessage) {
+                            console.log('🚫 Limite mensal excedido, não convertendo:', limitCheck.errorMessage);
+                            setMonthlyLimitError(limitCheck.errorMessage);
+                            setMonthlyLimitData({
+                              currentUsage: limitCheck.currentUsage,
+                              monthlyLimit: limitCheck.monthlyLimit,
+                              subscriptionName: limitCheck.subscriptionName
+                            });
+                            return; // Não converte se limite excedido
+                          }
+                        }
+
+                        // Chamar callback para o componente pai
+                        if (onConvertToSubscriber) {
+                          onConvertToSubscriber(detectedSubscriber);
+                        }
+                      }}
+                      className="mt-2 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
                     >
-                      Agendamento Normal
+                      Usar como Assinante
                     </button>
                     <button
                       type="button"
                       onClick={() => {
-                        // Redirecionar para WhatsApp do estabelecimento
-                        const establishmentWhatsapp = establishment?.whatsapp;
-                        const subscriptionName = detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado';
-
-                        if (establishmentWhatsapp) {
-                          const message = `Quero renovar minha assinatura: ${subscriptionName}`;
-                          const whatsappUrl = `https://wa.me/${establishmentWhatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
-                          window.open(whatsappUrl, '_blank');
-                        } else {
-                          console.error('WhatsApp do estabelecimento não encontrado');
+                        // Marcar como agendamento normal (não assinante)
+                        if (onConvertToSubscriber) {
+                          onConvertToSubscriber(false);
                         }
-
                         setShowSubscriberNotification(false);
+                        setDetectedSubscriber(null); // ✅ Limpar dados do assinante detectado
+                        setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
+                        setMonthlyLimitError(null); // ✅ Limpar erro de limite mensal
+                        setMonthlyLimitData(null); // ✅ Limpar dados de limite mensal
+                        setMonthlyLimitValidationDisabled(true); // ✅ Desabilitar validação de limite mensal
+                        console.log('🚫 DEBUG - Detecção de assinante DESABILITADA (Continuar Normal)');
                       }}
-                      className="flex-1 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                      className="mt-2 ml-2 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
                     >
-                      Renovar Assinatura
+                      Continuar Normal
                     </button>
+                  </>
+                ) : (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <p className="text-sm text-red-700 font-medium">
+                      Para agendar, você precisa renovar seu plano.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowSubscriberNotification(false)}
+                        className="flex-1 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
+                      >
+                        Agendamento Normal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Redirecionar para WhatsApp do estabelecimento
+                          const establishmentWhatsapp = establishment?.whatsapp;
+                          const subscriptionName = detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado';
+
+                          if (establishmentWhatsapp) {
+                            const message = `Quero renovar minha assinatura: ${subscriptionName}`;
+                            const whatsappUrl = `https://wa.me/${establishmentWhatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                            window.open(whatsappUrl, '_blank');
+                          } else {
+                            console.error('WhatsApp do estabelecimento não encontrado');
+                          }
+
+                          setShowSubscriberNotification(false);
+                        }}
+                        className="flex-1 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                      >
+                        Renovar Assinatura
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
 
           {/* Indicador de verificação */}
           {isCheckingSubscriber && (
@@ -1035,6 +1275,140 @@ export function AppointmentForm({
                     <p className="text-xs text-red-600 font-medium">
                       💡 Dica: Escolha uma data dentro da semana atual para prosseguir com o agendamento.
                     </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Contador de agendamentos mensais para assinantes */}
+          {isSubscriberBooking && monthlyLimitData && (
+            <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-green-50 border-l-4 border-blue-500 rounded-lg shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <span className="text-blue-600 text-xl">📊</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-base font-bold text-blue-800 mb-1">
+                    Controle Mensal de Agendamentos
+                  </h3>
+                  <div className="bg-blue-100 rounded-md p-3 mb-2">
+                    <p className="text-sm text-blue-700 font-medium mb-1">
+                      <strong>Assinatura:</strong> {monthlyLimitData.subscriptionName}
+                    </p>
+                    <p className="text-sm text-blue-700 font-medium">
+                      <strong>Você já fez:</strong> {monthlyLimitData.currentUsage} {monthlyLimitData.monthlyLimit ? `de ${monthlyLimitData.monthlyLimit}` : ''} agendamentos
+                    </p>
+                    {monthlyLimitData.monthlyLimit && (
+                      <p className="text-sm text-blue-700 font-medium">
+                        <strong>Restam:</strong> {Math.max(0, monthlyLimitData.monthlyLimit - monthlyLimitData.currentUsage)} agendamentos
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Progress Bar - só mostra se tem limite */}
+                  {monthlyLimitData.monthlyLimit && (
+                    <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+                      <div
+                        className={`h-3 rounded-full transition-all duration-500 ${monthlyLimitData.currentUsage >= monthlyLimitData.monthlyLimit
+                          ? 'bg-red-500'
+                          : monthlyLimitData.currentUsage >= monthlyLimitData.monthlyLimit * 0.8
+                            ? 'bg-orange-500'
+                            : 'bg-green-500'
+                          }`}
+                        style={{
+                          width: `${Math.min(100, (monthlyLimitData.currentUsage / monthlyLimitData.monthlyLimit) * 100)}%`
+                        }}
+                      ></div>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-blue-600">
+                    {!monthlyLimitData.monthlyLimit
+                      ? '✅ Sem limite definido - pode agendar normalmente.'
+                      : monthlyLimitData.currentUsage >= monthlyLimitData.monthlyLimit
+                        ? '🚫 Limite atingido! Agende como cliente normal.'
+                        : monthlyLimitData.currentUsage >= monthlyLimitData.monthlyLimit * 0.8
+                          ? '⚠️ Cuidado! Você está próximo do limite mensal.'
+                          : '✅ Você ainda pode agendar normalmente.'
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Mensagem de erro para limite mensal excedido */}
+          {monthlyLimitError && monthlyLimitData && (
+            <div
+              data-monthly-limit-error
+              className="mt-4 p-4 bg-gradient-to-r from-orange-50 to-red-50 border-l-4 border-orange-500 rounded-lg shadow-lg animate-pulse"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                    <span className="text-orange-600 text-xl">⚠️</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-bold text-orange-800 mb-1">
+                      Limite de Serviços Atingido
+                    </h3>
+                    <div className="text-orange-500 text-sm font-medium">
+                      🔢 Limite
+                    </div>
+                  </div>
+                  <p className="text-sm text-orange-700 leading-relaxed mb-2">
+                    {monthlyLimitError}
+                  </p>
+                  <div className="bg-orange-100 rounded-md p-3 mb-3">
+                    <p className="text-xs text-orange-600 font-medium mb-1">
+                      <strong>Assinatura:</strong> {monthlyLimitData.subscriptionName}
+                    </p>
+                    <p className="text-xs text-orange-600 font-medium">
+                      <strong>Uso atual:</strong> {monthlyLimitData.currentUsage} de {monthlyLimitData.monthlyLimit} agendamentos
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        // Verificar se o estabelecimento tem WhatsApp configurado
+                        if (!establishment?.whatsapp) {
+                          alert('❌ WhatsApp do estabelecimento não está configurado. Entre em contato por telefone ou email.');
+                          return;
+                        }
+
+                        // Abrir WhatsApp do ESTABELECIMENTO para renovação de assinatura
+                        const cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
+                        const whatsappUrl = `https://wa.me/55${cleanWhatsapp}?text=Olá! Gostaria de renovar minha assinatura. Como posso proceder?`;
+                        window.open(whatsappUrl, '_blank');
+                        alert('Redirecionando para WhatsApp do estabelecimento para renovação da assinatura...');
+                      }}
+                      className="flex-1 px-3 py-1 bg-orange-600 text-white text-xs rounded hover:bg-orange-700 transition-colors"
+                    >
+                      🔄 Renovar Assinatura
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Marcar como agendamento normal (não assinante)
+                        if (onConvertToSubscriber) {
+                          onConvertToSubscriber(false);
+                        }
+                        setMonthlyLimitError(null);
+                        setMonthlyLimitData(null);
+                        setShowSubscriberNotification(false); // ✅ Fechar também a notificação de assinante
+                        setDetectedSubscriber(null); // ✅ Limpar dados do assinante detectado
+                        setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
+                        setMonthlyLimitValidationDisabled(true); // ✅ Desabilitar validação de limite mensal
+                        console.log('🚫 DEBUG - Detecção de assinante DESABILITADA');
+                      }}
+                      className="flex-1 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                    >
+                      📅 Agendar como cliente normal
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1571,6 +1945,19 @@ export function AppointmentForm({
           {isLoading ? 'Agendando...' : 'Confirmar Agendamento'}
         </button>
       </form>
+
+      {/* Modal de limite excedido */}
+      {limitModalData && (
+        <SubscriptionLimitModal
+          isOpen={showLimitModal}
+          onClose={() => setShowLimitModal(false)}
+          onRenewSubscription={handleRenewSubscription}
+          onBookAsNormal={handleBookAsNormal}
+          currentUsage={limitModalData.currentUsage}
+          monthlyLimit={limitModalData.monthlyLimit}
+          subscriptionName={limitModalData.subscriptionName}
+        />
+      )}
     </div>
   );
 } 

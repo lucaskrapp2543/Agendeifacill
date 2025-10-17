@@ -660,6 +660,33 @@ export const createAppointment = async (appointmentData: any) => {
 
     console.log('✅ Nenhum conflito detectado, prosseguindo com criação...');
 
+    // VALIDAÇÃO DE LIMITE MENSAL PARA ASSINANTES
+    if (appointmentData.is_subscriber && appointmentData.client_whatsapp) {
+      console.log('🔍 Verificando limite mensal para assinante:', appointmentData.client_whatsapp);
+
+      try {
+        const limitCheck = await checkMonthlyServiceLimit(
+          appointmentData.client_whatsapp,
+          appointmentData.establishment_id
+        );
+
+        if (!limitCheck.canBook) {
+          const errorMessage = `Atenção: você já atingiu o limite dos seus serviços como assinante neste mês. (${limitCheck.currentUsage}/${limitCheck.monthlyLimit} serviços utilizados)`;
+          console.error('🚫 LIMITE MENSAL EXCEDIDO:', errorMessage);
+          throw new Error(errorMessage);
+        }
+
+        console.log('✅ Limite mensal OK:', limitCheck);
+      } catch (limitError: any) {
+        // Se for erro de limite, re-throw para mostrar ao usuário
+        if (limitError.message.includes('atingiu o limite')) {
+          throw limitError;
+        }
+        // Se for erro de conexão, logar mas continuar (não bloquear agendamento)
+        console.warn('⚠️ Erro ao verificar limite mensal, continuando agendamento:', limitError);
+      }
+    }
+
     const { data, error } = await retryRequest(async () => {
       return await supabase
         .from('appointments')
@@ -1293,6 +1320,89 @@ export const getSubscriptions = async (establishmentId: string) => {
     .eq('establishment_id', establishmentId)
     .order('name', { ascending: true });
   return { data, error };
+};
+
+// Função para verificar limite de serviços mensais de um assinante
+export const checkMonthlyServiceLimit = async (clientWhatsapp: string, establishmentId: string) => {
+  const currentDate = new Date();
+  const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+  const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+  try {
+    // Limpar o WhatsApp (remover formatação)
+    const cleanWhatsapp = clientWhatsapp.replace(/\D/g, '');
+
+    // 1. Buscar assinatura ativa do cliente pelo WhatsApp
+    const { data: clientSubscription, error: subscriptionError } = await supabase
+      .from('client_subscriptions')
+      .select(`
+        *,
+        subscriptions!inner(*)
+      `)
+      .eq('establishment_id', establishmentId)
+      .eq('client_whatsapp', cleanWhatsapp) // Buscar pelo WhatsApp limpo
+      .gte('end_date', currentDate.toISOString().split('T')[0])
+      .lte('start_date', currentDate.toISOString().split('T')[0])
+      .single();
+
+    if (subscriptionError || !clientSubscription) {
+      return {
+        hasActiveSubscription: false,
+        canBook: true,
+        currentUsage: 0,
+        monthlyLimit: 0,
+        subscriptionName: ''
+      };
+    }
+
+    // 2. Contar agendamentos do cliente neste mês pelo WhatsApp
+    const { data: appointments, error: appointmentsError } = await supabase
+      .from('appointments')
+      .select('id, appointment_date')
+      .eq('establishment_id', establishmentId)
+      .eq('client_whatsapp', cleanWhatsapp) // Buscar pelo WhatsApp limpo
+      .eq('is_subscriber', true) // Apenas agendamentos como assinante
+      .gte('appointment_date', firstDayOfMonth.toISOString().split('T')[0])
+      .lte('appointment_date', lastDayOfMonth.toISOString().split('T')[0])
+      .in('status', ['confirmed', 'completed', 'pending']); // Incluir pending também
+
+    if (appointmentsError) {
+      console.error('Erro ao verificar agendamentos:', appointmentsError);
+      return {
+        hasActiveSubscription: true,
+        canBook: true, // Em caso de erro, permite agendar
+        currentUsage: 0,
+        monthlyLimit: (clientSubscription as any).monthly_service_limit || 999,
+        subscriptionName: clientSubscription.subscriptions.name
+      };
+    }
+
+    const currentUsage = appointments?.length || 0;
+    // USAR o limite da client_subscriptions (definido manualmente pelo profissional)
+    const monthlyLimit = (clientSubscription as any).monthly_service_limit || 999;
+
+    // Se o limite é 999, significa sem limite
+    const canBook = monthlyLimit === 999 || currentUsage < monthlyLimit;
+
+    return {
+      hasActiveSubscription: true,
+      canBook,
+      currentUsage,
+      monthlyLimit: monthlyLimit === 999 ? 'Ilimitado' : monthlyLimit,
+      subscriptionName: clientSubscription.subscriptions.name,
+      subscriptionId: clientSubscription.subscription_id
+    };
+
+  } catch (error) {
+    console.error('Erro ao verificar limite mensal:', error);
+    return {
+      hasActiveSubscription: false,
+      canBook: true,
+      currentUsage: 0,
+      monthlyLimit: 0,
+      subscriptionName: ''
+    };
+  }
 };
 
 export const deleteSubscription = async (subscriptionId: string) => {

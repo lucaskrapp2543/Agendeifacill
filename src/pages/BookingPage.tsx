@@ -79,11 +79,30 @@ export default function BookingPage() {
   const [selectedSubscriberService, setSelectedSubscriberService] = useState<any>(null);
   const [convertedSubscriberData, setConvertedSubscriberData] = useState<any>(null); // Dados do assinante convertido
   const [showLoginModal, setShowLoginModal] = useState(false); // Estado para controlar o modal de login
+  const [subscriberDetectionDisabled, setSubscriberDetectionDisabled] = useState(false); // Estado para desabilitar detecção de assinante
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
-  // Função para converter agendamento normal para assinante
-  const handleConvertToSubscriber = (subscriberData: any) => {
+  // Função para converter agendamento normal para assinante OU de volta para cliente normal
+  const handleConvertToSubscriber = (subscriberData: any | false) => {
+    if (subscriberData === false) {
+      // Converter de volta para cliente normal
+      console.log('🔄 Convertendo agendamento para cliente normal');
+
+      // Limpar dados de assinante
+      setConvertedSubscriberData(null);
+      setSelectedSubscriberService(null);
+      setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
+
+      // Fechar formulário de assinante e abrir formulário normal
+      setShowSubscriberBooking(false);
+      setShowBookingForm(true);
+
+      toast.success('Convertido para agendamento normal! 👤');
+      return;
+    }
+
+    // Converter para assinante (código original)
     console.log('🔄 Convertendo agendamento para assinante:', subscriberData);
 
     // Salvar dados do assinante
@@ -1414,6 +1433,8 @@ export default function BookingPage() {
                 onSelectDate={setSelectedDate}
                 existingAppointments={existingAppointments}
                 onConvertToSubscriber={handleConvertToSubscriber}
+                subscriberDetectionDisabled={subscriberDetectionDisabled}
+                onSubscriberDetectionDisabledChange={setSubscriberDetectionDisabled}
               // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
               />
             </div>

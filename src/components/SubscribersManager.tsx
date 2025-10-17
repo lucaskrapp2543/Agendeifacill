@@ -1,28 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import { format, isPast, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { Edit, Plus, Trash2, Users, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from './ui/Toaster';
-import { supabase } from '../lib/supabase'; // Adicionar esta importação
-import { migrateManualClients, cleanupManualClients } from '../utils/migrateManualClients';
-import { ClientRecoveryModal } from './ClientRecoveryModal';
-import { 
-  createSubscription, 
-  getSubscriptions, 
-  addClientSubscription, 
-  getClientSubscriptions, 
-  updateClientSubscriptionPaymentStatus, 
-  deleteSubscription, 
-  deleteClientSubscription 
-} from '../lib/supabase';
-import { 
+import {
   createIndependentSubscriber,
   getEstablishmentSubscribers,
-  updateSubscriberPaymentStatus,
   removeSubscriber
 } from '../lib/subscriberSystem';
-import { Crown, Plus, Users, Trash2, Edit, Check, X } from 'lucide-react';
-import { format, addMonths, isPast, parseISO } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { createSubscription, deleteSubscription, getClientSubscriptions, getSubscriptions, supabase } from '../lib/supabase'; // Adicionar esta importação
 import { Database } from '../types/supabase';
+import { ClientRecoveryModal } from './ClientRecoveryModal';
+import { useToast } from './ui/Toaster';
 
 type Subscription = Database['public']['Tables']['subscriptions']['Row'];
 type ClientSubscription = Database['public']['Tables']['client_subscriptions']['Row'] & {
@@ -76,7 +65,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  
+
   // Estado para controlar limitação de agendamentos de assinantes
   const [limitSubscriberBookings, setLimitSubscriberBookings] = useState(
     establishment?.limit_subscriber_bookings || false
@@ -105,18 +94,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [isSavingAttendance, setIsSavingAttendance] = useState(false);
   const [subscriberAttendances, setSubscriberAttendances] = useState<any[]>([]);
   const [professionals, setProfessionals] = useState<any[]>([]);
-  
+
   // Estados para modal de visualizar atendimentos
   const [showViewAttendancesModal, setShowViewAttendancesModal] = useState(false);
   const [selectedClientForView, setSelectedClientForView] = useState<ClientSubscription | null>(null);
-  
+
   // Estados para modal de edição de datas
   const [showEditEndDateModal, setShowEditEndDateModal] = useState(false);
   const [selectedClientForEdit, setSelectedClientForEdit] = useState<ClientSubscription | null>(null);
   const [newEndDate, setNewEndDate] = useState('');
   const [newStartDate, setNewStartDate] = useState('');
   const [isSavingEndDate, setIsSavingEndDate] = useState(false);
-  
+
+  // Estados para modal de limite simples
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [selectedClientForLimit, setSelectedClientForLimit] = useState<ClientSubscription | null>(null);
+  const [monthlyLimit, setMonthlyLimit] = useState<number | null>(null);
+  const [isSavingLimit, setIsSavingLimit] = useState(false);
+
   // Estado para barra de pesquisa
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -156,11 +151,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       setLimitSubscriberBookings(newLimit);
       toast.success(
-        newLimit 
-          ? 'Assinantes agora só podem agendar dentro da mesma semana.' 
+        newLimit
+          ? 'Assinantes agora só podem agendar dentro da mesma semana.'
           : 'Assinantes podem agendar qualquer data disponível.'
       );
-      
+
       // Notificar o componente pai sobre a atualização
       if (onEstablishmentUpdate) {
         onEstablishmentUpdate();
@@ -190,11 +185,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       setPreventSameDayReschedule(newLimit);
       toast.success(
-        newLimit 
-          ? 'Assinantes não podem mais remarcar no mesmo dia após cancelar.' 
+        newLimit
+          ? 'Assinantes não podem mais remarcar no mesmo dia após cancelar.'
           : 'Assinantes podem cancelar e remarcar livremente.'
       );
-      
+
       // Notificar o componente pai sobre a atualização
       if (onEstablishmentUpdate) {
         onEstablishmentUpdate();
@@ -224,11 +219,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       setLimitSubscribersOneWeek(newLimit);
       toast.success(
-        newLimit 
-          ? 'Assinantes limitados a 1 agendamento por semana.' 
+        newLimit
+          ? 'Assinantes limitados a 1 agendamento por semana.'
           : 'Assinantes podem fazer múltiplos agendamentos por semana.'
       );
-      
+
       // Notificar o componente pai sobre a atualização
       if (onEstablishmentUpdate) {
         onEstablishmentUpdate();
@@ -246,7 +241,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const fetchProfessionals = async () => {
     try {
       console.log('🔍 Buscando profissionais do estabelecimento:', establishmentId);
-      
+
       // Buscar o estabelecimento com os profissionais
       const { data: establishmentData, error: establishmentError } = await supabase
         .from('establishments')
@@ -308,7 +303,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // Função para buscar atendimentos de um cliente específico
   const getClientAttendances = (clientSubscriptionId: string) => {
-    return subscriberAttendances.filter(attendance => 
+    return subscriberAttendances.filter(attendance =>
       attendance.client_subscription_id === clientSubscriptionId
     );
   };
@@ -330,14 +325,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       acc[professional].attendances.push(attendance);
       return acc;
     }, {} as { [key: string]: { count: number; totalValue: number; attendances: any[] } });
-    
+
     return grouped;
   };
 
   // Função para adicionar atendimento
   const handleAddAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedClientForAttendance || !attendanceDate || !attendanceProfessional || !attendanceValue) {
       toast.error('Preencha todos os campos para adicionar o atendimento.');
       return;
@@ -361,17 +356,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }
 
       toast.success(`Atendimento adicionado: ${attendanceProfessional} atendeu ${selectedClientForAttendance.profiles?.full_name} no dia ${new Date(attendanceDate).toLocaleDateString('pt-BR')} e recebeu ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(attendanceValue)}.`);
-      
+
       // Limpar formulário
       setAttendanceDate('');
       setAttendanceProfessional('');
       setAttendanceValue(0);
       setShowAddAttendanceModal(false);
       setSelectedClientForAttendance(null);
-      
+
       // Recarregar dados
       await fetchSubscriberAttendances();
-      
+
     } catch (error: any) {
       console.error('Erro ao adicionar atendimento:', error);
       toast.error(error.message || 'Erro ao adicionar atendimento.');
@@ -397,10 +392,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }
 
       toast.success('Atendimento removido com sucesso!');
-      
+
       // Recarregar dados
       await fetchSubscriberAttendances();
-      
+
     } catch (error: any) {
       console.error('Erro ao remover atendimento:', error);
       toast.error(error.message || 'Erro ao remover atendimento.');
@@ -422,7 +417,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     try {
       // Usar o novo sistema independente de assinantes
       const { data: newSubscribers, error: newError } = await getEstablishmentSubscribers(establishmentId);
-      
+
       if (newError) {
         console.error('Erro ao buscar assinantes (novo sistema):', newError);
         // Fallback para o sistema antigo se necessário
@@ -480,13 +475,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       fetchProfessionals();
       fetchSubscriberAttendances();
       // fetchClients(); // REMOVIDO
-      
+
       // Recuperação automática de clientes na inicialização
       const autoRecover = async () => {
         try {
           const { autoRecoverClients } = await import('../utils/recoverClientsFromAppointments');
           const result = await autoRecoverClients(establishmentId);
-          
+
           if (result.recovered > 0) {
             console.log(`🔄 Recuperação automática: ${result.recovered} clientes migrados`);
             // Recarregar dados após recuperação
@@ -497,7 +492,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           console.error('Erro na recuperação automática:', error);
         }
       };
-      
+
       // Executar recuperação automática após um pequeno delay
       const timeoutId = setTimeout(autoRecover, 2000);
       return () => clearTimeout(timeoutId);
@@ -561,7 +556,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Normalizar número de telefone (remover formatação)
       const normalizedPhone = newClientPhone.replace(/\D/g, '');
-      
+
       // Usar o novo sistema independente de assinantes
       const { data, error } = await createIndependentSubscriber({
         name: newClientName,
@@ -576,9 +571,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       if (error) {
         throw error;
       }
-      
+
       toast(`✅ ${newClientName} adicionado como assinante!`, 'success');
-      
+
       // Limpar formulário
       setSelectedSubscriptionToAdd('');
       setNewClientName('');
@@ -586,10 +581,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewClientEmail('');
       setStartDate('');
       setEndDate('');
-      
+
       // Recarregar lista de assinantes
       await fetchClientSubscriptions();
-      
+
     } catch (error: any) {
       console.error('Erro ao adicionar assinante:', error);
       toast(error.message || 'Erro ao adicionar assinante.', 'error');
@@ -602,27 +597,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (clientSubscription.payment_status === newStatus) {
       return;
     }
-    
+
     try {
-      console.log('🔥 FORÇANDO atualização do status:', { 
-        id: clientSubscription.id, 
+      console.log('🔥 FORÇANDO atualização do status:', {
+        id: clientSubscription.id,
         newStatus,
-        currentStatus: clientSubscription.payment_status 
+        currentStatus: clientSubscription.payment_status
       });
-      
+
       // FORÇAR atualização direta no banco - SEM lógica automática
       const { error } = await supabase
         .from('client_subscriptions')
-        .update({ 
+        .update({
           payment_status: newStatus,
           updated_at: new Date().toISOString()
         })
         .eq('id', clientSubscription.id);
-        
+
       if (error) {
         throw error;
       }
-      
+
       console.log('✅ Status FORÇADO para:', newStatus);
       toast(`Status FORÇADO para ${newStatus === 'paid' ? 'Pago' : 'Não Pago'}!`, 'success');
       fetchClientSubscriptions(); // Atualiza a lista
@@ -681,13 +676,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         // Buscar o client_id antes de deletar
         const clientSub = clientSubscriptions.find(cs => cs.id === clientSubscriptionId);
         const clientId = clientSub?.client_id;
-        
+
         // Usar o novo sistema de assinantes
         const { error } = await removeSubscriber(clientSubscriptionId);
         if (error) {
           throw error;
         }
-        
+
         toast('Assinante removido com sucesso!', 'success');
         fetchClientSubscriptions();
       } catch (error: any) {
@@ -700,7 +695,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Handler para atualizar data de término
   const handleUpdateEndDate = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedClientForEdit || !newEndDate || !newStartDate) {
       toast.error('Datas de início e término são obrigatórias.');
       return;
@@ -715,7 +710,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Determinar novo status baseado na data
       const newStatus = endDate < today ? 'unpaid' : 'paid';
-      
+
       // Log da alteração para auditoria
       const logData = {
         subscriber_id: selectedClientForEdit.id,
@@ -732,7 +727,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Atualizar no banco de dados
       const { error } = await supabase
         .from('client_subscriptions')
-        .update({ 
+        .update({
           start_date: newStartDate,
           end_date: newEndDate,
           payment_status: newStatus,
@@ -751,18 +746,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const statusMessage = newStatus === 'paid' ? 'ativo/pago' : 'vencido';
       const startDateFormatted = new Date(newStartDate).toLocaleDateString('pt-BR');
       const endDateFormatted = new Date(newEndDate).toLocaleDateString('pt-BR');
-      
+
       toast.success(`Datas atualizadas: ${startDateFormatted} a ${endDateFormatted}. Status: ${statusMessage}`);
-      
+
       // Fechar modal e limpar dados
       setShowEditEndDateModal(false);
       setSelectedClientForEdit(null);
       setNewEndDate('');
       setNewStartDate('');
-      
+
       // Recarregar dados
       await fetchClientSubscriptions();
-      
+
     } catch (error: any) {
       console.error('Erro ao atualizar data de término:', error);
       toast.error(error.message || 'Erro ao atualizar data de término.');
@@ -777,6 +772,51 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setNewEndDate(clientSubscription.end_date);
     setNewStartDate(clientSubscription.start_date);
     setShowEditEndDateModal(true);
+  };
+
+  const openLimitModal = (clientSubscription: ClientSubscription) => {
+    setSelectedClientForLimit(clientSubscription);
+    setMonthlyLimit((clientSubscription as any).monthly_limit || null);
+    setShowLimitModal(true);
+  };
+
+  const handleSaveLimit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedClientForLimit) {
+      toast.error('Cliente não selecionado.');
+      return;
+    }
+
+    setIsSavingLimit(true);
+    try {
+      const { error } = await supabase
+        .from('client_subscriptions')
+        .update({
+          monthly_limit: monthlyLimit,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedClientForLimit.id);
+
+      if (error) throw error;
+
+      const limitText = monthlyLimit ? `${monthlyLimit} agendamentos` : 'sem limite';
+      toast.success(`Limite definido: ${limitText} por mês para ${selectedClientForLimit.profiles?.full_name || 'Cliente'}`);
+
+      // Fechar modal e limpar dados
+      setShowLimitModal(false);
+      setSelectedClientForLimit(null);
+      setMonthlyLimit(null);
+
+      // Recarregar dados
+      await fetchClientSubscriptions();
+
+    } catch (error: any) {
+      console.error('Erro ao salvar limite:', error);
+      toast.error(error.message || 'Erro ao salvar limite.');
+    } finally {
+      setIsSavingLimit(false);
+    }
   };
 
   // Função para registrar logs de auditoria
@@ -802,19 +842,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Salvar no localStorage para auditoria local
       const existingLogs = JSON.parse(localStorage.getItem('subscriber_audit_logs') || '[]');
       existingLogs.push(auditLog);
-      
+
       // Manter apenas os últimos 100 logs para não sobrecarregar o localStorage
       if (existingLogs.length > 100) {
         existingLogs.splice(0, existingLogs.length - 100);
       }
-      
+
       localStorage.setItem('subscriber_audit_logs', JSON.stringify(existingLogs));
-      
+
       console.log('📝 Log de auditoria registrado:', auditLog);
-      
+
       // Aqui você pode implementar o envio para uma tabela de logs no banco se necessário
       // await supabase.from('audit_logs').insert(auditLog);
-      
+
     } catch (error) {
       console.error('❌ Erro ao registrar log de auditoria:', error);
     }
@@ -823,7 +863,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Função para checagem diária automática de vencimento
   const checkDailyExpiration = async () => {
     if (clientSubscriptions.length === 0) return;
-    
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     let hasChanges = false;
@@ -833,15 +873,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     for (const cs of clientSubscriptions) {
       const endDate = parseISO(cs.end_date);
       endDate.setHours(0, 0, 0, 0);
-      
+
       // Se a data de término já passou e o status ainda não foi atualizado
       if (endDate < today && cs.payment_status === 'paid') {
         try {
           console.log(`⚠️ Assinante ${cs.profiles?.full_name} venceu em ${endDate.toLocaleDateString('pt-BR')}, atualizando status...`);
-          
+
           await supabase
             .from('client_subscriptions')
-            .update({ 
+            .update({
               payment_status: 'unpaid',
               updated_at: new Date().toISOString()
             })
@@ -854,7 +894,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         }
       }
     }
-    
+
     // Recarregar dados se houve mudanças
     if (hasChanges) {
       console.log('🔄 Recarregando dados após atualizações...');
@@ -866,7 +906,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   useEffect(() => {
     const checkAndResetPayments = async () => {
       if (clientSubscriptions.length === 0) return;
-      
+
       const today = new Date();
       today.setHours(0, 0, 0, 0); // Zerar horas para comparação apenas de data
       let hasChanges = false;
@@ -874,7 +914,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       for (const cs of clientSubscriptions) {
         const endDate = new Date(cs.end_date);
         endDate.setHours(0, 0, 0, 0);
-        
+
         console.log(`📅 Cliente ${cs.profiles?.full_name || 'Desconhecido'}:`, {
           endDate: endDate.toLocaleDateString('pt-BR'),
           today: today.toLocaleDateString('pt-BR'),
@@ -886,16 +926,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         if (today > endDate && cs.payment_status === 'paid') {
           try {
             console.log(`🔄 Cliente ${cs.profiles?.full_name || 'Desconhecido'} venceu em ${endDate.toLocaleDateString('pt-BR')} - Marcando como não pago`);
-            
+
             // Atualizar diretamente no banco
             const { error } = await supabase
               .from('client_subscriptions')
-              .update({ 
+              .update({
                 payment_status: 'unpaid',
                 updated_at: new Date().toISOString()
               })
               .eq('id', cs.id);
-              
+
             if (error) {
               console.error(`Erro ao marcar como não pago:`, error);
             } else {
@@ -906,7 +946,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           }
         }
       }
-      
+
       // Só re-fetch se houve mudanças para evitar loop infinito
       if (hasChanges) {
         console.log('🔄 Recarregando dados após mudanças de status por data de fim');
@@ -974,13 +1014,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Filtrar assinantes pela pesquisa
   const filteredClientSubscriptions = clientSubscriptions.filter(cs => {
     if (!searchTerm.trim()) return true;
-    
+
     const searchLower = searchTerm.toLowerCase();
     const clientName = cs.profiles?.full_name?.toLowerCase() || '';
     const clientEmail = cs.profiles?.email?.toLowerCase() || '';
     const clientWhatsapp = cs.client_whatsapp?.toLowerCase() || '';
     const subscriptionName = cs.subscriptions?.name?.toLowerCase() || '';
-    
+
     return (
       clientName.includes(searchLower) ||
       clientEmail.includes(searchLower) ||
@@ -1012,7 +1052,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <p className="text-lg sm:text-2xl font-bold text-red-400">{assinantesNaoPagos}</p>
           </div>
         </div>
-        
+
         {/* Controle por Profissional */}
         {subscriberAttendances.length > 0 && (
           <div className="mt-6 pt-6 border-t border-gray-700">
@@ -1054,7 +1094,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
         <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6">Configurações de Agendamento</h2>
         <div className="space-y-3 sm:space-y-4">
-          
+
           {/* Primeira opção - Layout melhorado para mobile */}
           <div className="bg-[#2a2b2c] rounded-lg border border-gray-600 overflow-hidden">
             <div className="p-3 sm:p-4">
@@ -1084,7 +1124,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </div>
               </div>
             </div>
-            
+
             {isUpdatingLimit && (
               <div className="px-3 sm:px-4 pb-3 sm:pb-4">
                 <div className="flex items-center gap-2 text-blue-400">
@@ -1124,7 +1164,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </div>
               </div>
             </div>
-            
+
             {isUpdatingSameDayLimit && (
               <div className="px-3 sm:px-4 pb-3 sm:pb-4">
                 <div className="flex items-center gap-2 text-blue-400">
@@ -1164,7 +1204,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </div>
               </div>
             </div>
-            
+
             {isUpdatingOneWeekLimit && (
               <div className="px-3 sm:px-4 pb-3 sm:pb-4">
                 <div className="flex items-center gap-2 text-blue-400">
@@ -1319,7 +1359,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       📅 {sub.weekdays.map(day => {
                         const dayNames = {
                           'monday': 'Seg',
-                          'tuesday': 'Ter', 
+                          'tuesday': 'Ter',
                           'wednesday': 'Qua',
                           'thursday': 'Qui',
                           'friday': 'Sex',
@@ -1498,10 +1538,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               const isPaid = cs.payment_status === 'paid';
               const endDate = parseISO(cs.end_date);
               const isExpired = isPast(endDate);
-              
+
               // Lógica de status: vencido APENAS se data passou (independente do pagamento)
               const isVencido = isExpired;
-              
+
               // Estilo visual baseado no status
               const cardBg = isVencido ? 'bg-red-800/90' : 'bg-green-600';
               const textColor = 'text-white';
@@ -1547,7 +1587,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     {cs.client_whatsapp && cs.client_whatsapp !== 'N/A' && (() => {
                       // Limpar e formatar o número para o WhatsApp
                       let cleanNumber = cs.client_whatsapp.replace(/\D/g, '');
-                      
+
                       // Garantir que tenha código do país (55 para Brasil)
                       if (cleanNumber.length === 11 && cleanNumber.startsWith('11')) {
                         // Número do Rio de Janeiro: 21993908102 -> 5521993908102
@@ -1565,10 +1605,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         // Número muito curto, não formatar
                         cleanNumber = cleanNumber;
                       }
-                      
+
                       const whatsappNumber = cleanNumber;
                       const displayNumber = cs.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
-                      
+
                       // Debug para verificar formatação
                       console.log('🔍 WhatsApp Debug:', {
                         original: cs.client_whatsapp,
@@ -1577,7 +1617,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         displayNumber,
                         finalUrl: `https://wa.me/${whatsappNumber}`
                       });
-                      
+
                       return (
                         <div className={`flex items-center gap-2 text-xs sm:text-sm ${textColor}/80`}>
                           <span className="text-lg">📱</span>
@@ -1589,11 +1629,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                             className="text-green-400 hover:text-green-300 transition-colors flex-shrink-0"
                             title={`Abrir WhatsApp: ${displayNumber}`}
                           >
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
-                          </svg>
-                        </a>
-                      </div>
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488" />
+                            </svg>
+                          </a>
+                        </div>
                       );
                     })()}
                     {cs.profiles?.email && (
@@ -1606,7 +1646,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           title="Enviar email"
                         >
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                            <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
                           </svg>
                         </a>
                       </div>
@@ -1620,11 +1660,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <select
                         value={cs.payment_status}
                         onChange={(e) => handleTogglePaymentStatus(cs, e.target.value as 'paid' | 'unpaid')}
-                        className={`w-full appearance-none px-3 py-2 pr-8 text-xs sm:text-sm font-medium rounded-lg border-0 outline-none transition-all cursor-pointer shadow-sm ${
-                          isPaid 
-                            ? 'bg-green-600 text-white hover:bg-green-700 focus:bg-green-700' 
-                            : 'bg-red-600 text-white hover:bg-red-700 focus:bg-red-700'
-                        }`}
+                        className={`w-full appearance-none px-3 py-2 pr-8 text-xs sm:text-sm font-medium rounded-lg border-0 outline-none transition-all cursor-pointer shadow-sm ${isPaid
+                          ? 'bg-green-600 text-white hover:bg-green-700 focus:bg-green-700'
+                          : 'bg-red-600 text-white hover:bg-red-700 focus:bg-red-700'
+                          }`}
                       >
                         <option value="paid" className="bg-white text-green-700">✓ Pago</option>
                         <option value="unpaid" className="bg-white text-red-700">✗ Não Pago</option>
@@ -1635,9 +1674,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         </svg>
                       </div>
                     </div>
-                    
+
                     {/* Botões de ação em grid para mobile */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                       <button
                         onClick={() => {
                           setSelectedClientForView(cs);
@@ -1673,8 +1712,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <span className="hidden sm:inline">Editar Data</span>
                         <span className="sm:hidden">Data</span>
                       </button>
+                      <button
+                        onClick={() => openLimitModal(cs)}
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-blue-600 text-white hover:bg-blue-700 border border-blue-600 shadow-md"
+                        title="Definir limite de agendamentos por mês"
+                      >
+                        <span className="text-xs sm:text-sm">🔢</span>
+                        <span className="hidden sm:inline ml-1">Limitar Cliente</span>
+                        <span className="sm:hidden ml-1">Limite</span>
+                      </button>
                     </div>
-                    
+
                     {/* Botão remover em linha separada */}
                     <button
                       onClick={() => handleDeleteClientSubscription(cs.id, cs.profiles?.full_name || 'Cliente')}
@@ -1779,7 +1827,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   const clientSubscription = selectedClientForAttendance;
                   const subscription = subscriptions.find(sub => sub.id === clientSubscription.subscription_id);
                   const fixedCommission = subscription?.fixed_commission_value;
-                  
+
                   if (fixedCommission && fixedCommission > 0) {
                     // Se tem valor fixo, campo vem preenchido e desabilitado
                     return (
@@ -1898,7 +1946,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   required
                 />
               </div>
-              
+
               <div>
                 <label htmlFor="newEndDate" className="block text-sm font-medium text-gray-400 mb-1">
                   Nova Data de Término
@@ -1921,27 +1969,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 const endDate = new Date(newEndDate);
                 startDate.setHours(0, 0, 0, 0);
                 endDate.setHours(0, 0, 0, 0);
-                
+
                 const isStartValid = startDate <= endDate;
                 const isEndFuture = endDate > today;
                 const isEndToday = endDate.getTime() === today.getTime();
-                
+
                 return (
-                  <div className={`p-3 rounded-lg border ${
-                    isStartValid && isEndFuture
-                      ? 'bg-green-900/20 border-green-600/30' 
-                      : 'bg-red-900/20 border-red-600/30'
-                  }`}>
-                    <p className={`text-xs ${
-                      isStartValid && isEndFuture ? 'text-green-400' : 'text-red-400'
+                  <div className={`p-3 rounded-lg border ${isStartValid && isEndFuture
+                    ? 'bg-green-900/20 border-green-600/30'
+                    : 'bg-red-900/20 border-red-600/30'
                     }`}>
-                      {!isStartValid 
+                    <p className={`text-xs ${isStartValid && isEndFuture ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                      {!isStartValid
                         ? `❌ Data de início deve ser anterior à data de término`
-                        : isEndFuture 
-                        ? `✅ Plano ficará ATIVO de ${format(startDate, 'dd/MM/yyyy', { locale: ptBR })} até ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })}`
-                        : isEndToday
-                        ? `⚠️ Plano ficará VENCIDO hoje (${format(endDate, 'dd/MM/yyyy', { locale: ptBR })})`
-                        : `❌ Plano ficará VENCIDO (venceu em ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })})`
+                        : isEndFuture
+                          ? `✅ Plano ficará ATIVO de ${format(startDate, 'dd/MM/yyyy', { locale: ptBR })} até ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })}`
+                          : isEndToday
+                            ? `⚠️ Plano ficará VENCIDO hoje (${format(endDate, 'dd/MM/yyyy', { locale: ptBR })})`
+                            : `❌ Plano ficará VENCIDO (venceu em ${format(endDate, 'dd/MM/yyyy', { locale: ptBR })})`
                       }
                     </p>
                   </div>
@@ -1999,7 +2045,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             {(() => {
               const clientAttendances = getClientAttendances(selectedClientForView.id);
               const attendancesByProfessional = getClientAttendancesByProfessional(selectedClientForView.id);
-              
+
               if (clientAttendances.length === 0) {
                 return (
                   <div className="text-center text-gray-400 py-8">
@@ -2049,9 +2095,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                             </div>
                             <button
                               onClick={() => handleRemoveAttendance(
-                                attendance.id, 
-                                attendance.professional_name, 
-                                attendance.attendance_date, 
+                                attendance.id,
+                                attendance.professional_name,
+                                attendance.attendance_date,
                                 attendance.repass_value
                               )}
                               className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
@@ -2086,7 +2132,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 <X className="h-5 w-5" />
               </button>
             </div>
-            
+
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-400 mb-2">
                 Descrição da Assinatura "{selectedSubscriptionForEdit.name}"
@@ -2121,6 +2167,63 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
         </div>
       )}
+
+      {/* Modal para Definir Limite Simples */}
+      {showLimitModal && selectedClientForLimit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                Limitar Cliente
+              </h3>
+              <button
+                onClick={() => setShowLimitModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveLimit}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Limite mensal para <strong>{selectedClientForLimit.profiles?.full_name || 'Cliente'}</strong>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={monthlyLimit || ''}
+                  onChange={(e) => setMonthlyLimit(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  placeholder="Ex: 2 (para 2 agendamentos por mês)"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Deixe vazio para sem limite. O sistema contará quantas vezes este cliente agendou como assinante no mês.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowLimitModal(false)}
+                  className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingLimit}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {isSavingLimit ? 'Salvando...' : 'Salvar Limite'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }; 

@@ -1,5 +1,4 @@
-import { checkWhatsAppSubscriber } from '../lib/supabase';
-import { supabase } from '../lib/supabase';
+import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
 
 /**
  * Verifica se um cliente é assinante ativo de um estabelecimento (não vencido)
@@ -39,6 +38,126 @@ export const isClientSubscriber = async (clientWhatsapp: string, establishmentId
   } catch (error) {
     console.error('❌ Erro ao verificar assinante:', error);
     return false;
+  }
+};
+
+/**
+ * Verifica se um assinante excedeu o limite mensal de serviços
+ */
+export const checkSubscriberMonthlyLimit = async (clientWhatsapp: string, establishmentId: string): Promise<{
+  canBook: boolean;
+  currentUsage: number;
+  monthlyLimit: number;
+  subscriptionName: string;
+  errorMessage?: string;
+}> => {
+  try {
+    console.log('🔍 Verificando limite mensal do assinante:', { clientWhatsapp, establishmentId });
+    
+    // Limpar o WhatsApp (remover formatação)
+    const cleanWhatsapp = clientWhatsapp.replace(/\D/g, '');
+    
+    // Buscar assinatura ativa do cliente pelo WhatsApp
+    const { data: clientSubscription, error: subscriptionError } = await supabase
+      .from('client_subscriptions')
+      .select(`
+        *,
+        subscriptions!inner(*)
+      `)
+      .eq('establishment_id', establishmentId)
+      .eq('client_whatsapp', cleanWhatsapp)
+      .gte('end_date', new Date().toISOString().split('T')[0])
+      .lte('start_date', new Date().toISOString().split('T')[0])
+      .single();
+
+    if (subscriptionError || !clientSubscription) {
+      console.log('❌ Assinante não encontrado ou erro:', subscriptionError);
+      return { 
+        canBook: true, 
+        currentUsage: 0, 
+        monthlyLimit: 0, 
+        subscriptionName: '' 
+      };
+    }
+
+    // Verificar se o assinante está ativo (não vencido)
+    const isExpired = clientSubscription.is_expired || 
+      (new Date(clientSubscription.end_date) < new Date()) || 
+      clientSubscription.payment_status === 'unpaid';
+
+    if (isExpired) {
+      console.log('❌ Assinante vencido, não aplicando limite');
+      return { 
+        canBook: true, 
+        currentUsage: 0, 
+        monthlyLimit: 0, 
+        subscriptionName: clientSubscription.subscriptions?.name || '' 
+      };
+    }
+
+    // Contar agendamentos do cliente neste mês
+    const currentDate = new Date();
+    const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+    const { data: appointments, error: appointmentsError } = await supabase
+      .from('appointments')
+      .select('id, appointment_date')
+      .eq('establishment_id', establishmentId)
+      .eq('client_whatsapp', cleanWhatsapp)
+      .eq('is_subscriber', true)
+      .gte('appointment_date', firstDayOfMonth.toISOString().split('T')[0])
+      .lte('appointment_date', lastDayOfMonth.toISOString().split('T')[0])
+      .in('status', ['confirmed', 'completed', 'pending']);
+
+    if (appointmentsError) {
+      console.error('❌ Erro ao verificar agendamentos:', appointmentsError);
+      return { 
+        canBook: true, 
+        currentUsage: 0, 
+        monthlyLimit: 999, 
+        subscriptionName: clientSubscription.subscriptions?.name || '' 
+      };
+    }
+
+    const currentUsage = appointments?.length || 0;
+    const monthlyLimit = (clientSubscription as any).monthly_service_limit || 999;
+    
+    // Se o limite é 999, significa sem limite
+    const canBook = monthlyLimit === 999 || currentUsage < monthlyLimit;
+
+    console.log('📊 Limite mensal verificado:', { 
+      currentUsage, 
+      monthlyLimit, 
+      canBook, 
+      subscriptionName: clientSubscription.subscriptions?.name 
+    });
+
+    if (!canBook) {
+      return {
+        canBook: false,
+        currentUsage,
+        monthlyLimit,
+        subscriptionName: clientSubscription.subscriptions?.name || '',
+        errorMessage: `Atenção: você já atingiu o limite dos seus serviços como assinante neste mês. (${currentUsage}/${monthlyLimit} serviços utilizados)`
+      };
+    }
+
+    return {
+      canBook: true,
+      currentUsage,
+      monthlyLimit,
+      subscriptionName: clientSubscription.subscriptions?.name || ''
+    };
+
+  } catch (error) {
+    console.error('❌ Erro ao verificar limite mensal:', error);
+    return { 
+      canBook: true, 
+      currentUsage: 0, 
+      monthlyLimit: 0, 
+      subscriptionName: '' 
+    };
   }
 };
 
