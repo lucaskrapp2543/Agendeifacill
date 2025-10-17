@@ -236,6 +236,10 @@ export function AppointmentForm({
   const [serviceCategories, setServiceCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<any>(null);
+
+  // ✅ ESTADO PARA MÚLTIPLOS SERVIÇOS EM CATEGORIAS
+  const [selectedCategoryServices, setSelectedCategoryServices] = useState<any[]>([]);
+  const [useMultiCategoryService, setUseMultiCategoryService] = useState(false);
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
@@ -734,8 +738,14 @@ export function AppointmentForm({
           missingFields.push('pelo menos um serviço');
         }
       } else if (useCategoryService) {
-        if (!selectedSubcategory) {
-          missingFields.push('serviço das categorias');
+        if (useMultiCategoryService) {
+          if (selectedCategoryServices.length === 0) {
+            missingFields.push('pelo menos um serviço das categorias');
+          }
+        } else {
+          if (!selectedSubcategory) {
+            missingFields.push('serviço das categorias');
+          }
         }
       } else {
         if (!selectedService) {
@@ -850,12 +860,20 @@ export function AppointmentForm({
         totalPrice = servicesToUse.reduce((sum, service) => sum + (service?.price || 0), 0);
         totalDuration = servicesToUse.reduce((sum, service) => sum + (service?.duration || 0), 0);
         serviceNames = servicesToUse.map(service => service?.name).filter(Boolean).join(' + ');
-      } else if (useCategoryService && selectedSubcategory) {
-        // Usar serviço das categorias
-        console.log('🔍 DEBUG - Usando serviço de categoria:', selectedSubcategory);
-        totalPrice = selectedSubcategory.price;
-        totalDuration = selectedSubcategory.duration;
-        serviceNames = selectedSubcategory.name;
+      } else if (useCategoryService) {
+        if (useMultiCategoryService && selectedCategoryServices.length > 0) {
+          // ✅ MÚLTIPLOS SERVIÇOS DE CATEGORIAS
+          servicesToUse = selectedCategoryServices;
+          totalPrice = selectedCategoryServices.reduce((sum, service) => sum + (service?.price || 0), 0);
+          totalDuration = selectedCategoryServices.reduce((sum, service) => sum + (service?.duration || 0), 0);
+          serviceNames = selectedCategoryServices.map(service => service?.name).filter(Boolean).join(' + ');
+        } else if (selectedSubcategory) {
+          // ✅ UM SERVIÇO DE CATEGORIA
+          console.log('🔍 DEBUG - Usando serviço de categoria:', selectedSubcategory);
+          totalPrice = selectedSubcategory.price;
+          totalDuration = selectedSubcategory.duration;
+          serviceNames = selectedSubcategory.name;
+        }
       } else {
         servicesToUse = [selectedService];
         totalPrice = servicesToUse.reduce((sum, service) => sum + (service?.price || 0), 0);
@@ -1549,6 +1567,37 @@ export function AppointmentForm({
               />
             ) : useCategoryService ? (
               <div className="space-y-4">
+                {/* ✅ BOTÕES PARA ALTERNAR ENTRE UM E MÚLTIPLOS SERVIÇOS EM CATEGORIAS */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseMultiCategoryService(false);
+                      setSelectedCategoryServices([]);
+                      setSelectedSubcategory(null);
+                    }}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${!useMultiCategoryService
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                  >
+                    Um Serviço
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseMultiCategoryService(true);
+                      setSelectedSubcategory(null);
+                    }}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${useMultiCategoryService
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                  >
+                    Múltiplos Serviços (até 4)
+                  </button>
+                </div>
+
                 {serviceCategories.length === 0 ? (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                     <div className="flex items-center">
@@ -1599,12 +1648,25 @@ export function AppointmentForm({
                           Escolha o serviço
                         </label>
                         <select
-                          value={selectedSubcategory?.id || ''}
+                          value=""
                           onChange={(e) => {
-                            const subcategory = serviceCategories
-                              .find(cat => cat.id === selectedCategory)
-                              ?.subcategories.find((sub: any) => sub.id === e.target.value);
-                            setSelectedSubcategory(subcategory);
+                            if (e.target.value) {
+                              const subcategory = serviceCategories
+                                .find(cat => cat.id === selectedCategory)
+                                ?.subcategories.find((sub: any) => sub.id === e.target.value);
+
+                              if (subcategory) {
+                                if (useMultiCategoryService) {
+                                  // ✅ MODO MÚLTIPLOS: Adicionar à lista se não exceder limite
+                                  if (selectedCategoryServices.length < 4) {
+                                    setSelectedCategoryServices(prev => [...prev, subcategory]);
+                                  }
+                                } else {
+                                  // ✅ MODO ÚNICO: Selecionar apenas um
+                                  setSelectedSubcategory(subcategory);
+                                }
+                              }
+                            }
                           }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-gray-900 bg-white"
                         >
@@ -1620,13 +1682,52 @@ export function AppointmentForm({
                       </div>
                     )}
 
-                    {/* Resumo do Serviço Selecionado */}
-                    {selectedSubcategory && (
+                    {/* ✅ RESUMO DO SERVIÇO SELECIONADO - UM OU MÚLTIPLOS */}
+                    {!useMultiCategoryService && selectedSubcategory && (
                       <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                         <h4 className="font-semibold text-blue-900">{selectedSubcategory.name}</h4>
                         <div className="flex justify-between mt-2">
                           <span className="text-blue-700">Preço: R$ {selectedSubcategory.price.toFixed(2)}</span>
                           <span className="text-blue-700">Duração: {selectedSubcategory.duration}min</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ✅ LISTA DE SERVIÇOS SELECIONADOS - MÚLTIPLOS */}
+                    {useMultiCategoryService && selectedCategoryServices.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-semibold text-gray-900">Serviços Selecionados:</h4>
+                        {selectedCategoryServices.map((service, index) => (
+                          <div key={`${service.id}-${index}`} className="p-3 bg-green-50 border border-green-200 rounded-lg flex justify-between items-center">
+                            <div>
+                              <span className="font-medium text-green-900">{service.name}</span>
+                              <div className="text-sm text-green-700">
+                                R$ {service.price.toFixed(2)} • {service.duration}min
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCategoryServices(prev => prev.filter((_, i) => i !== index));
+                              }}
+                              className="text-red-600 hover:text-red-800 text-sm font-medium"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        ))}
+
+                        {/* ✅ RESUMO TOTAL */}
+                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                          <h4 className="font-semibold text-blue-900">Resumo Total:</h4>
+                          <div className="flex justify-between mt-2">
+                            <span className="text-blue-700">
+                              Preço: R$ {selectedCategoryServices.reduce((sum, service) => sum + service.price, 0).toFixed(2)}
+                            </span>
+                            <span className="text-blue-700">
+                              Duração: {selectedCategoryServices.reduce((sum, service) => sum + service.duration, 0)}min
+                            </span>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -1696,7 +1797,7 @@ export function AppointmentForm({
         </div>
 
         {/* 6. HORÁRIO */}
-        {(selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && selectedSubcategory) || (isSubscriberBooking && subscriberService)) && (
+        {(selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0))) || (isSubscriberBooking && subscriberService)) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               6. Escolha o Horário
@@ -1749,6 +1850,11 @@ export function AppointmentForm({
                   name: selectedServices.map(s => s.name).join(' + '),
                   price: selectedServices.reduce((sum, s) => sum + s.price, 0),
                   duration: selectedServices.reduce((sum, s) => sum + s.duration, 0)
+                } : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0 ? {
+                  id: 'multiple-category',
+                  name: selectedCategoryServices.map(s => s.name).join(' + '),
+                  price: selectedCategoryServices.reduce((sum, s) => sum + s.price, 0),
+                  duration: selectedCategoryServices.reduce((sum, s) => sum + s.duration, 0)
                 } : useCategoryService && selectedSubcategory ? {
                   id: selectedSubcategory.id,
                   name: selectedSubcategory.name,
@@ -1800,7 +1906,7 @@ export function AppointmentForm({
         )}
 
         {/* 7. FORMA DE PAGAMENTO - Oculto para assinantes */}
-        {(selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && selectedSubcategory)) && !isSubscriberBooking && (
+        {(selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0)))) && !isSubscriberBooking && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               7. Forma de Pagamento
@@ -1824,6 +1930,16 @@ export function AppointmentForm({
                     name: selectedServices.map(s => s.name).join(' + '),
                     price: selectedServices.reduce((sum, s) => sum + s.price, 0),
                     duration: selectedServices.reduce((sum, s) => sum + s.duration, 0)
+                  } : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0 ? {
+                    id: 'multiple-category',
+                    name: selectedCategoryServices.map(s => s.name).join(' + '),
+                    price: selectedCategoryServices.reduce((sum, s) => sum + s.price, 0),
+                    duration: selectedCategoryServices.reduce((sum, s) => sum + s.duration, 0)
+                  } : useCategoryService && selectedSubcategory ? {
+                    id: selectedSubcategory.id,
+                    name: selectedSubcategory.name,
+                    price: selectedSubcategory.price,
+                    duration: selectedSubcategory.duration
                   } : selectedService || { id: '', name: '', price: 0, duration: 0 }}
                   onPixMethodSelect={handlePixMethodSelect}
                   onPixProofUpload={handlePixComprovantUpload}
@@ -1891,7 +2007,7 @@ export function AppointmentForm({
         {/* RESUMO DO AGENDAMENTO */}
         {((selectedService && selectedProfessional && selectedPaymentMethod && selectedTime) ||
           (useMultiService && selectedServices.length > 0 && selectedProfessional && selectedPaymentMethod && selectedTime) ||
-          (useCategoryService && selectedSubcategory && selectedProfessional && selectedPaymentMethod && selectedTime) ||
+          (useCategoryService && ((selectedSubcategory && selectedProfessional && selectedPaymentMethod && selectedTime) || (useMultiCategoryService && selectedCategoryServices.length > 0 && selectedProfessional && selectedPaymentMethod && selectedTime))) ||
           (isSubscriberBooking && subscriberService && selectedProfessional && selectedTime)) && (
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
               <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
@@ -1903,9 +2019,11 @@ export function AppointmentForm({
                     ? `${subscriberService.name} - GRÁTIS (Incluído na assinatura)`
                     : useMultiService && selectedServices.length > 0
                       ? `${selectedServices.map(s => s.name).join(' + ')} - R$ ${selectedServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
-                      : useCategoryService && selectedSubcategory
-                        ? `${selectedSubcategory.name} - R$ ${selectedSubcategory.price.toFixed(2).replace('.', ',')}`
-                        : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
+                      : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
+                        ? `${selectedCategoryServices.map(s => s.name).join(' + ')} - R$ ${selectedCategoryServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
+                        : useCategoryService && selectedSubcategory
+                          ? `${selectedSubcategory.name} - R$ ${selectedSubcategory.price.toFixed(2).replace('.', ',')}`
+                          : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
                 }</div>
                 <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
                 <div><strong>Pagamento:</strong> {
