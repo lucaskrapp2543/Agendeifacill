@@ -503,6 +503,27 @@ const EstablishmentDashboard = () => {
   // ✅ Estados para serviços específicos dos profissionais
   const [showSpecificServiceModal, setShowSpecificServiceModal] = useState(false);
   const [selectedProfessionalForSpecificService, setSelectedProfessionalForSpecificService] = useState<string | null>(null);
+
+  // Estado para o popup de boas-vindas
+  const [showWelcomePopup, setShowWelcomePopup] = useState(false);
+
+  // Função para verificar se deve mostrar o popup de boas-vindas
+  useEffect(() => {
+    if (establishment && !localStorage.getItem('welcomePopupDismissed')) {
+      setShowWelcomePopup(true);
+    }
+  }, [establishment]);
+
+  // Função para fechar o popup temporariamente
+  const handleCloseWelcomePopup = () => {
+    setShowWelcomePopup(false);
+  };
+
+  // Função para não mostrar mais o popup
+  const handleDismissWelcomePopup = () => {
+    localStorage.setItem('welcomePopupDismissed', 'true');
+    setShowWelcomePopup(false);
+  };
   // Estado para serviços selecionados das metas
   const [professionalSelectedServices, setProfessionalSelectedServices] = useState<Record<string, string[]>>({});
   // Estado para dados de progresso das metas
@@ -13272,6 +13293,125 @@ Estamos te aguardando! 😎✂️`;
           />
         )
       }
+
+      {/* 🚀 Popup de Boas-vindas */}
+      {showWelcomePopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-4 sm:p-6 max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-4 sm:mb-6">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                <span className="text-white text-xl sm:text-2xl">🚀</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                Como começar
+              </h2>
+            </div>
+
+            {/* Conteúdo */}
+            <div className="space-y-4 sm:space-y-6">
+              <p className="text-gray-700 text-base sm:text-lg leading-relaxed">
+                Siga esse passo a passo simples para deixar seu sistema prontinho 👇
+              </p>
+
+              {/* Passos */}
+              <div className="space-y-3 sm:space-y-4">
+                {/* Passo 1 */}
+                <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                    1️⃣
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                      Vá em "⚙️ Config | Página Agendamentos"
+                    </h3>
+                    <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                      Configure toda a sua página de agendamentos — é nela que seus clientes vão acessar para marcar os serviços. 💬
+                    </p>
+                  </div>
+                </div>
+
+                {/* Passo 2 */}
+                <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-green-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                    2️⃣
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                      Vá em "🗂️ Serviços por Categoria"
+                    </h3>
+                    <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                      No menu lateral, crie categorias e serviços, para que seus clientes vejam quais opções podem agendar com você. 📅
+                    </p>
+                  </div>
+                </div>
+
+                {/* Passo 3 */}
+                <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-purple-50 rounded-lg border border-purple-200">
+                  <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                    3️⃣
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                      Vá em "👤 Profissional"
+                    </h3>
+                    <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                      Cadastre o profissional e preencha todas as informações solicitadas, de acordo com o seu estabelecimento. 🏪
+                    </p>
+                  </div>
+                </div>
+
+                {/* Passo 4 */}
+                <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-orange-50 rounded-lg border border-orange-200">
+                  <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-orange-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                    4️⃣
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                      Vá em "🛍️ Meus Produtos"
+                    </h3>
+                    <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                      Cadastre seus produtos em Meus Produtos. 🧴
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Conclusão */}
+              <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-3 sm:p-4 border border-green-200">
+                <div className="flex items-start gap-3">
+                  <span className="text-xl sm:text-2xl">✅</span>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">Pronto!</h3>
+                    <p className="text-gray-700 mb-2 text-xs sm:text-sm">
+                      Seu estabelecimento já estará configurado. 🎉
+                    </p>
+                    <p className="text-gray-600 text-xs sm:text-sm">
+                      Agora é só explorar os recursos extras, como assinantes, planos, e muito mais! 💡
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Botões */}
+            <div className="flex flex-col gap-3 mt-6 sm:mt-8">
+              <button
+                onClick={handleDismissWelcomePopup}
+                className="w-full px-4 sm:px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm sm:text-base"
+              >
+                Não quero mais ver isso
+              </button>
+              <button
+                onClick={handleCloseWelcomePopup}
+                className="w-full px-4 sm:px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm sm:text-base"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   );
 };
