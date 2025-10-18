@@ -96,7 +96,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'reserve-client',
-      label: 'Horários \\ Reservas',
+      label: 'Reservar Cliente',
       icon: Link,
       onClick: () => handleItemClick(() => onTabChange('reserve-client')),
       isActive: activeTab === 'reserve-client'
@@ -195,7 +195,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'config',
-      label: 'Config',
+      label: 'Config | Página Agendamentos',
       icon: Settings,
       onClick: () => handleItemClick(() => {
         if (establishment?.pin_password && establishment.pin_password.length > 0 && !isSettingsUnlocked) {

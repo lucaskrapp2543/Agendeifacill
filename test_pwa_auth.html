@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste PWA Auth</title>
+</head>
+
+<body>
+  <h1>Teste de Autenticação PWA</h1>
+  <div id="status"></div>
+  <button onclick="testAuth()">Testar Autenticação</button>
+  <button onclick="clearStorage()">Limpar Storage</button>
+
+  <script>
+    function testAuth() {
+      const status = document.getElementById('status');
+
+      // Verificar localStorage
+      const savedSession = localStorage.getItem('agendafacil_auth_token');
+      status.innerHTML += `<p>LocalStorage: ${savedSession ? 'Sessão encontrada' : 'Nenhuma sessão'}</p>`;
+
+      if (savedSession) {
+        try {
+          const parsed = JSON.parse(savedSession);
+          const now = Date.now() / 1000;
+          const expiresAt = parsed.expires_at;
+          const margin = 2 * 60 * 60; // 2 horas
+
+          status.innerHTML += `<p>Expira em: ${new Date(expiresAt * 1000).toLocaleString()}</p>`;
+          status.innerHTML += `<p>Valida: ${(expiresAt - margin) > now ? 'SIM' : 'NÃO'}</p>`;
+          status.innerHTML += `<p>Usuário: ${parsed.user?.email || 'N/A'}</p>`;
+        } catch (e) {
+          status.innerHTML += `<p>Erro ao parsear: ${e.message}</p>`;
+        }
+      }
+    }
+
+    function clearStorage() {
+      localStorage.removeItem('agendafacil_auth_token');
+      document.getElementById('status').innerHTML = '<p>Storage limpo!</p>';
+    }
+
+    // Testar automaticamente
+    testAuth();
+  </script>
+</body>
+
+</html>

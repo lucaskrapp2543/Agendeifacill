@@ -30,22 +30,22 @@ export const useNotifications = () => {
     const checkIfPWA = () => {
       // Método 1: display-mode standalone
       const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-      
+
       // Método 2: navigator.standalone (iOS)
       const isIOSStandalone = (window.navigator as any).standalone === true;
-      
+
       // Método 3: Verificar se está em um contexto de app
-      const isInApp = window.location.href.includes('agendeifacil.com') && 
-                     !window.location.href.includes('localhost') &&
-                     (window.navigator.userAgent.includes('Mobile') || 
-                      window.navigator.userAgent.includes('Android') ||
-                      window.navigator.userAgent.includes('iPhone'));
-      
+      const isInApp = window.location.href.includes('agendeifacil.com') &&
+        !window.location.href.includes('localhost') &&
+        (window.navigator.userAgent.includes('Mobile') ||
+          window.navigator.userAgent.includes('Android') ||
+          window.navigator.userAgent.includes('iPhone'));
+
       // Método 4: Verificar se tem service worker ativo
       const hasServiceWorker = 'serviceWorker' in navigator;
-      
+
       const pwaDetected = isStandalone || isIOSStandalone || (isInApp && hasServiceWorker);
-      
+
       console.log('🔍 DETECÇÃO PWA:', {
         isStandalone,
         isIOSStandalone,
@@ -55,9 +55,9 @@ export const useNotifications = () => {
         url: window.location.href,
         pwaDetected
       });
-      
+
       setIsPWA(pwaDetected);
-      
+
       if (pwaDetected) {
         console.log('📱 PWA detectado!');
       } else {
@@ -67,31 +67,64 @@ export const useNotifications = () => {
 
     // Verificar imediatamente
     checkIfPWA();
-    
+
     // Verificar novamente após um delay (para garantir que tudo carregou)
     setTimeout(checkIfPWA, 1000);
   }, []);
 
   // Solicitar permissão para notificações
   const requestPermission = async (): Promise<boolean> => {
+    console.log('🔔 REQUEST PERMISSION - Iniciando...');
+
     if (!isSupported) {
-      console.log('Notificações não são suportadas neste navegador');
+      console.log('❌ Notificações não são suportadas neste navegador');
       return false;
     }
 
     try {
+      console.log('🔔 Chamando Notification.requestPermission()...');
       const result = await Notification.requestPermission();
+      console.log('🔔 Resultado da permissão:', result);
+
       setPermission(result);
-      console.log('🔔 Permissão de notificação:', result);
-      
-      // Se permissão concedida, configurar push notifications
+
+      // Log detalhado para debug
+      console.log('🔔 DEBUG - Status atual:', {
+        result,
+        isSupported,
+        userAgent: navigator.userAgent,
+        isSecureContext: window.isSecureContext,
+        location: window.location.href,
+        isPWA
+      });
+
+      // Se permissão concedida, mostrar notificação de teste
       if (result === 'granted') {
-        await setupPushSubscription();
+        console.log('✅ Permissão concedida! Enviando notificação de teste...');
+
+        // Enviar notificação de teste imediatamente
+        setTimeout(() => {
+          new Notification('Agendei Fácil', {
+            body: '✅ Notificações ativadas com sucesso!',
+            icon: '/novo-icone.png',
+            tag: 'test-notification'
+          });
+        }, 500);
+      } else if (result === 'denied') {
+        console.log('❌ Permissão negada pelo usuário');
+      } else {
+        console.log('⚠️ Permissão não decidida (default)');
       }
-      
+
       return result === 'granted';
     } catch (error) {
-      console.error('Erro ao solicitar permissão:', error);
+      console.error('❌ Erro ao solicitar permissão:', error);
+      console.error('❌ Detalhes do erro:', {
+        error,
+        isSupported,
+        userAgent: navigator.userAgent,
+        isSecureContext: window.isSecureContext
+      });
       return false;
     }
   };
@@ -105,7 +138,7 @@ export const useNotifications = () => {
       }
 
       const registration = await navigator.serviceWorker.ready;
-      
+
       // Verificar se já tem subscription
       const existingSubscription = await registration.pushManager.getSubscription();
       if (existingSubscription) {
@@ -122,10 +155,10 @@ export const useNotifications = () => {
 
       setSubscription(newSubscription);
       console.log('✅ Nova push subscription criada');
-      
+
       // Enviar subscription para o servidor
       await sendSubscriptionToServer(newSubscription);
-      
+
     } catch (error) {
       console.error('❌ Erro ao configurar push subscription:', error);
     }
@@ -168,15 +201,15 @@ export const useNotifications = () => {
       }
 
       const registration = await navigator.serviceWorker.ready;
-      
+
       // Verificar se o service worker está ativo
       if (!registration.active) {
         console.log('⚠️ Service Worker não está ativo, aguardando...');
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
-      
+
       console.log('📱 Enviando notificação via Service Worker:', options);
-      
+
       // Enviar mensagem para o service worker
       registration.active?.postMessage({
         type: 'SHOW_NOTIFICATION',
@@ -196,16 +229,16 @@ export const useNotifications = () => {
 
   // Enviar notificação
   const sendNotification = async (options: NotificationOptions) => {
-    console.log('🔔 SEND NOTIFICATION:', { 
-      options, 
-      isSupported, 
-      permission, 
+    console.log('🔔 SEND NOTIFICATION:', {
+      options,
+      isSupported,
+      permission,
       isPWA,
       pushSupported,
       userAgent: window.navigator.userAgent,
       url: window.location.href
     });
-    
+
     if (!isSupported) {
       console.log('❌ Notificações não são suportadas');
       return;
@@ -221,21 +254,14 @@ export const useNotifications = () => {
     }
 
     try {
-      // Sempre usar Service Worker para notificações
-      if (pushSupported) {
-        console.log('📱 Enviando notificação via Service Worker');
-        await sendNotificationViaServiceWorker(options);
-        return;
-      }
-
-      // Fallback para notificação nativa
-      console.log('🌐 Enviando notificação nativa (fallback)');
+      // Usar notificação nativa simples (mais confiável)
+      console.log('🔔 Enviando notificação nativa...');
       const notification = new Notification(options.title, {
         body: options.body,
         icon: '/novo-icone.png',
         badge: '/novo-icone.png',
         requireInteraction: false,
-        silent: false, // Usar som nativo do sistema
+        silent: false,
         tag: 'agendei-facil-notification',
         data: {
           type: options.type || 'new_appointment',
@@ -246,6 +272,7 @@ export const useNotifications = () => {
 
       // Listener para clique na notificação
       notification.onclick = () => {
+        console.log('🔔 Notificação clicada!');
         window.focus();
         notification.close();
       };
@@ -255,15 +282,24 @@ export const useNotifications = () => {
         notification.close();
       }, 5000);
 
+      console.log('✅ Notificação enviada com sucesso!');
+
     } catch (error) {
-      console.error('Erro ao enviar notificação:', error);
+      console.error('❌ Erro ao enviar notificação:', error);
+      console.error('❌ Detalhes do erro:', {
+        error,
+        isSupported,
+        permission,
+        userAgent: navigator.userAgent,
+        isSecureContext: window.isSecureContext
+      });
     }
   };
 
   // Notificação de novo agendamento
   const notifyNewAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, isPWA });
-    
+
     sendNotification({
       title: 'Agendei Fácil',
       body: `Novo agendamento: ${clientName} - ${service} às ${time}`,
@@ -274,7 +310,7 @@ export const useNotifications = () => {
   // Notificação de agendamento cancelado
   const notifyCancelledAppointment = (clientName: string, service: string, time: string) => {
     console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, isPWA });
-    
+
     sendNotification({
       title: 'Agendei Fácil',
       body: `Agendamento cancelado: ${clientName} - ${service} às ${time}`,

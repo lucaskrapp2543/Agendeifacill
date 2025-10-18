@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { useLocation } from 'react-router-dom';
 
@@ -11,18 +11,36 @@ const notifications = [
 
 export const PromoNotifications = () => {
   const location = useLocation();
-  
+
+  // ✅ DEBUG: Log para verificar onde está sendo chamado
+  console.log('🔔 PromoNotifications renderizado em:', location.pathname);
+
   // Só mostrar notificações na página inicial
   if (location.pathname !== '/') {
+    console.log('🔔 PromoNotifications: Não é página inicial, retornando null');
     return null;
   }
-  
+
+  console.log('🔔 PromoNotifications: É página inicial, continuando...');
+
+  // ✅ TESTE SIMPLES: Mostrar toast imediatamente
+  console.log('🔔 TESTE: Tentando mostrar toast...');
+  toast('TESTE: Toast funcionando!', {
+    duration: 3000,
+    position: 'top-center',
+    style: {
+      background: 'rgba(0, 0, 0, 0.8)',
+      color: '#fff',
+      fontSize: '14px',
+    }
+  });
+
   // Função para mostrar a notificação
   const showNotification = (message: string) => {
     return new Promise<void>((resolve) => {
       // Remove todas as notificações existentes
       toast.dismiss();
-      
+
       // Mostra a nova notificação
       const toastId = toast(
         (t) => (
@@ -72,23 +90,23 @@ export const PromoNotifications = () => {
     if (location.pathname !== '/') {
       return;
     }
-    
+
     let currentIndex = 0;
     let timeoutId: NodeJS.Timeout;
-    
+
     // Função para mostrar a próxima notificação
     const showNextNotification = async () => {
       // Verificar novamente se ainda está na página inicial
       if (location.pathname !== '/') {
         return;
       }
-      
+
       // Mostra a notificação atual e espera ela terminar (5 segundos)
       await showNotification(notifications[currentIndex]);
-      
+
       // Atualiza o índice para a próxima notificação
       currentIndex = (currentIndex + 1) % notifications.length;
-      
+
       // Agenda a próxima notificação após 45 segundos
       timeoutId = setTimeout(showNextNotification, 45000);
     };

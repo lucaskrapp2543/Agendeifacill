@@ -4593,13 +4593,41 @@ Estamos te aguardando! 😎✂️`;
     return `${normalizedName}-${code}`;
   };
 
-  const copyLinkToClipboard = () => {
+  const copyLinkToClipboard = async () => {
     if (!establishment) return;
 
     const link = `${window.location.origin}/booking/${establishment.code}`;
 
-    navigator.clipboard.writeText(link);
-    toast('Link copiado para a área de transferência', 'success');
+    try {
+      // Tentar usar a API moderna do clipboard
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(link);
+        toast('Link copiado para a área de transferência', 'success');
+      } else {
+        // Fallback para navegadores mais antigos ou não-HTTPS
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+          document.execCommand('copy');
+          toast('Link copiado para a área de transferência', 'success');
+        } catch (err) {
+          console.error('Erro ao copiar:', err);
+          toast('Erro ao copiar link. Tente selecionar manualmente.', 'error');
+        }
+
+        document.body.removeChild(textArea);
+      }
+    } catch (err) {
+      console.error('Erro ao copiar link:', err);
+      toast('Erro ao copiar link. Tente selecionar manualmente.', 'error');
+    }
   };
 
   // Função para migrar dados antigos de horários para nova estrutura

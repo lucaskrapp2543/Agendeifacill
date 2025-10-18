@@ -19,7 +19,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PromoNotifications } from '../components/PromoNotifications';
 import WhatsAppButton from '../components/WhatsAppButton';
 
 const LandingVendas = () => {
@@ -132,7 +131,6 @@ const LandingVendas = () => {
   return (
     <div className="min-h-screen bg-white">
       <WhatsAppButton />
-      <PromoNotifications />
       {/* Header */}
       <header className={`fixed w-full z-50 transition-all duration-300 ${isScrolled ? 'bg-white shadow-lg' : 'bg-transparent'
         }`}>
