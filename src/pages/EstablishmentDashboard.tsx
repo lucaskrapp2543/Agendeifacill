@@ -4822,9 +4822,11 @@ Estamos te aguardando! 😎✂️`;
       // Se não tem senha configurada, libera o acesso
       setIsSettingsUnlocked(true);
       setShowPinModal(false);
+      setActiveTab('settings'); // ✅ Entrar automaticamente nas configurações
     } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
       setIsSettingsUnlocked(true);
       setShowPinModal(false);
+      setActiveTab('settings'); // ✅ Entrar automaticamente nas configurações
     } else {
       toast.error('Senha incorreta');
     }
@@ -6258,12 +6260,33 @@ Estamos te aguardando! 😎✂️`;
       // Se não tem senha configurada, libera o acesso
       setIsDashboardUnlocked(true);
       setShowDashboardPinModal(false);
+      setActiveTab('financial-dashboard'); // ✅ Entrar automaticamente no dashboard financeiro
     } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
       setIsDashboardUnlocked(true);
       setShowDashboardPinModal(false);
+      setActiveTab('financial-dashboard'); // ✅ Entrar automaticamente no dashboard financeiro
     } else {
       toast('Senha incorreta', 'error');
     }
+  };
+
+  // ✅ Função customizada para mudança de tab com validação automática
+  const handleTabChange = (tab: string) => {
+    console.log('🔄 Tentando mudar para tab:', tab);
+
+    // Se já está desbloqueado ou não precisa de senha, mudar diretamente
+    if (tab === 'financial-dashboard' && isDashboardUnlocked) {
+      setActiveTab(tab as any);
+      return;
+    }
+
+    if (tab === 'settings' && isSettingsUnlocked) {
+      setActiveTab(tab as any);
+      return;
+    }
+
+    // Para outras tabs, mudar diretamente
+    setActiveTab(tab as any);
   };
 
   // Função para atualizar o mês selecionado
@@ -6635,7 +6658,7 @@ Estamos te aguardando! 😎✂️`;
         {/* Sidebar */}
         <Sidebar
           activeTab={activeTab}
-          onTabChange={(tab) => setActiveTab(tab)}
+          onTabChange={handleTabChange}
           onSignOut={signOut}
           unreadNotifications={unreadNotificationsCount}
           onNotificationsClick={() => {
@@ -8063,6 +8086,33 @@ Estamos te aguardando! 😎✂️`;
                       <p className="text-white text-xs font-medium flex-1">
                         Compartilhe este link com seus clientes para que possam agendar diretamente com você!
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Opção para Reativar Popup */}
+                  <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 mb-6">
+                    <h2 className="text-xl font-semibold mb-4">Tutorial e Ajuda</h2>
+                    <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                          <span className="text-white text-lg">🚀</span>
+                        </div>
+                        <div>
+                          <h3 className="font-medium text-gray-900">Popup de Passo a Passo</h3>
+                          <p className="text-sm text-gray-600">
+                            Reative o tutorial inicial para ver novamente os passos de configuração
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          localStorage.removeItem('welcomePopupDismissed');
+                          setShowWelcomePopup(true);
+                        }}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+                      >
+                        Reativar Tutorial
+                      </button>
                     </div>
                   </div>
 
@@ -13388,6 +13438,21 @@ Estamos te aguardando! 😎✂️`;
                     </p>
                     <p className="text-gray-600 text-xs sm:text-sm">
                       Agora é só explorar os recursos extras, como assinantes, planos, e muito mais! 💡
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dica de Atualização */}
+              <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-3 sm:p-4 border border-yellow-200">
+                <div className="flex items-start gap-3">
+                  <span className="text-xl sm:text-2xl">🔄</span>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                      Dica:
+                    </h3>
+                    <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                      Após concluir cada etapa, atualize a página (arrastando para baixo no celular ou apertando F5 no computador) para este pop-up reaparecer e você continuar para o próximo passo.
                     </p>
                   </div>
                 </div>
