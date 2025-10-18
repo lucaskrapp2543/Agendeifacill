@@ -9568,8 +9568,10 @@ Estamos te aguardando! 😎✂️`;
                             {professionalAppointments.length > 0 && (
                               <div className="mt-2 text-xs">
                                 <details className="cursor-pointer">
-                                  <summary className="text-gray-500 hover:text-gray-700">
+                                  <summary className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer flex items-center gap-2 transition-colors">
+                                    <span>📋</span>
                                     Ver serviços individuais
+                                    <span className="text-xs">▼</span>
                                   </summary>
                                   <div className="mt-3 space-y-4 bg-gray-100 p-4 rounded-lg">
                                     {/* Filtros de pagamento */}
@@ -9704,7 +9706,7 @@ Estamos te aguardando! 😎✂️`;
                                                 → {formatCurrency(netValue)}
                                               </span>
                                             </div>
-                                            
+
                                             {/* Informações do serviço */}
                                             <div className="space-y-2">
                                               <div className="flex justify-between items-center">
@@ -9715,7 +9717,7 @@ Estamos te aguardando! 😎✂️`;
                                                   {formatCurrency(baseValue)}
                                                 </span>
                                               </div>
-                                              
+
                                               <div className="flex justify-between items-center">
                                                 <span className="text-gray-600 text-xs">
                                                   💳 Pagamento
@@ -9724,7 +9726,7 @@ Estamos te aguardando! 😎✂️`;
                                                   {paymentMethodLabel}
                                                 </span>
                                               </div>
-                                              
+
                                               <div className="flex justify-between items-center">
                                                 <span className="text-gray-600 text-xs">
                                                   📅 Data/Hora
