@@ -1,6 +1,6 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Image as ImageIcon, Layers, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -7986,6 +7986,60 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
+                  {/* Seção de Link do Estabelecimento */}
+                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 sm:p-6 mb-6 border border-emerald-400/50">
+                    <div className="flex items-start gap-4">
+                      <div className="flex-shrink-0">
+                        <div className="w-12 h-12 bg-emerald-600 rounded-lg flex items-center justify-center">
+                          <LinkIcon className="h-6 w-6 text-white" />
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-emerald-400 mb-2">
+                          🌐 Sua Página de Agendamentos
+                        </h3>
+                        <p className="text-white mb-4 text-base leading-relaxed font-bold">
+                          Aqui você edita sua página de agendamentos, onde os clientes acessam para agendar com você.
+                          Seu link para seus clientes é:
+                        </p>
+
+                        <div className="bg-[#1a1b1c] rounded-lg p-3 border border-gray-700">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1">
+                              <p className="text-emerald-400 font-medium text-sm mb-1">Link do Estabelecimento:</p>
+                              <div className="flex items-center gap-2">
+                                <code className="text-green-400 font-mono text-sm break-all">
+                                  agendeifacil.com/booking/{establishment?.code}
+                                </code>
+                                <button
+                                  onClick={() => copyLinkToClipboard()}
+                                  className="flex-shrink-0 p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                                  title="Copiar link"
+                                >
+                                  <Copy className="h-4 w-4 text-white" />
+                                </button>
+                                <a
+                                  href={`${window.location.origin}/booking/${establishment?.code}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex-shrink-0 p-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                                  title="Abrir em nova aba"
+                                >
+                                  <LinkIcon className="h-4 w-4 text-white" />
+                                </a>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <p className="text-white text-sm mt-3 flex items-center gap-1 font-bold">
+                          <span className="text-yellow-400">💡</span>
+                          Compartilhe este link com seus clientes para que possam agendar diretamente com você!
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Informações Básicas */}
                   <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 mb-6">
                     <h2 className="text-xl font-semibold mb-4">Informações Básicas</h2>
@@ -8087,7 +8141,6 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                     </div>
                   </div>
-
 
                   {/* Seção de Comodidades */}
                   <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
