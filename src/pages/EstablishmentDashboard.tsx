@@ -7987,56 +7987,61 @@ Estamos te aguardando! 😎✂️`;
                   )}
 
                   {/* Seção de Link do Estabelecimento */}
-                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 sm:p-6 mb-6 border border-emerald-400/50">
-                    <div className="flex items-start gap-4">
-                      <div className="flex-shrink-0">
-                        <div className="w-12 h-12 bg-emerald-600 rounded-lg flex items-center justify-center">
-                          <LinkIcon className="h-6 w-6 text-white" />
-                        </div>
+                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 mb-6 border border-emerald-400/50">
+                    {/* Header */}
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
+                        <LinkIcon className="h-5 w-5 text-white" />
                       </div>
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-emerald-400 mb-2">
-                          🌐 Sua Página de Agendamentos
-                        </h3>
-                        <p className="text-white mb-4 text-base leading-relaxed font-bold">
-                          Aqui você edita sua página de agendamentos, onde os clientes acessam para agendar com você.
-                          Seu link para seus clientes é:
-                        </p>
+                      <h3 className="text-lg font-semibold text-emerald-400">
+                        🌐 Sua Página de Agendamentos
+                      </h3>
+                    </div>
 
-                        <div className="bg-[#1a1b1c] rounded-lg p-3 border border-gray-700">
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1">
-                              <p className="text-emerald-400 font-medium text-sm mb-1">Link do Estabelecimento:</p>
-                              <div className="flex items-center gap-2">
-                                <code className="text-green-400 font-mono text-sm break-all">
-                                  agendeifacil.com/booking/{establishment?.code}
-                                </code>
-                                <button
-                                  onClick={() => copyLinkToClipboard()}
-                                  className="flex-shrink-0 p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                                  title="Copiar link"
-                                >
-                                  <Copy className="h-4 w-4 text-white" />
-                                </button>
-                                <a
-                                  href={`${window.location.origin}/booking/${establishment?.code}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex-shrink-0 p-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-                                  title="Abrir em nova aba"
-                                >
-                                  <LinkIcon className="h-4 w-4 text-white" />
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                    {/* Texto explicativo */}
+                    <p className="text-white mb-4 text-sm leading-relaxed font-medium">
+                      Aqui você edita sua página de agendamentos, onde os clientes acessam para agendar com você.
+                      Seu link para seus clientes é:
+                    </p>
 
-                        <p className="text-white text-sm mt-3 flex items-center gap-1 font-bold">
-                          <span className="text-yellow-400">💡</span>
-                          Compartilhe este link com seus clientes para que possam agendar diretamente com você!
-                        </p>
+                    {/* Link Box - Organizado para mobile */}
+                    <div className="bg-[#1a1b1c] rounded-lg p-4 border border-gray-700 mb-4">
+                      <p className="text-emerald-400 font-medium text-sm mb-3">Link do Estabelecimento:</p>
+
+                      {/* Link principal */}
+                      <div className="bg-gray-800 rounded-lg p-3 mb-3">
+                        <code className="text-green-400 font-mono text-sm block break-all">
+                          agendeifacil.com/booking/{establishment?.code}
+                        </code>
                       </div>
+
+                      {/* Botões organizados */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => copyLinkToClipboard()}
+                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                        >
+                          <Copy className="h-4 w-4 text-white" />
+                          <span className="text-white text-sm font-medium">Copiar</span>
+                        </button>
+                        <a
+                          href={`${window.location.origin}/booking/${establishment?.code}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                        >
+                          <LinkIcon className="h-4 w-4 text-white" />
+                          <span className="text-white text-sm font-medium">Abrir</span>
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Dica */}
+                    <div className="flex items-start gap-2">
+                      <span className="text-yellow-400 text-sm">💡</span>
+                      <p className="text-white text-xs font-medium flex-1">
+                        Compartilhe este link com seus clientes para que possam agendar diretamente com você!
+                      </p>
                     </div>
                   </div>
 
