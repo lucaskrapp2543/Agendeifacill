@@ -224,10 +224,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
   return (
     <div className="space-y-2">
-      {/* Controles de Pagamento */}
-      <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
-        <div className="flex-1">
-          <div className="flex items-center space-x-2">
+      {/* Controles de Pagamento - Layout Mobile Responsivo */}
+      <div className="bg-gray-50 rounded-lg p-3 space-y-3">
+        {/* Informações Financeiras */}
+        <div className="space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
             <span className="text-sm font-medium text-gray-700">
               Líquido: {formatCurrency(currentLiquidDisplay)}
             </span>
@@ -245,13 +246,14 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           )}
         </div>
 
-        <div className="flex items-center space-x-2">
+        {/* Botões - Layout Mobile */}
+        <div className="flex flex-col sm:flex-row gap-2">
           {/* Botão PAGAR */}
           {pendingAmount > 0 && !showPaymentOptions && (
             <button
               onClick={handlePaymentClick}
               disabled={isProcessing || loading}
-              className="flex items-center space-x-1 px-3 py-1 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
               title={`Pagar ${formatCurrency(pendingAmount)} para ${professionalName}`}
             >
               <Check className="w-4 h-4" />
@@ -264,7 +266,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             <button
               onClick={handleTakeValueClick}
               disabled={isProcessing || loading}
-              className="flex items-center space-x-1 px-3 py-1 bg-orange-600 text-white text-sm font-medium rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-orange-600 text-white text-sm font-medium rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
               title={`Retirar valor de ${professionalName} para o caixa`}
             >
               <Minus className="w-4 h-4" />
@@ -274,7 +276,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
           {/* Mensagem quando não há valor pendente */}
           {pendingAmount <= 0 && currentLiquidDisplay <= 0 && !isProcessing && (
-            <div className="flex items-center space-x-1 px-3 py-1 bg-gray-100 text-gray-600 text-sm rounded">
+            <div className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-gray-100 text-gray-600 text-sm rounded">
               <Check className="w-4 h-4" />
               <span>Em dia</span>
             </div>
@@ -284,7 +286,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {professionalPayments.length > 0 && (
             <button
               onClick={() => setShowHistory(!showHistory)}
-              className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700"
+              className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700"
             >
               <History className="w-4 h-4" />
               <span>Histórico</span>

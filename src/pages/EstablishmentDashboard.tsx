@@ -2824,9 +2824,9 @@ Estamos te aguardando! 😎✂️`;
         }));
 
         console.log('🔧 DEBUG - Carregando profissionais:', professionalsWithPercentage);
-        console.log('🔧 DEBUG - Serviços específicos encontrados:', professionalsWithPercentage.map(p => ({
+        console.log('🔧 DEBUG - Serviços específicos encontrados:', professionalsWithPercentage.map((p: any) => ({
           name: p.name,
-          specific_services: (p as any).specific_services
+          specific_services: p.specific_services
         })));
 
         setProfessionals(professionalsWithPercentage);
@@ -4827,7 +4827,7 @@ Estamos te aguardando! 😎✂️`;
       field,
       value,
       establishmentId: establishment.id,
-      currentValue: establishment[field]
+      currentValue: (establishment as any)[field]
     });
 
     // ✅ PRIMEIRO: Atualizar o estado local IMEDIATAMENTE (otimista)
@@ -4848,7 +4848,7 @@ Estamos te aguardando! 😎✂️`;
         // ❌ SE DER ERRO: Reverter o estado local
         setEstablishment({
           ...establishment,
-          [field]: establishment[field] // Volta ao valor original
+          [field]: (establishment as any)[field] // Volta ao valor original
         });
 
         throw error;
@@ -4858,7 +4858,7 @@ Estamos te aguardando! 😎✂️`;
       toast.success(`${field} atualizado com sucesso!`);
     } catch (error) {
       console.error(`❌ Erro ao atualizar ${field}:`, error);
-      toast.error(`Erro ao atualizar ${field}: ${error.message || 'Erro desconhecido'}`);
+      toast.error(`Erro ao atualizar ${field}: ${(error as any).message || 'Erro desconhecido'}`);
     }
   };
 
@@ -9465,196 +9465,148 @@ Estamos te aguardando! 😎✂️`;
                         console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
 
                         return (
-                          <div key={professional.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                            <div className="flex-1">
-                              <p className="font-medium text-gray-900">{professional.name}</p>
-                              <div className="text-sm text-gray-600">
-                                <p>
-                                  {professionalAppointments.length} agendamento(s) •
-                                  {professional.percentage === 100 ? (
-                                    <span className="text-green-600 font-medium">Dono (100%)</span>
-                                  ) : (
-                                    <span>{professional.percentage || 100}%</span>
-                                  )}
-                                </p>
-                                {extraProductsSold > 0 && (
-                                  <div className="relative">
-                                    <button
-                                      onClick={() => setOpenExtraProductsDropdown(
-                                        openExtraProductsDropdown === professional.id ? null : professional.id
-                                      )}
-                                      className="text-orange-600 hover:text-orange-700 cursor-pointer flex items-center gap-1"
-                                    >
-                                      + {extraProductsSold} produto(s) extra
-                                      <ChevronDown className={`h-4 w-4 transition-transform ${openExtraProductsDropdown === professional.id ? 'rotate-180' : ''
-                                        }`} />
-                                    </button>
+                          <div key={professional.id} className="p-4 bg-gray-50 rounded-lg space-y-4">
+                            {/* Header do Profissional */}
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-900 text-lg">{professional.name}</p>
+                                <div className="text-sm text-gray-600 mt-1">
+                                  <p>
+                                    {professionalAppointments.length} agendamento(s) •
+                                    {professional.percentage === 100 ? (
+                                      <span className="text-green-600 font-medium">Dono (100%)</span>
+                                    ) : (
+                                      <span>{professional.percentage || 100}%</span>
+                                    )}
+                                  </p>
+                                  {extraProductsSold > 0 && (
+                                    <div className="relative mt-2">
+                                      <button
+                                        onClick={() => setOpenExtraProductsDropdown(
+                                          openExtraProductsDropdown === professional.id ? null : professional.id
+                                        )}
+                                        className="text-orange-600 hover:text-orange-700 cursor-pointer flex items-center gap-1"
+                                      >
+                                        + {extraProductsSold} produto(s) extra
+                                        <ChevronDown className={`h-4 w-4 transition-transform ${openExtraProductsDropdown === professional.id ? 'rotate-180' : ''
+                                          }`} />
+                                      </button>
 
-                                    {/* Dropdown com detalhes dos produtos extras */}
-                                    {openExtraProductsDropdown === professional.id && (
-                                      <div className="absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-80 max-w-96">
-                                        <div className="p-3 border-b border-gray-200">
-                                          <h4 className="font-medium text-gray-900">Produtos Extras Vendidos</h4>
-                                        </div>
-                                        <div className="max-h-60 overflow-y-auto">
-                                          {allExtraProducts.map((product, index) => (
-                                            <div key={index} className="p-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
-                                              <div className="flex justify-between items-start">
-                                                <div className="flex-1">
-                                                  <p className="font-medium text-gray-900">{product.name}</p>
-                                                  <p className="text-sm text-gray-600">
-                                                    Cliente: {product.clientName}
-                                                  </p>
-                                                  <p className="text-xs text-gray-500">
-                                                    {new Date(product.appointmentDate).toLocaleDateString('pt-BR')}
-                                                  </p>
-                                                </div>
-                                                <div className="text-right">
-                                                  <p className="font-bold text-green-600">
-                                                    {formatCurrency(product.price)}
-                                                  </p>
+                                      {/* Dropdown com detalhes dos produtos extras */}
+                                      {openExtraProductsDropdown === professional.id && (
+                                        <div className="absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 w-full max-w-sm sm:max-w-md">
+                                          <div className="p-3 border-b border-gray-200">
+                                            <h4 className="font-medium text-gray-900">Produtos Extras Vendidos</h4>
+                                          </div>
+                                          <div className="max-h-60 overflow-y-auto">
+                                            {allExtraProducts.map((product, index) => (
+                                              <div key={index} className="p-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+                                                <div className="flex justify-between items-start">
+                                                  <div className="flex-1">
+                                                    <p className="font-medium text-gray-900">{product.name}</p>
+                                                    <p className="text-sm text-gray-600">
+                                                      Cliente: {product.clientName}
+                                                    </p>
+                                                    <p className="text-xs text-gray-500">
+                                                      {new Date(product.appointmentDate).toLocaleDateString('pt-BR')}
+                                                    </p>
+                                                  </div>
+                                                  <div className="text-right">
+                                                    <p className="font-bold text-green-600">
+                                                      {formatCurrency(product.price)}
+                                                    </p>
+                                                  </div>
                                                 </div>
                                               </div>
+                                            ))}
+                                          </div>
+                                          <div className="p-3 bg-gray-50 border-t border-gray-200">
+                                            <div className="flex justify-between items-center">
+                                              <span className="font-medium text-gray-900">Total Produtos Extras:</span>
+                                              <span className="font-bold text-green-600">
+                                                {formatCurrency(allExtraProducts.reduce((total, product) => total + product.price, 0))}
+                                              </span>
                                             </div>
-                                          ))}
-                                        </div>
-                                        <div className="p-3 bg-gray-50 border-t border-gray-200">
-                                          <div className="flex justify-between items-center">
-                                            <span className="font-medium text-gray-900">Total Produtos Extras:</span>
-                                            <span className="font-bold text-green-600">
-                                              {formatCurrency(allExtraProducts.reduce((total, product) => total + product.price, 0))}
-                                            </span>
                                           </div>
                                         </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Valores - Layout Mobile */}
+                              <div className="text-right sm:text-right">
+                                <p className="text-lg font-bold text-green-600">
+                                  {formatCurrency(professionalRevenue)}
+                                </p>
+                                <div className="text-sm text-blue-600">
+                                  {professional.percentage === 100 ? (
+                                    <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
+                                  ) : (
+                                    <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className="text-lg font-bold text-green-600">
-                                {formatCurrency(professionalRevenue)}
-                              </p>
-                              <div className="text-sm text-blue-600">
-                                {professional.percentage === 100 ? (
-                                  <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
-                                ) : (
-                                  <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
-                                )}
-                              </div>
 
-                              {/* Controle de Pagamentos */}
-                              <div className="mt-2">
-                                <ProfessionalPaymentControl
-                                  establishmentId={establishment?.id || ''}
-                                  professionalId={professional.id}
-                                  professionalName={professional.name}
-                                  currentLiquidValue={calculateProfessionalNetValue(professional.name, monthlyAppointments)}
-                                  selectedMonth={selectedMonth}
-                                  onPaymentRecorded={() => {
-                                    // Recarregar dados se necessário
-                                    console.log('💰 Pagamento registrado para', professional.name);
-                                  }}
-                                />
-                              </div>
-                              {/* Mostrar detalhamento dos serviços */}
-                              {professionalAppointments.length > 0 && (
-                                <div className="mt-2 text-xs">
-                                  <details className="cursor-pointer">
-                                    <summary className="text-gray-500 hover:text-gray-700">
-                                      Ver serviços individuais
-                                    </summary>
-                                    <div className="mt-2 space-y-2 bg-gray-100 p-3 rounded">
-                                      {/* Filtros de pagamento */}
-                                      <div className="mb-4">
-                                        <div className="flex flex-wrap gap-2 mb-3">
-                                          {[
-                                            { key: 'todos', label: 'Todos' },
-                                            { key: 'pix', label: 'PIX' },
-                                            { key: 'dinheiro', label: 'Dinheiro' },
-                                            { key: 'debito', label: 'Débito' },
-                                            { key: 'credito', label: 'Crédito' }
-                                          ].map(filter => (
-                                            <button
-                                              key={filter.key}
-                                              onClick={() => setPaymentFilter(filter.key)}
-                                              className={`px-3 py-1 text-xs rounded-full transition-colors ${paymentFilter === filter.key
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                                }`}
-                                            >
-                                              {filter.label}
-                                            </button>
-                                          ))}
-                                        </div>
-
-                                        {/* Resumo por filtro */}
-                                        {(() => {
-                                          const filteredAppointments = professionalAppointments
-                                            .filter(apt => apt.status === 'completed')
-                                            .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter);
-
-                                          const grossTotal = filteredAppointments.reduce((total, apt) => {
-                                            const baseValue = apt.total_price || apt.price || 0;
-                                            return total + baseValue;
-                                          }, 0);
-
-                                          const netTotal = filteredAppointments.reduce((total, apt) => {
-                                            const baseValue = apt.total_price || apt.price || 0;
-                                            let netValue;
-
-                                            if (professional.percentage === 100) {
-                                              // Para dono: bruto - taxa de cartão (se houver)
-                                              const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                              if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                                const cardTax = (baseValue * paymentTax) / 100;
-                                                netValue = baseValue - cardTax;
-                                              } else {
-                                                netValue = baseValue;
-                                              }
-                                            } else {
-                                              // Para outros profissionais: recebem % do valor BRUTO (sem taxa)
-                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
-                                            }
-                                            return total + netValue;
-                                          }, 0);
-
-                                          const filterLabel = paymentFilter === 'todos' ? 'Todos' :
-                                            paymentFilter === 'pix' ? 'PIX' :
-                                              paymentFilter === 'dinheiro' ? 'Dinheiro' :
-                                                paymentFilter === 'debito' ? 'Débito' :
-                                                  paymentFilter === 'credito' ? 'Crédito' : 'Todos';
-
-                                          return (
-                                            <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
-                                              <h4 className="font-semibold text-gray-800 mb-2">
-                                                Resumo - {filterLabel} ({filteredAppointments.length} serviços)
-                                              </h4>
-                                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                                <div>
-                                                  <span className="text-gray-600">Vendas Brutas:</span>
-                                                  <span className="font-semibold text-green-600 ml-1">
-                                                    {formatCurrency(grossTotal)}
-                                                  </span>
-                                                </div>
-                                                <div>
-                                                  <span className="text-gray-600">Vendas Líquidas:</span>
-                                                  <span className="font-semibold text-blue-600 ml-1">
-                                                    {formatCurrency(netTotal)}
-                                                  </span>
-                                                </div>
-                                              </div>
-                                            </div>
-                                          );
-                                        })()}
+                            {/* Controle de Pagamentos - Agora em linha separada */}
+                            <div className="border-t border-gray-200 pt-3">
+                              <ProfessionalPaymentControl
+                                establishmentId={establishment?.id || ''}
+                                professionalId={professional.id}
+                                professionalName={professional.name}
+                                currentLiquidValue={calculateProfessionalNetValue(professional.name, monthlyAppointments)}
+                                selectedMonth={selectedMonth}
+                                onPaymentRecorded={() => {
+                                  // Recarregar dados se necessário
+                                  console.log('💰 Pagamento registrado para', professional.name);
+                                }}
+                              />
+                            </div>
+                            {/* Mostrar detalhamento dos serviços */}
+                            {professionalAppointments.length > 0 && (
+                              <div className="mt-2 text-xs">
+                                <details className="cursor-pointer">
+                                  <summary className="text-gray-500 hover:text-gray-700">
+                                    Ver serviços individuais
+                                  </summary>
+                                  <div className="mt-3 space-y-4 bg-gray-100 p-4 rounded-lg">
+                                    {/* Filtros de pagamento */}
+                                    <div className="mb-4">
+                                      <div className="flex flex-wrap gap-2 mb-4">
+                                        {[
+                                          { key: 'todos', label: 'Todos' },
+                                          { key: 'pix', label: 'PIX' },
+                                          { key: 'dinheiro', label: 'Dinheiro' },
+                                          { key: 'debito', label: 'Débito' },
+                                          { key: 'credito', label: 'Crédito' }
+                                        ].map(filter => (
+                                          <button
+                                            key={filter.key}
+                                            onClick={() => setPaymentFilter(filter.key)}
+                                            className={`px-4 py-2 text-sm rounded-lg transition-colors font-medium ${paymentFilter === filter.key
+                                              ? 'bg-blue-600 text-white'
+                                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                              }`}
+                                          >
+                                            {filter.label}
+                                          </button>
+                                        ))}
                                       </div>
 
-                                      {/* Lista de serviços filtrados */}
-                                      {professionalAppointments
-                                        .filter(apt => apt.status === 'completed')
-                                        .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter)
-                                        .map((apt, index) => {
+                                      {/* Resumo por filtro */}
+                                      {(() => {
+                                        const filteredAppointments = professionalAppointments
+                                          .filter(apt => apt.status === 'completed')
+                                          .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter);
+
+                                        const grossTotal = filteredAppointments.reduce((total, apt) => {
+                                          const baseValue = apt.total_price || apt.price || 0;
+                                          return total + baseValue;
+                                        }, 0);
+
+                                        const netTotal = filteredAppointments.reduce((total, apt) => {
                                           const baseValue = apt.total_price || apt.price || 0;
                                           let netValue;
 
@@ -9671,53 +9623,124 @@ Estamos te aguardando! 😎✂️`;
                                             // Para outros profissionais: recebem % do valor BRUTO (sem taxa)
                                             netValue = (baseValue * (professional?.percentage || 0)) / 100;
                                           }
+                                          return total + netValue;
+                                        }, 0);
 
-                                          // Formatar data e horário
-                                          const appointmentDate = new Date(apt.appointment_date + 'T' + apt.appointment_time);
-                                          const formattedDate = format(appointmentDate, "dd/MM/yyyy", { locale: ptBR });
-                                          const formattedTime = apt.appointment_time || '00:00';
+                                        const filterLabel = paymentFilter === 'todos' ? 'Todos' :
+                                          paymentFilter === 'pix' ? 'PIX' :
+                                            paymentFilter === 'dinheiro' ? 'Dinheiro' :
+                                              paymentFilter === 'debito' ? 'Débito' :
+                                                paymentFilter === 'credito' ? 'Crédito' : 'Todos';
 
-                                          // Mapear forma de pagamento
-                                          const paymentMethodMap: Record<string, string> = {
-                                            'dinheiro': 'Dinheiro',
-                                            'pix': 'PIX',
-                                            'credito': 'Crédito',
-                                            'debito': 'Débito',
-                                            'pendente': 'Pendente'
-                                          };
-                                          const paymentMethodLabel = paymentMethodMap[apt.payment_method || 'pendente'] || apt.payment_method || 'Pendente';
-
-                                          return (
-                                            <div key={index} className="border-b border-gray-200 pb-2 last:border-0">
-                                              <div className="flex justify-between items-start mb-1">
-                                                <span className="text-gray-700 font-medium">
-                                                  {apt.client_name}
-                                                </span>
-                                                <span className="text-blue-600 font-semibold">
-                                                  → {formatCurrency(netValue)}
+                                        return (
+                                          <div className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
+                                            <h4 className="font-semibold text-gray-800 mb-3">
+                                              Resumo - {filterLabel} ({filteredAppointments.length} serviços)
+                                            </h4>
+                                            <div className="space-y-2 text-sm">
+                                              <div className="flex justify-between items-center">
+                                                <span className="text-gray-600">Vendas Brutas:</span>
+                                                <span className="font-semibold text-green-600">
+                                                  {formatCurrency(grossTotal)}
                                                 </span>
                                               </div>
-                                              <div className="flex justify-between items-center text-xs">
-                                                <div className="flex gap-3">
-                                                  <span className="text-gray-600">
-                                                    💰 {formatCurrency(baseValue)}
-                                                  </span>
-                                                  <span className="text-purple-600 font-medium">
-                                                    {paymentMethodLabel}
-                                                  </span>
-                                                </div>
-                                                <span className="text-gray-500">
-                                                  📅 {formattedDate} às {formattedTime}
+                                              <div className="flex justify-between items-center">
+                                                <span className="text-gray-600">Vendas Líquidas:</span>
+                                                <span className="font-semibold text-blue-600">
+                                                  {formatCurrency(netTotal)}
                                                 </span>
                                               </div>
                                             </div>
-                                          );
-                                        })}
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
-                                  </details>
-                                </div>
-                              )}
-                            </div>
+
+                                    {/* Lista de serviços filtrados */}
+                                    {professionalAppointments
+                                      .filter(apt => apt.status === 'completed')
+                                      .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter)
+                                      .map((apt, index) => {
+                                        const baseValue = apt.total_price || apt.price || 0;
+                                        let netValue;
+
+                                        if (professional.percentage === 100) {
+                                          // Para dono: bruto - taxa de cartão (se houver)
+                                          const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                          if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                            const cardTax = (baseValue * paymentTax) / 100;
+                                            netValue = baseValue - cardTax;
+                                          } else {
+                                            netValue = baseValue;
+                                          }
+                                        } else {
+                                          // Para outros profissionais: recebem % do valor BRUTO (sem taxa)
+                                          netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                        }
+
+                                        // Formatar data e horário
+                                        const appointmentDate = new Date(apt.appointment_date + 'T' + apt.appointment_time);
+                                        const formattedDate = format(appointmentDate, "dd/MM/yyyy", { locale: ptBR });
+                                        const formattedTime = apt.appointment_time || '00:00';
+
+                                        // Mapear forma de pagamento
+                                        const paymentMethodMap: Record<string, string> = {
+                                          'dinheiro': 'Dinheiro',
+                                          'pix': 'PIX',
+                                          'credito': 'Crédito',
+                                          'debito': 'Débito',
+                                          'pendente': 'Pendente'
+                                        };
+                                        const paymentMethodLabel = paymentMethodMap[apt.payment_method || 'pendente'] || apt.payment_method || 'Pendente';
+
+                                        return (
+                                          <div key={index} className="bg-white border border-gray-200 rounded-lg p-3 mb-3 last:mb-0">
+                                            {/* Header do cliente */}
+                                            <div className="flex justify-between items-start mb-2">
+                                              <span className="text-gray-800 font-medium text-sm">
+                                                {apt.client_name}
+                                              </span>
+                                              <span className="text-blue-600 font-semibold text-sm">
+                                                → {formatCurrency(netValue)}
+                                              </span>
+                                            </div>
+                                            
+                                            {/* Informações do serviço */}
+                                            <div className="space-y-2">
+                                              <div className="flex justify-between items-center">
+                                                <span className="text-gray-600 text-xs">
+                                                  💰 Valor bruto
+                                                </span>
+                                                <span className="text-gray-700 font-medium text-xs">
+                                                  {formatCurrency(baseValue)}
+                                                </span>
+                                              </div>
+                                              
+                                              <div className="flex justify-between items-center">
+                                                <span className="text-gray-600 text-xs">
+                                                  💳 Pagamento
+                                                </span>
+                                                <span className="text-purple-600 font-medium text-xs">
+                                                  {paymentMethodLabel}
+                                                </span>
+                                              </div>
+                                              
+                                              <div className="flex justify-between items-center">
+                                                <span className="text-gray-600 text-xs">
+                                                  📅 Data/Hora
+                                                </span>
+                                                <span className="text-gray-500 text-xs">
+                                                  {formattedDate} às {formattedTime}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                </details>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -12432,755 +12455,779 @@ Estamos te aguardando! 😎✂️`;
       {/* Modal de Valores Iniciais */}
 
       {/* Modal para Adicionar Produto */}
-      {showAddProductModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Adicionar Produto</h3>
-              <button
-                onClick={() => setShowAddProductModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome do produto
-                </label>
-                <input
-                  type="text"
-                  value={newProduct.name}
-                  onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="Ex: Coca-Cola"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Valor de venda (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newProduct.sale_price}
-                  onChange={(e) => setNewProduct({ ...newProduct, sale_price: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="5,00"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Valor de custo (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newProduct.cost_price}
-                  onChange={(e) => setNewProduct({ ...newProduct, cost_price: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="2,50"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Quantidade em estoque
-                </label>
-                <input
-                  type="number"
-                  value={newProduct.stock_quantity}
-                  onChange={(e) => setNewProduct({ ...newProduct, stock_quantity: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="1"
-                  required
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
+      {
+        showAddProductModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Adicionar Produto</h3>
                 <button
-                  type="button"
                   onClick={() => setShowAddProductModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  Cancelar
+                  <X className="h-5 w-5" />
                 </button>
-                <button
-                  onClick={handleAddProduct}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Adicionar
-                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome do produto
+                  </label>
+                  <input
+                    type="text"
+                    value={newProduct.name}
+                    onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="Ex: Coca-Cola"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Valor de venda (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newProduct.sale_price}
+                    onChange={(e) => setNewProduct({ ...newProduct, sale_price: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="5,00"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Valor de custo (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newProduct.cost_price}
+                    onChange={(e) => setNewProduct({ ...newProduct, cost_price: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="2,50"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Quantidade em estoque
+                  </label>
+                  <input
+                    type="number"
+                    value={newProduct.stock_quantity}
+                    onChange={(e) => setNewProduct({ ...newProduct, stock_quantity: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="1"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddProductModal(false)}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleAddProduct}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Adicionar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal para Editar Produto */}
-      {showEditProductModal && editingProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Editar Produto</h3>
-              <button
-                onClick={() => {
-                  setShowEditProductModal(false);
-                  setEditingProduct(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nome do Produto
-                </label>
-                <input
-                  type="text"
-                  value={editingProduct.name}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="Ex: Coca-Cola 350ml"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Preço de Venda (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={editingProduct.sale_price}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="0.00"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Custo (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={editingProduct.cost_price}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, cost_price: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="0.00"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Quantidade em Estoque
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={editingProduct.stock_quantity}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, stock_quantity: parseInt(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="0"
-                  required
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
+      {
+        showEditProductModal && editingProduct && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Editar Produto</h3>
                 <button
-                  type="button"
                   onClick={() => {
                     setShowEditProductModal(false);
                     setEditingProduct(null);
                   }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  Cancelar
+                  <X className="h-5 w-5" />
                 </button>
-                <button
-                  onClick={handleEditProduct}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Salvar
-                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome do Produto
+                  </label>
+                  <input
+                    type="text"
+                    value={editingProduct.name}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="Ex: Coca-Cola 350ml"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Preço de Venda (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editingProduct.sale_price}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, sale_price: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Custo (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editingProduct.cost_price}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, cost_price: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Quantidade em Estoque
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editingProduct.stock_quantity}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, stock_quantity: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="0"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditProductModal(false);
+                      setEditingProduct(null);
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleEditProduct}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Salvar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal para Adicionar Produto V2 (do estoque) */}
-      {showAddProductToAppointmentModal && selectedAppointmentForProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Adicionar Produto do Estoque</h3>
-              <button
-                onClick={() => {
-                  setShowAddProductToAppointmentModal(false);
-                  setSelectedAppointmentForProduct(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      {
+        showAddProductToAppointmentModal && selectedAppointmentForProduct && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Adicionar Produto do Estoque</h3>
+                <button
+                  onClick={() => {
+                    setShowAddProductToAppointmentModal(false);
+                    setSelectedAppointmentForProduct(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
 
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600 mb-4">
-                Selecione um produto do seu estoque para adicionar ao agendamento:
-              </p>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600 mb-4">
+                  Selecione um produto do seu estoque para adicionar ao agendamento:
+                </p>
 
-              {products.length === 0 ? (
-                <div className="text-center py-4">
-                  <Package className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-600 text-sm">Nenhum produto cadastrado</p>
-                  <p className="text-gray-500 text-xs mt-1">
-                    Cadastre produtos em "Meus Produtos" primeiro
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {products.map((product) => (
-                    <div
-                      key={product.id}
-                      onClick={() => handleAddProductToAppointment(product)}
-                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${product.stock_quantity > 0
-                        ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
-                        : 'border-gray-300 bg-gray-100 cursor-not-allowed opacity-50'
-                        }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-900">{product.name}</h4>
-                          <p className="text-sm text-gray-600">
-                            Preço: {formatCurrency(product.sale_price)}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            Estoque: {product.stock_quantity} unidades
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium text-green-600">
-                            {formatCurrency(product.sale_price)}
-                          </p>
-                          {product.stock_quantity === 0 && (
-                            <p className="text-xs text-red-500">Sem estoque</p>
-                          )}
+                {products.length === 0 ? (
+                  <div className="text-center py-4">
+                    <Package className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-600 text-sm">Nenhum produto cadastrado</p>
+                    <p className="text-gray-500 text-xs mt-1">
+                      Cadastre produtos em "Meus Produtos" primeiro
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {products.map((product) => (
+                      <div
+                        key={product.id}
+                        onClick={() => handleAddProductToAppointment(product)}
+                        className={`p-3 border rounded-lg cursor-pointer transition-colors ${product.stock_quantity > 0
+                          ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
+                          : 'border-gray-300 bg-gray-100 cursor-not-allowed opacity-50'
+                          }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-gray-900">{product.name}</h4>
+                            <p className="text-sm text-gray-600">
+                              Preço: {formatCurrency(product.sale_price)}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              Estoque: {product.stock_quantity} unidades
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-green-600">
+                              {formatCurrency(product.sale_price)}
+                            </p>
+                            {product.stock_quantity === 0 && (
+                              <p className="text-xs text-red-500">Sem estoque</p>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal para Adicionar Categoria */}
-      {showAddCategoryModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Adicionar Categoria</h3>
-              <button
-                onClick={() => setShowAddCategoryModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome da categoria
-                </label>
-                <input
-                  type="text"
-                  value={newCategory.name}
-                  onChange={(e) => setNewCategory({ name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="Ex: BARBA"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  O nome será convertido automaticamente para maiúsculas
-                </p>
+      {
+        showAddCategoryModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Adicionar Categoria</h3>
+                <button
+                  onClick={() => setShowAddCategoryModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
 
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowAddCategoryModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleAddCategory}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Adicionar
-                </button>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome da categoria
+                  </label>
+                  <input
+                    type="text"
+                    value={newCategory.name}
+                    onChange={(e) => setNewCategory({ name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="Ex: BARBA"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    O nome será convertido automaticamente para maiúsculas
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCategoryModal(false)}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleAddCategory}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Adicionar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal para Adicionar Subcategoria */}
-      {showAddSubcategoryModal && selectedCategoryForSubcategory && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Adicionar Serviço</h3>
-              <button
-                onClick={() => {
-                  setShowAddSubcategoryModal(false);
-                  setSelectedCategoryForSubcategory(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome do serviço
-                </label>
-                <input
-                  type="text"
-                  value={newSubcategory.name}
-                  onChange={(e) => setNewSubcategory({ ...newSubcategory, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="Ex: Barba lisa"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Preço (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newSubcategory.price}
-                  onChange={(e) => setNewSubcategory({ ...newSubcategory, price: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="39,90"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Duração (minutos)
-                </label>
-                <select
-                  value={newSubcategory.duration}
-                  onChange={(e) => setNewSubcategory({ ...newSubcategory, duration: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                >
-                  <option value="15">15 minutos</option>
-                  <option value="20">20 minutos</option>
-                  <option value="30">30 minutos</option>
-                  <option value="45">45 minutos</option>
-                  <option value="60">60 minutos</option>
-                  <option value="90">90 minutos</option>
-                  <option value="120">120 minutos</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-4">
+      {
+        showAddSubcategoryModal && selectedCategoryForSubcategory && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Adicionar Serviço</h3>
                 <button
-                  type="button"
                   onClick={() => {
                     setShowAddSubcategoryModal(false);
                     setSelectedCategoryForSubcategory(null);
                   }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  Cancelar
+                  <X className="h-5 w-5" />
                 </button>
-                <button
-                  onClick={handleAddSubcategory}
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  Adicionar
-                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome do serviço
+                  </label>
+                  <input
+                    type="text"
+                    value={newSubcategory.name}
+                    onChange={(e) => setNewSubcategory({ ...newSubcategory, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="Ex: Barba lisa"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Preço (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newSubcategory.price}
+                    onChange={(e) => setNewSubcategory({ ...newSubcategory, price: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="39,90"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Duração (minutos)
+                  </label>
+                  <select
+                    value={newSubcategory.duration}
+                    onChange={(e) => setNewSubcategory({ ...newSubcategory, duration: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  >
+                    <option value="15">15 minutos</option>
+                    <option value="20">20 minutos</option>
+                    <option value="30">30 minutos</option>
+                    <option value="45">45 minutos</option>
+                    <option value="60">60 minutos</option>
+                    <option value="90">90 minutos</option>
+                    <option value="120">120 minutos</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddSubcategoryModal(false);
+                      setSelectedCategoryForSubcategory(null);
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleAddSubcategory}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    Adicionar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal para Editar Categoria */}
-      {showEditCategoryModal && editingCategory && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Editar Categoria</h3>
-              <button
-                onClick={() => {
-                  setShowEditCategoryModal(false);
-                  setEditingCategory(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nome da Categoria
-                </label>
-                <input
-                  type="text"
-                  value={editingCategory.name}
-                  onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
-                  placeholder="Ex: BARBA"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  O nome será convertido automaticamente para maiúsculas
-                </p>
-              </div>
-
-              <div className="flex gap-3 pt-4">
+      {
+        showEditCategoryModal && editingCategory && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Editar Categoria</h3>
                 <button
-                  type="button"
                   onClick={() => {
                     setShowEditCategoryModal(false);
                     setEditingCategory(null);
                   }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  Cancelar
+                  <X className="h-5 w-5" />
                 </button>
-                <button
-                  onClick={handleEditCategory}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Salvar
-                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome da Categoria
+                  </label>
+                  <input
+                    type="text"
+                    value={editingCategory.name}
+                    onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    placeholder="Ex: BARBA"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    O nome será convertido automaticamente para maiúsculas
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditCategoryModal(false);
+                      setEditingCategory(null);
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleEditCategory}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Salvar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal para Editar Subcategoria */}
-      {showEditSubcategoryModal && editingSubcategory && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Editar Serviço</h3>
-              <button
-                onClick={() => {
-                  setShowEditSubcategoryModal(false);
-                  setEditingSubcategory(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nome do Serviço
-                </label>
-                <input
-                  type="text"
-                  value={editingSubcategory.name}
-                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
-                  placeholder="Ex: Corte de cabelo"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Preço (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={editingSubcategory.price}
-                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, price: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
-                  placeholder="0.00"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Duração (minutos)
-                </label>
-                <select
-                  value={editingSubcategory.duration}
-                  onChange={(e) => setEditingSubcategory({ ...editingSubcategory, duration: parseInt(e.target.value) || 30 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
-                  required
-                >
-                  {durationOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-4">
+      {
+        showEditSubcategoryModal && editingSubcategory && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Editar Serviço</h3>
                 <button
-                  type="button"
                   onClick={() => {
                     setShowEditSubcategoryModal(false);
                     setEditingSubcategory(null);
                   }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  Cancelar
+                  <X className="h-5 w-5" />
                 </button>
-                <button
-                  onClick={handleEditSubcategory}
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  Salvar
-                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome do Serviço
+                  </label>
+                  <input
+                    type="text"
+                    value={editingSubcategory.name}
+                    onChange={(e) => setEditingSubcategory({ ...editingSubcategory, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
+                    placeholder="Ex: Corte de cabelo"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Preço (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editingSubcategory.price}
+                    onChange={(e) => setEditingSubcategory({ ...editingSubcategory, price: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Duração (minutos)
+                  </label>
+                  <select
+                    value={editingSubcategory.duration}
+                    onChange={(e) => setEditingSubcategory({ ...editingSubcategory, duration: parseInt(e.target.value) || 30 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
+                    required
+                  >
+                    {durationOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditSubcategoryModal(false);
+                      setEditingSubcategory(null);
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleEditSubcategory}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    Salvar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal de Observações */}
-      {showObservationModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                <span className="text-purple-600 text-xl">📝</span>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Minhas Observações</h3>
-                <p className="text-sm text-gray-600">Adicione observações para este agendamento</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Observações
-                </label>
-                <textarea
-                  value={observationText}
-                  onChange={(e) => setObservationText(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-black bg-white resize-none"
-                  placeholder="Ex: Cliente não pagou tudo, deixou R$ 5,00 para depois..."
-                  rows={4}
-                  maxLength={500}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  {observationText.length}/500 caracteres
-                </p>
+      {
+        showObservationModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                  <span className="text-purple-600 text-xl">📝</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Minhas Observações</h3>
+                  <p className="text-sm text-gray-600">Adicione observações para este agendamento</p>
+                </div>
               </div>
 
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={handleCancelObservation}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleSaveObservation}
-                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                >
-                  Salvar Observação
-                </button>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Observações
+                  </label>
+                  <textarea
+                    value={observationText}
+                    onChange={(e) => setObservationText(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-black bg-white resize-none"
+                    placeholder="Ex: Cliente não pagou tudo, deixou R$ 5,00 para depois..."
+                    rows={4}
+                    maxLength={500}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {observationText.length}/500 caracteres
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={handleCancelObservation}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSaveObservation}
+                    className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  >
+                    Salvar Observação
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Botão de Atualização */}
       <UpdateButton />
 
       {/* Popup bonito para explicação */}
-      {showReminderPopup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
-                <span className="text-orange-600 text-xl">⚠️</span>
+      {
+        showReminderPopup && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                  <span className="text-orange-600 text-xl">⚠️</span>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Como contabilizar valores
+                </h3>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                Como contabilizar valores
-              </h3>
-            </div>
 
-            <p className="text-gray-700 mb-6 leading-relaxed">
-              Coloque seu agendamento como <span className="bg-green-100 text-green-800 px-2 py-1 rounded font-semibold">concluído</span>, para o dashboard reconhecer que você recebeu o valor de fato.
-            </p>
+              <p className="text-gray-700 mb-6 leading-relaxed">
+                Coloque seu agendamento como <span className="bg-green-100 text-green-800 px-2 py-1 rounded font-semibold">concluído</span>, para o dashboard reconhecer que você recebeu o valor de fato.
+              </p>
 
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowReminderPopup(false)}
-                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
-              >
-                Entendi
-              </button>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowReminderPopup(false)}
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
+                >
+                  Entendi
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Popup de confirmação para cancelar */}
-      {showCancelConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                <span className="text-red-600 text-xl">❌</span>
+      {
+        showCancelConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                  <span className="text-red-600 text-xl">❌</span>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Cancelar Agendamento
+                </h3>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                Cancelar Agendamento
-              </h3>
-            </div>
 
-            <p className="text-gray-700 mb-6 leading-relaxed">
-              Tem certeza que deseja cancelar este agendamento? Esta ação não pode ser desfeita.
-            </p>
+              <p className="text-gray-700 mb-6 leading-relaxed">
+                Tem certeza que deseja cancelar este agendamento? Esta ação não pode ser desfeita.
+              </p>
 
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => {
-                  setShowCancelConfirm(false);
-                  setAppointmentToCancel(null);
-                }}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-              >
-                Não
-              </button>
-              <button
-                onClick={confirmCancel}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
-              >
-                Sim, Cancelar
-              </button>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => {
+                    setShowCancelConfirm(false);
+                    setAppointmentToCancel(null);
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                >
+                  Não
+                </button>
+                <button
+                  onClick={confirmCancel}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                >
+                  Sim, Cancelar
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal de confirmação para enviar lembrete */}
-      {showReminderConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                <span className="text-blue-600 text-xl">📱</span>
+      {
+        showReminderConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                  <span className="text-blue-600 text-xl">📱</span>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Enviar Lembrete
+                </h3>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                Enviar Lembrete
-              </h3>
-            </div>
 
-            <p className="text-gray-700 mb-6 leading-relaxed">
-              Você irá enviar um lembrete para o seu cliente sobre o agendamento via WhatsApp.
-            </p>
+              <p className="text-gray-700 mb-6 leading-relaxed">
+                Você irá enviar um lembrete para o seu cliente sobre o agendamento via WhatsApp.
+              </p>
 
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={handleCloseReminderModal}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-              >
-                ✕
-              </button>
-              <button
-                onClick={handleSendReminder}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-              >
-                📱 Enviar
-              </button>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={handleCloseReminderModal}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                >
+                  ✕
+                </button>
+                <button
+                  onClick={handleSendReminder}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  📱 Enviar
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal informativo sobre lembretes */}
-      {showReminderInfoModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                <span className="text-yellow-600 text-xl">💡</span>
+      {
+        showReminderInfoModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                  <span className="text-yellow-600 text-xl">💡</span>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Dica importante:
+                </h3>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                Dica importante:
-              </h3>
-            </div>
 
-            <div className="text-gray-700 mb-6 leading-relaxed space-y-3">
-              <p>
-                Você pode reforçar a presença do seu cliente e evitar esquecimentos! ✂️
-              </p>
+              <div className="text-gray-700 mb-6 leading-relaxed space-y-3">
+                <p>
+                  Você pode reforçar a presença do seu cliente e evitar esquecimentos! ✂️
+                </p>
 
-              <p>
-                Caso ele não tenha ativado as notificações automáticas, basta clicar em <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold">"Enviar lembrete"</span> dentro do agendamento. 📅
-              </p>
+                <p>
+                  Caso ele não tenha ativado as notificações automáticas, basta clicar em <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold">"Enviar lembrete"</span> dentro do agendamento. 📅
+                </p>
 
-              <p>
-                Assim, o sistema envia uma mensagem completa no WhatsApp do cliente, com todas as informações do agendamento — horário, serviço e profissional — pra ele não esquecer de comparecer. 🕒
-              </p>
+                <p>
+                  Assim, o sistema envia uma mensagem completa no WhatsApp do cliente, com todas as informações do agendamento — horário, serviço e profissional — pra ele não esquecer de comparecer. 🕒
+                </p>
 
-              <p>
-                Muitos barbeiros usam esse recurso no dia dos atendimentos para lembrar todos os clientes de forma rápida e prática! 💬💈
-              </p>
-            </div>
+                <p>
+                  Muitos barbeiros usam esse recurso no dia dos atendimentos para lembrar todos os clientes de forma rápida e prática! 💬💈
+                </p>
+              </div>
 
-            <div className="flex justify-end">
-              <button
-                onClick={handleCloseReminderInfoModal}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-              >
-                ✕
-              </button>
+              <div className="flex justify-end">
+                <button
+                  onClick={handleCloseReminderInfoModal}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal de Transferência de Agendamento */}
       <TransferAppointmentModal
@@ -13212,16 +13259,18 @@ Estamos te aguardando! 😎✂️`;
       />
 
       {/* Modal de Reservar Cliente */}
-      {showReservarClienteModal && establishment && (
-        <ReservarCliente
-          establishmentId={establishment.id}
-          onClose={() => {
-            console.log('🔍 Fechando modal ReservarCliente');
-            setShowReservarClienteModal(false);
-          }}
-        />
-      )}
-    </div>
+      {
+        showReservarClienteModal && establishment && (
+          <ReservarCliente
+            establishmentId={establishment.id}
+            onClose={() => {
+              console.log('🔍 Fechando modal ReservarCliente');
+              setShowReservarClienteModal(false);
+            }}
+          />
+        )
+      }
+    </div >
   );
 };
 
