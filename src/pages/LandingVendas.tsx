@@ -744,7 +744,7 @@ const LandingVendas = () => {
                     href="https://wa.me/5548991265320?text=Quero%20ser%20Anual"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block w-full py-3 px-6 text-center text-white bg-white text-blue-600 hover:bg-gray-100 rounded-lg transition-colors font-semibold"
+                    className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors font-semibold"
                   >
                     Começar Agora
                   </a>
