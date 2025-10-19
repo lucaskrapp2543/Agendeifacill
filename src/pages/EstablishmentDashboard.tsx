@@ -13364,6 +13364,31 @@ Estamos te aguardando! 😎✂️`;
                 Siga esse passo a passo simples para deixar seu sistema prontinho 👇
               </p>
 
+              {/* Dica sobre Vídeos */}
+              <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-3 sm:p-4 border border-yellow-200">
+                <div className="flex items-start gap-2 sm:gap-3">
+                  <span className="text-lg sm:text-xl flex-shrink-0">✨</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-gray-700 text-xs sm:text-sm leading-relaxed mb-1 sm:mb-2">
+                      <strong>Dentro de cada opção que você selecionar, vai ter um vídeo explicando direitinho como usar!</strong> 🎥
+                    </p>
+                    
+                    <div className="bg-white/50 rounded-lg p-2 sm:p-3 mb-1 sm:mb-2">
+                      <p className="text-gray-700 text-xs sm:text-sm leading-relaxed mb-1">
+                        <strong>Por exemplo:</strong>
+                      </p>
+                      <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                        👉 Se você clicar em <strong>"Meus Agendamentos"</strong>, vai aparecer um vídeo mostrando como seus clientes agendam com você, e também como você pode ver, organizar e gerenciar tudo de forma simples e prática. 💼📅
+                      </p>
+                    </div>
+                    
+                    <p className="text-gray-600 text-xs sm:text-sm leading-relaxed font-medium bg-yellow-100 rounded-lg p-2">
+                      ⚠ <strong>Dica:</strong> preste bastante atenção em cada vídeo, pois muitas das suas dúvidas já estão respondidas neles.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Passos */}
               <div className="space-y-3 sm:space-y-4">
                 {/* Passo 1 */}
