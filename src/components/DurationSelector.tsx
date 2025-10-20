@@ -1,4 +1,3 @@
-import React from 'react';
 
 interface DurationSelectorProps {
   value: number;
@@ -8,6 +7,7 @@ interface DurationSelectorProps {
 
 const durationOptions = [
   { value: 15, label: '15 minutos' },
+  { value: 20, label: '20 minutos' },
   { value: 30, label: '30 minutos' },
   { value: 45, label: '45 minutos' },
   { value: 60, label: '1 hora' },

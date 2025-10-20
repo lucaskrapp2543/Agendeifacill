@@ -1276,6 +1276,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               required
             >
               <option value={15}>15 minutos</option>
+              <option value={20}>20 minutos</option>
               <option value={30}>30 minutos</option>
               <option value={45}>45 minutos</option>
               <option value={60}>1 hora</option>

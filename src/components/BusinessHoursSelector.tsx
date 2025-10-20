@@ -1,4 +1,3 @@
-import React from 'react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { TimeSlotSelector } from './TimeSlotSelector';
@@ -28,6 +27,8 @@ interface BusinessHoursSelectorProps {
   selectedServiceDuration?: number;
   professionalAbsences?: string[]; // Dias de ausência do profissional
   professionalBlockedHours?: string[]; // Horários bloqueados do profissional
+  use15MinuteInterval?: boolean; // Configuração de intervalo de 15 minutos
+  use20MinuteSchedule?: boolean; // Configuração de horários de 20 em 20 minutos
   professionalWorkHours?: {
     [key: string]: {
       enabled: boolean;
@@ -60,7 +61,9 @@ export function BusinessHoursSelector({
   selectedServiceDuration = 30,
   professionalAbsences = [],
   professionalBlockedHours = [],
-  professionalWorkHours = null
+  professionalWorkHours = null,
+  use15MinuteInterval = false,
+  use20MinuteSchedule = false
 }: BusinessHoursSelectorProps) {
   const dayOfWeek = format(selectedDate, 'EEEE', { locale: ptBR });
   const dayKey = dayOfWeek.toLowerCase() as keyof typeof businessHours;
@@ -97,6 +100,8 @@ export function BusinessHoursSelector({
         professionalAbsences={professionalAbsences}
         professionalBlockedHours={professionalBlockedHours}
         professionalWorkHours={professionalWorkHours}
+        use15MinuteInterval={use15MinuteInterval}
+        use20MinuteSchedule={use20MinuteSchedule}
       />
     </div>
   );

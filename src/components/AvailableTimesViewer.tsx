@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useState } from 'react';
 import { DatePicker } from './DatePicker';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
@@ -26,7 +26,7 @@ interface Professional {
 
 interface AvailableTimesViewerProps {
   establishment: {
-    business_hours: Record<string, { 
+    business_hours: Record<string, {
       enabled: boolean;
       open1: string;
       close1: string;
@@ -35,6 +35,8 @@ interface AvailableTimesViewerProps {
     }>;
     services_with_prices: Service[];
     professionals: Professional[];
+    use_15_minute_interval?: boolean;
+    use_20_minute_schedule?: boolean;
   };
   existingAppointments: Appointment[];
 }
@@ -76,7 +78,7 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
   return (
     <div className="p-6 bg-[#1a1b1c] rounded-lg border border-gray-800">
       <h2 className="text-xl font-semibold text-gray-100 mb-6">Horários Disponíveis</h2>
-      
+
       {/* Seleção de Serviço */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -134,8 +136,8 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
         <label className="block text-sm font-medium text-gray-300 mb-2">
           Escolha a Data
         </label>
-        <DatePicker 
-          selectedDate={selectedDate} 
+        <DatePicker
+          selectedDate={selectedDate}
           onSelectDate={setSelectedDate}
           businessHours={establishment.business_hours}
         />
@@ -152,10 +154,12 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
             selectedDuration={selectedService.duration}
             existingAppointments={existingAppointments}
             selectedProfessional={selectedProfessional.id}
-            onSelectTime={() => {}} // Não faz nada ao clicar, apenas visualização
+            onSelectTime={() => { }} // Não faz nada ao clicar, apenas visualização
             businessHours={getBusinessHoursForDay(selectedDate)}
             professionalAbsences={(selectedProfessional as any).absences || []}
             professionalBlockedHours={(selectedProfessional as any).blocked_hours?.[selectedDate.toISOString().split('T')[0]] || []}
+            use15MinuteInterval={establishment.use_15_minute_interval ?? false}
+            use20MinuteSchedule={establishment.use_20_minute_schedule ?? false}
           />
         </div>
       )}
@@ -167,8 +171,8 @@ function formatDuration(minutes: number): string {
   if (minutes >= 60) {
     const hours = Math.floor(minutes / 60);
     const remainingMinutes = minutes % 60;
-    return remainingMinutes > 0 
-      ? `${hours}h${remainingMinutes}min` 
+    return remainingMinutes > 0
+      ? `${hours}h${remainingMinutes}min`
       : `${hours}h`;
   }
   return `${minutes}min`;

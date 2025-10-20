@@ -420,6 +420,9 @@ const EstablishmentDashboard = () => {
   // Estado para intervalo de 15 minutos
   const [use15MinuteInterval, setUse15MinuteInterval] = useState(false);
 
+  // Estado para horários de 20 em 20 minutos
+  const [use20MinuteSchedule, setUse20MinuteSchedule] = useState(false);
+
   // Estado para mostrar imagem "Melhor do Brasil"
   const [showBestOfBrazilImage, setShowBestOfBrazilImage] = useState(true);
 
@@ -1488,6 +1491,7 @@ const EstablishmentDashboard = () => {
 
   const durationOptions = [
     { value: 15, label: '15 minutos' },
+    { value: 20, label: '20 minutos' },
     { value: 30, label: '30 minutos' },
     { value: 45, label: '45 minutos' },
     { value: 60, label: '1 hora' },
@@ -2064,6 +2068,7 @@ const EstablishmentDashboard = () => {
         require_cpf: requireCpf, // Solicitar CPF no agendamento
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
+        use_20_minute_schedule: use20MinuteSchedule, // Configuração de horários de 20 em 20 minutos
         show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
         carousel_position: carouselPosition, // Posição do carrossel
         payment_methods_enabled: paymentMethodsEnabled, // Formas de pagamento ativas
@@ -2834,6 +2839,9 @@ Estamos te aguardando! 😎✂️`;
 
         // Carrega a configuração de intervalo de 15 minutos
         setUse15MinuteInterval(establishmentData.use_15_minute_interval ?? false);
+
+        // Carrega a configuração de horários de 20 em 20 minutos
+        setUse20MinuteSchedule(establishmentData.use_20_minute_schedule ?? false);
 
         // Carrega a configuração da imagem "Melhor do Brasil"
         setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
@@ -8339,7 +8347,14 @@ Estamos te aguardando! 😎✂️`;
                           type="checkbox"
                           id="use15MinuteInterval"
                           checked={use15MinuteInterval}
-                          onChange={(e) => setUse15MinuteInterval(e.target.checked)}
+                          onChange={(e) => {
+                            const newValue = e.target.checked;
+                            setUse15MinuteInterval(newValue);
+                            // Se ativar intervalo de 15 min, desativar horários de 20 em 20
+                            if (newValue) {
+                              setUse20MinuteSchedule(false);
+                            }
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
                         />
                         <div className="flex-1">
@@ -8348,6 +8363,35 @@ Estamos te aguardando! 😎✂️`;
                           </label>
                           <p className="text-sm text-gray-400 leading-relaxed">
                             Ao selecionar essa opção, para seus clientes irá aparecer horários de 30 em 30 min exemplo, 09:00 \ 09:30 \ 10:00 \ 10:30 por ai vai, essa mudança se um cliente por exemplo escolher serviço seu que tem duração de 45 min e ele selecionar as 9:00 o horário das 9 até as 10:00 ficaram (Reservado) assim você tera 15 min de 'intervalo' entre o serviço e outro.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Configuração de horários de 20 em 20 minutos */}
+                      <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                        <input
+                          type="checkbox"
+                          id="use20MinuteSchedule"
+                          checked={use20MinuteSchedule}
+                          onChange={(e) => {
+                            const newValue = e.target.checked;
+                            setUse20MinuteSchedule(newValue);
+                            // Se ativar horários de 20 em 20, desativar intervalo de 15 min
+                            if (newValue) {
+                              setUse15MinuteInterval(false);
+                            }
+                          }}
+                          className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                        />
+                        <div className="flex-1">
+                          <label htmlFor="use20MinuteSchedule" className="block text-white font-medium mb-2">
+                            Mostrar horários de serviço de 20 em 20 min
+                          </label>
+                          <p className="text-sm text-gray-400 leading-relaxed">
+                            Ao selecionar essa opção, os horários disponíveis no booking serão exibidos de 20 em 20 minutos (exemplo: 09:20 / 09:40 / 10:00 / 10:20, e assim por diante).
+                          </p>
+                          <p className="text-sm text-yellow-400 mt-2 font-medium">
+                            ⚠️ Observação: não é possível ativar simultaneamente as opções de 20 em 20 min e de 30 em 30 min. Ambas têm a mesma função — a diferença é apenas o intervalo de exibição dos horários.
                           </p>
                         </div>
                       </div>
@@ -13372,7 +13416,7 @@ Estamos te aguardando! 😎✂️`;
                     <p className="text-gray-700 text-xs sm:text-sm leading-relaxed mb-1 sm:mb-2">
                       <strong>Dentro de cada opção que você selecionar, vai ter um vídeo explicando direitinho como usar!</strong> 🎥
                     </p>
-                    
+
                     <div className="bg-white/50 rounded-lg p-2 sm:p-3 mb-1 sm:mb-2">
                       <p className="text-gray-700 text-xs sm:text-sm leading-relaxed mb-1">
                         <strong>Por exemplo:</strong>
@@ -13381,7 +13425,7 @@ Estamos te aguardando! 😎✂️`;
                         👉 Se você clicar em <strong>"Meus Agendamentos"</strong>, vai aparecer um vídeo mostrando como seus clientes agendam com você, e também como você pode ver, organizar e gerenciar tudo de forma simples e prática. 💼📅
                       </p>
                     </div>
-                    
+
                     <p className="text-gray-600 text-xs sm:text-sm leading-relaxed font-medium bg-yellow-100 rounded-lg p-2">
                       ⚠ <strong>Dica:</strong> preste bastante atenção em cada vídeo, pois muitas das suas dúvidas já estão respondidas neles.
                     </p>

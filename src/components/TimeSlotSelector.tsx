@@ -36,6 +36,7 @@ interface TimeSlotSelectorProps {
     close2: string | null;
   };
   use15MinuteInterval?: boolean; // Nova prop para configuração de intervalo
+  use20MinuteSchedule?: boolean; // Nova prop para horários de 20 em 20 minutos
   filterPastTimes?: boolean; // Nova prop para filtrar horários passados
   selectedProfessional?: string; // Profissional selecionado
   professionalAbsences?: string[]; // Dias de ausência do profissional
@@ -60,6 +61,7 @@ export function TimeSlotSelector({
   onTimeSelect,
   businessHours,
   use15MinuteInterval = false, // Valor padrão false (15 em 15 min)
+  use20MinuteSchedule = false, // Valor padrão false (horários de 20 em 20 min)
   filterPastTimes = false, // Valor padrão false (não filtrar horários passados)
   selectedProfessional,
   professionalAbsences = [],
@@ -175,7 +177,12 @@ export function TimeSlotSelector({
     console.log('  - relevantAppointments:', relevantAppointments);
 
     // Determinar o intervalo baseado na configuração
-    const interval = use15MinuteInterval ? 30 : 15;
+    let interval = 15; // Padrão: 15 em 15 minutos
+    if (use20MinuteSchedule) {
+      interval = 20; // Horários de 20 em 20 minutos
+    } else if (use15MinuteInterval) {
+      interval = 30; // Horários de 30 em 30 minutos (com intervalo de 15 min)
+    }
 
     // Gerar horários para o primeiro período
     if (effectiveBusinessHours.open1 && effectiveBusinessHours.close1) {

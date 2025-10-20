@@ -1920,6 +1920,7 @@ export function AppointmentForm({
                 filterPastTimes={!!(user && !isEstablishmentOwner)} // Filtrar horários passados apenas para clientes logados
                 businessHours={businessHours}
                 use15MinuteInterval={establishment.use_15_minute_interval ?? false}
+                use20MinuteSchedule={(establishment as any).use_20_minute_schedule ?? false}
                 selectedProfessional={selectedProfessional?.id}
                 professionalAbsences={selectedProfessional ? (selectedProfessional as any).absences || [] : []}
                 professionalBlockedHours={selectedProfessional ? (selectedProfessional as any).blocked_hours?.[selectedDate.toISOString().split('T')[0]] || [] : []}

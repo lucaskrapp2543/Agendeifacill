@@ -1,25 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import { 
-  getClientAppointments, 
-  createAppointment, 
-  getEstablishmentByCode, 
-  cancelAppointment,
-  getUserFavoriteEstablishments, 
-  addFavoriteEstablishment, 
-  removeFavoriteEstablishment,
-  checkIfEstablishmentIsFavorite 
-} from '../lib/supabase';
-import { Calendar, Clock, Scissors, LogOut, Star, User, Plus, Trash2, Heart, Search, X, Crown, PlusCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { supabase } from '../lib/supabase';
-import { TimeSlotSelector } from '../components/TimeSlotSelector';
-import type { Establishment } from '../types/supabase';
-import { useNotifications } from '../hooks/useNotifications';
+import { Calendar, Clock, Crown, Heart, Plus, PlusCircle, Scissors, Search, Star, Trash2, User, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 import { NotificationPermission } from '../components/NotificationPermission';
+import { TimeSlotSelector } from '../components/TimeSlotSelector';
+import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../hooks/useNotifications';
+import {
+  cancelAppointment,
+  createAppointment,
+  getClientAppointments,
+  getEstablishmentByCode,
+  supabase
+} from '../lib/supabase';
+import type { Establishment } from '../types/supabase';
 
 interface Appointment {
   id: string;
@@ -63,12 +59,12 @@ const PremiumDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
-  
+
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('appointments');
   const [clientName, setClientName] = useState('');
-  
+
   // Estados para agendamento
   const [establishmentCode, setEstablishmentCode] = useState('');
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
@@ -80,7 +76,7 @@ const PremiumDashboard = () => {
   const [professional, setProfessional] = useState('');
   const [existingAppointmentsForSlots, setExistingAppointmentsForSlots] = useState<any[]>([]);
   const [isBookingFlowStarted, setIsBookingFlowStarted] = useState(false); // Novo estado
-  
+
   // Estados para favoritos
   const [favoriteEstablishments, setFavoriteEstablishments] = useState<FavoriteEstablishment[]>([]);
   const [isAddingFavorite, setIsAddingFavorite] = useState(false);
@@ -139,16 +135,16 @@ const PremiumDashboard = () => {
 
   const fetchAppointments = async () => {
     if (!user) return;
-    
+
     setIsLoading(true);
-    
+
     try {
       const { data, error } = await getClientAppointments(user.id);
-      
+
       if (error) {
         throw error;
       }
-      
+
       setAppointments(data || []);
     } catch (error: any) {
       toast(error.message || 'Erro ao buscar agendamentos');
@@ -175,19 +171,19 @@ const PremiumDashboard = () => {
 
   const handleAddToFavorites = () => {
     if (!establishment || !user) return;
-    
+
     setIsAddingFavorite(true);
-    
+
     try {
       const existing = favoriteEstablishments.find(
         fav => fav.establishment_id === establishment.id
       );
-      
+
       if (existing) {
         toast('Este estabelecimento já está nos seus favoritos');
         return;
       }
-      
+
       const newFavorite: FavoriteEstablishment = {
         id: Date.now().toString(),
         establishment_id: establishment.id,
@@ -196,12 +192,12 @@ const PremiumDashboard = () => {
         establishment_data: establishment,
         created_at: new Date().toISOString()
       };
-      
+
       const updatedFavorites = [...favoriteEstablishments, newFavorite];
       saveFavoriteEstablishments(updatedFavorites);
-      
+
       toast.success('Estabelecimento adicionado aos favoritos!');
-      
+
     } catch (error: any) {
       toast('Erro ao adicionar aos favoritos');
     } finally {
@@ -232,7 +228,7 @@ const PremiumDashboard = () => {
 
     try {
       console.log('🔍 Buscando agendamentos existentes:', { establishmentId, date, professional });
-      
+
       const { data, error } = await supabase
         .from('appointments')
         .select('*')
@@ -240,12 +236,12 @@ const PremiumDashboard = () => {
         .eq('appointment_date', date)
         .eq('professional', professional)
         .neq('status', 'cancelled');
-      
+
       if (error) throw error;
-      
+
       console.log('📋 Agendamentos encontrados:', data);
       setExistingAppointmentsForSlots(data || []);
-      
+
     } catch (error: any) {
       console.error('❌ Erro ao buscar agendamentos:', error);
       toast(error.message || 'Erro ao buscar agendamentos existentes');
@@ -266,21 +262,21 @@ const PremiumDashboard = () => {
       toast('Por favor, informe o código do estabelecimento');
       return;
     }
-    
+
     setIsSearching(true);
-    
+
     try {
       const { data, error } = await getEstablishmentByCode(establishmentCode.trim());
-      
+
       if (error) {
         throw error;
       }
-      
+
       if (!data) {
         toast('Estabelecimento não encontrado');
         return;
       }
-      
+
       // Criar slug para redirecionamento
       const generateSlug = (name: string, code: string) => {
         const nameSlug = name
@@ -291,12 +287,12 @@ const PremiumDashboard = () => {
           .slice(0, 20); // Limita tamanho
         return `${nameSlug}${code}`;
       };
-      
+
       const slug = generateSlug(data.name, data.code);
-      
+
       // Redirecionar para página dinâmica
       navigate(`/${slug}`);
-      
+
     } catch (error: any) {
       toast(error.message || 'Erro ao buscar estabelecimento');
     } finally {
@@ -311,40 +307,40 @@ const PremiumDashboard = () => {
       toast('Preencha todos os campos para agendar');
       return;
     }
-    
+
     // DEBUG: Verificar valores antes de salvar
     console.log('🚀 SALVANDO AGENDAMENTO:');
     console.log('  appointmentDate:', appointmentDate);
     console.log('  appointmentTime:', appointmentTime);
     console.log('  professional:', professional);
     console.log('  selectedService:', selectedService);
-    
+
     // 🚨 VERIFICAÇÃO DUPLA DE CONFLITOS NO CLIENTE
     console.log('🔍 VERIFICAÇÃO DUPLA - existingAppointmentsForSlots:', existingAppointmentsForSlots);
-    const relevantAppointments = existingAppointmentsForSlots.filter(apt => 
+    const relevantAppointments = existingAppointmentsForSlots.filter(apt =>
       apt.appointment_date === appointmentDate &&
       apt.professional === professional &&
       apt.status !== 'cancelled'
     );
-    
+
     console.log('🎯 Agendamentos relevantes para verificação dupla:', relevantAppointments);
-    
+
     // Converter tempo para minutos para verificação
     const timeToMinutes = (time: string): number => {
       const [hours, minutes] = time.split(':').map(Number);
       return hours * 60 + minutes;
     };
-    
+
     const newStartMinutes = timeToMinutes(appointmentTime);
     const newEndMinutes = newStartMinutes + selectedService.duration;
-    
+
     for (const existing of relevantAppointments) {
       const existingStartMinutes = timeToMinutes(existing.appointment_time);
       const existingEndMinutes = existingStartMinutes + existing.duration;
-      
+
       // Verificar se há sobreposição
       const hasConflict = (newStartMinutes < existingEndMinutes && newEndMinutes > existingStartMinutes);
-      
+
       if (hasConflict) {
         const errorMsg = `🚨 CONFLITO DETECTADO NO CLIENTE! Horário ${appointmentTime} conflita com agendamento existente às ${existing.appointment_time}`;
         console.error(errorMsg);
@@ -352,9 +348,9 @@ const PremiumDashboard = () => {
         return;
       }
     }
-    
+
     console.log('✅ VERIFICAÇÃO DUPLA PASSOU - Nenhum conflito detectado no cliente');
-    
+
     setIsBooking(true);
     try {
       const appointmentData = {
@@ -369,26 +365,26 @@ const PremiumDashboard = () => {
         price: selectedService.price,
         duration: selectedService.duration
       };
-      
+
       console.log('📝 DADOS PARA SALVAR:', appointmentData);
-      
+
       const { data, error } = await createAppointment(appointmentData);
       if (error) throw error;
-      
+
       console.log('✅ AGENDAMENTO SALVO:', data);
-      
+
       // Enviar notificação de novo agendamento
       console.log('🔔 ENVIANDO NOTIFICAÇÃO:', { clientName, service: selectedService.name, time: appointmentTime });
       notifyNewAppointment(clientName, selectedService.name, appointmentTime);
-      
+
       toast.success('Agendamento criado com sucesso!');
-      
+
       // Forçar reload dos agendamentos após 1 segundo para dar tempo do Supabase processar
       setTimeout(() => {
         console.log('🔄 Recarregando agendamentos após sucesso...');
         fetchAppointments();
       }, 1000);
-      
+
       // Também chamar imediatamente
       fetchAppointments();
       await fetchExistingAppointments(establishment.id, appointmentDate, professional);
@@ -412,7 +408,7 @@ const PremiumDashboard = () => {
   const handleCancelAppointment = async (appointmentId: string) => {
     try {
       console.log('🚫 Cancelando agendamento:', appointmentId);
-      
+
       const { error } = await cancelAppointment(appointmentId);
 
       if (error) {
@@ -429,14 +425,14 @@ const PremiumDashboard = () => {
           cancelledAppointment.appointment_time
         );
       }
-      
+
       toast.success('Agendamento cancelado com sucesso');
-      
+
       // Aguardar um pouco e recarregar
       setTimeout(() => {
         fetchAppointments();
       }, 500);
-      
+
       fetchAppointments();
     } catch (error: any) {
       console.error('❌ Error cancelling appointment:', error);
@@ -456,19 +452,19 @@ const PremiumDashboard = () => {
 
     try {
       const { data, error } = await getEstablishmentByCode(premiumEstablishmentCode);
-      
+
       if (error) {
         throw error;
       }
-      
+
       if (!data) {
         toast('Estabelecimento não encontrado. Verifique o código.');
         return;
       }
-      
+
       setPremiumEstablishment(data);
       toast.success(`Estabelecimento encontrado: ${data.name}`);
-      
+
     } catch (error: any) {
       toast(error.message || 'Erro ao buscar estabelecimento');
     } finally {
@@ -478,7 +474,7 @@ const PremiumDashboard = () => {
 
   const handleActivatePremium = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user || !premiumEstablishment || !clientName.trim() || !clientPhone.trim()) {
       toast('Por favor, preencha todos os campos');
       return;
@@ -490,7 +486,7 @@ const PremiumDashboard = () => {
       console.log('🔍 VERIFICANDO PREMIUM EXISTENTE:');
       console.log('  - User ID:', user.id);
       console.log('  - Establishment ID:', premiumEstablishment.id);
-      
+
       // Verificar se já tem premium ativo NESTE estabelecimento específico
       const { data: existing, error: checkError } = await supabase
         .from('premium_subscriptions')
@@ -543,19 +539,19 @@ const PremiumDashboard = () => {
 
       console.log('🎉 PREMIUM ATIVADO COM SUCESSO');
       toast.success(`🎉 Premium ativado com sucesso em ${premiumEstablishment.name}!`);
-      
+
       // Limpar formulário e atualizar status
       setPremiumEstablishmentCode('');
       setPremiumEstablishment(null);
       setClientName('');
       setClientPhone('');
-      
+
       // Aguardar e verificar status
       setTimeout(() => {
         console.log('🔄 Verificando status após ativação...');
         checkPremiumStatus();
       }, 1000);
-      
+
     } catch (error: any) {
       console.error('❌ ERRO AO ATIVAR PREMIUM:', error);
       toast(error.message || 'Erro ao ativar premium');
@@ -566,7 +562,7 @@ const PremiumDashboard = () => {
 
   const checkPremiumStatus = async () => {
     if (!user) return;
-    
+
     try {
       const { data, error } = await supabase
         .from('premium_subscriptions')
@@ -595,18 +591,18 @@ const PremiumDashboard = () => {
       toast('Nenhum premium ativo para remover');
       return;
     }
-    
+
     const establishmentName = currentPremiumStatus.establishments?.name || 'este estabelecimento';
-    
+
     if (!confirm(`🚨 CONFIRMAÇÃO DE REMOÇÃO\n\nTem certeza que deseja remover seu premium do estabelecimento "${establishmentName}"?\n\n⚠️ Esta ação:\n- Remove você da lista de clientes premium\n- Não pode ser desfeita\n- É permanente\n\nDeseja continuar?`)) return;
-    
+
     try {
       console.log('️ INICIANDO REMOÇÃO DE PREMIUM:');
       console.log('  - ID do registro:', currentPremiumStatus.id);
       console.log('  - User ID:', user?.id);
       console.log('  - Establishment ID:', currentPremiumStatus.establishment_id);
       console.log('  - Estabelecimento:', establishmentName);
-      
+
       // ESTRATÉGIA 1: Deletar por user_id + establishment_id (mais seguro para RLS)
       const { data: deleteData, error: deleteError } = await supabase
         .from('premium_subscriptions')
@@ -618,10 +614,10 @@ const PremiumDashboard = () => {
       console.log('🔍 RESULTADO DA DELEÇÃO (por user_id):');
       console.log('  - Erro:', deleteError);
       console.log('  - Dados deletados:', deleteData);
-      
+
       if (deleteError) {
         console.error('❌ ERRO AO DELETAR POR USER_ID:', deleteError);
-        
+
         // ESTRATÉGIA 2: Se falhar, tentar por ID direto
         console.log('🔄 TENTANDO DELEÇÃO POR ID DIRETO...');
         const { data: deleteData2, error: deleteError2 } = await supabase
@@ -629,38 +625,38 @@ const PremiumDashboard = () => {
           .delete()
           .eq('id', currentPremiumStatus.id)
           .select();
-          
+
         console.log('🔍 RESULTADO DA DELEÇÃO (por ID):');
         console.log('  - Erro:', deleteError2);
         console.log('  - Dados deletados:', deleteData2);
-        
+
         if (!deleteData2 || deleteData2.length === 0) {
           throw new Error('Nenhum registro foi deletado. Possível problema de permissão RLS.');
         }
-        
+
         console.log(`✅ SUCESSO (Estratégia 2): ${deleteData2.length} registro(s) deletado(s)`);
       } else {
         if (!deleteData || deleteData.length === 0) {
           throw new Error('Nenhum registro foi deletado. Possível problema de permissão RLS.');
         }
-        
+
         console.log(`✅ SUCESSO (Estratégia 1): ${deleteData.length} registro(s) deletado(s)`);
       }
-      
+
       console.log('✅ DELEÇÃO CONCLUÍDA - Limpando estados...');
-      
+
       // Limpar TODOS os estados relacionados IMEDIATAMENTE
       setCurrentPremiumStatus(null);
       setPremiumEstablishmentCode('');
       setPremiumEstablishment(null);
       setClientName('');
       setClientPhone('');
-      
+
       // Mostrar sucesso
       toast.success(`✅ Premium removido com sucesso!\n\nVocê foi removido da lista de clientes premium do estabelecimento "${establishmentName}".`);
-      
+
       console.log('🎉 REMOÇÃO CONCLUÍDA COM SUCESSO - NÃO vai chamar checkPremiumStatus');
-      
+
     } catch (error: any) {
       console.error('❌ ERRO COMPLETO NA REMOÇÃO:', error);
       console.error('❌ Detalhes do erro:', {
@@ -669,9 +665,9 @@ const PremiumDashboard = () => {
         details: error.details,
         hint: error.hint
       });
-      
+
       toast.error(`❌ Erro ao remover premium: ${error.message}`);
-      
+
       // Se der erro, forçar verificação do status real após delay
       setTimeout(() => {
         console.log('🔄 Verificando status real após erro...');
@@ -683,34 +679,34 @@ const PremiumDashboard = () => {
   // Função para testar permissões
   const testPermissions = async () => {
     if (!user) return;
-    
+
     try {
       console.log('🔍 TESTANDO PERMISSÕES:');
       console.log('  - Usuário ID:', user.id);
-      
+
       // Testar SELECT
       const { data: selectData, error: selectError } = await supabase
         .from('premium_subscriptions')
         .select('*')
         .eq('user_id', user.id);
-      
+
       console.log('📖 SELECT TEST:');
       console.log('  - Erro:', selectError);
       console.log('  - Dados:', selectData);
-      
+
       // Testar permissão de DELETE
       const { data: deleteTestData, error: deleteTestError } = await supabase
         .from('premium_subscriptions')
         .delete()
         .eq('user_id', user.id)
         .eq('id', 'test-id-that-does-not-exist');
-      
+
       console.log('🗑️ DELETE TEST (fake ID):');
       console.log('  - Erro:', deleteTestError);
       console.log('  - Resultado:', deleteTestData);
-      
+
       toast('Teste de permissões concluído - veja o console');
-      
+
     } catch (error) {
       console.error('❌ ERRO NO TESTE:', error);
     }
@@ -755,44 +751,40 @@ const PremiumDashboard = () => {
             <nav className="flex space-x-1 md:space-x-8 overflow-x-auto scrollbar-hide pb-1 -mb-px">
               <button
                 onClick={() => setActiveTab('appointments')}
-                className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${
-                  activeTab === 'appointments'
+                className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${activeTab === 'appointments'
                     ? 'border-primary text-primary'
                     : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
-                }`}
+                  }`}
               >
                 <span className="md:hidden">📅 Agend.</span>
                 <span className="hidden md:inline">Meus Agendamentos</span>
               </button>
               <button
                 onClick={() => setActiveTab('book')}
-                className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${
-                  activeTab === 'book'
+                className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${activeTab === 'book'
                     ? 'border-primary text-primary'
                     : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
-                }`}
+                  }`}
               >
                 <span className="md:hidden">➕ Novo</span>
                 <span className="hidden md:inline">Novo Agendamento</span>
               </button>
               <button
                 onClick={() => setActiveTab('favorites')}
-                className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${
-                  activeTab === 'favorites'
+                className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${activeTab === 'favorites'
                     ? 'border-primary text-primary'
                     : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
-                }`}
+                  }`}
               >
                 <span className="md:hidden">⭐ Fav.</span>
                 <span className="hidden md:inline">Favoritos</span>
               </button>
               <button
                 onClick={() => setActiveTab('premium')}
-                className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${
-                  activeTab === 'premium'
+                className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${activeTab === 'premium'
                     ? 'border-primary text-primary'
                     : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
-                }`}
+                  }`}
               >
                 <span className="md:hidden">🎉 Premium</span>
                 <span className="hidden md:inline">Ativar Premium</span>
@@ -821,37 +813,33 @@ const PremiumDashboard = () => {
               ) : appointments.length > 0 ? (
                 <div className="space-y-4">
                   {appointments.map((appointment) => (
-                    <div 
-                      key={appointment.id} 
-                      className={`rounded-lg p-4 border ${
-                        appointment.status === 'cancelled' 
-                          ? 'bg-red-900/20 border-red-800/50 opacity-75' 
+                    <div
+                      key={appointment.id}
+                      className={`rounded-lg p-4 border ${appointment.status === 'cancelled'
+                          ? 'bg-red-900/20 border-red-800/50 opacity-75'
                           : 'bg-[#242628] border-gray-800'
-                      }`}
+                        }`}
                     >
                       <div className="flex flex-col md:flex-row justify-between items-start gap-4">
                         <div className="flex-1">
                           <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-2">
-                            <h3 className={`font-medium ${
-                              appointment.status === 'cancelled' ? 'text-red-400 line-through' : 'text-white'
-                            }`}>
+                            <h3 className={`font-medium ${appointment.status === 'cancelled' ? 'text-red-400 line-through' : 'text-white'
+                              }`}>
                               {appointment.establishments?.name || 'Estabelecimento'}
                             </h3>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
-                              appointment.status === 'confirmed' 
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${appointment.status === 'confirmed'
                                 ? 'bg-green-500/20 text-green-500'
                                 : appointment.status === 'cancelled'
-                                ? 'bg-red-500/20 text-red-500'
-                                : 'bg-yellow-500/20 text-yellow-500'
-                            }`}>
-                              {appointment.status === 'confirmed' ? 'Confirmado' : 
-                               appointment.status === 'cancelled' ? 'CANCELADO' : 'Pendente'}
+                                  ? 'bg-red-500/20 text-red-500'
+                                  : 'bg-yellow-500/20 text-yellow-500'
+                              }`}>
+                              {appointment.status === 'confirmed' ? 'Confirmado' :
+                                appointment.status === 'cancelled' ? 'CANCELADO' : 'Pendente'}
                             </span>
                           </div>
-                          
-                          <div className={`space-y-1 text-sm ${
-                            appointment.status === 'cancelled' ? 'text-red-500/70' : 'text-gray-400'
-                          }`}>
+
+                          <div className={`space-y-1 text-sm ${appointment.status === 'cancelled' ? 'text-red-500/70' : 'text-gray-400'
+                            }`}>
                             <div className="flex items-center gap-2">
                               <Calendar className="w-4 h-4" />
                               <span>
@@ -902,7 +890,7 @@ const PremiumDashboard = () => {
                                   Avalie no Google
                                 </button>
                               )}
-                              
+
                               {appointment.establishments.affiliate_link && (
                                 <button
                                   onClick={() => window.open(appointment.establishments.affiliate_link, '_blank')}
@@ -934,7 +922,7 @@ const PremiumDashboard = () => {
           ) : activeTab === 'book' ? (
             <div>
               <h2 className="text-lg font-semibold mb-4 text-white">Novo Agendamento</h2>
-              
+
               {!isBookingFlowStarted ? (
                 <div className="text-center py-8">
                   <PlusCircle className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
@@ -1117,6 +1105,8 @@ const PremiumDashboard = () => {
                               businessHours={establishment.business_hours[new Date(appointmentDate).getDay().toString()] || {
                                 enabled: false, open1: '08:00', close1: '18:00', open2: null, close2: null
                               }}
+                              use15MinuteInterval={establishment.use_15_minute_interval ?? false}
+                              use20MinuteSchedule={(establishment as any).use_20_minute_schedule ?? false}
                               selectedProfessional={establishment.professionals.find(p => p.name === professional)?.id}
                               professionalAbsences={establishment.professionals.find(p => p.name === professional) ? (establishment.professionals.find(p => p.name === professional) as any).absences || [] : []}
                               professionalBlockedHours={establishment.professionals.find(p => p.name === professional) ? (establishment.professionals.find(p => p.name === professional) as any).blocked_hours?.[appointmentDate] || [] : []}
@@ -1176,7 +1166,7 @@ const PremiumDashboard = () => {
                         required
                       />
                     </div>
-                    
+
                     {establishment && (
                       <div className="p-4 bg-[#242628] rounded-lg border border-gray-700">
                         <div className="flex items-center justify-between">
@@ -1196,7 +1186,7 @@ const PremiumDashboard = () => {
                         </div>
                       </div>
                     )}
-                    
+
                     {!establishment && (
                       <button
                         type="submit"
@@ -1301,13 +1291,13 @@ const PremiumDashboard = () => {
                       <p className="text-xs text-gray-500">Cadastrado em: {new Date(currentPremiumStatus.created_at).toLocaleDateString('pt-BR')}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button 
+                      <button
                         className="btn-outline text-sm flex-1"
                         onClick={() => checkPremiumStatus()}
                       >
                         🔄 Atualizar Status
                       </button>
-                      <button 
+                      <button
                         className="btn-outline text-sm text-red-400 hover:text-red-300 border-red-800 hover:border-red-700"
                         onClick={handleRemovePremium}
                       >
@@ -1331,31 +1321,31 @@ const PremiumDashboard = () => {
                       </div>
                       <p className="text-xs">Use o formulário abaixo para se tornar premium de um estabelecimento.</p>
                     </div>
-                    <button 
+                    <button
                       className="btn-outline text-sm w-full"
                       onClick={() => checkPremiumStatus()}
                     >
                       🔄 Verificar Status Premium
                     </button>
-                    <button 
+                    <button
                       className="btn-outline text-sm w-full mt-2 text-red-400 border-red-800"
                       onClick={async () => {
                         if (!user) return;
                         if (!confirm('🚨 ATENÇÃO: Isso vai remover TODOS os registros premium deste usuário!\n\nContinuar?')) return;
-                        
+
                         try {
                           console.log('🧹 LIMPEZA FORÇADA - Removendo TODOS os registros do usuário:', user.id);
-                          
+
                           const { data, error } = await supabase
                             .from('premium_subscriptions')
                             .delete()
                             .eq('user_id', user.id)
                             .select();
-                          
+
                           console.log('🗑️ RESULTADO DA LIMPEZA:');
                           console.log('  - Erro:', error);
                           console.log('  - Registros removidos:', data);
-                          
+
                           if (error) {
                             toast.error(`Erro na limpeza: ${error.message}`);
                           } else {
@@ -1392,7 +1382,7 @@ const PremiumDashboard = () => {
                       required
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       Seu Nome
@@ -1406,7 +1396,7 @@ const PremiumDashboard = () => {
                       required
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       Seu Telefone
@@ -1420,7 +1410,7 @@ const PremiumDashboard = () => {
                       required
                     />
                   </div>
-                  
+
                   {premiumEstablishment && (
                     <div className="p-4 bg-[#242628] rounded-lg border border-gray-700">
                       <div className="flex items-center justify-between">
@@ -1440,7 +1430,7 @@ const PremiumDashboard = () => {
                       </div>
                     </div>
                   )}
-                  
+
                   {!premiumEstablishment && (
                     <button
                       type="submit"
