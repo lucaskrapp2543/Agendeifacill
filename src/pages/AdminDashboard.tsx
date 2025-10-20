@@ -20,7 +20,7 @@ import { AppDownloadLinks } from '../components/AppDownloadLinks';
 import { NewRegistrations } from '../components/NewRegistrations';
 import { PWADownloadLink } from '../components/PWADownloadLink';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import { getEstablishmentLastAccess, supabase } from '../lib/supabase';
 
 interface Establishment {
   id: string;
@@ -34,6 +34,7 @@ interface Establishment {
   owner_email?: string;
   is_deleted?: boolean;
   is_blocked?: boolean;
+  last_access?: string | null;
 }
 
 const AdminDashboard = () => {
@@ -58,6 +59,32 @@ const AdminDashboard = () => {
 
   // Verificar se é a conta de suporte
   const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
+
+  // Função para formatar o último acesso
+  const formatLastAccess = (lastAccess: string | null) => {
+    if (!lastAccess) return 'Nunca acessou';
+
+    const lastAccessDate = new Date(lastAccess);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - lastAccessDate.getTime()) / (1000 * 60));
+
+    if (diffInMinutes < 1) return 'Agora mesmo';
+    if (diffInMinutes < 60) return `${diffInMinutes} min atrás`;
+
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `${diffInHours}h atrás`;
+
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) return `${diffInDays} dias atrás`;
+
+    return lastAccessDate.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   // Função de logout personalizada que redireciona
   const handleSignOut = async () => {
@@ -172,19 +199,24 @@ const AdminDashboard = () => {
       if (profilesError) throw profilesError;
 
       // Combinar dados dos estabelecimentos ativos
-      const establishmentsWithEmails = establishmentsData.map(establishment => {
-        const profile = profilesData.find(p => p.id === establishment.owner_id);
-        const processedEstablishment = {
-          ...establishment,
-          owner_email: profile?.name || 'Email não encontrado',
-          payment_status: establishment.payment_status || 'unpaid',
-          plan_type: establishment.plan_type || 'monthly',
-          payment_due_date: establishment.payment_due_date || establishment.created_at,
-          is_blocked: establishment.is_blocked || false
-        };
+      const establishmentsWithEmails = await Promise.all(
+        establishmentsData.map(async (establishment) => {
+          const profile = profilesData.find(p => p.id === establishment.owner_id);
+          const lastAccess = await getEstablishmentLastAccess(establishment.id);
 
-        return processedEstablishment;
-      });
+          const processedEstablishment = {
+            ...establishment,
+            owner_email: profile?.name || 'Email não encontrado',
+            payment_status: establishment.payment_status || 'unpaid',
+            plan_type: establishment.plan_type || 'monthly',
+            payment_due_date: establishment.payment_due_date || establishment.created_at,
+            is_blocked: establishment.is_blocked || false,
+            last_access: lastAccess
+          };
+
+          return processedEstablishment;
+        })
+      );
 
       // Combinar dados dos estabelecimentos excluídos
       const deletedWithEmails = deletedData.map(establishment => {
@@ -854,7 +886,7 @@ const AdminDashboard = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">
                       Estabelecimento
                     </th>
                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
@@ -869,7 +901,10 @@ const AdminDashboard = () => {
                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                       Vencimento
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">
+                    <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                      🕐 Último Acesso
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
                       Ações
                     </th>
                   </tr>
@@ -920,6 +955,15 @@ const AdminDashboard = () => {
                           onChange={(e) => updatePaymentDueDate(establishment.id, e.target.value)}
                           className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
                         />
+                      </td>
+
+                      <td className="px-2 py-4">
+                        <div className="text-xs">
+                          <span className={`font-medium ${establishment.last_access ? 'text-green-600' : 'text-gray-400'
+                            }`}>
+                            {formatLastAccess(establishment.last_access)}
+                          </span>
+                        </div>
                       </td>
 
                       <td className="px-3 py-4 text-sm font-medium">

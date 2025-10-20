@@ -2346,3 +2346,111 @@ export const deleteExpense = async (expenseId: string) => {
     return { error };
   }
 };
+
+// Função para atualizar o último acesso do cliente
+export const updateClientLastAccess = async (clientWhatsapp: string): Promise<boolean> => {
+  try {
+    console.log('🕐 Atualizando último acesso para cliente:', clientWhatsapp);
+
+    const { error } = await supabase
+      .from('client_subscriptions')
+      .update({ last_access_at: new Date().toISOString() })
+      .eq('client_whatsapp', clientWhatsapp)
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('❌ Erro ao atualizar último acesso:', error);
+      return false;
+    }
+
+    console.log('✅ Último acesso atualizado com sucesso');
+    return true;
+  } catch (error) {
+    console.error('❌ Erro ao atualizar último acesso:', error);
+    return false;
+  }
+};
+
+// Função para buscar o último acesso de um cliente
+export const getClientLastAccess = async (clientWhatsapp: string): Promise<string | null> => {
+  try {
+    console.log('🕐 Buscando último acesso para cliente:', clientWhatsapp);
+
+    const { data, error } = await supabase
+      .from('client_subscriptions')
+      .select('last_access_at')
+      .eq('client_whatsapp', clientWhatsapp)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      console.error('❌ Erro ao buscar último acesso:', error);
+      return null;
+    }
+
+    console.log('✅ Último acesso encontrado:', data?.last_access_at);
+    return data?.last_access_at || null;
+  } catch (error) {
+    console.error('❌ Erro ao buscar último acesso:', error);
+    return null;
+  }
+};
+
+// Função para buscar todos os clientes com seus últimos acessos
+export const getClientsWithLastAccess = async (establishmentId: string) => {
+  try {
+    console.log('🕐 Buscando clientes com último acesso para estabelecimento:', establishmentId);
+
+    const { data, error } = await supabase
+      .from('client_subscriptions')
+      .select(`
+        id,
+        client_name,
+        client_whatsapp,
+        last_access_at,
+        created_at,
+        is_active
+      `)
+      .eq('establishment_id', establishmentId)
+      .order('last_access_at', { ascending: false, nullsFirst: false });
+
+    if (error) {
+      console.error('❌ Erro ao buscar clientes com último acesso:', error);
+      return [];
+    }
+
+    console.log('✅ Clientes com último acesso encontrados:', data?.length || 0);
+    return data || [];
+  } catch (error) {
+    console.error('❌ Erro ao buscar clientes com último acesso:', error);
+    return [];
+  }
+};
+
+// Função para buscar o último acesso de um estabelecimento (baseado nos agendamentos)
+export const getEstablishmentLastAccess = async (establishmentId: string): Promise<string | null> => {
+  try {
+    console.log('🕐 Buscando último acesso para estabelecimento:', establishmentId);
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('created_at')
+      .eq('establishment_id', establishmentId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      console.error('❌ Erro ao buscar último acesso do estabelecimento:', error);
+      return null;
+    }
+
+    console.log('✅ Último acesso do estabelecimento encontrado:', data?.created_at);
+    return data?.created_at || null;
+  } catch (error) {
+    console.error('❌ Erro ao buscar último acesso do estabelecimento:', error);
+    return null;
+  }
+};

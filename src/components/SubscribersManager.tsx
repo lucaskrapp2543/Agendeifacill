@@ -48,6 +48,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [clientSubscriptions, setClientSubscriptions] = useState<ClientSubscription[]>([]);
   // const [clients, setClients] = useState<Profile[]>([]); // REMOVIDO: Agora vem via prop
 
+
   const [newSubscriptionName, setNewSubscriptionName] = useState('');
   const [newSubscriptionValue, setNewSubscriptionValue] = useState<number>(0);
   const [newFixedCommissionValue, setNewFixedCommissionValue] = useState<number>(0);
@@ -449,6 +450,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       toast.error('Erro ao carregar assinantes.');
     }
   };
+
 
   // REMOVIDO: A função fetchClients não é mais necessária aqui, pois os clientes vêm via prop
   /*
@@ -2228,4 +2230,4 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     </div>
   );
-}; 
+};

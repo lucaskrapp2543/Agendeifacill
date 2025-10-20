@@ -7,7 +7,7 @@ import { AppointmentForm } from '../components/AppointmentForm';
 import { LoginRequiredModal } from '../components/LoginRequiredModal';
 import ReadMore from '../components/ReadMore';
 import { useAuth } from '../context/AuthContext';
-import { getSubscriptions, supabase } from '../lib/supabase';
+import { getSubscriptions, supabase, updateClientLastAccess } from '../lib/supabase';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 
@@ -175,6 +175,22 @@ export default function BookingPage() {
       fetchSubscriptions();
     }
   }, [establishment, selectedDate]);
+
+  // Atualizar último acesso do cliente quando logado
+  useEffect(() => {
+    const updateLastAccess = async () => {
+      if (user && user.phone) {
+        try {
+          console.log('🕐 Atualizando último acesso para cliente logado:', user.phone);
+          await updateClientLastAccess(user.phone);
+        } catch (error) {
+          console.error('❌ Erro ao atualizar último acesso:', error);
+        }
+      }
+    };
+
+    updateLastAccess();
+  }, [user]);
 
   // Efeito para rolar até o formulário quando ele se torna visível
   useEffect(() => {
