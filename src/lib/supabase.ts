@@ -2429,28 +2429,25 @@ export const getClientsWithLastAccess = async (establishmentId: string) => {
   }
 };
 
-// Função para buscar o último acesso de um estabelecimento (baseado nos agendamentos)
-export const getEstablishmentLastAccess = async (establishmentId: string): Promise<string | null> => {
+// Função para atualizar o último login de um estabelecimento
+export const updateEstablishmentLastLogin = async (establishmentId: string): Promise<boolean> => {
   try {
-    console.log('🕐 Buscando último acesso para estabelecimento:', establishmentId);
-
-    const { data, error } = await supabase
-      .from('appointments')
-      .select('created_at')
-      .eq('establishment_id', establishmentId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    console.log('🕐 Atualizando último login para estabelecimento:', establishmentId);
+    
+    const { error } = await supabase
+      .from('establishments')
+      .update({ last_login_at: new Date().toISOString() })
+      .eq('id', establishmentId);
 
     if (error) {
-      console.error('❌ Erro ao buscar último acesso do estabelecimento:', error);
-      return null;
+      console.error('❌ Erro ao atualizar último login:', error);
+      return false;
     }
 
-    console.log('✅ Último acesso do estabelecimento encontrado:', data?.created_at);
-    return data?.created_at || null;
+    console.log('✅ Último login atualizado com sucesso');
+    return true;
   } catch (error) {
-    console.error('❌ Erro ao buscar último acesso do estabelecimento:', error);
-    return null;
+    console.error('❌ Erro ao atualizar último login:', error);
+    return false;
   }
 };

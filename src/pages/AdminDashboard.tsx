@@ -20,7 +20,7 @@ import { AppDownloadLinks } from '../components/AppDownloadLinks';
 import { NewRegistrations } from '../components/NewRegistrations';
 import { PWADownloadLink } from '../components/PWADownloadLink';
 import { useAuth } from '../context/AuthContext';
-import { getEstablishmentLastAccess, supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 interface Establishment {
   id: string;
@@ -202,7 +202,15 @@ const AdminDashboard = () => {
       const establishmentsWithEmails = await Promise.all(
         establishmentsData.map(async (establishment) => {
           const profile = profilesData.find(p => p.id === establishment.owner_id);
-          const lastAccess = await getEstablishmentLastAccess(establishment.id);
+
+          // Buscar último agendamento para este estabelecimento
+          const { data: lastAppointment } = await supabase
+            .from('appointments')
+            .select('created_at')
+            .eq('establishment_id', establishment.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
 
           const processedEstablishment = {
             ...establishment,
@@ -211,7 +219,7 @@ const AdminDashboard = () => {
             plan_type: establishment.plan_type || 'monthly',
             payment_due_date: establishment.payment_due_date || establishment.created_at,
             is_blocked: establishment.is_blocked || false,
-            last_access: lastAccess
+            last_access: lastAppointment?.created_at || null
           };
 
           return processedEstablishment;

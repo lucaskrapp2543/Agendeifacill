@@ -2802,6 +2802,7 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
 
+
       if (establishmentData) {
         // ✅ CORRIGIDO: Só sobrescrever se não há dados locais mais recentes
         // Isso evita perder modificações locais (como serviços específicos)
