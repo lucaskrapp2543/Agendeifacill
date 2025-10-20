@@ -67,6 +67,9 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
 
+  // Estado para configuração de horários
+  const [use20MinuteSchedule, setUse20MinuteSchedule] = useState(false);
+
   // Estados para categorias de serviços
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
   const [serviceSubcategories, setServiceSubcategories] = useState<ServiceSubcategory[]>([]);
@@ -78,14 +81,14 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
 
-  // Carregar profissionais
+  // Carregar profissionais e configuração de horários
   useEffect(() => {
     const loadProfessionals = async () => {
       try {
         console.log('🔍 Carregando profissionais para establishment:', establishmentId);
         const { data, error } = await supabase
           .from('establishments')
-          .select('professionals')
+          .select('professionals, use_20_minute_schedule')
           .eq('id', establishmentId)
           .single();
 
@@ -95,6 +98,10 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
         }
 
         console.log('✅ Establishment carregado:', data);
+
+        // Carregar configuração de horários de 20 em 20 minutos
+        setUse20MinuteSchedule(data?.use_20_minute_schedule ?? false);
+        console.log('✅ Configuração de horários 20min:', data?.use_20_minute_schedule);
 
         // Converter profissionais do formato JSON para o formato esperado
         const establishmentProfessionals = data?.professionals || [];
@@ -399,6 +406,10 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
           return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
         };
 
+        // Determinar o intervalo baseado na configuração
+        const interval = use20MinuteSchedule ? 20 : 30;
+        console.log('🔍 DEBUG - Intervalo de horários:', interval, 'minutos');
+
         // Gerar slots para o primeiro período
         if (workHours.open1 && workHours.close1) {
           const startMinutes = timeToMinutes(workHours.open1);
@@ -408,10 +419,11 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
             open1: workHours.open1,
             close1: workHours.close1,
             startMinutes,
-            endMinutes
+            endMinutes,
+            interval
           });
 
-          for (let minutes = startMinutes; minutes < endMinutes; minutes += 30) {
+          for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
             const time = minutesToTime(minutes);
             const slotStart = new Date(`${selectedDate}T${time}:00`);
             const slotEnd = new Date(slotStart.getTime() + totalDuration * 60000);
@@ -460,7 +472,7 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
           const startMinutes = timeToMinutes(workHours.open2);
           const endMinutes = timeToMinutes(workHours.close2);
 
-          for (let minutes = startMinutes; minutes < endMinutes; minutes += 30) {
+          for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
             const time = minutesToTime(minutes);
             const slotStart = new Date(`${selectedDate}T${time}:00`);
             const slotEnd = new Date(slotStart.getTime() + totalDuration * 60000);

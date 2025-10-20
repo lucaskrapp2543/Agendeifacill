@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { RefreshCw, Download, CheckCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle, Download, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export const UpdateButton = () => {
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'updating' | 'updated'>('idle');
@@ -16,7 +16,7 @@ export const UpdateButton = () => {
     try {
       if ('serviceWorker' in navigator) {
         const registration = await navigator.serviceWorker.ready;
-        
+
         // Verificar se há service worker em espera (atualização já disponível)
         if (registration.waiting) {
           setHasUpdate(true);
@@ -32,15 +32,15 @@ export const UpdateButton = () => {
     if (!hasUpdate) return;
 
     setUpdateStatus('updating');
-    
+
     try {
       if ('serviceWorker' in navigator) {
         const registration = await navigator.serviceWorker.ready;
-        
+
         if (registration.waiting) {
           // Enviar mensagem para o service worker em espera
           registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-          
+
           // Aguardar um pouco e recarregar
           setTimeout(() => {
             window.location.reload();
@@ -56,29 +56,41 @@ export const UpdateButton = () => {
   const handleCheckUpdates = async () => {
     console.log('🔄 Botão clicado! Verificando atualizações...');
     setUpdateStatus('checking');
-    
+
     try {
       if ('serviceWorker' in navigator) {
         console.log('✅ Service Worker disponível');
         const registration = await navigator.serviceWorker.ready;
         console.log('📱 Service Worker registrado:', registration);
-        
+
         // Forçar verificação de atualizações
         await registration.update();
         console.log('🔄 Verificação de atualizações concluída');
-        
+
         // Aguardar um pouco para ver se há mudanças
         setTimeout(() => {
           checkForPendingUpdates();
           setUpdateStatus('idle');
+
+          // 🔄 Recarregar a página após verificação (como F5)
+          console.log('🔄 Recarregando página após verificação...');
+          window.location.reload();
         }, 2000);
       } else {
         console.log('❌ Service Worker não disponível');
         setUpdateStatus('idle');
+
+        // 🔄 Recarregar a página mesmo sem service worker (como F5)
+        console.log('🔄 Recarregando página após verificação...');
+        window.location.reload();
       }
     } catch (error) {
       console.error('❌ Erro ao verificar atualizações:', error);
       setUpdateStatus('idle');
+
+      // 🔄 Recarregar a página mesmo em caso de erro (como F5)
+      console.log('🔄 Recarregando página após verificação...');
+      window.location.reload();
     }
   };
 

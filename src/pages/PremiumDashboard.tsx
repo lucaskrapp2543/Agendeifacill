@@ -584,6 +584,9 @@ const PremiumDashboard = () => {
       // Não tem premium ativo, normal
       setCurrentPremiumStatus(null);
     }
+
+    // 🔄 Recarregar a página após verificação (como F5)
+    window.location.reload();
   };
 
   const handleRemovePremium = async () => {
@@ -752,8 +755,8 @@ const PremiumDashboard = () => {
               <button
                 onClick={() => setActiveTab('appointments')}
                 className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${activeTab === 'appointments'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
                   }`}
               >
                 <span className="md:hidden">📅 Agend.</span>
@@ -762,8 +765,8 @@ const PremiumDashboard = () => {
               <button
                 onClick={() => setActiveTab('book')}
                 className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${activeTab === 'book'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
                   }`}
               >
                 <span className="md:hidden">➕ Novo</span>
@@ -772,8 +775,8 @@ const PremiumDashboard = () => {
               <button
                 onClick={() => setActiveTab('favorites')}
                 className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${activeTab === 'favorites'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
                   }`}
               >
                 <span className="md:hidden">⭐ Fav.</span>
@@ -782,8 +785,8 @@ const PremiumDashboard = () => {
               <button
                 onClick={() => setActiveTab('premium')}
                 className={`py-2 px-3 md:px-1 border-b-2 font-medium text-xs md:text-sm whitespace-nowrap flex-shrink-0 ${activeTab === 'premium'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-700'
                   }`}
               >
                 <span className="md:hidden">🎉 Premium</span>
@@ -816,8 +819,8 @@ const PremiumDashboard = () => {
                     <div
                       key={appointment.id}
                       className={`rounded-lg p-4 border ${appointment.status === 'cancelled'
-                          ? 'bg-red-900/20 border-red-800/50 opacity-75'
-                          : 'bg-[#242628] border-gray-800'
+                        ? 'bg-red-900/20 border-red-800/50 opacity-75'
+                        : 'bg-[#242628] border-gray-800'
                         }`}
                     >
                       <div className="flex flex-col md:flex-row justify-between items-start gap-4">
@@ -828,10 +831,10 @@ const PremiumDashboard = () => {
                               {appointment.establishments?.name || 'Estabelecimento'}
                             </h3>
                             <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${appointment.status === 'confirmed'
-                                ? 'bg-green-500/20 text-green-500'
-                                : appointment.status === 'cancelled'
-                                  ? 'bg-red-500/20 text-red-500'
-                                  : 'bg-yellow-500/20 text-yellow-500'
+                              ? 'bg-green-500/20 text-green-500'
+                              : appointment.status === 'cancelled'
+                                ? 'bg-red-500/20 text-red-500'
+                                : 'bg-yellow-500/20 text-yellow-500'
                               }`}>
                               {appointment.status === 'confirmed' ? 'Confirmado' :
                                 appointment.status === 'cancelled' ? 'CANCELADO' : 'Pendente'}

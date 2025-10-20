@@ -1493,6 +1493,7 @@ const EstablishmentDashboard = () => {
     { value: 15, label: '15 minutos' },
     { value: 20, label: '20 minutos' },
     { value: 30, label: '30 minutos' },
+    { value: 40, label: '40 minutos' },
     { value: 45, label: '45 minutos' },
     { value: 60, label: '1 hora' },
     { value: 90, label: '1 hora e meia' }
@@ -3499,9 +3500,17 @@ Estamos te aguardando! 😎✂️`;
     }
 
     const slots: any[] = [];
-    const intervalMinutes = use15MinuteInterval ? 15 : 30;
+
+    // Determinar o intervalo baseado na configuração
+    let intervalMinutes = 30; // Padrão: 30 em 30 minutos
+    if (use20MinuteSchedule) {
+      intervalMinutes = 20; // Horários de 20 em 20 minutos
+    } else if (use15MinuteInterval) {
+      intervalMinutes = 30; // Horários de 30 em 30 minutos (com intervalo de 15 min)
+    }
 
     console.log('🕐 use15MinuteInterval:', use15MinuteInterval);
+    console.log('🕐 use20MinuteSchedule:', use20MinuteSchedule);
     console.log('🕐 intervalMinutes:', intervalMinutes);
 
     const convertToMinutes = (timeString: string) => {
@@ -3606,7 +3615,7 @@ Estamos te aguardando! 😎✂️`;
     console.log('🕐 Slots:', slots);
 
     return slots;
-  }, [filteredAppointments, selectedProfessional, selectedDate, businessHours, use15MinuteInterval, showTimeSlotsWithGaps]);
+  }, [filteredAppointments, selectedProfessional, selectedDate, businessHours, use15MinuteInterval, use20MinuteSchedule, showTimeSlotsWithGaps]);
 
   // Função para verificar se é aniversário no mês atual
   const isBirthdayThisMonth = (birthday: string | null) => {

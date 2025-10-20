@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { format, parseISO, addMinutes } from 'date-fns';
+import { addMinutes, format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Clock, ChevronDown, ChevronUp, CheckCircle, XCircle, Calendar } from 'lucide-react';
+import { Calendar, CheckCircle, ChevronDown, ChevronUp, Clock, XCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './ui/Toaster';
 
@@ -35,6 +35,7 @@ interface QuickAvailabilityCheckerProps {
       exit_time?: string;
     };
   } | null;
+  use20MinuteSchedule?: boolean;
 }
 
 export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> = ({
@@ -43,7 +44,8 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
   establishmentId,
   services,
   businessHours,
-  professionalWorkHours = null
+  professionalWorkHours = null,
+  use20MinuteSchedule = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -99,18 +101,19 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
 
   const generateTimeSlots = (dayBusinessHours: any): string[] => {
     const slots: string[] = [];
-    
+
     if (!dayBusinessHours || !dayBusinessHours.enabled) {
       return slots;
     }
 
-    const interval = 15; // 15 minutos
+    // Determinar o intervalo baseado na configuração
+    const interval = use20MinuteSchedule ? 20 : 30; // 20 ou 30 minutos
 
     // Primeiro período
     if (dayBusinessHours.open1 && dayBusinessHours.close1) {
       const startTime = parseISO(`2000-01-01T${dayBusinessHours.open1}`);
       const endTime = parseISO(`2000-01-01T${dayBusinessHours.close1}`);
-      
+
       let currentTime = startTime;
       while (currentTime < endTime) {
         slots.push(format(currentTime, 'HH:mm'));
@@ -122,7 +125,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
     if (dayBusinessHours.open2 && dayBusinessHours.close2) {
       const startTime2 = parseISO(`2000-01-01T${dayBusinessHours.open2}`);
       const endTime2 = parseISO(`2000-01-01T${dayBusinessHours.close2}`);
-      
+
       let currentTime2 = startTime2;
       while (currentTime2 < endTime2) {
         slots.push(format(currentTime2, 'HH:mm'));
@@ -149,7 +152,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
     try {
       const date = parseISO(selectedDate);
       const dayOfWeek = format(date, 'EEEE', { locale: ptBR }).toLowerCase();
-      
+
       // Mapear dia da semana para inglês
       const dayMap: Record<string, string> = {
         'domingo': 'sunday',
@@ -160,18 +163,18 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
         'sexta-feira': 'friday',
         'sábado': 'saturday'
       };
-      
+
       const dayOfWeekEnglish = dayMap[dayOfWeek] || dayOfWeek;
-      
+
       // Determinar quais horários usar: personalizados do profissional ou padrão do estabelecimento
       let dayBusinessHours = businessHours[dayOfWeekEnglish];
-      
+
       // Se não encontrar, tentar formatos alternativos
       if (!dayBusinessHours) {
         const dayOfWeekShort = format(date, 'EEE', { locale: ptBR }).toLowerCase();
         dayBusinessHours = businessHours[dayOfWeekShort];
       }
-      
+
       // Se ainda não encontrar, tentar em inglês
       if (!dayBusinessHours) {
         dayBusinessHours = businessHours[dayOfWeekEnglish];
@@ -181,7 +184,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
       if (professionalWorkHours && professionalWorkHours[dayOfWeekEnglish] && professionalWorkHours[dayOfWeekEnglish].enabled) {
         const workDay = professionalWorkHours[dayOfWeekEnglish];
         console.log(`🕒 QuickAvailabilityChecker - Usando horários personalizados do profissional para ${dayOfWeekEnglish}:`, workDay);
-        
+
         // Converter horários personalizados para o formato do businessHours
         dayBusinessHours = {
           enabled: true,
@@ -190,7 +193,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
           open2: workDay.break_start && workDay.break_end ? workDay.break_start : null,
           close2: workDay.break_start && workDay.break_end ? workDay.break_end : null
         };
-        
+
         console.log(`🕒 QuickAvailabilityChecker - Horários efetivos convertidos:`, dayBusinessHours);
       } else {
         console.log(`🕒 QuickAvailabilityChecker - Usando horários padrão do estabelecimento`);
@@ -212,7 +215,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
 
       // Gerar todos os horários disponíveis
       const allTimeSlots = generateTimeSlots(dayBusinessHours);
-      
+
       // Buscar agendamentos existentes para este profissional nesta data
       const { data: appointments, error } = await supabase
         .from('appointments')
@@ -243,7 +246,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
         // Verifica se o INÍCIO ou o FIM do serviço invade o intervalo
         const intervalStart = new Date(`${format(date, 'yyyy-MM-dd')}T${dayBusinessHours.close1}`);
         const intervalEnd = new Date(`${format(date, 'yyyy-MM-dd')}T${dayBusinessHours.open2}`);
-        
+
         const isInterval = !!(dayBusinessHours.open2 && dayBusinessHours.close2 && (
           // Início do serviço está no intervalo
           (slotStart >= intervalStart && slotStart < intervalEnd) ||
@@ -252,7 +255,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
           // Serviço engloba completamente o intervalo
           (slotStart <= intervalStart && slotEnd >= intervalEnd)
         ));
-        
+
         // Debug: log para horários de intervalo
         if (isInterval) {
           console.log(`🔍 INTERVALO DETECTADO: ${time} - close1: ${dayBusinessHours.close1}, open2: ${dayBusinessHours.open2}`);
@@ -262,20 +265,20 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
         const conflictingAppointment = appointments?.find(appointment => {
           const appointmentDate = appointment.appointment_date;
           const appointmentTime = appointment.appointment_time;
-          
+
           // Criar data/hora do agendamento
           const appointmentDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
-          
+
           // Usar duração real do agendamento ou assumir 30 minutos como padrão
           const appointmentDuration = appointment.duration || 30;
           const appointmentEndTime = new Date(appointmentDateTime.getTime() + (appointmentDuration * 60 * 1000));
-          
+
           // Verificar se há sobreposição entre os horários
           // slotStart = início do novo agendamento
           // slotEnd = fim do novo agendamento (slotStart + duração do serviço)
           // appointmentDateTime = início do agendamento existente
           // appointmentEndTime = fim do agendamento existente
-          
+
           return (
             // Novo agendamento começa durante um agendamento existente
             (slotStart >= appointmentDateTime && slotStart < appointmentEndTime) ||
@@ -363,15 +366,14 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
                 setSelectedSubcategory(null);
                 setSelectedCategory(null);
               }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                !showOtherServices
-                  ? 'bg-blue-600 text-white' 
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${!showOtherServices
+                  ? 'bg-blue-600 text-white'
                   : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
+                }`}
             >
               Serviços Normais
             </button>
-            
+
             <button
               type="button"
               onClick={() => {
@@ -380,11 +382,10 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
                 setSelectedSubcategory(null);
                 setSelectedCategory(null);
               }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                showOtherServices
-                  ? 'bg-red-600 text-white' 
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showOtherServices
+                  ? 'bg-red-600 text-white'
                   : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
+                }`}
             >
               🔥 Outros Serviços 🔥
             </button>
@@ -418,7 +419,7 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
           {showOtherServices && (
             <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
               <h4 className="font-medium text-blue-900">🔥 Outros Serviços 🔥</h4>
-              
+
               {/* Seleção de Categoria */}
               <div>
                 <label className="block text-sm font-medium text-blue-700 mb-2">
@@ -497,18 +498,17 @@ export const QuickAvailabilityChecker: React.FC<QuickAvailabilityCheckerProps> =
               <h4 className="font-medium text-gray-900 mb-3">
                 Horários para {(selectedService || selectedSubcategory)?.name} em {selectedDate && formatDate(selectedDate)}
               </h4>
-              
+
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                 {timeSlots.map((slot) => (
                   <div
                     key={slot.time}
-                    className={`p-3 rounded-lg border text-center text-sm ${
-                      slot.isInterval
+                    className={`p-3 rounded-lg border text-center text-sm ${slot.isInterval
                         ? 'bg-gray-100 border-gray-300 text-gray-600'
                         : slot.available
-                        ? 'bg-green-100 border-green-400 text-green-900 font-semibold'
-                        : 'bg-red-100 border-red-400 text-red-900 font-semibold'
-                    }`}
+                          ? 'bg-green-100 border-green-400 text-green-900 font-semibold'
+                          : 'bg-red-100 border-red-400 text-red-900 font-semibold'
+                      }`}
                   >
                     <div className="flex items-center justify-center gap-1 mb-1">
                       {slot.isInterval ? (
