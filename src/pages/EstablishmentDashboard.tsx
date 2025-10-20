@@ -3506,8 +3506,8 @@ Estamos te aguardando! 😎✂️`;
     let intervalMinutes = 30; // Padrão: 30 em 30 minutos
     if (use20MinuteSchedule) {
       intervalMinutes = 20; // Horários de 20 em 20 minutos
-    } else if (use15MinuteInterval) {
-      intervalMinutes = 30; // Horários de 30 em 30 minutos (com intervalo de 15 min)
+    } else if (!use15MinuteInterval) {
+      intervalMinutes = 15; // Horários de 15 em 15 minutos (quando DESMARCADO)
     }
 
     console.log('🕐 use15MinuteInterval:', use15MinuteInterval);
@@ -13390,6 +13390,8 @@ Estamos te aguardando! 😎✂️`;
         showReservarClienteModal && establishment && (
           <ReservarCliente
             establishmentId={establishment.id}
+            use15MinuteInterval={use15MinuteInterval}
+            use20MinuteScheduleProp={use20MinuteSchedule}
             onClose={() => {
               console.log('🔍 Fechando modal ReservarCliente');
               setShowReservarClienteModal(false);

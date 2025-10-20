@@ -181,7 +181,7 @@ export function TimeSlotSelector({
     if (use20MinuteSchedule) {
       interval = 20; // Horários de 20 em 20 minutos
     } else if (use15MinuteInterval) {
-      interval = 30; // Horários de 30 em 30 minutos (com intervalo de 15 min)
+      interval = 30; // Horários de 30 em 30 minutos (quando MARCADO)
     }
 
     // Gerar horários para o primeiro período

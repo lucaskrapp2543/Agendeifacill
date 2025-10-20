@@ -51,10 +51,12 @@ interface TimeSlot {
 
 interface ReservarClienteProps {
   establishmentId: string;
+  use15MinuteInterval?: boolean;
+  use20MinuteScheduleProp?: boolean;
   onClose: () => void;
 }
 
-export default function ReservarCliente({ establishmentId, onClose }: ReservarClienteProps) {
+export default function ReservarCliente({ establishmentId, use15MinuteInterval = false, use20MinuteScheduleProp = false, onClose }: ReservarClienteProps) {
   const { user } = useAuth();
   const [step, setStep] = useState<'professional' | 'service' | 'time' | 'confirm'>('professional');
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -407,7 +409,12 @@ export default function ReservarCliente({ establishmentId, onClose }: ReservarCl
         };
 
         // Determinar o intervalo baseado na configuração
-        const interval = use20MinuteSchedule ? 20 : 30;
+        let interval = 30; // Padrão: 30 em 30 minutos
+        if (use20MinuteScheduleProp) {
+          interval = 20; // Horários de 20 em 20 minutos
+        } else if (!use15MinuteInterval) {
+          interval = 15; // Horários de 15 em 15 minutos (quando DESMARCADO)
+        }
         console.log('🔍 DEBUG - Intervalo de horários:', interval, 'minutos');
 
         // Gerar slots para o primeiro período
