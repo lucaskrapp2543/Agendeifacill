@@ -296,6 +296,11 @@ const EstablishmentDashboard = () => {
   const [showAddClientModal, setShowAddClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientWhatsapp, setNewClientWhatsapp] = useState('');
+
+  // Estados para editar cliente (seção Meus Clientes)
+  const [editingClient, setEditingClient] = useState<string | null>(null);
+  const [editClientName, setEditClientName] = useState('');
+  const [editClientWhatsapp, setEditClientWhatsapp] = useState('');
   const [newClientBirthday, setNewClientBirthday] = useState('');
 
   // Estados para ranking de clientes
@@ -3627,6 +3632,127 @@ Estamos te aguardando! 😎✂️`;
   };
 
   // Função para salvar aniversário do cliente (Supabase + localStorage como fallback)
+  // Função para editar cliente
+  const handleEditClient = (client: Client) => {
+    setEditingClient(client.whatsapp);
+    setEditClientName(client.name);
+    setEditClientWhatsapp(client.whatsapp);
+  };
+
+  // Função para salvar edição do cliente
+  const saveClientEdit = async () => {
+    console.log('🔍 DEBUG saveClientEdit:', {
+      editingClient,
+      editClientName,
+      editClientWhatsapp
+    });
+
+    if (!editingClient || !editClientName.trim() || !editClientWhatsapp.trim()) {
+      toast('Por favor, preencha todos os campos', 'error');
+      return;
+    }
+
+    try {
+      console.log('💾 Atualizando cliente no banco:', {
+        client_whatsapp: editingClient,
+        new_name: editClientName.trim(),
+        new_whatsapp: editClientWhatsapp.trim()
+      });
+
+      // Atualizar nome e WhatsApp do cliente
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          client_name: editClientName.trim(),
+          client_whatsapp: editClientWhatsapp.trim()
+        })
+        .eq('client_whatsapp', editingClient);
+
+      if (error) {
+        console.error('❌ Erro do Supabase:', error);
+        throw error;
+      }
+
+      // Atualizar também no localStorage se for cliente manual
+      const storageKey = `manual_clients_${establishment?.id}`;
+      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+
+      if (manualClients[editingClient]) {
+        // Atualizar cliente manual no localStorage
+        manualClients[editingClient] = {
+          ...manualClients[editingClient],
+          name: editClientName.trim(),
+          whatsapp: editClientWhatsapp.trim()
+        };
+
+        // Se o WhatsApp mudou, remover a entrada antiga e criar nova
+        if (editingClient !== editClientWhatsapp.trim()) {
+          delete manualClients[editingClient];
+          manualClients[editClientWhatsapp.trim()] = {
+            ...manualClients[editingClient],
+            name: editClientName.trim(),
+            whatsapp: editClientWhatsapp.trim()
+          };
+        }
+
+        localStorage.setItem(storageKey, JSON.stringify(manualClients));
+        console.log('💾 Cliente manual atualizado no localStorage');
+      }
+
+      console.log('✅ Cliente atualizado com sucesso!');
+      toast('Cliente atualizado com sucesso!', 'success');
+      setEditingClient(null);
+      setEditClientName('');
+      setEditClientWhatsapp('');
+      fetchClients(); // Recarregar lista
+    } catch (error) {
+      console.error('❌ Erro ao atualizar cliente:', error);
+      toast('Erro ao atualizar cliente', 'error');
+    }
+  };
+
+  // Função para excluir cliente
+  const handleDeleteClient = async (clientWhatsapp: string) => {
+    console.log('🗑️ DEBUG handleDeleteClient:', { clientWhatsapp });
+
+    if (!confirm('Tem certeza que deseja excluir este cliente? Esta ação não pode ser desfeita.')) {
+      console.log('❌ Usuário cancelou a exclusão');
+      return;
+    }
+
+    try {
+      console.log('💾 Excluindo cliente do banco:', { clientWhatsapp });
+
+      // Excluir todos os agendamentos do cliente
+      const { error } = await supabase
+        .from('appointments')
+        .delete()
+        .eq('client_whatsapp', clientWhatsapp);
+
+      if (error) {
+        console.error('❌ Erro do Supabase:', error);
+        throw error;
+      }
+
+      // Excluir também do localStorage se for cliente manual
+      const storageKey = `manual_clients_${establishment?.id}`;
+      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+
+      if (manualClients[clientWhatsapp]) {
+        delete manualClients[clientWhatsapp];
+        localStorage.setItem(storageKey, JSON.stringify(manualClients));
+        console.log('🗑️ Cliente manual removido do localStorage');
+      }
+
+      console.log('✅ Cliente excluído com sucesso!');
+      toast('Cliente excluído com sucesso!', 'success');
+      fetchClients(); // Recarregar lista
+    } catch (error) {
+      console.error('❌ Erro ao excluir cliente:', error);
+      toast('Erro ao excluir cliente', 'error');
+    }
+  };
+
   const saveBirthday = async (clientWhatsapp: string, birthday: string) => {
     try {
       console.log('🎂 Salvando aniversário:', { clientWhatsapp, birthday });
@@ -3931,7 +4057,7 @@ Estamos te aguardando! 😎✂️`;
     const matchesSearch = client.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesBirthday = showBirthdayFilter ? isBirthdayThisMonth(client.birthday) : true;
     return matchesSearch && matchesBirthday;
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name)); // Ordenação alfabética
 
   // Calcular ranking dos clientes (apenas com 9+ agendamentos)
   const rankingClients = clients
@@ -6953,8 +7079,16 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                       </div>
                     </div>
-                    <div className="mt-3 text-center text-sm text-gray-600">
-                      {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' : `${filteredAppointments.length} agendamentos encontrados`}
+                    <div className="mt-3 text-center text-sm">
+                      {selectedProfessional === '' ? (
+                        <span className="text-blue-600 font-semibold bg-blue-50 px-3 py-1 rounded-lg border border-blue-200">
+                          Selecione um profissional para ver os agendamentos
+                        </span>
+                      ) : (
+                        <span className="text-gray-600">
+                          {filteredAppointments.length} agendamentos encontrados
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -7203,7 +7337,10 @@ Estamos te aguardando! 😎✂️`;
                   {(selectedProfessional === '' || (selectedProfessional === 'all' && filteredAppointments.length === 0)) ? (
                     <div className="text-center py-8">
                       <Calendar className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
-                      <p className="text-gray-400">
+                      <p className={`text-lg font-semibold ${selectedProfessional === ''
+                        ? 'text-blue-600 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200'
+                        : 'text-gray-400'
+                        }`}>
                         {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' : 'Nenhum agendamento para este dia'}
                       </p>
                     </div>
@@ -9759,6 +9896,55 @@ Estamos te aguardando! 😎✂️`;
                                               paymentFilter === 'debito' ? 'Débito' :
                                                 paymentFilter === 'credito' ? 'Crédito' : 'Todos';
 
+                                        // Calcular Novas Vendas (vendas desde o último pagamento)
+                                        const lastPayment = allProfessionalPayments
+                                          .filter((p: any) => p.professional_id === professional.id)
+                                          .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
+
+                                        console.log('🔍 DEBUG Novas Vendas:', {
+                                          professionalId: professional.id,
+                                          professionalName: professional.name,
+                                          allPayments: allProfessionalPayments.filter((p: any) => p.professional_id === professional.id),
+                                          lastPayment: lastPayment,
+                                          filteredAppointments: filteredAppointments.map(apt => ({
+                                            id: apt.id,
+                                            date: apt.appointment_date,
+                                            value: apt.total_price || apt.price,
+                                            status: apt.status
+                                          }))
+                                        });
+
+                                        const newSalesTotal = lastPayment
+                                          ? filteredAppointments
+                                            .filter(apt => {
+                                              // Usar created_at do agendamento em vez de appointment_date para comparação
+                                              const aptDate = new Date(apt.created_at);
+                                              const paymentDate = new Date(lastPayment.payment_date);
+                                              const isAfterPayment = aptDate > paymentDate;
+                                              console.log(`📅 Comparando: ${apt.created_at} > ${lastPayment.payment_date} = ${isAfterPayment}`);
+                                              return isAfterPayment;
+                                            })
+                                            .reduce((total, apt) => {
+                                              const baseValue = apt.total_price || apt.price || 0;
+                                              let netValue;
+                                              if (professional.percentage === 100) {
+                                                const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                                if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                                  const cardTax = (baseValue * paymentTax) / 100;
+                                                  netValue = baseValue - cardTax;
+                                                } else {
+                                                  netValue = baseValue;
+                                                }
+                                              } else {
+                                                netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                              }
+                                              console.log(`💰 Agendamento ${apt.id}: R$ ${baseValue} -> Líquido: R$ ${netValue}`);
+                                              return total + netValue;
+                                            }, 0)
+                                          : netTotal; // Se não há pagamentos, todas as vendas são "novas"
+
+                                        console.log('💰 Total Novas Vendas:', newSalesTotal);
+
                                         return (
                                           <div className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
                                             <h4 className="font-semibold text-gray-800 mb-3">
@@ -9775,6 +9961,12 @@ Estamos te aguardando! 😎✂️`;
                                                 <span className="text-gray-600">Vendas Líquidas:</span>
                                                 <span className="font-semibold text-blue-600">
                                                   {formatCurrency(netTotal)}
+                                                </span>
+                                              </div>
+                                              <div className="flex justify-between items-center border-t border-gray-200 pt-2">
+                                                <span className="text-gray-600 font-medium">Novas Vendas:</span>
+                                                <span className="font-bold text-purple-600">
+                                                  {formatCurrency(newSalesTotal)}
                                                 </span>
                                               </div>
                                             </div>
@@ -10047,14 +10239,80 @@ Estamos te aguardando! 😎✂️`;
                     ) : (
                       filteredClients.map((client, index) => (
                         <div key={`${client.whatsapp}-${client.id}-${index}`} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h3 className="text-lg font-medium text-gray-900 truncate">{client.name}</h3>
-                            {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />} {/* COROA PARA ASSINANTES */}
+                          {/* Header com nome e botões de ação */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              {editingClient === client.whatsapp ? (
+                                <input
+                                  type="text"
+                                  value={editClientName}
+                                  onChange={(e) => setEditClientName(e.target.value)}
+                                  className="text-lg font-medium text-gray-900 border border-gray-300 rounded px-2 py-1 flex-1"
+                                  placeholder="Nome do cliente"
+                                />
+                              ) : (
+                                <h3 className="text-lg font-medium text-gray-900 truncate">{client.name}</h3>
+                              )}
+                              {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />} {/* COROA PARA ASSINANTES */}
+                            </div>
+                            <div className="flex items-center gap-1 ml-2">
+                              {editingClient === client.whatsapp ? (
+                                <>
+                                  <button
+                                    onClick={saveClientEdit}
+                                    className="text-green-600 hover:text-green-800 p-1"
+                                    title="Salvar"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingClient(null);
+                                      setEditClientName('');
+                                      setEditClientWhatsapp('');
+                                    }}
+                                    className="text-red-600 hover:text-red-800 p-1"
+                                    title="Cancelar"
+                                  >
+                                    ✗
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleEditClient(client)}
+                                    className="text-blue-600 hover:text-blue-800 p-1"
+                                    title="Editar cliente"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteClient(client.whatsapp)}
+                                    className="text-red-600 hover:text-red-800 p-1"
+                                    title="Excluir cliente"
+                                  >
+                                    🗑️
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <p className="text-gray-700 flex items-center gap-2 mb-1">
+
+                          {/* WhatsApp */}
+                          <div className="text-gray-700 flex items-center gap-2 mb-1">
                             <Phone className="h-4 w-4 text-gray-500" />
-                            {client.whatsapp}
-                          </p>
+                            {editingClient === client.whatsapp ? (
+                              <input
+                                type="text"
+                                value={editClientWhatsapp}
+                                onChange={(e) => setEditClientWhatsapp(e.target.value)}
+                                className="border border-gray-300 rounded px-2 py-1 flex-1"
+                                placeholder="WhatsApp do cliente"
+                              />
+                            ) : (
+                              <span>{client.whatsapp}</span>
+                            )}
+                          </div>
                           <p className="text-gray-700 flex items-center gap-2 mb-1">
                             <Calendar className="h-4 w-4 text-gray-500" />
                             Agendamentos: {client.appointmentCount}
@@ -11279,25 +11537,6 @@ Estamos te aguardando! 😎✂️`;
             </div>
           )}
 
-          {/* Tab de Reservar Cliente */}
-          {activeTab === 'reserve-client' && (
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Reservar Cliente</h2>
-              <div className="text-center">
-                <p className="text-gray-600 mb-6 text-lg">
-                  Clique em "Reservar Cliente" para acessar a página de agendamentos. Você pode fazer reservas para seus clientes.
-                </p>
-                <a
-                  href={`/booking/${establishment.code}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-lg"
-                >
-                  RESERVAR CLIENTE
-                </a>
-              </div>
-            </div>
-          )}
 
           {/* Tab de Ranking */}
           {activeTab === 'ranking' && (
