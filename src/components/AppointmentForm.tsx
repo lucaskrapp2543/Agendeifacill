@@ -231,7 +231,7 @@ export function AppointmentForm({
   }, [user, profileDataLoaded]);
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
-  const [useMultiService, setUseMultiService] = useState(false);
+  const [useMultiService, setUseMultiService] = useState(true);
   const [useCategoryService, setUseCategoryService] = useState(false);
   const [serviceCategories, setServiceCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -239,7 +239,7 @@ export function AppointmentForm({
 
   // ✅ ESTADO PARA MÚLTIPLOS SERVIÇOS EM CATEGORIAS
   const [selectedCategoryServices, setSelectedCategoryServices] = useState<any[]>([]);
-  const [useMultiCategoryService, setUseMultiCategoryService] = useState(false);
+  const [useMultiCategoryService, setUseMultiCategoryService] = useState(true);
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
@@ -401,6 +401,28 @@ export function AppointmentForm({
 
   // Estados para validação de limite mensal
   const [monthlyLimitValidationDisabled, setMonthlyLimitValidationDisabled] = useState(false);
+
+  // Estados para controle progressivo do formulário
+  const [showServiceSection, setShowServiceSection] = useState(false);
+  const [showDateSection, setShowDateSection] = useState(false);
+  const [showPaymentSection, setShowPaymentSection] = useState(false);
+
+  // Controlar visibilidade das seções progressivamente
+  useEffect(() => {
+    // Mostrar seção de serviços quando um profissional for selecionado
+    setShowServiceSection(!!selectedProfessional);
+  }, [selectedProfessional]);
+
+  useEffect(() => {
+    // Mostrar seção de data quando um serviço for selecionado
+    const hasService = selectedService || selectedServices.length > 0 || selectedCategoryServices.length > 0;
+    setShowDateSection(hasService);
+  }, [selectedService, selectedServices, selectedCategoryServices]);
+
+  useEffect(() => {
+    // Mostrar seção de pagamento quando data e horário forem selecionados
+    setShowPaymentSection(!!(selectedDate && selectedTime));
+  }, [selectedDate, selectedTime]);
   const [monthlyLimitError, setMonthlyLimitError] = useState<string | null>(null);
   const [monthlyLimitData, setMonthlyLimitData] = useState<{
     currentUsage: number;
@@ -1561,7 +1583,7 @@ export function AppointmentForm({
         </div>
 
         {/* 4. SERVIÇO - Oculto para assinantes */}
-        {!isSubscriberBooking && (
+        {!isSubscriberBooking && showServiceSection && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               4. Escolha o Serviço
@@ -1569,27 +1591,7 @@ export function AppointmentForm({
 
             {/* Toggle para escolher entre seleção única, múltipla ou categorias */}
             <div className="mb-4 flex gap-2">
-              {/* ✅ MODIFICADO: Mostrar "Um Serviço" se houver serviços gerais OU específicos */}
-              {(hasGeneralServices || hasSpecificServices) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseMultiService(false);
-                    setUseCategoryService(false);
-                    setSelectedServices([]);
-                    setSelectedCategory(null);
-                    setSelectedSubcategory(null);
-                  }}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${!useMultiService && !useCategoryService
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                >
-                  Um Serviço
-                </button>
-              )}
-
-              {/* ✅ MODIFICADO: Mostrar "Múltiplos Serviços" se houver serviços gerais OU específicos */}
+              {/* ✅ MODIFICADO: Mostrar apenas "Escolha 1 ou mais serviços" se houver serviços gerais OU específicos */}
               {(hasGeneralServices || hasSpecificServices) && (
                 <button
                   type="button"
@@ -1605,7 +1607,7 @@ export function AppointmentForm({
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                     }`}
                 >
-                  Múltiplos Serviços (até 4)
+                  Escolha 1 ou mais serviços
                 </button>
               )}
 
@@ -1637,34 +1639,17 @@ export function AppointmentForm({
               />
             ) : useCategoryService ? (
               <div className="space-y-4">
-                {/* ✅ BOTÕES PARA ALTERNAR ENTRE UM E MÚLTIPLOS SERVIÇOS EM CATEGORIAS */}
+                {/* ✅ BOTÃO PARA MÚLTIPLOS SERVIÇOS EM CATEGORIAS - SEMPRE ATIVO */}
                 <div className="flex gap-2 mb-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUseMultiCategoryService(false);
-                      setSelectedCategoryServices([]);
-                      setSelectedSubcategory(null);
-                    }}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${!useMultiCategoryService
-                      ? 'bg-primary text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                  >
-                    Um Serviço
-                  </button>
                   <button
                     type="button"
                     onClick={() => {
                       setUseMultiCategoryService(true);
                       setSelectedSubcategory(null);
                     }}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${useMultiCategoryService
-                      ? 'bg-primary text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
+                    className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-primary text-white"
                   >
-                    Múltiplos Serviços (até 4)
+                    Escolha 1 ou mais serviços
                   </button>
                 </div>
 
@@ -1836,21 +1821,23 @@ export function AppointmentForm({
 
 
         {/* 5. DATA */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            5. Escolha a Data
-          </label>
-          <DatePicker
-            selectedDate={selectedDate}
-            onChange={onSelectDate}
-            businessHours={establishment.business_hours}
-            allowedWeekdays={subscriberService?.weekdays}
-            isSubscriberBooking={isSubscriberBooking}
-          />
-        </div>
+        {showDateSection && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              5. Escolha a Data
+            </label>
+            <DatePicker
+              selectedDate={selectedDate}
+              onChange={onSelectDate}
+              businessHours={establishment.business_hours}
+              allowedWeekdays={subscriberService?.weekdays}
+              isSubscriberBooking={isSubscriberBooking}
+            />
+          </div>
+        )}
 
         {/* 6. HORÁRIO */}
-        {(selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0))) || (isSubscriberBooking && subscriberService)) && (
+        {showDateSection && (selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0))) || (isSubscriberBooking && subscriberService)) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               6. Escolha o Horário
@@ -1960,7 +1947,7 @@ export function AppointmentForm({
         )}
 
         {/* 7. FORMA DE PAGAMENTO - Oculto para assinantes */}
-        {(selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0)))) && !isSubscriberBooking && (
+        {showPaymentSection && (selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0)))) && !isSubscriberBooking && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               7. Forma de Pagamento

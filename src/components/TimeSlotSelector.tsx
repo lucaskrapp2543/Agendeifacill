@@ -75,6 +75,13 @@ export function TimeSlotSelector({
     return hours * 60 + minutes;
   };
 
+  // Função para converter minutos para horário HH:mm
+  const minutesToTime = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  };
+
   // Função para verificar se um horário já passou
   const isTimeInPast = (timeString: string): boolean => {
     if (!filterPastTimes) return false;
@@ -226,10 +233,26 @@ export function TimeSlotSelector({
             const breakStartMinutes = timeToMinutes(workDay.break_start);
             const breakEndMinutes = timeToMinutes(workDay.break_end);
 
-            // Verificar se o horário está dentro do intervalo de almoço
-            if (minutes >= breakStartMinutes && minutes < breakEndMinutes) {
+            // CORRIGIDO: Verificar se o serviço INTEIRO conflita com o intervalo
+            // Verificar se o INÍCIO do serviço está no intervalo
+            const serviceStartsInBreak = minutes >= breakStartMinutes && minutes < breakEndMinutes;
+            // Verificar se o FIM do serviço está no intervalo  
+            const serviceEndsInBreak = slotEndMinutes > breakStartMinutes && slotEndMinutes <= breakEndMinutes;
+            // Verificar se o serviço engloba completamente o intervalo
+            const serviceEncompassesBreak = minutes <= breakStartMinutes && slotEndMinutes >= breakEndMinutes;
+
+            if (serviceStartsInBreak || serviceEndsInBreak || serviceEncompassesBreak) {
               isAvailable = false;
               conflictReason = 'Horário de Intervalo';
+              console.log('🚨 CONFLITO COM INTERVALO DETECTADO:', {
+                serviceStart: minutesToTime(minutes),
+                serviceEnd: minutesToTime(slotEndMinutes),
+                breakStart: workDay.break_start,
+                breakEnd: workDay.break_end,
+                serviceStartsInBreak,
+                serviceEndsInBreak,
+                serviceEncompassesBreak
+              });
             }
           }
         }
@@ -314,10 +337,26 @@ export function TimeSlotSelector({
             const breakStartMinutes = timeToMinutes(workDay.break_start);
             const breakEndMinutes = timeToMinutes(workDay.break_end);
 
-            // Verificar se o horário está dentro do intervalo de almoço
-            if (minutes >= breakStartMinutes && minutes < breakEndMinutes) {
+            // CORRIGIDO: Verificar se o serviço INTEIRO conflita com o intervalo
+            // Verificar se o INÍCIO do serviço está no intervalo
+            const serviceStartsInBreak = minutes >= breakStartMinutes && minutes < breakEndMinutes;
+            // Verificar se o FIM do serviço está no intervalo  
+            const serviceEndsInBreak = slotEndMinutes > breakStartMinutes && slotEndMinutes <= breakEndMinutes;
+            // Verificar se o serviço engloba completamente o intervalo
+            const serviceEncompassesBreak = minutes <= breakStartMinutes && slotEndMinutes >= breakEndMinutes;
+
+            if (serviceStartsInBreak || serviceEndsInBreak || serviceEncompassesBreak) {
               isAvailable = false;
               conflictReason = 'Horário de Intervalo';
+              console.log('🚨 CONFLITO COM INTERVALO DETECTADO:', {
+                serviceStart: minutesToTime(minutes),
+                serviceEnd: minutesToTime(slotEndMinutes),
+                breakStart: workDay.break_start,
+                breakEnd: workDay.break_end,
+                serviceStartsInBreak,
+                serviceEndsInBreak,
+                serviceEncompassesBreak
+              });
             }
           }
         }
