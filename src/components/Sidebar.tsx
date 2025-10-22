@@ -15,7 +15,8 @@ import {
   Settings,
   Shuffle,
   UserCheck,
-  Users
+  Users,
+  TrendingUp
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
@@ -205,6 +206,16 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       }),
       isActive: activeTab === 'settings'
+    },
+    {
+      id: 'increase-clients',
+      label: 'Aumente 10x seus Clientes',
+      icon: TrendingUp,
+      onClick: () => handleItemClick(() => {
+        // Por enquanto não faz nada - funcionalidade futura
+        console.log('Botão "Aumente 10x seus Clientes" clicado - funcionalidade futura');
+      }),
+      isActive: false
     },
     {
       id: 'logout',

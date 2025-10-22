@@ -414,10 +414,11 @@ export function AppointmentForm({
   }, [selectedProfessional]);
 
   useEffect(() => {
-    // Mostrar seção de data quando um serviço for selecionado
+    // Mostrar seção de data quando um serviço for selecionado OU quando for agendamento de assinante
     const hasService = selectedService || selectedServices.length > 0 || selectedCategoryServices.length > 0;
-    setShowDateSection(hasService);
-  }, [selectedService, selectedServices, selectedCategoryServices]);
+    const isSubscriberWithService = isSubscriberBooking && subscriberService;
+    setShowDateSection(hasService || isSubscriberWithService);
+  }, [selectedService, selectedServices, selectedCategoryServices, isSubscriberBooking, subscriberService]);
 
   useEffect(() => {
     // Mostrar seção de pagamento quando data e horário forem selecionados
