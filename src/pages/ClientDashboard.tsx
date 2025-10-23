@@ -436,8 +436,10 @@ const ClientDashboard = () => {
               <Calendar className="h-6 w-6 text-primary" />
               <span className="text-xl font-bold text-white">AgendaFácil</span>
             </div>
-            <div className="flex items-center gap-4">
-              <NotificationPermission className="hidden sm:flex" />
+
+            {/* Versão Desktop */}
+            <div className="hidden md:flex items-center gap-4">
+              <NotificationPermission />
               <span className="text-gray-400">{user?.name || user?.email}</span>
               <button
                 onClick={() => setShowEditUserModal(true)}
@@ -445,6 +447,21 @@ const ClientDashboard = () => {
                 title="Editar meus dados"
               >
                 Editar Dados
+              </button>
+              <button onClick={handleLogout} className="text-gray-400 hover:text-white">
+                <LogOut className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Versão Mobile */}
+            <div className="flex md:hidden items-center gap-2">
+              <span className="text-gray-400 text-sm truncate max-w-[120px]">{user?.name || user?.email}</span>
+              <button
+                onClick={() => setShowEditUserModal(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1 rounded-lg font-medium"
+                title="Editar meus dados"
+              >
+                Editar
               </button>
               <button onClick={handleLogout} className="text-gray-400 hover:text-white">
                 <LogOut className="h-5 w-5" />
@@ -459,49 +476,63 @@ const ClientDashboard = () => {
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-white">Meus Agendamentos</h1>
 
-            {/* Botão Agendar Novamente */}
-            {appointments.length > 0 && (
+            <div className="flex items-center gap-3">
+              {/* Botão Editar Dados - Visível em Mobile */}
               <button
-                onClick={() => {
-                  // Pegar o estabelecimento do último agendamento
-                  const lastAppointment = appointments[0]; // Já está ordenado por data de criação (mais recente primeiro)
-
-                  // Extrair o establishment_id do appointment
-                  // Buscar no Supabase para pegar o código do estabelecimento
-                  const fetchEstablishmentCode = async () => {
-                    try {
-                      const { data: appointmentData, error: appointmentError } = await supabase
-                        .from('appointments')
-                        .select('establishment_id')
-                        .eq('id', lastAppointment.id)
-                        .single();
-
-                      if (appointmentError) throw appointmentError;
-
-                      const { data: establishmentData, error: establishmentError } = await supabase
-                        .from('establishments')
-                        .select('code')
-                        .eq('id', appointmentData.establishment_id)
-                        .single();
-
-                      if (establishmentError) throw establishmentError;
-
-                      // Redirecionar para a página de booking
-                      navigate(`/booking/${establishmentData.code}`);
-                    } catch (error) {
-                      console.error('Erro ao buscar código do estabelecimento:', error);
-                      toast.error('Erro ao redirecionar para agendamento');
-                    }
-                  };
-
-                  fetchEstablishmentCode();
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+                onClick={() => setShowEditUserModal(true)}
+                className="md:hidden flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+                title="Editar meus dados"
               >
-                <Calendar className="h-5 w-5" />
-                <span className="font-medium">Agendar novamente</span>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                <span>Editar</span>
               </button>
-            )}
+
+              {/* Botão Agendar Novamente */}
+              {appointments.length > 0 && (
+                <button
+                  onClick={() => {
+                    // Pegar o estabelecimento do último agendamento
+                    const lastAppointment = appointments[0]; // Já está ordenado por data de criação (mais recente primeiro)
+
+                    // Extrair o establishment_id do appointment
+                    // Buscar no Supabase para pegar o código do estabelecimento
+                    const fetchEstablishmentCode = async () => {
+                      try {
+                        const { data: appointmentData, error: appointmentError } = await supabase
+                          .from('appointments')
+                          .select('establishment_id')
+                          .eq('id', lastAppointment.id)
+                          .single();
+
+                        if (appointmentError) throw appointmentError;
+
+                        const { data: establishmentData, error: establishmentError } = await supabase
+                          .from('establishments')
+                          .select('code')
+                          .eq('id', appointmentData.establishment_id)
+                          .single();
+
+                        if (establishmentError) throw establishmentError;
+
+                        // Redirecionar para a página de booking
+                        navigate(`/booking/${establishmentData.code}`);
+                      } catch (error) {
+                        console.error('Erro ao buscar código do estabelecimento:', error);
+                        toast.error('Erro ao redirecionar para agendamento');
+                      }
+                    };
+
+                    fetchEstablishmentCode();
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+                >
+                  <Calendar className="h-5 w-5" />
+                  <span className="font-medium">Agendar novamente</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Status das Notificações */}
