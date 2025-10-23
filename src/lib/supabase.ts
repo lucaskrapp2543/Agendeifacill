@@ -1848,27 +1848,37 @@ export const getClientDataFromAuth = async () => {
       return null;
     }
 
-    console.log('🔍 DEBUG - Dados de autenticação encontrados:', {
-      id: user.id,
-      email: user.email,
-      metadata: user.user_metadata
-    });
+    // Buscar dados atualizados da tabela profiles
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('name, phone')
+      .eq('id', user.id)
+      .single();
 
-    // Verificar se é um novo cliente e tem os dados necessários
-    if (user.user_metadata?.is_new_client === true) {
+    if (!profileError && profileData) {
+      console.log('🔍 DEBUG - Dados do perfil encontrados:', profileData);
+
       const clientData = {
-        first_name: user.user_metadata.first_name,
-        last_name: user.user_metadata.last_name,
-        whatsapp: user.user_metadata.whatsapp,
-        is_new_client: true
+        first_name: profileData.name || '',
+        last_name: '', // Não separamos mais nome e sobrenome
+        whatsapp: profileData.phone || '',
+        is_new_client: false
       };
 
-      console.log('🔍 DEBUG - Dados do novo cliente encontrados:', clientData);
+      console.log('🔍 DEBUG - Dados do cliente encontrados:', clientData);
       return clientData;
     }
 
-    console.log('🔍 DEBUG - Usuário não é um novo cliente ou não tem dados');
-    return null;
+    // Fallback: usar dados dos metadados de autenticação
+    const clientData = {
+      first_name: user.user_metadata?.name || user.email?.split('@')[0] || '',
+      last_name: '',
+      whatsapp: user.user_metadata?.whatsapp || '',
+      is_new_client: false
+    };
+
+    console.log('🔍 DEBUG - Usando dados básicos do user_metadata:', clientData);
+    return clientData;
   } catch (error) {
     console.error('Erro ao buscar dados do cliente via autenticação:', error);
     return null;
@@ -2433,7 +2443,7 @@ export const getClientsWithLastAccess = async (establishmentId: string) => {
 export const updateEstablishmentLastLogin = async (establishmentId: string): Promise<boolean> => {
   try {
     console.log('🕐 Atualizando último login para estabelecimento:', establishmentId);
-    
+
     const { error } = await supabase
       .from('establishments')
       .update({ last_login_at: new Date().toISOString() })

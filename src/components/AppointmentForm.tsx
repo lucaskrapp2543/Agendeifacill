@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Phone } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { checkWhatsAppSubscriber, getClientDataFromAuth, getClientProfileData, isNewClient, supabase, testMigration } from '../lib/supabase';
@@ -132,11 +133,63 @@ export function AppointmentForm({
   const [clientName, setClientName] = useState('');
   const [clientWhatsapp, setClientWhatsapp] = useState('');
   const [clientCpf, setClientCpf] = useState('');
+  const [isLoadingUserData, setIsLoadingUserData] = useState(false);
 
   // Estados para dados do perfil do cliente
   const [clientProfileData, setClientProfileData] = useState<any>(null);
   const [isNewClientUser, setIsNewClientUser] = useState(false);
   const [profileDataLoaded, setProfileDataLoaded] = useState(false);
+
+  // Função para forçar atualização dos dados do usuário
+  const forceUpdateUserData = async () => {
+    if (!user) return;
+
+    setIsLoadingUserData(true);
+    try {
+      // Buscar dados atualizados da tabela profiles
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', user.id)
+        .single();
+
+      if (!profileError && profileData) {
+        // Buscar o último agendamento para pegar o WhatsApp atualizado
+        const { data: lastAppointment, error: appointmentError } = await supabase
+          .from('appointments')
+          .select('client_name, client_whatsapp')
+          .eq('client_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        let clientName = profileData.name || '';
+        let clientWhatsapp = '';
+
+        // Se encontrou agendamento, usar os dados mais recentes
+        if (!appointmentError && lastAppointment) {
+          clientName = lastAppointment.client_name || clientName;
+          clientWhatsapp = lastAppointment.client_whatsapp || '';
+        }
+
+        // Se não tem WhatsApp do agendamento, buscar do user_metadata
+        if (!clientWhatsapp) {
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          clientWhatsapp = authUser?.user_metadata?.whatsapp || '';
+        }
+
+        setClientName(clientName);
+        setClientWhatsapp(clientWhatsapp);
+
+        toast.success('Dados atualizados!');
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar dados:', error);
+      toast.error('Erro ao atualizar dados');
+    } finally {
+      setIsLoadingUserData(false);
+    }
+  };
 
   console.log('🔍 DEBUG - Estados iniciais:', { profileDataLoaded, isNewClientUser, clientProfileData });
 
@@ -147,6 +200,7 @@ export function AppointmentForm({
       setProfileDataLoaded(false);
     }
   }, [user?.id]);
+
 
   // Teste de migração
   useEffect(() => {
@@ -161,12 +215,57 @@ export function AppointmentForm({
     const loadClientProfile = async () => {
       console.log('🔍 DEBUG - loadClientProfile iniciado:', { user: !!user, profileDataLoaded, userId: user?.id });
 
-      if (user && !profileDataLoaded) {
+      if (user) { // Removido o !profileDataLoaded para sempre buscar dados atualizados
         console.log('🔍 DEBUG - Entrando no bloco de carregamento de perfil');
         try {
           console.log('🔍 DEBUG - Verificando se é novo cliente para user:', user.id);
 
-          // Primeiro, tentar buscar dados dos metadados de autenticação
+          // BUSCAR DADOS ATUALIZADOS DIRETAMENTE DA TABELA PROFILES
+          console.log('🔍 DEBUG - Buscando dados atualizados diretamente...');
+
+          // Buscar dados atualizados da tabela profiles
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('name')
+            .eq('id', user.id)
+            .single();
+
+          if (!profileError && profileData) {
+            console.log('🔍 DEBUG - Dados do perfil encontrados:', profileData);
+
+            // Buscar o último agendamento para pegar o WhatsApp atualizado
+            const { data: lastAppointment, error: appointmentError } = await supabase
+              .from('appointments')
+              .select('client_name, client_whatsapp')
+              .eq('client_id', user.id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+
+            let clientName = profileData.name || '';
+            let clientWhatsapp = '';
+
+            // Se encontrou agendamento, usar os dados mais recentes
+            if (!appointmentError && lastAppointment) {
+              clientName = lastAppointment.client_name || clientName;
+              clientWhatsapp = lastAppointment.client_whatsapp || '';
+            }
+
+            // Se não tem WhatsApp do agendamento, buscar do user_metadata
+            if (!clientWhatsapp) {
+              const { data: { user: authUser } } = await supabase.auth.getUser();
+              clientWhatsapp = authUser?.user_metadata?.whatsapp || '';
+            }
+
+            console.log('🔍 DEBUG - Dados finais encontrados:', { clientName, clientWhatsapp });
+
+            setClientName(clientName);
+            setClientWhatsapp(clientWhatsapp);
+            setProfileDataLoaded(true);
+            return;
+          }
+
+          // Fallback: usar dados dos metadados de autenticação
           const authData = await getClientDataFromAuth();
           if (authData) {
             console.log('🔍 DEBUG - Dados encontrados via autenticação:', authData);
@@ -1085,16 +1184,27 @@ export function AppointmentForm({
               <span className="text-xs text-gray-500 ml-2">(Dados fixos do cadastro)</span>
             )}
           </label>
-          <input
-            type="text"
-            value={clientName}
-            onChange={(e) => setClientName(e.target.value)}
-            className={`w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 ${isNewClientUser && !isEstablishmentOwner ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-              }`}
-            placeholder="Digite seu nome"
-            required
-            readOnly={isNewClientUser && !isEstablishmentOwner}
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              className={`flex-1 px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 ${isNewClientUser && !isEstablishmentOwner ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                }`}
+              placeholder="Digite seu nome"
+              required
+              readOnly={isNewClientUser && !isEstablishmentOwner}
+            />
+            <button
+              type="button"
+              onClick={forceUpdateUserData}
+              disabled={isLoadingUserData}
+              className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+              title="Atualizar dados do usuário"
+            >
+              {isLoadingUserData ? '...' : '🔄'}
+            </button>
+          </div>
           {user && clientName && (
             <p className="mt-1 text-sm text-blue-600 italic">
               Esse é seu nome?
@@ -1123,17 +1233,28 @@ export function AppointmentForm({
               )}
             </div>
           </label>
-          <input
-            type="tel"
-            value={clientWhatsapp}
-            onChange={handleWhatsappChange}
-            className={`w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 ${isNewClientUser && !isEstablishmentOwner ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-              }`}
-            placeholder="(00) 00000-0000"
-            required
-            maxLength={15}
-            readOnly={isNewClientUser && !isEstablishmentOwner}
-          />
+          <div className="flex gap-2">
+            <input
+              type="tel"
+              value={clientWhatsapp}
+              onChange={handleWhatsappChange}
+              className={`flex-1 px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 ${isNewClientUser && !isEstablishmentOwner ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                }`}
+              placeholder="(00) 00000-0000"
+              required
+              maxLength={15}
+              readOnly={isNewClientUser && !isEstablishmentOwner}
+            />
+            <button
+              type="button"
+              onClick={forceUpdateUserData}
+              disabled={isLoadingUserData}
+              className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+              title="Atualizar dados do usuário"
+            >
+              {isLoadingUserData ? '...' : '🔄'}
+            </button>
+          </div>
           {user && clientWhatsapp && (
             <p className="mt-1 text-sm text-blue-600 italic">
               Esse é seu WhatsApp?

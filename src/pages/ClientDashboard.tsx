@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { AppDownloadBanner } from '../components/AppDownloadBanner';
 import { CancelAppointmentButton } from '../components/CancelAppointmentButton';
+import { EditUserDataModal } from '../components/EditUserDataModal';
 import { NotificationPermission } from '../components/NotificationPermission';
 import { NotificationStatus } from '../components/NotificationStatus';
 import { ReminderInfo } from '../components/ReminderInfo';
@@ -54,6 +55,33 @@ const ClientDashboard = () => {
     enableWhatsAppNotifications: boolean;
     whatsapp: string;
   } | null>(null);
+
+  // Estados para modal de edição de dados do usuário
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+
+  // Função para buscar dados do último agendamento do cliente
+  const getClientDataFromLastAppointment = async () => {
+    if (!user?.id || appointments.length === 0) {
+      return { name: user?.user_metadata?.name || '', phone: '' };
+    }
+
+    // Buscar o último agendamento do cliente
+    const lastAppointment = appointments[0]; // appointments já está ordenado por data de criação
+    return {
+      name: lastAppointment.client_name || user?.user_metadata?.name || '',
+      phone: lastAppointment.client_whatsapp || ''
+    };
+  };
+
+  // Função para atualizar dados do usuário
+  const handleUserDataUpdate = (newName: string, newPhone: string) => {
+    // Recarregar os agendamentos para mostrar os dados atualizados
+    fetchAppointments();
+    setShowEditUserModal(false);
+
+    // Mostrar mensagem para o usuário
+    toast.success('Dados atualizados com sucesso!');
+  };
 
   // Função para carregar configuração de WhatsApp do estabelecimento
   const loadEstablishmentWhatsAppConfig = async (establishmentName: string) => {
@@ -410,7 +438,14 @@ const ClientDashboard = () => {
             </div>
             <div className="flex items-center gap-4">
               <NotificationPermission className="hidden sm:flex" />
-              <span className="text-gray-400">{user?.email}</span>
+              <span className="text-gray-400">{user?.name || user?.email}</span>
+              <button
+                onClick={() => setShowEditUserModal(true)}
+                className="text-blue-400 hover:text-blue-300 text-sm font-medium"
+                title="Editar meus dados"
+              >
+                Editar Dados
+              </button>
               <button onClick={handleLogout} className="text-gray-400 hover:text-white">
                 <LogOut className="h-5 w-5" />
               </button>
@@ -768,6 +803,18 @@ const ClientDashboard = () => {
           step={successModalStep}
           appointmentData={pendingReminderData}
           enableWhatsAppNotifications={establishmentWhatsAppConfig?.enableWhatsAppNotifications || false}
+        />
+      )}
+
+      {/* Modal de edição de dados do usuário */}
+      {showEditUserModal && (
+        <EditUserDataModal
+          isOpen={showEditUserModal}
+          onClose={() => setShowEditUserModal(false)}
+          currentName={appointments.length > 0 ? appointments[0].client_name || user?.user_metadata?.name || '' : user?.user_metadata?.name || ''}
+          currentPhone={appointments.length > 0 ? appointments[0].client_whatsapp || '' : ''}
+          userId={user?.id || ''}
+          onUpdate={handleUserDataUpdate}
         />
       )}
 
