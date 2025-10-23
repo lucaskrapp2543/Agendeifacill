@@ -518,6 +518,7 @@ export default function BookingPage() {
         appointmentTime: appointmentData.appointment_time,
         location: establishment?.location || establishment?.address || '',
         professionalName: professionalName,
+        paymentMethod: appointmentData.payment_method || 'Não especificada',
         appointmentId: user?.id,
         uniqueKey: Date.now().toString() // Chave única baseada no timestamp
       };

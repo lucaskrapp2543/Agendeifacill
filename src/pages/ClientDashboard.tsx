@@ -90,7 +90,8 @@ const ClientDashboard = () => {
 📅 Data: ${pendingReminderData.appointmentDate}
 ⏰ Horário: ${pendingReminderData.appointmentTime}
 💈 Serviço: ${pendingReminderData.serviceName}
-💇 Profissional: ${pendingReminderData.professionalName || 'Não especificado'}`;
+💇 Profissional: ${pendingReminderData.professionalName || 'Não especificado'}
+💳 Forma de Pagamento: ${pendingReminderData.paymentMethod || 'Não especificada'}`;
 
     const whatsappUrl = `https://wa.me/${establishmentWhatsAppConfig.whatsapp}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');

@@ -1,14 +1,44 @@
-import React, { useState } from "react";
-import { supabase } from "../lib/supabase";
+import { useState } from "react";
 import { toast } from "react-hot-toast";
+import { supabase } from "../lib/supabase";
+import { CancellationWhatsAppModal } from "./CancellationWhatsAppModal";
 
 export function CancelAppointmentButton({ appointmentId, onCancelled, appointment }) {
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [establishmentWhatsAppConfig, setEstablishmentWhatsAppConfig] = useState(null);
 
 
-  const handleCancelClick = () => {
-    setShowConfirmation(true);
+  const handleCancelClick = async () => {
+    // Verificar se a configuração de WhatsApp está ativa
+    try {
+      const { data: establishment, error } = await supabase
+        .from('establishments')
+        .select('enable_whatsapp_notifications, whatsapp')
+        .eq('id', appointment.establishment_id)
+        .single();
+
+      if (error) {
+        console.error('Erro ao carregar configuração do estabelecimento:', error);
+        setShowConfirmation(true);
+        return;
+      }
+
+      setEstablishmentWhatsAppConfig({
+        enableWhatsAppNotifications: establishment?.enable_whatsapp_notifications || false,
+        whatsapp: establishment?.whatsapp || ''
+      });
+
+      if (establishment?.enable_whatsapp_notifications && establishment?.whatsapp) {
+        setShowWhatsAppModal(true);
+      } else {
+        setShowConfirmation(true);
+      }
+    } catch (error) {
+      console.error('Erro ao verificar configuração:', error);
+      setShowConfirmation(true);
+    }
   };
 
   const handleConfirmation = (confirmed) => {
@@ -18,6 +48,27 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
     }
   };
 
+  const handleConfirmCancellationWhatsApp = () => {
+    if (!establishmentWhatsAppConfig?.whatsapp || !appointment) {
+      toast.error('Configuração de WhatsApp não encontrada');
+      return;
+    }
+
+    const message = `Cancelamento de agendamento pelo Agendei Fácil:
+📅 Data: ${appointment.appointment_date}
+⏰ Horário: ${appointment.appointment_time}
+💈 Serviço: ${appointment.service_name}
+💇 Profissional: ${appointment.professional_name || 'Não especificado'}
+💳 Forma de Pagamento: ${appointment.payment_method || 'Não especificada'}`;
+
+    const whatsappUrl = `https://wa.me/${establishmentWhatsAppConfig.whatsapp}?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+
+    // Fechar o modal após enviar
+    setShowWhatsAppModal(false);
+    setEstablishmentWhatsAppConfig(null);
+  };
+
   const performCancel = async () => {
     setIsLoading(true);
     try {
@@ -25,11 +76,11 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
       console.log('🔍 DEBUG - appointment:', appointment);
       console.log('🔍 DEBUG - appointment.is_subscriber:', appointment?.is_subscriber);
       console.log('🔍 DEBUG - appointment keys:', Object.keys(appointment || {}));
-      
+
       // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
       if (appointment?.is_subscriber) {
         console.log('🔍 Verificando se é assinante e se pode cancelar...');
-        
+
         // Verificar se o estabelecimento tem a configuração ativada
         const { data: establishment, error: establishmentError } = await supabase
           .from('establishments')
@@ -49,14 +100,14 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
             '⚠️ Atenção: você é um assinante, o sistema não deixa desmarcar e agendar para o mesmo dia.\n\n' +
             'Tem certeza que deseja cancelar?'
           );
-          
+
           if (!confirmCancel) {
             setIsLoading(false);
             return; // Usuário cancelou a ação
           }
         }
       }
-      
+
       const { error } = await supabase
         .from('appointments')
         .update({ status: 'cancelled' })
@@ -69,7 +120,7 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
 
       console.log('✅ Agendamento cancelado com sucesso');
       toast.success('Agendamento cancelado com sucesso!');
-      
+
       if (onCancelled) {
         onCancelled();
       }
@@ -118,6 +169,20 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
           </div>
         </div>
       )}
+
+      {/* Modal de cancelamento via WhatsApp */}
+      <CancellationWhatsAppModal
+        isOpen={showWhatsAppModal}
+        onClose={() => setShowWhatsAppModal(false)}
+        onConfirmCancellation={handleConfirmCancellationWhatsApp}
+        appointmentData={{
+          serviceName: appointment?.service_name || 'Serviço não especificado',
+          establishmentName: appointment?.establishment_name || '',
+          appointmentDate: appointment?.appointment_date || '',
+          appointmentTime: appointment?.appointment_time || '',
+          professionalName: appointment?.professional_name || 'Não especificado'
+        }}
+      />
     </>
   );
 }
