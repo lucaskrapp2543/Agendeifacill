@@ -111,6 +111,7 @@ interface Establishment {
   require_cancellation_request?: boolean; // Exigir solicitação de cancelamento via WhatsApp
   prevent_same_day_reschedule?: boolean; // Impedir remarcação no mesmo dia
   has_accessibility?: boolean; // Novo estado para Acessibilidade
+  enable_whatsapp_notifications?: boolean; // Ativar notificações WhatsApp após agendamentos
   wifi_password?: string; // Senha do Wi-Fi
   whatsapp?: string; // Novo campo para WhatsApp
   credit_card_tax_percentage?: number; // Taxa do cartão de crédito (%)
@@ -348,6 +349,7 @@ const EstablishmentDashboard = () => {
   const [requireCancellationRequest, setRequireCancellationRequest] = useState(false); // Exigir solicitação de cancelamento via WhatsApp
   const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
   const [requireCpf, setRequireCpf] = useState(false); // Solicitar CPF no agendamento
+  const [enableWhatsAppNotifications, setEnableWhatsAppNotifications] = useState(false); // Ativar notificações WhatsApp após agendamentos
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
   const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState<string[]>(['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
@@ -1973,6 +1975,7 @@ const EstablishmentDashboard = () => {
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
         require_cpf: requireCpf, // Solicitar CPF no agendamento
+        enable_whatsapp_notifications: enableWhatsAppNotifications, // Ativar notificações WhatsApp
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
       };
 
@@ -2072,6 +2075,7 @@ const EstablishmentDashboard = () => {
         require_cancellation_request: requireCancellationRequest, // Exigir solicitação de cancelamento
         prevent_same_day_reschedule: preventSameDayReschedule, // Impedir remarcação no mesmo dia
         require_cpf: requireCpf, // Solicitar CPF no agendamento
+        enable_whatsapp_notifications: enableWhatsAppNotifications, // Ativar notificações WhatsApp
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
         use_20_minute_schedule: use20MinuteSchedule, // Configuração de horários de 20 em 20 minutos
@@ -2834,6 +2838,7 @@ Estamos te aguardando! 😎✂️`;
         setRequireCancellationRequest(establishmentData.require_cancellation_request ?? false); // Exigir solicitação de cancelamento
         setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
         setRequireCpf(establishmentData.require_cpf ?? false); // Solicitar CPF no agendamento
+        setEnableWhatsAppNotifications(establishmentData.enable_whatsapp_notifications ?? false); // Ativar notificações WhatsApp
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
         setPaymentMethodsEnabled(establishmentData.payment_methods_enabled || ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
@@ -8479,6 +8484,21 @@ Estamos te aguardando! 😎✂️`;
                           <span className="text-white">Pedir CPF antes do agendamento</span>
                           <span className="text-xs text-gray-400">
                             Se ativada, os clientes serão obrigados a informar o CPF durante o agendamento. Útil para estabelecimentos que emitem nota fiscal.
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={enableWhatsAppNotifications}
+                          onChange={(e) => setEnableWhatsAppNotifications(e.target.checked)}
+                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-white">Quero receber mensagem no WhatsApp após agendamentos ou cancelamentos de clientes</span>
+                          <span className="text-xs text-gray-400">
+                            Ao ativar essa opção, quando um cliente finalizar um agendamento, será exibida uma mensagem diferente no modal final, incentivando o cliente a confirmar o agendamento. Isso enviará uma notificação automática para seu WhatsApp com os detalhes do agendamento.
                           </span>
                         </div>
                       </label>

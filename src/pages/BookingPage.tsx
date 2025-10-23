@@ -494,13 +494,32 @@ export default function BookingPage() {
       toast.success('Agendamento realizado com sucesso!');
 
       // Store appointment data for dashboard reminder modal
+      // Buscar o nome do profissional do banco de dados
+      let professionalName = 'Não especificado';
+      try {
+        const { data: professionalData } = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishment.id)
+          .single();
+
+        if (professionalData?.professionals) {
+          const professional = professionalData.professionals.find((p: any) => p.id === appointmentData.professional);
+          professionalName = professional?.name || 'Não especificado';
+        }
+      } catch (error) {
+        console.error('Erro ao buscar nome do profissional:', error);
+      }
+
       const appointmentInfo = {
         serviceName: appointmentData.service || 'Serviço não especificado',
         establishmentName: establishment?.name || '',
         appointmentDate: format(selectedDate, 'dd/MM/yyyy'),
         appointmentTime: appointmentData.appointment_time,
         location: establishment?.location || establishment?.address || '',
-        appointmentId: user?.id
+        professionalName: professionalName,
+        appointmentId: user?.id,
+        uniqueKey: Date.now().toString() // Chave única baseada no timestamp
       };
       localStorage.setItem('reminder_creation_data', JSON.stringify(appointmentInfo));
 

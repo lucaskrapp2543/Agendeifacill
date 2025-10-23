@@ -50,6 +50,62 @@ const ClientDashboard = () => {
   // Estados para modal de sucesso do agendamento (vindo do booking)
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successModalStep, setSuccessModalStep] = useState<'initial' | 'confirmation'>('initial');
+  const [establishmentWhatsAppConfig, setEstablishmentWhatsAppConfig] = useState<{
+    enableWhatsAppNotifications: boolean;
+    whatsapp: string;
+  } | null>(null);
+
+  // Função para carregar configuração de WhatsApp do estabelecimento
+  const loadEstablishmentWhatsAppConfig = async (establishmentName: string) => {
+    try {
+      const { data: establishment, error } = await supabase
+        .from('establishments')
+        .select('enable_whatsapp_notifications, whatsapp')
+        .eq('name', establishmentName)
+        .single();
+
+      if (error) {
+        console.error('Erro ao carregar configuração do estabelecimento:', error);
+        return;
+      }
+
+      setEstablishmentWhatsAppConfig({
+        enableWhatsAppNotifications: establishment?.enable_whatsapp_notifications || false,
+        whatsapp: establishment?.whatsapp || ''
+      });
+    } catch (error) {
+      console.error('Erro ao carregar configuração do estabelecimento:', error);
+    }
+  };
+
+
+  // Função para enviar mensagem via WhatsApp
+  const handleConfirmWhatsApp = () => {
+    if (!establishmentWhatsAppConfig?.whatsapp || !pendingReminderData) {
+      toast.error('Configuração de WhatsApp não encontrada');
+      return;
+    }
+
+    const message = `Fiz um agendamento pelo Agendei Fácil:
+📅 Data: ${pendingReminderData.appointmentDate}
+⏰ Horário: ${pendingReminderData.appointmentTime}
+💈 Serviço: ${pendingReminderData.serviceName}
+💇 Profissional: ${pendingReminderData.professionalName || 'Não especificado'}`;
+
+    const whatsappUrl = `https://wa.me/${establishmentWhatsAppConfig.whatsapp}?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+
+    // Marcar como confirmado no localStorage
+    if (pendingReminderData) {
+      const confirmationKey = `appointment_confirmed_${pendingReminderData.uniqueKey}`;
+      localStorage.setItem(confirmationKey, 'true');
+    }
+
+    // Fechar o modal após enviar
+    setShowSuccessModal(false);
+    setEstablishmentWhatsAppConfig(null);
+    setPendingReminderData(null);
+  };
 
   // Função para solicitar permissão de notificação
   const requestNotificationPermission = async () => {
@@ -79,13 +135,23 @@ const ClientDashboard = () => {
     if (reminderData) {
       try {
         const parsedData = JSON.parse(reminderData);
+
         setPendingReminderData(parsedData);
         setShouldShowReminderIndicator(true);
 
         // Mostrar modal de agendamento concluído no dashboard
-        setTimeout(() => {
-          setShowSuccessModal(true);
-          setSuccessModalStep('initial');
+        setTimeout(async () => {
+          // Carregar configuração de WhatsApp do estabelecimento
+          await loadEstablishmentWhatsAppConfig(parsedData.establishmentName);
+
+          // Verificar se já foi confirmado
+          const confirmationKey = `appointment_confirmed_${parsedData.uniqueKey}`;
+          const alreadyConfirmed = localStorage.getItem(confirmationKey) === 'true';
+
+          if (!alreadyConfirmed) {
+            setShowSuccessModal(true);
+            setSuccessModalStep('initial');
+          }
         }, 1500);
 
         // Remover dados após 5 minutos se não foram usados
@@ -441,21 +507,40 @@ const ClientDashboard = () => {
                             <>
                               <button
                                 onClick={() => {
-                                  const appointmentDateTime = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
-                                  const reminderTime = new Date(appointmentDateTime.getTime() - (30 * 60 * 1000)); // 30 minutos antes
+                                  // Verificar se já foi confirmado via WhatsApp
+                                  const confirmationKey = `appointment_confirmed_${pendingReminderData?.uniqueKey}`;
+                                  const alreadyConfirmed = localStorage.getItem(confirmationKey) === 'true';
 
-                                  const reminderTitle = `Lembrete: ${appointment.establishment_name}`;
-                                  const reminderDescription = `Você tem um agendamento em ${appointment.establishment_name}\n\nServiço: ${appointment.service_name}\nProfissional: ${appointment.professional_name || 'Não especificado'}\nHorário: ${appointment.appointment_time}`;
+                                  if (alreadyConfirmed) {
+                                    // Se já confirmou, mostrar modal de lembrete normal
+                                    const appointmentDateTime = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
+                                    const reminderTime = new Date(appointmentDateTime.getTime() - (30 * 60 * 1000)); // 30 minutos antes
 
-                                  // Criar evento no calendário
-                                  const startDate = reminderTime.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-                                  const endDate = new Date(reminderTime.getTime() + (15 * 60 * 1000)).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'; // 15 min de duração
+                                    const reminderTitle = `Lembrete: ${appointment.establishment_name}`;
+                                    const reminderDescription = `Você tem um agendamento em ${appointment.establishment_name}\n\nServiço: ${appointment.service_name}\nProfissional: ${appointment.professional_name || 'Não especificado'}\nHorário: ${appointment.appointment_time}`;
 
-                                  const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointment.establishment_name)}`;
+                                    // Criar evento no calendário
+                                    const startDate = reminderTime.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                                    const endDate = new Date(reminderTime.getTime() + (15 * 60 * 1000)).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'; // 15 min de duração
 
-                                  window.open(calendarUrl, '_blank');
+                                    const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointment.establishment_name)}`;
 
-                                  toast('Lembrete criado! Abrindo calendário...', 'success');
+                                    window.open(calendarUrl, '_blank');
+                                    toast('Lembrete criado! Abrindo calendário...', 'success');
+                                  } else {
+                                    // Se não confirmou ainda, mostrar modal de confirmação
+                                    setPendingReminderData({
+                                      serviceName: appointment.service_name,
+                                      establishmentName: appointment.establishment_name,
+                                      appointmentDate: appointment.appointment_date,
+                                      appointmentTime: appointment.appointment_time,
+                                      professionalName: appointment.professional_name
+                                    });
+                                    loadEstablishmentWhatsAppConfig(appointment.establishment_name).then(() => {
+                                      setShowSuccessModal(true);
+                                      setSuccessModalStep('initial');
+                                    });
+                                  }
 
                                   // Se havia um lembrete pendente, marcar como ativado
                                   if (pendingReminderData) {
@@ -469,7 +554,7 @@ const ClientDashboard = () => {
                                   }`}
                                 title={shouldShowReminderIndicator ? "🏆 Clique para ativar seu lembrete!" : "Criar lembrete no seu calendário"}
                               >
-                                📅 Lembrete
+                                📅 {pendingReminderData && localStorage.getItem(`appointment_confirmed_${pendingReminderData.uniqueKey}`) === 'true' ? 'Já confirmei' : 'Lembrete'}
                                 {shouldShowReminderIndicator && (
                                   <span className="ml-1 animate-bounce text-lg">✨</span>
                                 )}
@@ -672,14 +757,18 @@ const ClientDashboard = () => {
       )}
 
       {/* Modal de Sucesso do Agendamento */}
-      <SuccessBookingModal
-        isOpen={showSuccessModal}
-        onClose={handleCloseSuccessModal}
-        onActivateReminder={handleActivateReminder}
-        onDontActivate={successModalStep === 'initial' ? handleDontActivateFirst : handleDontActivateFinal}
-        step={successModalStep}
-        appointmentData={pendingReminderData}
-      />
+      {showSuccessModal && pendingReminderData && (
+        <SuccessBookingModal
+          isOpen={showSuccessModal}
+          onClose={handleCloseSuccessModal}
+          onActivateReminder={handleActivateReminder}
+          onDontActivate={successModalStep === 'initial' ? handleDontActivateFirst : handleDontActivateFinal}
+          onConfirmWhatsApp={handleConfirmWhatsApp}
+          step={successModalStep}
+          appointmentData={pendingReminderData}
+          enableWhatsAppNotifications={establishmentWhatsAppConfig?.enableWhatsAppNotifications || false}
+        />
+      )}
 
       {/* Banner para baixar o app */}
       <AppDownloadBanner />

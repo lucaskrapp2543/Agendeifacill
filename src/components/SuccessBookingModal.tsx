@@ -1,11 +1,12 @@
+import { Bell, CheckCircle } from 'lucide-react';
 import React from 'react';
-import { CheckCircle, Bell } from 'lucide-react';
 
 interface SuccessBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onActivateReminder: () => void;
   onDontActivate: () => void;
+  onConfirmWhatsApp?: () => void; // Nova função para confirmar via WhatsApp
   step: 'initial' | 'confirmation';
   appointmentData?: {
     serviceName: string;
@@ -13,7 +14,9 @@ interface SuccessBookingModalProps {
     appointmentDate: string;
     appointmentTime: string;
     location?: string;
+    professionalName?: string; // Adicionar nome do profissional
   };
+  enableWhatsAppNotifications?: boolean; // Nova prop para controlar a exibição
 }
 
 export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
@@ -21,8 +24,10 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
   onClose,
   onActivateReminder,
   onDontActivate,
+  onConfirmWhatsApp,
   step,
-  appointmentData
+  appointmentData,
+  enableWhatsAppNotifications = false
 }) => {
   if (!isOpen) return null;
 
@@ -41,14 +46,17 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
 
           {/* Título */}
           <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
-            {isConfirmationStep ? 'Confirmação' : 'Agendamento concluído com sucesso!'}
+            {isConfirmationStep ? 'Confirmação' :
+              enableWhatsAppNotifications ? 'Está quase lá!' : 'Agendamento concluído com sucesso!'}
           </h2>
 
           {/* Mensagem principal */}
           <p className="text-gray-600 text-center mb-6">
             {isConfirmationStep
               ? 'Tem certeza que deseja não ativar o lembrete? Se não ativar, você pode esquecer de ir e prejudicar seu profissional.'
-              : 'Clique abaixo para ativar o lembrete.'
+              : enableWhatsAppNotifications
+                ? 'Para finalizar o agendamento, clique no botão Confirmar. Assim, enviaremos uma notificação para o seu barbeiro informando o serviço.'
+                : 'Clique abaixo para ativar o lembrete.'
             }
           </p>
 
@@ -76,45 +84,60 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
               </button>
             )}
 
-            <button
-              onClick={isConfirmationStep ? onActivateReminder : onDontActivate}
-              className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isConfirmationStep
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-            >
-              {isConfirmationStep ? (
-                <>
-                  <Bell className="w-4 h-4" />
-                  Quero ativar notificação
-                </>
-              ) : (
-                <>
-                  <Bell className="w-4 h-4" />
-                  Não ativar
-                </>
-              )}
-            </button>
+            {/* Renderizar botões baseado na configuração */}
+            {enableWhatsAppNotifications && !isConfirmationStep ? (
+              // Nova interface para WhatsApp
+              <button
+                onClick={onConfirmWhatsApp}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Confirmar
+              </button>
+            ) : (
+              // Interface original para lembretes
+              <>
+                <button
+                  onClick={isConfirmationStep ? onActivateReminder : onDontActivate}
+                  className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isConfirmationStep
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                  {isConfirmationStep ? (
+                    <>
+                      <Bell className="w-4 h-4" />
+                      Quero ativar notificação
+                    </>
+                  ) : (
+                    <>
+                      <Bell className="w-4 h-4" />
+                      Não ativar
+                    </>
+                  )}
+                </button>
 
-            <button
-              onClick={isConfirmationStep ? onDontActivate : onActivateReminder}
-              className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isConfirmationStep
-                  ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-            >
-              {isConfirmationStep ? (
-                <>
-                  <Bell className="w-4 h-4" />
-                  Não ativar
-                </>
-              ) : (
-                <>
-                  <Bell className="w-4 h-4" />
-                  Ativar
-                </>
-              )}
-            </button>
+                <button
+                  onClick={isConfirmationStep ? onDontActivate : onActivateReminder}
+                  className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isConfirmationStep
+                    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                >
+                  {isConfirmationStep ? (
+                    <>
+                      <Bell className="w-4 h-4" />
+                      Não ativar
+                    </>
+                  ) : (
+                    <>
+                      <Bell className="w-4 h-4" />
+                      Ativar
+                    </>
+                  )}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
