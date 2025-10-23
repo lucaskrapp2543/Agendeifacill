@@ -290,6 +290,7 @@ const LandingVendas = () => {
                 {[
                   'Página exclusiva e editável sua',
                   'Seu cliente agenda em poucos cliques',
+                  'Você recebe notificação no sistema e no seu whatsapp de cada agendamento novo ou cancelado',
                   'Seu cliente não precisa baixar app',
                   'Seu cliente recebe lembrete 30min antes',
                   'Seus clientes não veem sua concorrência',
