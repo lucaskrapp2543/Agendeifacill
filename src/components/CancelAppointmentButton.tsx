@@ -83,7 +83,13 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
 💇 Profissional: ${appointment.professional_name || 'Não especificado'}
 💳 Forma de Pagamento: ${appointment.payment_method || 'Não especificada'}`;
 
-    const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(message)}`;
+    // Codificar mensagem preservando emojis
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
+
+    console.log('🔍 DEBUG - Mensagem original:', message);
+    console.log('🔍 DEBUG - Mensagem codificada:', encodedMessage);
+    console.log('🔍 DEBUG - URL final:', whatsappUrl);
     window.open(whatsappUrl, '_blank');
 
     // Fechar o modal após enviar
