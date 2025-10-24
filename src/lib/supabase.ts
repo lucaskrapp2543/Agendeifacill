@@ -831,6 +831,18 @@ export const getClientAppointments = async (clientId: string) => {
     console.log('  - Erro:', error);
     console.log('  - Dados completos:', supabaseData);
 
+    // Debug específico para verificar campos importantes
+    if (supabaseData && supabaseData.length > 0) {
+      console.log('🔍 DEBUG - Campos do primeiro agendamento:');
+      const firstAppointment = supabaseData[0];
+      console.log('  - service_name:', firstAppointment.service_name);
+      console.log('  - professional_name:', firstAppointment.professional_name);
+      console.log('  - professional:', firstAppointment.professional);
+      console.log('  - establishment_name:', firstAppointment.establishment_name);
+      console.log('  - appointment_date:', firstAppointment.appointment_date);
+      console.log('  - appointment_time:', firstAppointment.appointment_time);
+    }
+
     // Buscar também no localStorage (backup)
     const localData = getAppointmentsLocal(clientId);
     console.log('💾 Dados locais encontrados:', localData?.length || 0);
@@ -856,6 +868,29 @@ export const getClientAppointments = async (clientId: string) => {
     }
 
     console.log('🔄 Dados combinados final:', combinedData?.length || 0);
+
+    // Resolver nomes dos profissionais se necessário
+    if (combinedData && combinedData.length > 0) {
+      for (let appointment of combinedData) {
+        // Se professional é um ID e não um nome, tentar buscar o nome
+        if (appointment.professional && appointment.professional.length > 10 && !appointment.professional_name) {
+          try {
+            // Buscar o nome do profissional no estabelecimento
+            if (appointment.establishments && appointment.establishments.professionals) {
+              const professionals = appointment.establishments.professionals;
+              if (Array.isArray(professionals)) {
+                const professional = professionals.find((p: any) => p.id === appointment.professional);
+                if (professional && professional.name) {
+                  appointment.professional_name = professional.name;
+                }
+              }
+            }
+          } catch (error) {
+            console.log('⚠️ Erro ao buscar nome do profissional:', error);
+          }
+        }
+      }
+    }
 
     return { data: combinedData, error };
   } catch (err) {

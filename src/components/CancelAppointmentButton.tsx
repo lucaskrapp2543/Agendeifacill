@@ -75,16 +75,47 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
     }
 
     console.log('🔍 DEBUG - WhatsApp final:', cleanWhatsapp);
+    console.log('🔍 DEBUG - Dados do agendamento:', {
+      service_name: appointment.service_name,
+      service: appointment.service,
+      professional_name: appointment.professional_name,
+      professional: appointment.professional,
+      payment_method: appointment.payment_method,
+      appointment_date: appointment.appointment_date,
+      appointment_time: appointment.appointment_time
+    });
 
-    const message = `Cancelamento de agendamento pelo Agendei Fácil:
-📅 Data: ${appointment.appointment_date}
-⏰ Horário: ${appointment.appointment_time}
-💈 Serviço: ${appointment.service_name}
-💇 Profissional: ${appointment.professional_name || 'Não especificado'}
-💳 Forma de Pagamento: ${appointment.payment_method || 'Não especificada'}`;
+    // Resolver nome do profissional se necessário
+    let professionalName = appointment.professional_name || 'Não especificado';
+    if (!appointment.professional_name && appointment.professional && appointment.professional.length > 10) {
+      // Se professional é um ID, tentar buscar o nome
+      try {
+        if (appointment.establishments && appointment.establishments.professionals) {
+          const professionals = appointment.establishments.professionals;
+          if (Array.isArray(professionals)) {
+            const professional = professionals.find((p: any) => p.id === appointment.professional);
+            if (professional && professional.name) {
+              professionalName = professional.name;
+            }
+          }
+        }
+      } catch (error) {
+        console.log('⚠️ Erro ao buscar nome do profissional:', error);
+      }
+    }
 
-    // Codificar mensagem preservando emojis
-    const encodedMessage = encodeURIComponent(message);
+    const message = `Quero cancelar meu agendamento pelo Agendei Fácil:
+
+*Data:* ${appointment.appointment_date}
+*Horário:* ${appointment.appointment_time}
+*Serviço:* ${appointment.service_name || appointment.service || 'Não especificado'}
+*Profissional:* ${professionalName}
+*Forma de Pagamento:* ${appointment.payment_method || 'Não especificada'}
+
+Por favor, confirme o cancelamento. Obrigado!`;
+
+    // Tentar codificação diferente para preservar emojis
+    const encodedMessage = encodeURIComponent(message).replace(/%20/g, '%20');
     const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
 
     console.log('🔍 DEBUG - Mensagem original:', message);

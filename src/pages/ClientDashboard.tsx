@@ -137,19 +137,21 @@ const ClientDashboard = () => {
     console.log('🔍 DEBUG - WhatsApp final:', cleanWhatsapp);
 
     const message = `Fiz um agendamento pelo Agendei Fácil:
-📅 Data: ${pendingReminderData.appointmentDate}
-⏰ Horário: ${pendingReminderData.appointmentTime}
-💈 Serviço: ${pendingReminderData.serviceName}
-💇 Profissional: ${pendingReminderData.professionalName || 'Não especificado'}
-💳 Forma de Pagamento: ${pendingReminderData.paymentMethod || 'Não especificada'}`;
 
-    // Codificar mensagem preservando emojis
-    const encodedMessage = encodeURIComponent(message);
+*Data:* ${pendingReminderData.appointmentDate}
+*Horário:* ${pendingReminderData.appointmentTime}
+*Serviço:* ${pendingReminderData.serviceName}
+*Profissional:* ${pendingReminderData.professionalName || 'Não especificado'}
+*Forma de Pagamento:* ${pendingReminderData.paymentMethod || 'Não especificada'}`;
+
+    // Tentar codificação diferente para preservar emojis
+    const encodedMessage = encodeURIComponent(message).replace(/%20/g, '%20');
     const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
 
     console.log('🔍 DEBUG - Mensagem original:', message);
     console.log('🔍 DEBUG - Mensagem codificada:', encodedMessage);
     console.log('🔍 DEBUG - URL final:', whatsappUrl);
+
     window.open(whatsappUrl, '_blank');
 
     // Marcar como confirmado no localStorage
@@ -323,6 +325,21 @@ const ClientDashboard = () => {
       }
 
       console.log('📊 Dados recebidos:', data?.length || 0, 'agendamentos');
+      console.log('🔍 DEBUG - Primeiro agendamento:', data?.[0]);
+
+      // Debug específico para verificar campos importantes
+      if (data && data.length > 0) {
+        const firstAppointment = data[0];
+        console.log('🔍 DEBUG - Campos do primeiro agendamento:');
+        console.log('  - service_name:', firstAppointment.service_name);
+        console.log('  - service:', firstAppointment.service);
+        console.log('  - professional_name:', firstAppointment.professional_name);
+        console.log('  - professional:', firstAppointment.professional);
+        console.log('  - establishment_name:', firstAppointment.establishment_name);
+        console.log('  - appointment_date:', firstAppointment.appointment_date);
+        console.log('  - appointment_time:', firstAppointment.appointment_time);
+        console.log('  - Todas as chaves:', Object.keys(firstAppointment));
+      }
 
       if (!data || data.length === 0) {
         console.log('⚠️ Nenhum agendamento no banco, verificando localStorage...');
@@ -673,7 +690,7 @@ const ClientDashboard = () => {
                             ✂️ Serviço
                           </h4>
                           <p className="text-gray-300 text-lg">
-                            {appointment.service_name}
+                            {appointment.service_name || appointment.service || 'Serviço não especificado'}
                           </p>
                           {appointment.duration && (
                             <p className="text-gray-400 text-sm mt-1">
