@@ -114,6 +114,28 @@ const ClientDashboard = () => {
       return;
     }
 
+    // Limpar e formatar o número do WhatsApp
+    let cleanWhatsapp = establishmentWhatsAppConfig.whatsapp.replace(/\D/g, '');
+
+    console.log('🔍 DEBUG - WhatsApp original:', establishmentWhatsAppConfig.whatsapp);
+    console.log('🔍 DEBUG - WhatsApp limpo:', cleanWhatsapp);
+
+    // Garantir que tenha código do país (55 para Brasil)
+    if (cleanWhatsapp.length === 11 && !cleanWhatsapp.startsWith('55')) {
+      cleanWhatsapp = '55' + cleanWhatsapp;
+    } else if (cleanWhatsapp.length === 10) {
+      cleanWhatsapp = '55' + cleanWhatsapp;
+    } else if (cleanWhatsapp.length === 13 && cleanWhatsapp.startsWith('55')) {
+      // Já tem código do país, manter
+      cleanWhatsapp = cleanWhatsapp;
+    } else if (cleanWhatsapp.length < 10) {
+      console.error('❌ Número de WhatsApp muito curto:', cleanWhatsapp);
+      toast.error('Número de WhatsApp inválido');
+      return;
+    }
+
+    console.log('🔍 DEBUG - WhatsApp final:', cleanWhatsapp);
+
     const message = `Fiz um agendamento pelo Agendei Fácil:
 📅 Data: ${pendingReminderData.appointmentDate}
 ⏰ Horário: ${pendingReminderData.appointmentTime}
@@ -121,7 +143,7 @@ const ClientDashboard = () => {
 💇 Profissional: ${pendingReminderData.professionalName || 'Não especificado'}
 💳 Forma de Pagamento: ${pendingReminderData.paymentMethod || 'Não especificada'}`;
 
-    const whatsappUrl = `https://wa.me/${establishmentWhatsAppConfig.whatsapp}?text=${encodeURIComponent(message)}`;
+    const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
 
     // Marcar como confirmado no localStorage
