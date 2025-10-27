@@ -13,6 +13,7 @@ export default function ViewAppointmentsPage() {
   const [showLoginModal, setShowLoginModal] = useState(true);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [confirmedAppointments, setConfirmedAppointments] = useState<Set<string>>(new Set());
 
   // Estados para modal de sucesso/WhatsApp
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -72,7 +73,7 @@ export default function ViewAppointmentsPage() {
 
       setAppointments(sortedAppointments);
       setShowLoginModal(false);
-      toast.success(`${sortedAppointments.length} agendamento(s) encontrado(s)`);
+      // Toast removido - não é necessário mostrar quantos agendamentos foram encontrados
 
       // Carregar configuração de WhatsApp do primeiro estabelecimento
       const firstAppointment = data[0];
@@ -214,6 +215,29 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
     toast.success('Desconectado com sucesso!');
   };
+
+  // Função para marcar um agendamento como confirmado
+  const handleMarkAsConfirmed = (appointmentId: string) => {
+    const newConfirmed = new Set(confirmedAppointments).add(appointmentId);
+    setConfirmedAppointments(newConfirmed);
+
+    // Salvar no localStorage
+    const confirmedArray = Array.from(newConfirmed);
+    localStorage.setItem('confirmed_appointments', JSON.stringify(confirmedArray));
+  };
+
+  // Carregar confirmações do localStorage ao montar o componente
+  useEffect(() => {
+    const savedConfirmed = localStorage.getItem('confirmed_appointments');
+    if (savedConfirmed) {
+      try {
+        const confirmedArray = JSON.parse(savedConfirmed);
+        setConfirmedAppointments(new Set(confirmedArray));
+      } catch (error) {
+        console.error('Erro ao carregar confirmações:', error);
+      }
+    }
+  }, []);
 
   // Função para carregar configuração de WhatsApp do estabelecimento
   const loadEstablishmentWhatsAppConfig = async (establishmentName: string) => {
@@ -624,35 +648,45 @@ Por favor, confirme o cancelamento. Obrigado!`;
                 {/* Botões de Ação */}
                 {appointment.status !== 'cancelled' && appointment.status !== 'completed' && (
                   <div className="pt-4 border-t border-gray-200 space-y-3">
-                    {/* Seção de Confirmação WhatsApp */}
-                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl p-3 sm:p-4 shadow-lg hover:shadow-xl transition-all duration-300">
-                      <div className="text-center mb-2 sm:mb-3">
-                        <p className="text-lg sm:text-xl font-bold text-green-700">
-                          ⚡ Falta pouco! ⚡
-                        </p>
-                        <div className="flex justify-center items-center gap-1 sm:gap-2 mt-1 sm:mt-2">
-                          <span className="text-green-600 text-sm sm:text-base">👇</span>
-                          <span className="text-xs sm:text-sm font-semibold text-green-600">Clique abaixo</span>
-                          <span className="text-green-600 text-sm sm:text-base">👇</span>
+                    {/* Seção de Confirmação WhatsApp - Só mostra se NÃO estiver confirmado */}
+                    {!confirmedAppointments.has(appointment.id) && (
+                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl p-3 sm:p-4 shadow-lg hover:shadow-xl transition-all duration-300">
+                        <div className="text-center mb-2 sm:mb-3">
+                          <p className="text-lg sm:text-xl font-bold text-green-700">
+                            ⚡ Falta pouco! ⚡
+                          </p>
+                          <div className="flex justify-center items-center gap-1 sm:gap-2 mt-1 sm:mt-2">
+                            <span className="text-green-600 text-sm sm:text-base">👇</span>
+                            <span className="text-xs sm:text-sm font-semibold text-green-600">Clique abaixo</span>
+                            <span className="text-green-600 text-sm sm:text-base">👇</span>
+                          </div>
                         </div>
-                      </div>
-                      <button
-                        onClick={() => handleConfirmWhatsAppForAppointment(appointment)}
-                        className="w-full px-3 sm:px-4 py-3 sm:py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 font-bold text-sm sm:text-lg shadow-xl hover:shadow-2xl transform hover:scale-[1.02] sm:hover:scale-[1.05] flex items-center justify-center gap-2 sm:gap-3 border-2 border-green-400 hover:border-green-500 animate-pulse"
-                      >
-                        <span className="text-xs sm:text-base">Confirmar agendamento</span>
-                      </button>
-                      <div className="text-center mt-2 sm:mt-3">
-                        <p className="text-xs sm:text-sm font-semibold text-green-700 leading-tight">
-                          ✅ Confirmação via WhatsApp ✅
-                        </p>
-                        <div className="flex justify-center items-center gap-1 mt-1">
-                          <span className="text-red-500 text-xs sm:text-sm">⚠️</span>
-                          <span className="text-xs text-red-600 font-bold">ATENÇÃO: Necessário!</span>
-                          <span className="text-red-500 text-xs sm:text-sm">⚠️</span>
+                        <button
+                          onClick={() => handleConfirmWhatsAppForAppointment(appointment)}
+                          className="w-full px-3 sm:px-4 py-3 sm:py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 font-bold text-sm sm:text-lg shadow-xl hover:shadow-2xl transform hover:scale-[1.02] sm:hover:scale-[1.05] flex items-center justify-center gap-2 sm:gap-3 border-2 border-green-400 hover:border-green-500 animate-pulse"
+                        >
+                          <span className="text-xs sm:text-base">Confirmar agendamento</span>
+                        </button>
+                        <div className="text-center mt-2 sm:mt-3">
+                          <p className="text-xs sm:text-sm font-semibold text-green-700 leading-tight">
+                            ✅ Confirmação via WhatsApp ✅
+                          </p>
+                          <div className="flex justify-center items-center gap-1 mt-1">
+                            <span className="text-red-500 text-xs sm:text-sm">⚠️</span>
+                            <span className="text-xs text-red-600 font-bold">ATENÇÃO: Necessário!</span>
+                            <span className="text-red-500 text-xs sm:text-sm">⚠️</span>
+                          </div>
                         </div>
+
+                        {/* Botão "Já confirmei" - Dentro do card verde */}
+                        <button
+                          onClick={() => handleMarkAsConfirmed(appointment.id)}
+                          className="w-full mt-3 px-4 py-2 bg-white text-green-700 border-2 border-green-500 rounded-lg hover:bg-green-50 transition-colors font-medium"
+                        >
+                          ✓ Já confirmei
+                        </button>
                       </div>
-                    </div>
+                    )}
 
                     {/* Botão de Cancelamento */}
                     <button
@@ -743,7 +777,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         onClose={() => {
           setShowLoginModal(false);
           if (appointments.length === 0) {
-            navigate('/');
+            navigate(-1);
           }
         }}
         onLogin={handlePhoneLogin}

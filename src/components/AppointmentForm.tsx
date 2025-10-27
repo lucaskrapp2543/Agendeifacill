@@ -87,6 +87,7 @@ interface AppointmentFormProps {
   subscriberDetectionDisabled?: boolean; // Estado externo para desabilitar detecção
   onSubscriberDetectionDisabledChange?: (disabled: boolean) => void; // Callback para mudar o estado
   guestClientData?: { name: string; phone: string } | null; // Dados do cliente convidado (sem login)
+  dateSelectedByUser?: boolean; // Indica se a data foi selecionada pelo usuário
 }
 
 export function AppointmentForm({
@@ -100,7 +101,8 @@ export function AppointmentForm({
   onConvertToSubscriber,
   subscriberDetectionDisabled: externalSubscriberDetectionDisabled,
   guestClientData,
-  onSubscriberDetectionDisabledChange
+  onSubscriberDetectionDisabledChange,
+  dateSelectedByUser = false
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
@@ -136,6 +138,9 @@ export function AppointmentForm({
   const [clientWhatsapp, setClientWhatsapp] = useState('');
   const [clientCpf, setClientCpf] = useState('');
   const [isLoadingUserData, setIsLoadingUserData] = useState(false);
+
+  // Estado para controlar se a data foi selecionada pelo usuário
+  const [hasSelectedDate, setHasSelectedDate] = useState(false);
 
   // Usar dados do convidado se disponíveis
   useEffect(() => {
@@ -424,6 +429,50 @@ export function AppointmentForm({
     }
   }, [establishment?.id, establishment?.services_with_prices]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Função para scroll automático para a próxima seção
+  const scrollToNextSection = (delay = 300) => {
+    setTimeout(() => {
+      // Procurar pela próxima seção visível
+      const sections = document.querySelectorAll('.appointment-section');
+      let nextSection = null;
+
+      for (let i = 0; i < sections.length; i++) {
+        const section = sections[i] as HTMLElement;
+        const rect = section.getBoundingClientRect();
+
+        // Se a seção está parcialmente visível ou abaixo da viewport
+        if (rect.top > 100) {
+          nextSection = section;
+          break;
+        }
+      }
+
+      if (nextSection) {
+        nextSection.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      } else {
+        // Se não encontrar seção específica, scroll para baixo
+        window.scrollBy({
+          top: 200,
+          behavior: 'smooth'
+        });
+      }
+    }, delay);
+  };
+
+  // Função específica para scroll após selecionar data (vai para horário)
+  const scrollToTimeSection = (delay = 300) => {
+    setTimeout(() => {
+      // Scroll menor e mais preciso para a próxima seção
+      window.scrollBy({
+        top: 200,
+        behavior: 'smooth'
+      });
+    }, delay);
+  };
 
   // ✅ FUNÇÃO PARA COMBINAR SERVIÇOS GERAIS COM SERVIÇOS ESPECÍFICOS DO PROFISSIONAL
   const getCombinedServices = () => {
@@ -1743,6 +1792,11 @@ export function AppointmentForm({
               // Isso mantém a interface funcionando
 
               setSelectedProfessional(professional || undefined);
+
+              // Scroll automático para a próxima seção após selecionar profissional
+              if (professional) {
+                scrollToNextSection();
+              }
             }}
             establishmentId={establishment.id || establishment.establishment_id || ''}
             selectedDate={selectedDate}
@@ -1802,7 +1856,14 @@ export function AppointmentForm({
               <MultiServiceSelector
                 services={getCombinedServices()}
                 selectedServices={selectedServices}
-                onSelectServices={setSelectedServices}
+                onSelectServices={(services) => {
+                  setSelectedServices(services);
+
+                  // Scroll automático para a próxima seção após selecionar serviços
+                  if (services.length > 0) {
+                    scrollToNextSection();
+                  }
+                }}
                 maxServices={4}
               />
             ) : useCategoryService ? (
@@ -1852,6 +1913,11 @@ export function AppointmentForm({
                         onChange={(e) => {
                           setSelectedCategory(e.target.value);
                           setSelectedSubcategory(null);
+
+                          // Scroll automático para a próxima seção após selecionar categoria
+                          if (e.target.value) {
+                            scrollToNextSection();
+                          }
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-gray-900 bg-white"
                       >
@@ -1883,10 +1949,16 @@ export function AppointmentForm({
                                   // ✅ MODO MÚLTIPLOS: Adicionar à lista se não exceder limite
                                   if (selectedCategoryServices.length < 4) {
                                     setSelectedCategoryServices(prev => [...prev, subcategory]);
+
+                                    // Scroll automático para a próxima seção após selecionar serviço de categoria
+                                    scrollToNextSection();
                                   }
                                 } else {
                                   // ✅ MODO ÚNICO: Selecionar apenas um
                                   setSelectedSubcategory(subcategory);
+
+                                  // Scroll automático para a próxima seção após selecionar subcategoria
+                                  scrollToNextSection();
                                 }
                               }
                             }
@@ -1996,7 +2068,15 @@ export function AppointmentForm({
             </label>
             <DatePicker
               selectedDate={selectedDate}
-              onChange={onSelectDate}
+              onChange={(date) => {
+                onSelectDate(date);
+                setHasSelectedDate(true); // Marca que o usuário selecionou uma data
+
+                // Scroll automático para a seção de horário após selecionar data
+                if (date) {
+                  scrollToTimeSection();
+                }
+              }}
               businessHours={establishment.business_hours}
               allowedWeekdays={subscriberService?.weekdays}
               isSubscriberBooking={isSubscriberBooking}
@@ -2005,7 +2085,7 @@ export function AppointmentForm({
         )}
 
         {/* 6. HORÁRIO */}
-        {showDateSection && (selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0))) || (isSubscriberBooking && subscriberService)) && (
+        {showDateSection && hasSelectedDate && (selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0))) || (isSubscriberBooking && subscriberService)) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               6. Escolha o Horário
@@ -2071,7 +2151,28 @@ export function AppointmentForm({
                 } : selectedService}
                 existingAppointments={filteredExistingAppointments} // Passar agendamentos filtrados
                 selectedTime={selectedTime}
-                onTimeSelect={setSelectedTime}
+                onTimeSelect={(time) => {
+                  setSelectedTime(time);
+
+                  // Scroll automático para a seção de observação após selecionar horário
+                  if (time) {
+                    setTimeout(() => {
+                      // Encontrar a seção de observação
+                      const observationSection = document.querySelector('textarea[placeholder*="observação"]');
+                      if (observationSection) {
+                        observationSection.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'start'
+                        });
+                      } else {
+                        window.scrollBy({
+                          top: 250,
+                          behavior: 'smooth'
+                        });
+                      }
+                    }, 300);
+                  }
+                }}
                 filterPastTimes={!!(user && !isEstablishmentOwner)} // Filtrar horários passados apenas para clientes logados
                 businessHours={businessHours}
                 use15MinuteInterval={establishment.use_15_minute_interval ?? false}
@@ -2122,7 +2223,28 @@ export function AppointmentForm({
             </label>
             <PaymentMethodSelector
               selectedMethod={selectedPaymentMethod}
-              onMethodSelect={setSelectedPaymentMethod}
+              onMethodSelect={(method) => {
+                setSelectedPaymentMethod(method);
+
+                // Scroll automático para o botão de agendar após selecionar método de pagamento
+                if (method) {
+                  // Pequeno delay para garantir que a UI foi atualizada
+                  setTimeout(() => {
+                    const submitButton = document.querySelector('button[type="submit"]');
+                    if (submitButton) {
+                      submitButton.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center'
+                      });
+                    } else {
+                      window.scrollBy({
+                        top: 300,
+                        behavior: 'smooth'
+                      });
+                    }
+                  }, 300);
+                }
+              }}
               showPixOptions={!!establishment.pix_key}
               pixPaymentMethod={pixPaymentMethod}
               onPixMethodSelect={handlePixMethodSelect}

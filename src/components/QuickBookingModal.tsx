@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 
 interface QuickBookingModalProps {
@@ -17,6 +17,29 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+
+  // Bloquear scroll quando modal estiver aberto
+  useEffect(() => {
+    if (isOpen) {
+      // Salvar o scroll atual
+      const scrollY = window.scrollY;
+
+      // Bloquear scroll
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+
+      return () => {
+        // Restaurar scroll quando modal fechar
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.width = '';
+        document.body.style.overflow = '';
+        window.scrollTo(0, scrollY);
+      };
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -38,7 +61,30 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
       return;
     }
 
+    // Fechar modal primeiro
     onContinue(name.trim(), phone.trim());
+
+    // Scroll para a seção de agendamento após um pequeno delay
+    setTimeout(() => {
+      // Procurar por elementos que podem ser a seção de agendamento
+      const appointmentSection = document.querySelector('[data-appointment-section]') ||
+        document.querySelector('.appointment-form') ||
+        document.querySelector('#appointment-form') ||
+        document.querySelector('.booking-form');
+
+      if (appointmentSection) {
+        appointmentSection.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      } else {
+        // Se não encontrar seção específica, scroll para o final da página
+        window.scrollTo({
+          top: document.body.scrollHeight,
+          behavior: 'smooth'
+        });
+      }
+    }, 100);
   };
 
   const formatPhone = (value: string) => {
@@ -63,10 +109,10 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl">
+      <div className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">Finalizar Agendamento</h2>
+        <div className="flex justify-between items-center p-4 border-b border-gray-200 flex-shrink-0">
+          <h2 className="text-lg font-bold text-gray-900">Finalizar Agendamento</h2>
           <button
             onClick={onClose}
             className="text-gray-500 hover:text-gray-700 transition-colors"
@@ -75,68 +121,80 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-blue-800">
-              <strong>Agendamento para:</strong> {establishmentName}
-            </p>
-            <p className="text-xs text-blue-600 mt-1">
-              Informe seus dados para prosseguir com o agendamento
-            </p>
-          </div>
+        {/* Content - Scrollável */}
+        <div className="overflow-y-auto flex-1">
+          <div className="p-4 space-y-3">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                <strong>Agendamento para:</strong> {establishmentName}
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                Informe seus dados para prosseguir com o agendamento
+              </p>
+            </div>
 
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-              Nome Completo *
-            </label>
-            <input
-              id="name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Seu nome completo"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-              required
-            />
-          </div>
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+                Nome Completo *
+              </label>
+              <input
+                id="name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Seu nome completo"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                required
+              />
+            </div>
 
-          <div>
-            <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-              Telefone com DDD *
-            </label>
-            <input
-              id="phone"
-              type="tel"
-              value={phone}
-              onChange={handlePhoneChange}
-              placeholder="(00) 00000-0000"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-              required
-              maxLength={15}
-            />
-          </div>
+            <div>
+              <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+                Telefone com DDD *
+              </label>
+              <input
+                id="phone"
+                type="tel"
+                value={phone}
+                onChange={handlePhoneChange}
+                placeholder="(00) 00000-0000"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                required
+                maxLength={15}
+                onFocus={(e) => {
+                  // Scroll para o input quando ganhar foco
+                  setTimeout(() => {
+                    e.target.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'center',
+                      inline: 'nearest'
+                    });
+                  }, 300);
+                }}
+              />
+            </div>
 
-          <div className="bg-gray-50 rounded-lg p-3 mt-4">
-            <p className="text-xs text-gray-600">
-              💡 <strong>Dica:</strong> Você poderá ver seus agendamentos futuros apenas informando este telefone
-            </p>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-600">
+                💡 <strong>Dica:</strong> Você poderá ver seus agendamentos futuros apenas informando este telefone
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex gap-3 p-6 border-t border-gray-200">
+        {/* Footer - Fixo na parte inferior */}
+        <div className="flex gap-3 p-4 border-t border-gray-200 bg-white flex-shrink-0">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex-1 px-4 py-3 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
           >
             Cancelar
           </button>
           <button
             onClick={handleContinue}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
           >
-            Continuar Agendamento
+            Continuar
           </button>
         </div>
       </div>
