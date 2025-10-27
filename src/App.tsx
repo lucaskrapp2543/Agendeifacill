@@ -31,6 +31,7 @@ import RegistrationFreeSuccess from './pages/RegistrationFreeSuccess';
 import RegistrationSuccess from './pages/RegistrationSuccess';
 import { Success } from './pages/Success';
 import Suporte060622 from './pages/Suporte060622';
+import ViewAppointmentsPage from './pages/ViewAppointmentsPage';
 
 import AdminDashboard from './pages/AdminDashboard';
 import BlockedPage from './pages/BlockedPage';
@@ -94,6 +95,7 @@ function App() {
                 <Route path="/register" element={<Register />} />
                 <Route path="/recovery-password" element={<RecoveryPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/view-appointments" element={<ViewAppointmentsPage />} />
                 <Route path="/conhecer" element={<Conhecer />} />
                 <Route path="/conhecerv2" element={<ConhecerV2 />} />
                 <Route path="/conhecerv3" element={<ConhecerV3 />} />

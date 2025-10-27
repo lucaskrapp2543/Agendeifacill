@@ -1,13 +1,13 @@
 import { format } from 'date-fns';
-import { AlertCircle, Calendar, ChevronDown, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AppointmentForm } from '../components/AppointmentForm';
-import { LoginRequiredModal } from '../components/LoginRequiredModal';
+import { QuickBookingModal } from '../components/QuickBookingModal';
 import ReadMore from '../components/ReadMore';
 import { useAuth } from '../context/AuthContext';
-import { getSubscriptions, supabase, updateClientLastAccess } from '../lib/supabase';
+import { createGuestClientAndLogin, getSubscriptions, supabase, updateClientLastAccess } from '../lib/supabase';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 
@@ -80,6 +80,8 @@ export default function BookingPage() {
   const [convertedSubscriberData, setConvertedSubscriberData] = useState<any>(null); // Dados do assinante convertido
   const [showLoginModal, setShowLoginModal] = useState(false); // Estado para controlar o modal de login
   const [subscriberDetectionDisabled, setSubscriberDetectionDisabled] = useState(false); // Estado para desabilitar detecção de assinante
+  const [showQuickBookingModal, setShowQuickBookingModal] = useState(false); // Modal de agendamento rápido
+  const [guestClientData, setGuestClientData] = useState<{ name: string; phone: string } | null>(null); // Dados do cliente convidado
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
@@ -113,10 +115,12 @@ export default function BookingPage() {
       id: subscriberData.subscription_id || subscriberData.subscriptions?.id,
       name: subscriberData.subscription_name || subscriberData.subscriptions?.name,
       service_duration: subscriberData.subscriptions?.service_duration || 30,
-      weekdays: subscriberData.subscriptions?.weekdays || []
+      weekdays: subscriberData.weekdays || subscriberData.subscriptions?.weekdays || []
     };
 
     console.log('🔧 Serviço de assinante configurado:', subscriberService);
+    console.log('🔍 DEBUG - Weekdays do serviço:', subscriberService.weekdays);
+    console.log('🔍 DEBUG - Nome do serviço:', subscriberService.name);
 
     setSelectedSubscriberService(subscriberService);
 
@@ -410,38 +414,60 @@ export default function BookingPage() {
   };
 
   const handleSubmit = async (appointmentData: any) => {
-    if (!user && id !== '3814' && id !== '3315') return; // Se não for demonstração, exige usuário
-    if (!establishment) return;
+    if (id === '3814' || id === '3315') {
+      // Lógica para agendamento demonstrativo
+      toast.success('Atenção! Este foi um agendamento demonstrativo, parabéns! Clique abaixo e volte ao menu iniciar.', {
+        duration: 6000 // Aumenta a duração para a mensagem completa
+      });
+      setShowBookingForm(false); // Esconder formulário após agendamento demonstrativo
+      setShowDemoSuccessModal(true); // Exibir modal de sucesso de demonstração
 
-    try {
-      if (id === '3814' || id === '3315') {
-        // Lógica para agendamento demonstrativo
-        toast.success('Atenção! Este foi um agendamento demonstrativo, parabéns! Clique abaixo e volte ao menu iniciar.', {
-          duration: 6000 // Aumenta a duração para a mensagem completa
-        });
-        setShowBookingForm(false); // Esconder formulário após agendamento demonstrativo
-        setShowDemoSuccessModal(true); // Exibir modal de sucesso de demonstração
-
-        // REDIRECIONAMENTO ESPECÍFICO: APENAS para /booking/3814
-        if (id === '3814') {
-          // Aguardar um pouco para o usuário ver a mensagem de sucesso
-          setTimeout(() => {
-            navigate('/conhecer');
-          }, 2000); // 2 segundos de delay
-        }
-
-        return; // Sair da função para não salvar no banco
+      // REDIRECIONAMENTO ESPECÍFICO: APENAS para /booking/3814
+      if (id === '3814') {
+        // Aguardar um pouco para o usuário ver a mensagem de sucesso
+        setTimeout(() => {
+          navigate('/conhecer');
+        }, 2000); // 2 segundos de delay
       }
 
-      // Lógica para agendamentos reais (se não for ID 3814 ou 3315)
-      const isEstablishmentOwner = user?.id === establishment.owner_id;
+      return; // Sair da função para não salvar no banco
+    }
+
+    if (!establishment) return;
+
+    // Se não tem user, mas tem guestClientData, criar/fazer login automaticamente
+    let currentUser = user;
+    if (!currentUser && guestClientData) {
+      console.log('🔍 Criando/fazendo login para cliente convidado...');
+      const { user: newUser, error: createError } = await createGuestClientAndLogin(
+        guestClientData.name,
+        guestClientData.phone
+      );
+
+      if (createError) {
+        toast.error('Erro ao criar conta: ' + createError.message);
+        return;
+      }
+
+      currentUser = newUser;
+      console.log('✅ Cliente convidado criado/autenticado:', newUser?.id);
+    }
+
+    if (!currentUser) {
+      toast.error('Erro: usuário não identificado');
+      return;
+    }
+
+    try {
+      // Lógica para agendamentos reais
+      const isEstablishmentOwner = currentUser?.id === establishment.owner_id;
 
       // 🔥 VALIDAÇÃO DE 1 AGENDAMENTO POR SEMANA PARA ASSINANTES
-      if (appointmentData.is_subscriber && user?.id) {
+      if (appointmentData.is_subscriber && currentUser?.id) {
         console.log('🔍 Validando limitação de 1 agendamento por semana...');
 
         const validation = await validateOneWeekLimit(
-          user.id,
+          currentUser.id,
           establishment.id,
           new Date(appointmentData.appointment_date)
         );
@@ -456,11 +482,11 @@ export default function BookingPage() {
       }
 
       // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
-      if (appointmentData.is_subscriber && user?.id) {
+      if (appointmentData.is_subscriber && currentUser?.id) {
         console.log('🔍 Validando remarcação no mesmo dia...');
 
         const sameDayValidation = await validateSameDayReschedule(
-          user.id,
+          currentUser.id,
           establishment.id,
           new Date(appointmentData.appointment_date),
           appointmentData.is_subscriber
@@ -481,7 +507,7 @@ export default function BookingPage() {
       const { error } = await supabase
         .from('appointments')
         .insert([{
-          client_id: user?.id, // Corrigido para user?.id
+          client_id: currentUser.id,
           establishment_id: establishment.id,
           appointment_date: format(selectedDate, 'yyyy-MM-dd'),
           // TODO: Adicionar is_establishment_booking quando a coluna for criada no banco
@@ -519,7 +545,7 @@ export default function BookingPage() {
         location: establishment?.location || establishment?.address || '',
         professionalName: professionalName,
         paymentMethod: appointmentData.payment_method || 'Não especificada',
-        appointmentId: user?.id,
+        appointmentId: currentUser.id,
         uniqueKey: Date.now().toString() // Chave única baseada no timestamp
       };
       localStorage.setItem('reminder_creation_data', JSON.stringify(appointmentInfo));
@@ -528,12 +554,18 @@ export default function BookingPage() {
       await fetchExistingAppointments();
       setShowBookingForm(false); // Esconder formulário após agendamento
 
-      // Redirecionar sempre para o dashboard apropriado
-      if (isEstablishmentOwner) {
-        navigate('/dashboard/establishment');
-      } else {
-        navigate('/dashboard/client');
+      // Salvar o telefone no localStorage para usar na página de visualização
+      if (guestClientData?.phone) {
+        const cleanPhone = guestClientData.phone.replace(/\D/g, '');
+        localStorage.setItem('last_booking_phone', cleanPhone);
+        console.log('📱 Telefone salvo para visualização:', cleanPhone);
       }
+
+      // Redirecionar para a página de visualização de agendamentos
+      toast.success('Redirecionando para seus agendamentos...');
+      setTimeout(() => {
+        window.location.href = '/view-appointments';
+      }, 1000);
     } catch (error: any) {
       console.error('Error creating appointment:', error);
       toast.error(error.message || 'Erro ao criar agendamento');
@@ -550,12 +582,14 @@ export default function BookingPage() {
       return;
     }
 
-    if (!user) {
-      // Mostrar modal amigável em vez de redirecionar
-      setShowLoginModal(true);
-      return;
-    }
+    // NOVO FLUXO: Sempre usar modal de agendamento rápido (sem login)
+    setShowQuickBookingModal(true);
+  };
 
+  // Função para continuar após preencher nome e telefone
+  const handleContinueQuickBooking = (name: string, phone: string) => {
+    setGuestClientData({ name, phone });
+    setShowQuickBookingModal(false);
     setShowBookingForm(true);
   };
 
@@ -654,15 +688,14 @@ export default function BookingPage() {
               <ChevronLeft className="w-5 h-5" />
               <span>Voltar</span>
             </Link>
-            {user && (
-              <div className="flex items-center gap-3">
-                <Link
-                  to="/dashboard/client"
-                  className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  <Calendar className="w-5 h-5" />
-                  <span>Meus Agendamentos</span>
-                </Link>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate('/view-appointments')}
+                className="text-blue-600 hover:text-blue-800 font-medium text-sm transition-colors"
+              >
+                Meus Agendamentos
+              </button>
+              {user && (
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-2 text-gray-700 hover:text-gray-900"
@@ -670,8 +703,8 @@ export default function BookingPage() {
                   <LogOut className="w-5 h-5" />
                   <span>Sair</span>
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Mensagem de Demonstração (apenas para IDs 3814 e 3315) */}
@@ -815,8 +848,6 @@ export default function BookingPage() {
                 <img src="/calendario.png" alt="Calendário" className="h-6 w-6 relative z-10" />
                 <span className="relative z-10">QUERO AGENDAR</span>
               </button>
-
-
 
               {/* Dropdown SER ASSINANTE */}
               {subscriptions.length > 0 && (
@@ -1160,6 +1191,7 @@ export default function BookingPage() {
                         existingAppointments={existingAppointments}
                         subscriberService={selectedSubscriberService} // Passar o serviço para restringir dias
                         isSubscriberBooking={true} // Indica que é agendamento de assinante
+                        guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
                       />
                     </div>
                   )}
@@ -1471,6 +1503,7 @@ export default function BookingPage() {
                 onConvertToSubscriber={handleConvertToSubscriber}
                 subscriberDetectionDisabled={subscriberDetectionDisabled}
                 onSubscriberDetectionDisabledChange={setSubscriberDetectionDisabled}
+                guestClientData={guestClientData}
               // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
               />
             </div>
@@ -1570,6 +1603,7 @@ export default function BookingPage() {
                     existingAppointments={existingAppointments}
                     subscriberService={selectedSubscriberService} // Passar o serviço para restringir dias
                     isSubscriberBooking={true} // Indica que é agendamento de assinante
+                    guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
                   />
                 </div>
               )}
@@ -1596,12 +1630,12 @@ export default function BookingPage() {
       </div>
 
 
-      {/* Modal de Login Necessário */}
-      <LoginRequiredModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
+      {/* Modal de Agendamento Rápido */}
+      <QuickBookingModal
+        isOpen={showQuickBookingModal}
+        onClose={() => setShowQuickBookingModal(false)}
+        onContinue={handleContinueQuickBooking}
         establishmentName={establishment?.name || 'este estabelecimento'}
-        returnUrl={location.pathname}
       />
 
     </div>

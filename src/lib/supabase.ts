@@ -138,6 +138,108 @@ export const getCurrentUser = async () => {
   return { user: data.user, error };
 };
 
+// Função para criar conta de cliente convidado (sem email/senha, apenas telefone)
+export const createGuestClientAndLogin = async (name: string, phone: string) => {
+  console.log('🔍 createGuestClientAndLogin - Criando conta de cliente convidado:', { name, phone });
+
+  // Limpar telefone para usar como email único
+  const cleanPhone = phone.replace(/\D/g, '');
+
+  // Criar email fictício baseado no telefone
+  const fakeEmail = `guest_${cleanPhone}@agendafacil.local`;
+
+  // Gerar senha aleatória
+  const randomPassword = Math.random().toString(36).slice(-12) + '!@#';
+
+  try {
+    // Criar conta
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: fakeEmail,
+      password: randomPassword,
+      options: {
+        data: {
+          role: 'client',
+          full_name: name,
+          whatsapp: phone,
+          is_guest: true, // Marca como conta convidada
+        }
+      }
+    });
+
+    if (signUpError) {
+      console.error('❌ Erro ao criar conta:', signUpError);
+
+      // Se o email já existe, tentar fazer login
+      if (signUpError.message.includes('already registered') || signUpError.message.includes('already exists')) {
+        console.log('🔄 Conta já existe, fazendo login...');
+
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: fakeEmail,
+          password: randomPassword // Tentar com a senha gerada
+        });
+
+        if (signInError) {
+          // Se falhar login, o usuário já existe mas com outra senha - precisamos resetar
+          console.log('⚠️ Usuário existe mas senha é diferente. Criando nova conta com timestamp...');
+          const uniqueEmail = `guest_${cleanPhone}_${Date.now()}@agendafacil.local`;
+
+          const { data: newSignUpData, error: newSignUpError } = await supabase.auth.signUp({
+            email: uniqueEmail,
+            password: Math.random().toString(36).slice(-12) + '!@#',
+            options: {
+              data: {
+                role: 'client',
+                full_name: name,
+                whatsapp: phone,
+                is_guest: true,
+              }
+            }
+          });
+
+          if (newSignUpError) throw newSignUpError;
+
+          // Atualizar perfil
+          if (newSignUpData.user) {
+            await supabase.from('profiles').insert([{
+              id: newSignUpData.user.id,
+              name: name,
+              phone: phone,
+            }]);
+          }
+
+          return { user: newSignUpData.user, error: null };
+        }
+
+        // Login bem-sucedido
+        return { user: signInData.user, error: null };
+      }
+
+      throw signUpError;
+    }
+
+    // Conta criada com sucesso
+    if (signUpData.user) {
+      // Criar perfil
+      try {
+        await supabase.from('profiles').insert([{
+          id: signUpData.user.id,
+          name: name,
+          phone: phone,
+        }]);
+      } catch (err: any) {
+        console.log('Perfil já existe ou erro:', err);
+      }
+
+      return { user: signUpData.user, error: null };
+    }
+
+    throw new Error('Falha ao criar conta');
+  } catch (error: any) {
+    console.error('❌ Erro ao criar/fazer login:', error);
+    return { user: null, error };
+  }
+};
+
 // Database functions for Establishments
 export const createEstablishment = async (establishmentData: any) => {
   let profileImageUrl = null;
@@ -904,6 +1006,120 @@ export const getClientAppointments = async (clientId: string) => {
   }
 };
 
+// Buscar agendamentos por telefone (sem precisar de login)
+export const getAppointmentsByPhone = async (phone: string) => {
+  console.log('🔍 getAppointmentsByPhone chamada para telefone:', phone);
+
+  try {
+    // Limpar o telefone para busca - remover todos os caracteres não numéricos
+    const cleanPhone = phone.replace(/\D/g, '');
+    console.log('📱 Telefone limpo para busca:', cleanPhone);
+
+    if (!cleanPhone || cleanPhone.length < 10) {
+      console.log('⚠️ Telefone inválido ou muito curto');
+      return { data: [], error: null };
+    }
+
+    // Buscar agendamentos pelo telefone - usando múltiplas estratégias
+    // 1. Buscar pelo campo client_whatsapp (busca exata e com substring)
+    let data1: any[] = [];
+    let error1: any = null;
+
+    try {
+      const result1 = await supabase
+        .from('appointments')
+        .select(`*, establishments (*)`)
+        .ilike('client_whatsapp', `%${cleanPhone}%`);
+      data1 = result1.data || [];
+      error1 = result1.error;
+      console.log('🔍 Primeira busca (client_whatsapp com ilike):', data1?.length || 0, 'resultados');
+      if (error1) console.error('❌ Erro na primeira busca:', error1);
+    } catch (e) {
+      console.error('❌ Erro ao executar primeira busca:', e);
+    }
+
+    // 2. Buscar também com formato com caracteres (49 99951-6123)
+    let data2: any[] = [];
+    let error2: any = null;
+
+    try {
+      const formattedPhone = cleanPhone.length >= 11
+        ? `${cleanPhone.slice(0, 2)} ${cleanPhone.slice(2, 7)}-${cleanPhone.slice(7)}`
+        : cleanPhone;
+
+      const result2 = await supabase
+        .from('appointments')
+        .select(`*, establishments (*)`)
+        .ilike('client_whatsapp', `%${formattedPhone}%`);
+      data2 = result2.data || [];
+      error2 = result2.error;
+      console.log('🔍 Segunda busca (formato com caracteres):', data2?.length || 0, 'resultados');
+      if (error2) console.error('❌ Erro na segunda busca:', error2);
+    } catch (e) {
+      console.error('❌ Erro ao executar segunda busca:', e);
+    }
+
+    // 3. Buscar por appointments recentes para debug
+    try {
+      const { data: recentAppointments } = await supabase
+        .from('appointments')
+        .select('client_whatsapp, client_name, created_at')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      console.log('🔍 Últimos 5 agendamentos salvos no banco:');
+      recentAppointments?.forEach((apt, idx) => {
+        console.log(`  ${idx + 1}. WhatsApp: "${apt.client_whatsapp}", Nome: "${apt.client_name}"`);
+      });
+    } catch (e) {
+      console.error('❌ Erro ao buscar últimos agendamentos:', e);
+    }
+
+    // 3. Combinar resultados
+    const allAppointments = [...(data1 || []), ...(data2 || [])];
+
+    // Remover duplicatas
+    const uniqueAppointments = Array.from(
+      new Map(allAppointments.map(apt => [apt.id, apt])).values()
+    );
+
+    console.log('📊 getAppointmentsByPhone - Resultado:');
+    console.log('  - Resultados da busca client_whatsapp:', data1?.length || 0);
+    console.log('  - Resultados da busca client_name:', data2?.length || 0);
+    console.log('  - Total único:', uniqueAppointments.length);
+
+    if (error1 || error2) {
+      console.error('⚠️ Erros na busca:', error1, error2);
+    }
+
+    // Resolver nomes dos profissionais se necessário
+    if (uniqueAppointments && uniqueAppointments.length > 0) {
+      for (let appointment of uniqueAppointments) {
+        if (appointment.professional && appointment.professional.length > 10 && !appointment.professional_name) {
+          try {
+            if (appointment.establishments && appointment.establishments.professionals) {
+              const professionals = appointment.establishments.professionals;
+              if (Array.isArray(professionals)) {
+                const professional = professionals.find((p: any) => p.id === appointment.professional);
+                if (professional && professional.name) {
+                  appointment.professional_name = professional.name;
+                }
+              }
+            }
+          } catch (error) {
+            console.log('⚠️ Erro ao buscar nome do profissional:', error);
+          }
+        }
+      }
+    }
+
+    return { data: uniqueAppointments || [], error: null };
+  } catch (err) {
+    console.error('❌ Erro ao buscar agendamentos por telefone:', err);
+    return { data: [], error: err };
+  }
+};
+
 export const getEstablishmentAppointments = async (establishmentId: string) => {
   console.log('Buscando agendamentos do estabelecimento:', establishmentId);
 
@@ -1474,7 +1690,13 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
   try {
     // Normalizar o número de telefone (remover formatação)
     const normalizedWhatsapp = normalizePhoneNumber(whatsapp);
-    console.log('🔍 Verificando assinante (sistema antigo):', { original: whatsapp, normalized: normalizedWhatsapp });
+    console.log('🔍 MOBILE DEBUG - Verificando assinante (sistema antigo):', {
+      original: whatsapp,
+      normalized: normalizedWhatsapp,
+      establishmentId,
+      userAgent: navigator.userAgent,
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    });
 
     // CORREÇÃO: Verificar se o client_id existe em auth.users (evitar registros órfãos)
     // Buscar TODOS os assinantes (ativos e vencidos) para detectar vencidos
@@ -1493,7 +1715,8 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
       `)
       .eq('establishment_id', establishmentId)
       .not('client_id', 'like', 'manual_%') // Excluir registros manuais órfãos
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .abortSignal(AbortSignal.timeout(10000)); // Timeout de 10 segundos
 
     if (error) {
       console.error('Erro ao verificar assinante:', error);

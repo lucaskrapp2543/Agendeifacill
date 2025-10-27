@@ -86,6 +86,7 @@ interface AppointmentFormProps {
   onConvertToSubscriber?: (subscriberData: any) => void; // Callback para converter para assinante
   subscriberDetectionDisabled?: boolean; // Estado externo para desabilitar detecção
   onSubscriberDetectionDisabledChange?: (disabled: boolean) => void; // Callback para mudar o estado
+  guestClientData?: { name: string; phone: string } | null; // Dados do cliente convidado (sem login)
 }
 
 export function AppointmentForm({
@@ -98,6 +99,7 @@ export function AppointmentForm({
   isSubscriberBooking = false,
   onConvertToSubscriber,
   subscriberDetectionDisabled: externalSubscriberDetectionDisabled,
+  guestClientData,
   onSubscriberDetectionDisabledChange
 }: AppointmentFormProps) {
   const { user } = useAuth();
@@ -134,6 +136,16 @@ export function AppointmentForm({
   const [clientWhatsapp, setClientWhatsapp] = useState('');
   const [clientCpf, setClientCpf] = useState('');
   const [isLoadingUserData, setIsLoadingUserData] = useState(false);
+
+  // Usar dados do convidado se disponíveis
+  useEffect(() => {
+    console.log('🔍 DEBUG - useEffect guestClientData:', { guestClientData, isSubscriberBooking });
+    if (guestClientData) {
+      console.log('🔍 DEBUG - Preenchendo campos com guestClientData:', guestClientData);
+      setClientName(guestClientData.name);
+      setClientWhatsapp(guestClientData.phone);
+    }
+  }, [guestClientData]);
 
   // Estados para dados do perfil do cliente
   const [clientProfileData, setClientProfileData] = useState<any>(null);
@@ -213,7 +225,16 @@ export function AppointmentForm({
   // Carregar dados do perfil do cliente
   useEffect(() => {
     const loadClientProfile = async () => {
-      console.log('🔍 DEBUG - loadClientProfile iniciado:', { user: !!user, profileDataLoaded, userId: user?.id });
+      console.log('🔍 DEBUG - loadClientProfile iniciado:', { user: !!user, profileDataLoaded, userId: user?.id, guestClientData });
+
+      // Se temos dados do convidado, não buscar dados do perfil
+      if (guestClientData) {
+        console.log('🔍 DEBUG - Dados do convidado disponíveis, não carregando perfil');
+        console.log('🔍 DEBUG - Mantendo dados do convidado:', guestClientData);
+        setClientName(guestClientData.name);
+        setClientWhatsapp(guestClientData.phone);
+        return;
+      }
 
       if (user) { // Removido o !profileDataLoaded para sempre buscar dados atualizados
         console.log('🔍 DEBUG - Entrando no bloco de carregamento de perfil');
@@ -320,14 +341,14 @@ export function AppointmentForm({
           setProfileDataLoaded(true);
         }
       } else {
-        console.log('🔍 DEBUG - Condições não atendidas:', { user: !!user, profileDataLoaded, userId: user?.id });
+        console.log('🔍 DEBUG - Condições não atendidas:', { user: !!user, profileDataLoaded });
         console.log('🔍 DEBUG - Motivo:', !user ? 'Usuário não logado' : 'Dados já carregados');
       }
     };
 
     console.log('🔍 DEBUG - Executando loadClientProfile...');
     loadClientProfile();
-  }, [user, profileDataLoaded]);
+  }, [user, profileDataLoaded, guestClientData]);
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [useMultiService, setUseMultiService] = useState(true);
@@ -709,6 +730,7 @@ export function AppointmentForm({
     console.log('🔄 DEBUG - useEffect detecção de assinante executado:', {
       clientWhatsapp: !!clientWhatsapp,
       establishmentId: !!establishment?.id,
+      establishmentObject: establishment,
       isSubscriberBooking,
       subscriberDetectionDisabled
     });
@@ -722,13 +744,25 @@ export function AppointmentForm({
       });
 
       if (clientWhatsapp && clientWhatsapp.length >= 10 && !isSubscriberBooking && !subscriberDetectionDisabled) {
+        console.log('🔍 MOBILE DEBUG - Iniciando verificação de assinante:', {
+          clientWhatsapp,
+          establishmentId: establishment.id || establishment.establishment_id,
+          userAgent: navigator.userAgent,
+          isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+        });
+
         setIsCheckingSubscriber(true);
         try {
           // Primeiro tentar o novo sistema de assinantes
+          const establishmentId = establishment.id || establishment.establishment_id || '';
+          console.log('🔍 MOBILE DEBUG - Establishment ID para verificação:', establishmentId);
+
           const { data: newSubscriberData, error: newError } = await checkNewSubscriber(
             clientWhatsapp,
-            establishment.id || establishment.establishment_id || ''
+            establishmentId
           );
+
+          console.log('🔍 MOBILE DEBUG - Resultado novo sistema:', { newSubscriberData, newError });
 
           if (newSubscriberData && !newError) {
             // Verificar se o assinante está vencido
@@ -752,10 +786,16 @@ export function AppointmentForm({
             }
           } else {
             // Fallback para o sistema antigo
+            console.log('🔍 MOBILE DEBUG - Tentando sistema antigo...');
+            const establishmentId = establishment.id || establishment.establishment_id || '';
+            console.log('🔍 MOBILE DEBUG - Establishment ID para sistema antigo:', establishmentId);
+
             const { data: oldSubscriberData, error: oldError } = await checkWhatsAppSubscriber(
               clientWhatsapp,
-              establishment.id || establishment.establishment_id || ''
+              establishmentId
             );
+
+            console.log('🔍 MOBILE DEBUG - Resultado sistema antigo:', { oldSubscriberData, oldError });
 
             if (oldSubscriberData && !oldError) {
               // Verificar se o assinante está vencido no sistema antigo
@@ -1044,13 +1084,19 @@ export function AppointmentForm({
         serviceNames = servicesToUse.map(service => service?.name).filter(Boolean).join(' + ');
       }
 
+      // Debug: verificar a data antes de formatar
+      console.log('🔍 DEBUG - Data selecionada:', selectedDate);
+      console.log('🔍 DEBUG - Tipo:', typeof selectedDate);
+      const formattedDate = format(selectedDate, 'yyyy-MM-dd');
+      console.log('🔍 DEBUG - Data formatada:', formattedDate);
+
       const appointmentData = {
         client_name: isSubscriberBooking ? `${clientName} (ASSINANTE)` : clientName, // Adicionar (ASSINANTE) apenas no envio
         client_whatsapp: whatsappNumbers,
         client_cpf: establishment?.require_cpf && clientCpf ? clientCpf.replace(/\D/g, '') : null, // Adicionar CPF se solicitado
         service: isSubscriberBooking && subscriberService ? subscriberService.name : serviceNames,
         professional: selectedProfessional?.id || '',
-        appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+        appointment_date: formattedDate,
         appointment_time: selectedTime,
         duration: isSubscriberBooking && subscriberService ? (subscriberService.service_duration || 30) : totalDuration, // Usar duração total
         price: isSubscriberBooking && subscriberService ? 0 : totalPrice, // Preço total
@@ -1329,7 +1375,7 @@ export function AppointmentForm({
                   ? 'text-red-700'
                   : 'text-green-700'
                   }`}>
-                  <strong>Plano:</strong> {detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado'}
+                  <strong>Plano:</strong> {detectedSubscriber.subscription_name || 'Plano não identificado'}
                 </p>
 
                 <p className={`text-sm ${detectedSubscriber.is_expired
@@ -1420,7 +1466,7 @@ export function AppointmentForm({
                         onClick={() => {
                           // Redirecionar para WhatsApp do estabelecimento
                           const establishmentWhatsapp = establishment?.whatsapp;
-                          const subscriptionName = detectedSubscriber.subscription_name || detectedSubscriber.subscriptions?.name || 'Plano não identificado';
+                          const subscriptionName = detectedSubscriber.subscription_name || 'Plano não identificado';
 
                           if (establishmentWhatsapp) {
                             const message = `Quero renovar minha assinatura: ${subscriptionName}`;

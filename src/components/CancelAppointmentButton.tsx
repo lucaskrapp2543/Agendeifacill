@@ -11,6 +11,9 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
 
 
   const handleCancelClick = async () => {
+    console.log('🔍 DEBUG - Iniciando cancelamento para appointment:', appointment);
+    console.log('🔍 DEBUG - Establishment ID:', appointment?.establishment_id);
+
     // Verificar se a configuração de WhatsApp está ativa
     try {
       const { data: establishment, error } = await supabase
@@ -18,6 +21,9 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
         .select('enable_whatsapp_notifications, whatsapp')
         .eq('id', appointment.establishment_id)
         .single();
+
+      console.log('🔍 DEBUG - Dados do estabelecimento:', establishment);
+      console.log('🔍 DEBUG - Erro ao buscar estabelecimento:', error);
 
       if (error) {
         console.error('Erro ao carregar configuração do estabelecimento:', error);
@@ -30,9 +36,16 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
         whatsapp: establishment?.whatsapp || ''
       });
 
+      console.log('🔍 DEBUG - Configuração WhatsApp:', {
+        enableWhatsAppNotifications: establishment?.enable_whatsapp_notifications,
+        whatsapp: establishment?.whatsapp
+      });
+
       if (establishment?.enable_whatsapp_notifications && establishment?.whatsapp) {
+        console.log('🔍 DEBUG - Mostrando modal WhatsApp');
         setShowWhatsAppModal(true);
       } else {
+        console.log('🔍 DEBUG - Mostrando confirmação normal');
         setShowConfirmation(true);
       }
     } catch (error) {

@@ -3,8 +3,8 @@
  * Não depende da lista de clientes existentes
  */
 
-import { supabase } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
+import { supabase } from './supabase';
 
 export interface SubscriberData {
   id: string;
@@ -34,7 +34,7 @@ export interface CreateSubscriberData {
 export const createIndependentSubscriber = async (data: CreateSubscriberData) => {
   try {
     console.log('🆕 Criando assinante independente:', data);
-    
+
     const { data: result, error } = await supabase
       .from('client_subscriptions')
       .insert([
@@ -76,60 +76,51 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
  */
 export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId: string) => {
   try {
-    console.log('🔍 Verificando se WhatsApp é assinante:', { whatsapp, establishmentId });
-    
+    console.log('🔍 MOBILE DEBUG - Verificando se WhatsApp é assinante (novo sistema):', {
+      whatsapp,
+      establishmentId,
+      userAgent: navigator.userAgent,
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    });
+
     // Normalizar o número (remover caracteres não numéricos)
     const normalizedWhatsapp = whatsapp.replace(/\D/g, '');
-    
-    // CORREÇÃO: Buscar diretamente na tabela premium_subscriptions
-    // Buscar TODOS os assinantes (ativos e vencidos) para detectar vencidos
+
+    // SOLUÇÃO: Usar função RPC que funciona sem autenticação
+    console.log('🔍 Tentando função RPC para verificar assinante...');
     const { data, error } = await supabase
-      .from('premium_subscriptions')
-      .select(`
-        id,
-        display_name,
-        whatsapp,
-        end_date,
-        weekdays,
-        subscription_id,
-        created_at,
-        establishment_id,
-        is_active
-      `)
-      .eq('whatsapp', normalizedWhatsapp)
-      .eq('establishment_id', establishmentId)
-      .order('created_at', { ascending: false })
-      .limit(1);
+      .rpc('check_subscriber_by_whatsapp', {
+        p_whatsapp: normalizedWhatsapp,
+        p_establishment_id: establishmentId
+      });
 
     if (error) {
-      console.error('❌ Erro ao verificar assinante:', error);
+      console.error('❌ Erro ao verificar assinante via RPC:', error);
       return { data: null, error };
     }
 
-    console.log('📋 Resultado da verificação:', data);
+    console.log('📋 Resultado da verificação RPC:', data);
 
     // Se encontrou assinante
     if (data && data.length > 0) {
       const subscriber = data[0];
-      
-      // Verificar se o assinante está vencido
-      const isExpired = !subscriber.is_active || 
-        (subscriber.end_date && new Date(subscriber.end_date) < new Date());
-      
-      if (isExpired) {
-        console.log('⚠️ Assinante vencido encontrado (sistema novo):', subscriber);
-        return { 
+
+      console.log('🔍 DEBUG - Dados completos do assinante:', subscriber);
+      console.log('🔍 DEBUG - Weekdays recebidos:', subscriber.weekdays);
+      console.log('🔍 DEBUG - Subscription name:', subscriber.subscription_name);
+
+      if (subscriber.is_expired) {
+        console.log('⚠️ Assinante vencido encontrado:', subscriber);
+        return {
           data: {
             ...subscriber,
             is_expired: true,
-            expiration_message: subscriber.end_date 
-              ? `Seu plano venceu em ${new Date(subscriber.end_date).toLocaleDateString('pt-BR')}. Renove para continuar agendando.`
-              : 'Seu plano está inativo. Renove para continuar agendando.'
-          }, 
-          error: null 
+            expiration_message: subscriber.expiration_message
+          },
+          error: null
         };
       } else {
-        console.log('✅ Assinante ativo encontrado (sistema novo):', subscriber);
+        console.log('✅ Assinante ativo encontrado:', subscriber);
         return { data: subscriber, error: null };
       }
     }
@@ -148,9 +139,9 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
 export const getSubscriberByWhatsapp = async (whatsapp: string, establishmentId: string) => {
   try {
     console.log('🔍 Buscando assinante por WhatsApp:', { whatsapp, establishmentId });
-    
+
     const normalizedWhatsapp = whatsapp.replace(/\D/g, '');
-    
+
     const { data, error } = await supabase
       .rpc('get_subscriber_by_whatsapp', {
         p_whatsapp: normalizedWhatsapp,
@@ -178,7 +169,7 @@ export const getSubscriberByWhatsapp = async (whatsapp: string, establishmentId:
 export const getEstablishmentSubscribers = async (establishmentId: string) => {
   try {
     console.log('🔍 Buscando assinantes do estabelecimento:', establishmentId);
-    
+
     const { data, error } = await supabase
       .from('client_subscriptions')
       .select(`
@@ -207,12 +198,12 @@ export const getEstablishmentSubscribers = async (establishmentId: string) => {
  * Atualizar status de pagamento do assinante
  */
 export const updateSubscriberPaymentStatus = async (
-  subscriberId: string, 
+  subscriberId: string,
   status: 'paid' | 'unpaid'
 ) => {
   try {
     console.log('💳 Atualizando status de pagamento:', { subscriberId, status });
-    
+
     const updateData: any = {
       payment_status: status
     };
@@ -247,7 +238,7 @@ export const updateSubscriberPaymentStatus = async (
 export const removeSubscriber = async (subscriberId: string) => {
   try {
     console.log('🗑️ Removendo assinante:', subscriberId);
-    
+
     const { error } = await supabase
       .from('client_subscriptions')
       .delete()
