@@ -157,6 +157,7 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
             onSelectTime={() => { }} // Não faz nada ao clicar, apenas visualização
             businessHours={getBusinessHoursForDay(selectedDate)}
             professionalAbsences={(selectedProfessional as any).absences || []}
+            filterPastTimes={true} // Filtrar horários passados
             professionalBlockedHours={(selectedProfessional as any).blocked_hours?.[selectedDate.toISOString().split('T')[0]] || []}
             use15MinuteInterval={establishment.use_15_minute_interval ?? false}
             use20MinuteSchedule={establishment.use_20_minute_schedule ?? false}

@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ArrowLeft, Calendar, Clock, MapPin, Phone, User, X } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Download, MapPin, Phone, User, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
@@ -22,6 +22,7 @@ export default function ViewAppointmentsPage() {
   const [reminderStep, setReminderStep] = useState<'initial' | 'confirmation'>('initial');
   const [showWhatsAppConfirmationModal, setShowWhatsAppConfirmationModal] = useState(false);
   const [selectedAppointmentForWhatsApp, setSelectedAppointmentForWhatsApp] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   // Buscar telefone salvo e carregar agendamentos automaticamente
   useEffect(() => {
@@ -35,6 +36,20 @@ export default function ViewAppointmentsPage() {
       // localStorage.removeItem('last_booking_phone');
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listener para capturar o prompt de instalação do PWA
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
 
   const handlePhoneLogin = async (phone: string) => {
     console.log('📞 handlePhoneLogin chamada com telefone:', phone);
@@ -214,6 +229,73 @@ Por favor, confirme o cancelamento. Obrigado!`;
     setShowLoginModal(true);
 
     toast.success('Desconectado com sucesso!');
+  };
+
+  // Função para detectar se já está no PWA
+  const isPWA = () => {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    const isIOSPWA = (window.navigator as any).standalone === true;
+    return isStandalone || isIOSPWA;
+  };
+
+  // Função para baixar/instalar o app PWA
+  const handleDownloadApp = async () => {
+    // Verificar se há prompt de instalação disponível
+    if (deferredPrompt) {
+      try {
+        await deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          console.log('App instalado com sucesso!');
+          setDeferredPrompt(null);
+          toast.success('App instalado com sucesso!');
+          return;
+        }
+      } catch (error) {
+        console.log('Erro no prompt nativo:', error);
+      }
+    }
+
+    // Fallback: mostrar instruções manuais
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+
+    let message = '';
+
+    if (isIOS) {
+      message = 'Para instalar o app:\n\n1. Toque no botão Compartilhar (□↑)\n2. Toque em "Adicionar à Tela Inicial"\n3. Toque em "Adicionar"';
+    } else if (isAndroid) {
+      message = 'Para instalar o app:\n\n1. Toque nos 3 pontos (⋮)\n2. Toque em "Adicionar à tela inicial"\n3. Toque em "Adicionar"';
+    } else {
+      message = 'Para instalar o app:\n\n1. Clique nos 3 pontos (⋮)\n2. Clique em "Instalar Agendei Fácil"\n3. Clique em "Instalar"';
+    }
+
+    alert(message);
+  };
+
+  // Função para agendar novamente no último estabelecimento (usa código booking/XXXX)
+  const handleBookAgain = () => {
+    if (appointments.length === 0) {
+      toast.error('Nenhum agendamento encontrado');
+      return;
+    }
+
+    const lastAppointment = appointments[0];
+    // Preferir código do estabelecimento; fallback para ID se necessário
+    const establishmentCode = lastAppointment.establishment_code || lastAppointment.establishments?.code;
+    const establishmentId = lastAppointment.establishment_id || lastAppointment.establishments?.id;
+
+    if (establishmentCode) {
+      navigate(`/booking/${establishmentCode}`);
+      return;
+    }
+
+    if (establishmentId) {
+      navigate(`/booking/${establishmentId}`);
+      return;
+    }
+
+    toast.error('Não foi possível identificar o estabelecimento deste agendamento');
   };
 
   // Função para marcar um agendamento como confirmado
@@ -575,6 +657,31 @@ Por favor, confirme o cancelamento. Obrigado!`;
             )}
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Meus Agendamentos</h1>
+
+          {/* Botões de Ação */}
+          {appointments.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {/* Botão Agendar Novamente */}
+              <button
+                onClick={handleBookAgain}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center gap-2"
+              >
+                <Calendar className="w-4 h-4" />
+                Agendar novamente
+              </button>
+
+              {/* Botão Baixar App - Só aparece se NÃO estiver no PWA */}
+              {!isPWA() && (
+                <button
+                  onClick={handleDownloadApp}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Baixar app
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -642,6 +749,18 @@ Por favor, confirme o cancelamento. Obrigado!`;
                       <User className="w-4 h-4 inline mr-1" />
                       Cliente: {appointment.client_name}
                     </p>
+                  </div>
+                )}
+
+                {/* Código do Estabelecimento */}
+                {(appointment.establishment_code || appointment.establishments?.code) && (
+                  <div className="bg-blue-50 rounded-lg p-3 mb-4">
+                    <div className="flex items-center gap-2 text-blue-700">
+                      <span className="text-sm font-medium">Código:</span>
+                      <code className="text-sm bg-blue-100 px-2 py-1 rounded font-mono">
+                        booking/{appointment.establishment_code || appointment.establishments?.code}
+                      </code>
+                    </div>
                   </div>
                 )}
 

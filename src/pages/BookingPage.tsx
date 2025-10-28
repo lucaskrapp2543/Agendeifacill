@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Download, LogOut } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -32,6 +32,10 @@ export default function BookingPage() {
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
   const [showBusinessHours, setShowBusinessHours] = useState(false);
   const [duplicateCarouselIndex, setDuplicateCarouselIndex] = useState(0);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [installGuideTitle, setInstallGuideTitle] = useState('Instalar o app');
+  const [installGuideSteps, setInstallGuideSteps] = useState<string[]>([]);
 
 
   // Funções para o carrossel duplicado - Filtrar apenas fotos selecionadas
@@ -312,6 +316,64 @@ export default function BookingPage() {
     }
   };
 
+  // Capturar o beforeinstallprompt para instalação PWA
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const isPWA = () => {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    const isIOSPWA = (window.navigator as any).standalone === true;
+    return isStandalone || isIOSPWA;
+  };
+
+  const handleDownloadApp = async () => {
+    if (deferredPrompt) {
+      try {
+        // @ts-ignore
+        await deferredPrompt.prompt();
+        // @ts-ignore
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          setDeferredPrompt(null);
+          return;
+        }
+      } catch { }
+    }
+
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+    if (isIOS) {
+      setInstallGuideTitle('Como instalar no iPhone');
+      setInstallGuideSteps([
+        'Toque no botão Compartilhar (□↑)',
+        'Escolha "Adicionar à Tela Inicial"',
+        'Toque em "Adicionar" para confirmar'
+      ]);
+    } else if (isAndroid) {
+      setInstallGuideTitle('Como instalar no Android');
+      setInstallGuideSteps([
+        'Toque nos 3 pontos (⋮) do navegador',
+        'Selecione "Adicionar à tela inicial"',
+        'Confirme tocando em "Adicionar"'
+      ]);
+    } else {
+      setInstallGuideTitle('Como instalar no seu navegador');
+      setInstallGuideSteps([
+        'Clique nos 3 pontos (⋮) no canto do navegador',
+        'Clique em "Instalar Agendei Fácil"',
+        'Depois clique em "Instalar" para confirmar'
+      ]);
+    }
+    setShowInstallGuide(true);
+  };
+
   const fetchExistingAppointments = async () => {
     if (!establishment) return;
 
@@ -509,6 +571,7 @@ export default function BookingPage() {
         .insert([{
           client_id: currentUser.id,
           establishment_id: establishment.id,
+          establishment_code: establishment.code, // Salvar código do estabelecimento
           appointment_date: format(selectedDate, 'yyyy-MM-dd'),
           // TODO: Adicionar is_establishment_booking quando a coluna for criada no banco
           // is_establishment_booking: isEstablishmentOwner,
@@ -540,6 +603,7 @@ export default function BookingPage() {
       const appointmentInfo = {
         serviceName: appointmentData.service || 'Serviço não especificado',
         establishmentName: establishment?.name || '',
+        establishmentCode: establishment?.code || '', // Adicionar código do estabelecimento
         appointmentDate: format(selectedDate, 'dd/MM/yyyy'),
         appointmentTime: appointmentData.appointment_time,
         location: establishment?.location || establishment?.address || '',
@@ -1470,6 +1534,63 @@ export default function BookingPage() {
                     alt="Melhor do Brasil"
                     className="w-full h-auto rounded-lg shadow-lg"
                   />
+                  {/* Botão Baixar App abaixo da imagem */}
+                  {!isPWA() && (
+                    <div className="mt-3">
+                      <button
+                        onClick={handleDownloadApp}
+                        className="w-full sm:w-auto inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                        Baixar app
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Modal bonito com instruções de instalação */}
+              {showInstallGuide && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5">
+                      <h3 className="text-white text-lg font-bold flex items-center gap-2">
+                        📲 {installGuideTitle}
+                      </h3>
+                      <p className="text-blue-100 text-sm mt-1">Instale o app do Agendei Fácil e tenha acesso rápido aos seus agendamentos.</p>
+                    </div>
+                    <div className="p-5 space-y-3 text-gray-800">
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl">✅</span>
+                        <p className="text-sm">{installGuideSteps[0]}</p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl">✅</span>
+                        <p className="text-sm">{installGuideSteps[1]}</p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl">✅</span>
+                        <p className="text-sm">{installGuideSteps[2]}</p>
+                      </div>
+                      <div className="mt-2 rounded-lg bg-blue-50 p-3 text-xs text-blue-700">
+                        Dica: após instalar, o app abre em tela cheia e fica no seu menu de apps 📱
+                      </div>
+                    </div>
+                    <div className="p-4 bg-gray-50 flex justify-end gap-2">
+                      <button
+                        onClick={() => setShowInstallGuide(false)}
+                        className="px-4 py-2 text-gray-700 hover:text-gray-900"
+                      >
+                        Fechar
+                      </button>
+                      <button
+                        onClick={() => setShowInstallGuide(false)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        Entendi
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 

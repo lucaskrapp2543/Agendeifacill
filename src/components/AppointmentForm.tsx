@@ -1908,26 +1908,39 @@ export function AppointmentForm({
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Escolha a categoria
                       </label>
-                      <select
-                        value={selectedCategory || ''}
-                        onChange={(e) => {
-                          setSelectedCategory(e.target.value);
-                          setSelectedSubcategory(null);
+                      <div className="relative">
+                        <select
+                          value={selectedCategory || ''}
+                          onChange={(e) => {
+                            setSelectedCategory(e.target.value);
+                            setSelectedSubcategory(null);
 
-                          // Scroll automático para a próxima seção após selecionar categoria
-                          if (e.target.value) {
-                            scrollToNextSection();
-                          }
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-gray-900 bg-white"
-                      >
-                        <option value="">Selecione uma categoria</option>
-                        {serviceCategories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
+                            // Scroll automático para a próxima seção após selecionar categoria
+                            if (e.target.value) {
+                              scrollToNextSection();
+                            }
+                          }}
+                          className="w-full px-3 py-3 border-2 border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white cursor-pointer hover:border-blue-400 transition-colors"
+                        >
+                          <option value="">Selecione uma categoria</option>
+                          {serviceCategories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.name}
+                            </option>
+                          ))}
+                        </select>
+                        {/* Ícone de seta para baixo */}
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                          <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </div>
+                      {/* Dica visual */}
+                      <div className="mt-2 flex items-center gap-2 text-sm text-blue-600">
+                        <span className="text-lg">👆</span>
+                        <span>Clique aqui para escolher a categoria do serviço</span>
+                      </div>
                     </div>
 
                     {/* Seletor de Subcategoria */}
@@ -1936,44 +1949,57 @@ export function AppointmentForm({
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           Escolha o serviço
                         </label>
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              const subcategory = serviceCategories
-                                .find(cat => cat.id === selectedCategory)
-                                ?.subcategories.find((sub: any) => sub.id === e.target.value);
+                        <div className="relative">
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                const subcategory = serviceCategories
+                                  .find(cat => cat.id === selectedCategory)
+                                  ?.subcategories.find((sub: any) => sub.id === e.target.value);
 
-                              if (subcategory) {
-                                if (useMultiCategoryService) {
-                                  // ✅ MODO MÚLTIPLOS: Adicionar à lista se não exceder limite
-                                  if (selectedCategoryServices.length < 4) {
-                                    setSelectedCategoryServices(prev => [...prev, subcategory]);
+                                if (subcategory) {
+                                  if (useMultiCategoryService) {
+                                    // ✅ MODO MÚLTIPLOS: Adicionar à lista se não exceder limite
+                                    if (selectedCategoryServices.length < 4) {
+                                      setSelectedCategoryServices(prev => [...prev, subcategory]);
 
-                                    // Scroll automático para a próxima seção após selecionar serviço de categoria
+                                      // Scroll automático para a próxima seção após selecionar serviço de categoria
+                                      scrollToNextSection();
+                                    }
+                                  } else {
+                                    // ✅ MODO ÚNICO: Selecionar apenas um
+                                    setSelectedSubcategory(subcategory);
+
+                                    // Scroll automático para a próxima seção após selecionar subcategoria
                                     scrollToNextSection();
                                   }
-                                } else {
-                                  // ✅ MODO ÚNICO: Selecionar apenas um
-                                  setSelectedSubcategory(subcategory);
-
-                                  // Scroll automático para a próxima seção após selecionar subcategoria
-                                  scrollToNextSection();
                                 }
                               }
-                            }
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-gray-900 bg-white"
-                        >
-                          <option value="">Selecione um serviço</option>
-                          {serviceCategories
-                            .find(cat => cat.id === selectedCategory)
-                            ?.subcategories.map((subcategory: any) => (
-                              <option key={subcategory.id} value={subcategory.id}>
-                                {subcategory.name} - R$ {subcategory.price.toFixed(2)} ({subcategory.duration}min)
-                              </option>
-                            ))}
-                        </select>
+                            }}
+                            className="w-full px-3 py-3 border-2 border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white cursor-pointer hover:border-green-400 transition-colors"
+                          >
+                            <option value="">Selecione um serviço</option>
+                            {serviceCategories
+                              .find(cat => cat.id === selectedCategory)
+                              ?.subcategories.map((subcategory: any) => (
+                                <option key={subcategory.id} value={subcategory.id}>
+                                  {subcategory.name} - R$ {subcategory.price.toFixed(2)} ({subcategory.duration}min)
+                                </option>
+                              ))}
+                          </select>
+                          {/* Ícone de seta para baixo */}
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
+                        </div>
+                        {/* Dica visual */}
+                        <div className="mt-2 flex items-center gap-2 text-sm text-green-600">
+                          <span className="text-lg">👆</span>
+                          <span>Clique aqui para escolher o serviço específico</span>
+                        </div>
                       </div>
                     )}
 
@@ -2173,7 +2199,7 @@ export function AppointmentForm({
                     }, 300);
                   }
                 }}
-                filterPastTimes={!!(user && !isEstablishmentOwner)} // Filtrar horários passados apenas para clientes logados
+                filterPastTimes={true} // Sempre filtrar horários passados
                 businessHours={businessHours}
                 use15MinuteInterval={establishment.use_15_minute_interval ?? false}
                 use20MinuteSchedule={(establishment as any).use_20_minute_schedule ?? false}

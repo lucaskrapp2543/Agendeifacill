@@ -97,6 +97,7 @@ export function BusinessHoursSelector({
         onSelectTime={handleTimeChange}
         selectedTime={value}
         businessHours={businessHoursForDay}
+        filterPastTimes={true} // Filtrar horários passados
         professionalAbsences={professionalAbsences}
         professionalBlockedHours={professionalBlockedHours}
         professionalWorkHours={professionalWorkHours}
