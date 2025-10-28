@@ -152,7 +152,16 @@ const ClientDashboard = () => {
     console.log('🔍 DEBUG - Mensagem codificada:', encodedMessage);
     console.log('🔍 DEBUG - URL final:', whatsappUrl);
 
-    window.open(whatsappUrl, '_blank');
+    // Detectar se é iPhone/iOS
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+    if (isIOS) {
+      // No iOS, usar location.href é mais confiável
+      window.location.href = whatsappUrl;
+    } else {
+      // Em outros dispositivos, usar window.open
+      window.open(whatsappUrl, '_blank');
+    }
 
     // Marcar como confirmado no localStorage
     if (pendingReminderData) {

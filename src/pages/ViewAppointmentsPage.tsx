@@ -444,7 +444,16 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
       console.log('📱 Abrindo WhatsApp do modal:', whatsappUrl);
 
-      window.open(whatsappUrl, '_blank');
+      // Detectar se é iPhone/iOS
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+      if (isIOS) {
+        // No iOS, usar location.href é mais confiável
+        window.location.href = whatsappUrl;
+      } else {
+        // Em outros dispositivos, usar window.open
+        window.open(whatsappUrl, '_blank');
+      }
 
       // Fechar o modal após enviar
       setShowSuccessModal(false);
@@ -538,7 +547,17 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
       console.log('📱 Abrindo WhatsApp:', whatsappUrl);
 
-      window.open(whatsappUrl, '_blank');
+      // Detectar se é iPhone/iOS
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+      if (isIOS) {
+        // No iOS, usar location.href é mais confiável
+        window.location.href = whatsappUrl;
+      } else {
+        // Em outros dispositivos, usar window.open
+        window.open(whatsappUrl, '_blank');
+      }
+
       toast.success('Abrindo WhatsApp...');
     } catch (error: any) {
       console.error('❌ Erro ao enviar WhatsApp:', error);
