@@ -6916,7 +6916,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
                         <iframe
                           className="absolute top-0 left-0 w-full h-full"
-                          src="https://www.youtube.com/embed/AuVqhvdRc6Y"
+                          src="https://www.youtube.com/embed/1S3MdpBBHkI"
                           title="Tutorial: Como Gerenciar Agendamentos"
                           frameBorder="0"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -6926,7 +6926,7 @@ Estamos te aguardando! 😎✂️`;
 
                       <div className="mt-3 text-center">
                         <a
-                          href="https://youtu.be/AuVqhvdRc6Y"
+                          href="https://youtu.be/1S3MdpBBHkI"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800 text-sm font-medium"
@@ -12465,68 +12465,7 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="text"
                           value={professional.whatsapp || ''}
-                          onChange={(e) => {
-                            // Detectar país do estabelecimento pelo WhatsApp
-                            const establishmentWhatsapp = establishment?.whatsapp || '';
-                            const cleanEstablishmentWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
-                            let detectedCountry = 'BR'; // Default Brasil
-
-                            // Detectar país pelo código do estabelecimento
-                            if (cleanEstablishmentWhatsapp.startsWith('351')) {
-                              detectedCountry = 'PT'; // Portugal
-                            } else if (cleanEstablishmentWhatsapp.startsWith('34')) {
-                              detectedCountry = 'ES'; // Espanha
-                            } else if (cleanEstablishmentWhatsapp.startsWith('54')) {
-                              detectedCountry = 'AR'; // Argentina
-                            } else if (cleanEstablishmentWhatsapp.startsWith('56')) {
-                              detectedCountry = 'CL'; // Chile
-                            } else if (cleanEstablishmentWhatsapp.startsWith('244')) {
-                              detectedCountry = 'AO'; // Angola
-                            } else if (cleanEstablishmentWhatsapp.startsWith('1') && cleanEstablishmentWhatsapp.length >= 10) {
-                              detectedCountry = 'US'; // EUA
-                            }
-
-                            let value = e.target.value;
-
-                            // Formatar baseado no país detectado
-                            if (detectedCountry === 'PT') {
-                              // Portugal: +351 964 272 201
-                              value = value.replace(/\D/g, '');
-                              if (value.startsWith('351')) {
-                                value = value.substring(3);
-                              }
-                              if (value.length > 0) {
-                                value = `+351 ${value.substring(0, value.length > 3 ? 3 : value.length)}${value.length > 3 ? ' ' + value.substring(3, 6) : ''}${value.length > 6 ? ' ' + value.substring(6) : ''}`.trim();
-                              } else {
-                                value = '+351 ';
-                              }
-                            } else if (detectedCountry === 'ES') {
-                              // Espanha: +34 612 345 678
-                              value = value.replace(/\D/g, '');
-                              if (value.startsWith('34')) {
-                                value = value.substring(2);
-                              }
-                              if (value.length > 0) {
-                                value = `+34 ${value.substring(0, 3)}${value.length > 3 ? ' ' + value.substring(3, 6) : ''}${value.length > 6 ? ' ' + value.substring(6, 9) : ''}${value.length > 9 ? ' ' + value.substring(9) : ''}`.trim();
-                              } else {
-                                value = '+34 ';
-                              }
-                            } else if (detectedCountry === 'BR') {
-                              // Brasil: (47) 99999-9999
-                              value = value.replace(/\D/g, '');
-                              if (value.length > 2) {
-                                value = value.replace(/^(\d{2})(\d)/, '($1) $2');
-                              }
-                              if (value.length > 10) {
-                                value = value.replace(/(\d{4})(\d)/, '$1-$2');
-                              }
-                            } else {
-                              // Outros países: manter formato genérico
-                              value = e.target.value;
-                            }
-
-                            handleProfessionalChange(professional.id, 'whatsapp', value);
-                          }}
+                          onChange={(e) => handleProfessionalChange(professional.id, 'whatsapp', e.target.value)}
                           className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                           placeholder={(() => {
                             // Detectar país do estabelecimento pelo WhatsApp
