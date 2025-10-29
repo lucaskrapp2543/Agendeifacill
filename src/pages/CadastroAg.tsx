@@ -144,10 +144,30 @@ const CadastroAg = () => {
     if (!formData.whatsapp.trim()) {
       newErrors.whatsapp = 'WhatsApp é obrigatório';
     } else {
-      // Validar formato do WhatsApp (apenas números, com DDD)
-      const cleanWhatsapp = formData.whatsapp.replace(/\D/g, '');
-      if (cleanWhatsapp.length < 10 || cleanWhatsapp.length > 11) {
-        newErrors.whatsapp = 'WhatsApp deve ter 10 ou 11 dígitos';
+      // Validar formato do WhatsApp baseado no país selecionado
+      let cleanWhatsapp = formData.whatsapp.replace(/\D/g, '');
+
+      // Remover código do país se estiver presente
+      if (selectedCountry && cleanWhatsapp.startsWith(selectedCountry.dialCode)) {
+        cleanWhatsapp = cleanWhatsapp.substring(selectedCountry.dialCode.length);
+      }
+
+      // Validação por país
+      if (selectedCountry?.code === 'BR') {
+        // Brasil: 10 ou 11 dígitos (DDD + número)
+        if (cleanWhatsapp.length < 10 || cleanWhatsapp.length > 11) {
+          newErrors.whatsapp = 'WhatsApp deve ter 10 ou 11 dígitos';
+        }
+      } else if (selectedCountry?.code === 'PT') {
+        // Portugal: 9 dígitos
+        if (cleanWhatsapp.length !== 9) {
+          newErrors.whatsapp = 'WhatsApp deve ter 9 dígitos (formato português)';
+        }
+      } else {
+        // Outros países: aceitar de 7 a 12 dígitos (formato flexível)
+        if (cleanWhatsapp.length < 7 || cleanWhatsapp.length > 12) {
+          newErrors.whatsapp = 'WhatsApp deve ter entre 7 e 12 dígitos';
+        }
       }
     }
 
