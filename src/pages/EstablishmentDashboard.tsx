@@ -2242,7 +2242,10 @@ Estamos te aguardando! 😎✂️`;
 
       // Formatar número do WhatsApp
       let phoneNumber = clientWhatsapp.replace(/\D/g, '');
-      if (!phoneNumber.startsWith('55')) {
+      // Lista de códigos de países comuns
+      const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+      const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+      if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
         phoneNumber = '55' + phoneNumber;
       }
 
@@ -7527,7 +7530,10 @@ Estamos te aguardando! 😎✂️`;
                                             <a
                                               href={(() => {
                                                 let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
-                                                if (!phoneNumber.startsWith('55')) {
+                                                // Lista de códigos de países comuns
+                                                const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+                                                const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+                                                if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                                   phoneNumber = '55' + phoneNumber;
                                                 }
                                                 return `https://wa.me/${phoneNumber}`;
@@ -7546,7 +7552,10 @@ Estamos te aguardando! 😎✂️`;
                                                 const establishmentCode = establishment?.code || 'codigo';
                                                 const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
                                                 let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
-                                                if (!phoneNumber.startsWith('55')) {
+                                                // Lista de códigos de países comuns
+                                                const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+                                                const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+                                                if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                                   phoneNumber = '55' + phoneNumber;
                                                 }
                                                 const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
@@ -10400,7 +10409,10 @@ Estamos te aguardando! 😎✂️`;
                           <a
                             href={(() => {
                               let phoneNumber = client.whatsapp.replace(/\D/g, '');
-                              if (!phoneNumber.startsWith('55')) {
+                              // Lista de códigos de países comuns
+                              const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+                              const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+                              if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                 phoneNumber = '55' + phoneNumber;
                               }
                               return `https://wa.me/${phoneNumber}`;
@@ -12454,19 +12466,89 @@ Estamos te aguardando! 😎✂️`;
                           type="text"
                           value={professional.whatsapp || ''}
                           onChange={(e) => {
-                            // Formatar WhatsApp automaticamente
-                            let value = e.target.value.replace(/\D/g, '');
-                            if (value.length > 2) {
-                              value = value.replace(/^(\d{2})(\d)/, '($1) $2');
+                            // Detectar país do estabelecimento pelo WhatsApp
+                            const establishmentWhatsapp = establishment?.whatsapp || '';
+                            const cleanEstablishmentWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
+                            let detectedCountry = 'BR'; // Default Brasil
+
+                            // Detectar país pelo código do estabelecimento
+                            if (cleanEstablishmentWhatsapp.startsWith('351')) {
+                              detectedCountry = 'PT'; // Portugal
+                            } else if (cleanEstablishmentWhatsapp.startsWith('34')) {
+                              detectedCountry = 'ES'; // Espanha
+                            } else if (cleanEstablishmentWhatsapp.startsWith('54')) {
+                              detectedCountry = 'AR'; // Argentina
+                            } else if (cleanEstablishmentWhatsapp.startsWith('56')) {
+                              detectedCountry = 'CL'; // Chile
+                            } else if (cleanEstablishmentWhatsapp.startsWith('244')) {
+                              detectedCountry = 'AO'; // Angola
+                            } else if (cleanEstablishmentWhatsapp.startsWith('1') && cleanEstablishmentWhatsapp.length >= 10) {
+                              detectedCountry = 'US'; // EUA
                             }
-                            if (value.length > 10) {
-                              value = value.replace(/(\d{4})(\d)/, '$1-$2');
+
+                            let value = e.target.value;
+
+                            // Formatar baseado no país detectado
+                            if (detectedCountry === 'PT') {
+                              // Portugal: +351 964 272 201
+                              value = value.replace(/\D/g, '');
+                              if (value.startsWith('351')) {
+                                value = value.substring(3);
+                              }
+                              if (value.length > 0) {
+                                value = `+351 ${value.substring(0, value.length > 3 ? 3 : value.length)}${value.length > 3 ? ' ' + value.substring(3, 6) : ''}${value.length > 6 ? ' ' + value.substring(6) : ''}`.trim();
+                              } else {
+                                value = '+351 ';
+                              }
+                            } else if (detectedCountry === 'ES') {
+                              // Espanha: +34 612 345 678
+                              value = value.replace(/\D/g, '');
+                              if (value.startsWith('34')) {
+                                value = value.substring(2);
+                              }
+                              if (value.length > 0) {
+                                value = `+34 ${value.substring(0, 3)}${value.length > 3 ? ' ' + value.substring(3, 6) : ''}${value.length > 6 ? ' ' + value.substring(6, 9) : ''}${value.length > 9 ? ' ' + value.substring(9) : ''}`.trim();
+                              } else {
+                                value = '+34 ';
+                              }
+                            } else if (detectedCountry === 'BR') {
+                              // Brasil: (47) 99999-9999
+                              value = value.replace(/\D/g, '');
+                              if (value.length > 2) {
+                                value = value.replace(/^(\d{2})(\d)/, '($1) $2');
+                              }
+                              if (value.length > 10) {
+                                value = value.replace(/(\d{4})(\d)/, '$1-$2');
+                              }
+                            } else {
+                              // Outros países: manter formato genérico
+                              value = e.target.value;
                             }
+
                             handleProfessionalChange(professional.id, 'whatsapp', value);
                           }}
                           className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                          placeholder="(47) 99999-9999"
-                          maxLength={15}
+                          placeholder={(() => {
+                            // Detectar país do estabelecimento pelo WhatsApp
+                            const establishmentWhatsapp = establishment?.whatsapp || '';
+                            const cleanEstablishmentWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
+
+                            if (cleanEstablishmentWhatsapp.startsWith('351')) {
+                              return '+351 964 272 201'; // Portugal
+                            } else if (cleanEstablishmentWhatsapp.startsWith('34')) {
+                              return '+34 612 345 678'; // Espanha
+                            } else if (cleanEstablishmentWhatsapp.startsWith('54')) {
+                              return '+54 11 1234-5678'; // Argentina
+                            } else if (cleanEstablishmentWhatsapp.startsWith('56')) {
+                              return '+56 9 1234 5678'; // Chile
+                            } else if (cleanEstablishmentWhatsapp.startsWith('244')) {
+                              return '+244 912 345 678'; // Angola
+                            } else if (cleanEstablishmentWhatsapp.startsWith('1') && cleanEstablishmentWhatsapp.length >= 10) {
+                              return '+1 (555) 123-4567'; // EUA
+                            }
+                            return '(47) 99999-9999'; // Brasil (padrão)
+                          })()}
+                          maxLength={20}
                         />
                       </div>
 

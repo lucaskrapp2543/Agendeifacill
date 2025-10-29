@@ -93,9 +93,10 @@ export default function ViewAppointmentsPage() {
       // Carregar configuração de WhatsApp do primeiro estabelecimento
       const firstAppointment = data[0];
       const establishmentName = firstAppointment.establishments?.name || firstAppointment.establishment_name;
+      const establishmentCode = firstAppointment.establishment_code || firstAppointment.establishments?.code;
       if (establishmentName) {
         console.log('🔍 Carregando configuração WhatsApp para estabelecimento:', establishmentName);
-        await loadEstablishmentWhatsAppConfig(establishmentName);
+        await loadEstablishmentWhatsAppConfig(establishmentName, establishmentCode);
       }
     } catch (error: any) {
       console.error('❌ Erro ao buscar agendamentos:', error);
@@ -179,17 +180,20 @@ export default function ViewAppointmentsPage() {
       // Limpar e formatar o número do WhatsApp
       let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
 
-      // Garantir que tenha código do país (55 para Brasil)
-      if (cleanWhatsapp.length === 11 && !cleanWhatsapp.startsWith('55')) {
-        cleanWhatsapp = '55' + cleanWhatsapp;
-      } else if (cleanWhatsapp.length === 10) {
-        cleanWhatsapp = '55' + cleanWhatsapp;
-      } else if (cleanWhatsapp.length === 13 && cleanWhatsapp.startsWith('55')) {
-        // Já tem código do país, manter
-        cleanWhatsapp = cleanWhatsapp;
-      } else if (cleanWhatsapp.length < 10) {
-        toast.error('Número de WhatsApp inválido');
-        return;
+      // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+      const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+
+      // Verificar se o número já começa com algum código de país
+      const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+
+      // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
+      if (!hasCountryCode) {
+        if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+          cleanWhatsapp = '55' + cleanWhatsapp;
+        } else if (cleanWhatsapp.length < 10) {
+          toast.error('Número de WhatsApp inválido');
+          return;
+        }
       }
 
       // Formatar data
@@ -322,18 +326,51 @@ Por favor, confirme o cancelamento. Obrigado!`;
   }, []);
 
   // Função para carregar configuração de WhatsApp do estabelecimento
-  const loadEstablishmentWhatsAppConfig = async (establishmentName: string) => {
-    console.log('🔍 DEBUG - loadEstablishmentWhatsAppConfig chamada com:', establishmentName);
+  const loadEstablishmentWhatsAppConfig = async (establishmentName: string, establishmentCode?: string) => {
+    console.log('🔍 DEBUG - loadEstablishmentWhatsAppConfig chamada com:', { establishmentName, establishmentCode });
 
     try {
-      // Primeiro tentar buscar por nome (com escape de caracteres especiais)
-      let { data: establishments, error } = await supabase
+      let establishment = null;
+      let error = null;
+
+      // PRIORITARIAMENTE: buscar por código do estabelecimento (mais confiável)
+      if (establishmentCode) {
+        console.log('🔍 DEBUG - Buscando por código:', establishmentCode);
+        const { data: establishmentsByCode, error: errorByCode } = await supabase
+          .from('establishments')
+          .select('enable_whatsapp_notifications, whatsapp')
+          .eq('code', establishmentCode)
+          .limit(1);
+
+        establishment = establishmentsByCode?.[0];
+        error = errorByCode;
+
+        console.log('🔍 DEBUG - Busca por código:');
+        console.log('  - data:', establishment);
+        console.log('  - error:', error);
+
+        // Se encontrou pelo código, usar esse resultado
+        if (establishment && !error) {
+          const config = {
+            enableWhatsAppNotifications: establishment.enable_whatsapp_notifications || false,
+            whatsapp: establishment.whatsapp || ''
+          };
+          console.log('✅ Configuração carregada pelo código:', config);
+          setEstablishmentWhatsAppConfig(config);
+          return;
+        }
+      }
+
+      // FALLBACK: buscar por nome (caso não tenha código ou código não encontrado)
+      console.log('🔍 DEBUG - Tentando buscar por nome (fallback)...');
+      let { data: establishments, error: errorByName } = await supabase
         .from('establishments')
         .select('enable_whatsapp_notifications, whatsapp')
         .eq('name', establishmentName)
         .limit(1);
 
-      let establishment = establishments?.[0];
+      establishment = establishments?.[0];
+      error = errorByName;
 
       console.log('🔍 DEBUG - Primeira tentativa (por nome):');
       console.log('  - data:', establishment);
@@ -395,19 +432,40 @@ Por favor, confirme o cancelamento. Obrigado!`;
     }
 
     try {
-      // Buscar WhatsApp do estabelecimento diretamente do banco
-      const { data: establishments, error } = await supabase
-        .from('establishments')
-        .select('whatsapp')
-        .eq('name', pendingReminderData.establishmentName)
-        .limit(1);
+      let establishment = null;
 
-      const establishment = establishments?.[0];
+      // PRIORITARIAMENTE: buscar por código do estabelecimento (mais confiável)
+      if (pendingReminderData.establishmentCode) {
+        console.log('🔍 DEBUG - Buscando WhatsApp por código:', pendingReminderData.establishmentCode);
+        const { data: establishmentsByCode, error: errorByCode } = await supabase
+          .from('establishments')
+          .select('whatsapp')
+          .eq('code', pendingReminderData.establishmentCode)
+          .limit(1);
 
-      if (error) {
-        console.error('❌ Erro ao buscar WhatsApp:', error);
-        toast.error('Configuração de WhatsApp não encontrada');
-        return;
+        if (errorByCode) {
+          console.error('❌ Erro ao buscar WhatsApp por código:', errorByCode);
+        } else {
+          establishment = establishmentsByCode?.[0];
+        }
+      }
+
+      // FALLBACK: buscar por nome (caso não tenha código ou código não encontrado)
+      if (!establishment) {
+        console.log('🔍 DEBUG - Buscando WhatsApp por nome (fallback):', pendingReminderData.establishmentName);
+        const { data: establishments, error } = await supabase
+          .from('establishments')
+          .select('whatsapp')
+          .eq('name', pendingReminderData.establishmentName)
+          .limit(1);
+
+        if (error) {
+          console.error('❌ Erro ao buscar WhatsApp:', error);
+          toast.error('Configuração de WhatsApp não encontrada');
+          return;
+        }
+
+        establishment = establishments?.[0];
       }
 
       if (!establishment?.whatsapp) {
@@ -418,17 +476,20 @@ Por favor, confirme o cancelamento. Obrigado!`;
       // Limpar e formatar o número do WhatsApp
       let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
 
-      // Garantir que tenha código do país (55 para Brasil)
-      if (cleanWhatsapp.length === 11 && !cleanWhatsapp.startsWith('55')) {
-        cleanWhatsapp = '55' + cleanWhatsapp;
-      } else if (cleanWhatsapp.length === 10) {
-        cleanWhatsapp = '55' + cleanWhatsapp;
-      } else if (cleanWhatsapp.length === 13 && cleanWhatsapp.startsWith('55')) {
-        // Já tem código do país, manter
-        cleanWhatsapp = cleanWhatsapp;
-      } else if (cleanWhatsapp.length < 10) {
-        toast.error('Número de WhatsApp inválido');
-        return;
+      // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+      const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+
+      // Verificar se o número já começa com algum código de país
+      const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+
+      // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
+      if (!hasCountryCode) {
+        if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+          cleanWhatsapp = '55' + cleanWhatsapp;
+        } else if (cleanWhatsapp.length < 10) {
+          toast.error('Número de WhatsApp inválido');
+          return;
+        }
       }
 
       const message = `Fiz um agendamento pelo Agendei Fácil:
@@ -473,10 +534,12 @@ Por favor, confirme o cancelamento. Obrigado!`;
     try {
       console.log('🔍 Dados do agendamento:', appointment);
 
-      // Buscar WhatsApp do estabelecimento pelo ID ou nome
+      // Buscar WhatsApp do estabelecimento pelo código, ID ou nome (prioridade: código > ID > nome)
+      const establishmentCode = appointment.establishment_code || appointment.establishments?.code;
       const establishmentId = appointment.establishment_id || appointment.establishments?.id;
       const establishmentName = appointment.establishments?.name || appointment.establishment_name;
 
+      console.log('🔍 Establishment Code:', establishmentCode);
       console.log('🔍 Establishment ID:', establishmentId);
       console.log('🔍 Establishment Name:', establishmentName);
 
@@ -484,7 +547,19 @@ Por favor, confirme o cancelamento. Obrigado!`;
       let establishment;
       let error;
 
-      if (establishmentId) {
+      // PRIORITY: buscar por código (mais confiável)
+      if (establishmentCode) {
+        console.log('🔍 Buscando por código:', establishmentCode);
+        const result = await supabase
+          .from('establishments')
+          .select('whatsapp')
+          .eq('code', establishmentCode)
+          .single();
+        establishment = result.data;
+        error = result.error;
+      }
+      // FALLBACK 1: buscar por ID
+      else if (establishmentId) {
         console.log('🔍 Buscando por ID:', establishmentId);
         const result = await supabase
           .from('establishments')
@@ -493,7 +568,9 @@ Por favor, confirme o cancelamento. Obrigado!`;
           .single();
         establishment = result.data;
         error = result.error;
-      } else if (establishmentName) {
+      }
+      // FALLBACK 2: buscar por nome
+      else if (establishmentName) {
         console.log('🔍 Buscando por nome:', establishmentName);
         const result = await supabase
           .from('establishments')
@@ -503,7 +580,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         establishment = result.data;
         error = result.error;
       } else {
-        toast.error('ID ou nome do estabelecimento não encontrado');
+        toast.error('Código, ID ou nome do estabelecimento não encontrado');
         return;
       }
 
@@ -518,17 +595,20 @@ Por favor, confirme o cancelamento. Obrigado!`;
       // Limpar e formatar o número do WhatsApp
       let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
 
-      // Garantir que tenha código do país (55 para Brasil)
-      if (cleanWhatsapp.length === 11 && !cleanWhatsapp.startsWith('55')) {
-        cleanWhatsapp = '55' + cleanWhatsapp;
-      } else if (cleanWhatsapp.length === 10) {
-        cleanWhatsapp = '55' + cleanWhatsapp;
-      } else if (cleanWhatsapp.length === 13 && cleanWhatsapp.startsWith('55')) {
-        // Já tem código do país, manter
-        cleanWhatsapp = cleanWhatsapp;
-      } else if (cleanWhatsapp.length < 10) {
-        toast.error('Número de WhatsApp inválido');
-        return;
+      // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+      const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+
+      // Verificar se o número já começa com algum código de país
+      const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+
+      // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
+      if (!hasCountryCode) {
+        if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+          cleanWhatsapp = '55' + cleanWhatsapp;
+        } else if (cleanWhatsapp.length < 10) {
+          toast.error('Número de WhatsApp inválido');
+          return;
+        }
       }
 
       // Formatar data
@@ -598,8 +678,8 @@ Por favor, confirme o cancelamento. Obrigado!`;
         // Mostrar modal de agendamento concluído
         setTimeout(async () => {
           console.log('🔍 DEBUG - Carregando configuração WhatsApp para:', parsedData.establishmentName);
-          // Carregar configuração de WhatsApp do estabelecimento
-          await loadEstablishmentWhatsAppConfig(parsedData.establishmentName);
+          // Carregar configuração de WhatsApp do estabelecimento (usar código se disponível)
+          await loadEstablishmentWhatsAppConfig(parsedData.establishmentName, parsedData.establishmentCode);
         }, 500);
       } catch (error) {
         console.error('Erro ao processar dados de lembrete:', error);

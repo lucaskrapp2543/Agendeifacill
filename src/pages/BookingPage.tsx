@@ -1146,9 +1146,20 @@ export default function BookingPage() {
                 <a
                   href={establishment?.whatsapp ? (() => {
                     let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
-                    if (!phoneNumber.startsWith('55')) {
-                      phoneNumber = '55' + phoneNumber;
+
+                    // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+                    const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+
+                    // Verificar se o número já começa com algum código de país
+                    const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+
+                    // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
+                    if (!hasCountryCode) {
+                      if (phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                        phoneNumber = '55' + phoneNumber;
+                      }
                     }
+
                     return `https://wa.me/${phoneNumber}`;
                   })() : '#'}
                   target="_blank"
@@ -1757,6 +1768,7 @@ export default function BookingPage() {
         onClose={() => setShowQuickBookingModal(false)}
         onContinue={handleContinueQuickBooking}
         establishmentName={establishment?.name || 'este estabelecimento'}
+        establishmentWhatsapp={establishment?.whatsapp}
       />
 
     </div>

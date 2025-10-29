@@ -186,11 +186,30 @@ const CadastroAg = () => {
     setIsSubmitting(true);
 
     try {
-      // Limpar WhatsApp e adicionar código do país se não tiver
+      // Limpar WhatsApp e garantir que tenha o código do país correto
       let cleanWhatsapp = formData.whatsapp.replace(/\D/g, '');
 
-      // Se não começa com o código do país, adicionar
-      if (selectedCountry && !cleanWhatsapp.startsWith(selectedCountry.dialCode)) {
+      // IMPORTANTE: Remover QUALQUER código de país que possa estar no início
+      // para depois adicionar o código correto do país selecionado
+      if (selectedCountry) {
+        // Pegar todos os códigos de países cadastrados (ordenado por tamanho, maior primeiro)
+        const allCountryCodes = countries.map(c => c.dialCode).sort((a, b) => b.length - a.length);
+
+        // Verificar se começa com algum código de país e remover
+        for (const code of allCountryCodes) {
+          if (cleanWhatsapp.startsWith(code)) {
+            // Verificar se é realmente um código de país (não parte do número)
+            // Se depois do código há pelo menos 7 dígitos, é provável que seja código de país
+            const rest = cleanWhatsapp.substring(code.length);
+            if (rest.length >= 7) {
+              cleanWhatsapp = rest;
+              break;
+            }
+          }
+        }
+
+        // Agora SEMPRE adicionar o código do país CORRETO (o selecionado)
+        // Remove qualquer código anterior e adiciona o correto
         cleanWhatsapp = selectedCountry.dialCode + cleanWhatsapp;
       }
 

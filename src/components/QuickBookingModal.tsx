@@ -7,16 +7,46 @@ interface QuickBookingModalProps {
   onClose: () => void;
   onContinue: (name: string, phone: string) => void;
   establishmentName: string;
+  establishmentWhatsapp?: string; // WhatsApp do estabelecimento para detectar código de país
 }
 
 export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
   isOpen,
   onClose,
   onContinue,
-  establishmentName
+  establishmentName,
+  establishmentWhatsapp
 }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+
+  // Detectar código de país do estabelecimento e pré-preencher
+  useEffect(() => {
+    if (isOpen) {
+      // Limpar campos quando modal abrir
+      setName('');
+      setPhone('');
+
+      if (establishmentWhatsapp) {
+        // Limpar e pegar apenas números
+        const cleanWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
+
+        // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+        const countryCodes = ['351', '244', '54', '56', '34', '1']; // Removido 55 (Brasil) - não pré-preenche
+
+        // Verificar se começa com algum código de país (exceto Brasil)
+        for (const code of countryCodes) {
+          if (cleanWhatsapp.startsWith(code)) {
+            // Encontrou o código de país (não Brasil), pré-preencher no campo
+            const dialCode = `+${code} `;
+            setPhone(dialCode);
+            break;
+          }
+        }
+        // Se for Brasil (55), não pré-preencher nada - deixa o usuário digitar normalmente
+      }
+    }
+  }, [isOpen, establishmentWhatsapp]);
 
   // Bloquear scroll quando modal estiver aberto
   useEffect(() => {
@@ -54,8 +84,8 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
       return;
     }
 
-    // Validar formato de telefone (básico)
-    const phoneRegex = /^[\d\s\(\)\-]+$/;
+    // Validar formato de telefone (aceita código de país com +)
+    const phoneRegex = /^[\+\d\s\(\)\-]+$/;
     if (!phoneRegex.test(phone)) {
       toast.error('Por favor, informe um telefone válido');
       return;
@@ -88,10 +118,41 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
   };
 
   const formatPhone = (value: string) => {
-    // Remove tudo que não é número
-    const numbers = value.replace(/\D/g, '');
+    // Verificar se começa com código de país (ex: +351, +55)
+    const countryCodeMatch = value.match(/^(\+\d{1,3})\s*(.*)$/);
 
-    // Formata como (XX) XXXXX-XXXX
+    if (countryCodeMatch) {
+      const countryCode = countryCodeMatch[1]; // +351 ou +55
+      const restOfNumber = countryCodeMatch[2].replace(/\D/g, ''); // Apenas números depois do código
+
+      // Formatar o resto do número baseado no código de país
+      if (countryCode === '+55') {
+        // Brasil: (+55) (11) 99999-9999
+        if (restOfNumber.length <= 2) {
+          return `${countryCode} (${restOfNumber}`;
+        } else if (restOfNumber.length <= 7) {
+          return `${countryCode} (${restOfNumber.slice(0, 2)}) ${restOfNumber.slice(2)}`;
+        } else if (restOfNumber.length <= 11) {
+          return `${countryCode} (${restOfNumber.slice(0, 2)}) ${restOfNumber.slice(2, 7)}-${restOfNumber.slice(7, 11)}`;
+        } else {
+          return `${countryCode} (${restOfNumber.slice(0, 2)}) ${restOfNumber.slice(2, 7)}-${restOfNumber.slice(7, 11)}`;
+        }
+      } else {
+        // Outros países: (+351) 964 272 201
+        if (restOfNumber.length === 0) {
+          return `${countryCode} `;
+        } else if (restOfNumber.length <= 3) {
+          return `${countryCode} ${restOfNumber}`;
+        } else if (restOfNumber.length <= 6) {
+          return `${countryCode} ${restOfNumber.slice(0, 3)} ${restOfNumber.slice(3)}`;
+        } else {
+          return `${countryCode} ${restOfNumber.slice(0, 3)} ${restOfNumber.slice(3, 6)} ${restOfNumber.slice(6, 9)}`;
+        }
+      }
+    }
+
+    // Se não tiver código de país, formatar como antes (formato brasileiro)
+    const numbers = value.replace(/\D/g, '');
     if (numbers.length <= 2) {
       return numbers;
     } else if (numbers.length <= 7) {
@@ -157,10 +218,19 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
                 type="tel"
                 value={phone}
                 onChange={handlePhoneChange}
-                placeholder="(00) 00000-0000"
+                placeholder={(() => {
+                  if (!establishmentWhatsapp) return "(00) 00000-0000";
+                  const cleanWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
+                  // Verificar qual país é baseado no código
+                  if (cleanWhatsapp.startsWith('351')) return "Ex: +351 964 272 201";
+                  if (cleanWhatsapp.startsWith('55')) return "Ex: (11) 99999-9999";
+                  if (cleanWhatsapp.startsWith('34')) return "Ex: +34 612 345 678";
+                  if (cleanWhatsapp.startsWith('1')) return "Ex: +1 (555) 123-4567";
+                  return "(00) 00000-0000";
+                })()}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                 required
-                maxLength={15}
+                maxLength={20}
                 onFocus={(e) => {
                   // Scroll para o input quando ganhar foco
                   setTimeout(() => {

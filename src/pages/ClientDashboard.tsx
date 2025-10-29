@@ -120,18 +120,21 @@ const ClientDashboard = () => {
     console.log('🔍 DEBUG - WhatsApp original:', establishmentWhatsAppConfig.whatsapp);
     console.log('🔍 DEBUG - WhatsApp limpo:', cleanWhatsapp);
 
-    // Garantir que tenha código do país (55 para Brasil)
-    if (cleanWhatsapp.length === 11 && !cleanWhatsapp.startsWith('55')) {
-      cleanWhatsapp = '55' + cleanWhatsapp;
-    } else if (cleanWhatsapp.length === 10) {
-      cleanWhatsapp = '55' + cleanWhatsapp;
-    } else if (cleanWhatsapp.length === 13 && cleanWhatsapp.startsWith('55')) {
-      // Já tem código do país, manter
-      cleanWhatsapp = cleanWhatsapp;
-    } else if (cleanWhatsapp.length < 10) {
-      console.error('❌ Número de WhatsApp muito curto:', cleanWhatsapp);
-      toast.error('Número de WhatsApp inválido');
-      return;
+    // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+    const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+
+    // Verificar se o número já começa com algum código de país
+    const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+
+    // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
+    if (!hasCountryCode) {
+      if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+        cleanWhatsapp = '55' + cleanWhatsapp;
+      } else if (cleanWhatsapp.length < 10) {
+        console.error('❌ Número de WhatsApp muito curto:', cleanWhatsapp);
+        toast.error('Número de WhatsApp inválido');
+        return;
+      }
     }
 
     console.log('🔍 DEBUG - WhatsApp final:', cleanWhatsapp);
