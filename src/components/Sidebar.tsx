@@ -89,18 +89,18 @@ const Sidebar: React.FC<SidebarProps> = ({
       isActive: activeTab === 'appointments'
     },
     {
-      id: 'clients',
-      label: 'Meus Clientes',
-      icon: Users,
-      onClick: () => handleItemClick(() => onTabChange('clients')),
-      isActive: activeTab === 'clients'
-    },
-    {
       id: 'reserve-client',
       label: 'Reservar Cliente',
       icon: Link,
       onClick: () => handleItemClick(() => onTabChange('reserve-client')),
       isActive: activeTab === 'reserve-client'
+    },
+    {
+      id: 'clients',
+      label: 'Meus Clientes',
+      icon: Users,
+      onClick: () => handleItemClick(() => onTabChange('clients')),
+      isActive: activeTab === 'clients'
     },
     {
       id: 'ranking',
@@ -132,7 +132,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'service-categories',
-      label: 'Serviços (Por categoria)',
+      label: 'Meus serviços',
       icon: Layers,
       onClick: () => handleItemClick(() => onTabChange('service-categories')),
       isActive: activeTab === 'service-categories'

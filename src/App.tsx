@@ -21,6 +21,7 @@ import CadastroPremium060622 from './pages/CadastroPremium060622';
 import ClientDashboard from './pages/ClientDashboard';
 import EstablishmentDashboard from './pages/EstablishmentDashboard';
 import EstablishmentDirectBooking from './pages/EstablishmentDirectBooking';
+import LandingInfo from './pages/LandingInfo';
 import LandingPage from './pages/LandingPage';
 import LandingVendas from './pages/LandingVendas';
 import Login from './pages/Login';
@@ -90,6 +91,7 @@ function App() {
               <PWARedirect />
               <Routes>
                 <Route path="/" element={<LandingVendas />} />
+                <Route path="/info" element={<LandingInfo />} />
                 <Route path="/landing" element={<LandingPage />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />

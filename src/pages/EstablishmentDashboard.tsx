@@ -9082,39 +9082,58 @@ Estamos te aguardando! 😎✂️`;
                   </div>
 
 
-                  {/* Serviços */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                    <h3 className="text-lg font-medium text-white mb-4">Serviços</h3>
-                    <p className="text-sm text-gray-400 mb-6">
-                      Adicione os serviços oferecidos pelo seu estabelecimento
-                    </p>
-
-                    {/* Lista de Serviços Cadastrados */}
-                    {servicesWithPrices.length > 0 && (
-                      <div className="mb-4 border-b border-gray-800 pb-4">
-                        <h4 className="text-md font-semibold text-gray-300 mb-3">Serviços Cadastrados:</h4>
-                        <p className="text-sm text-gray-400 mb-3">
-                          Arraste os serviços para reordenar a lista
+                  {/* Serviços - Apenas para estabelecimentos antigos */}
+                  {(() => {
+                    // Data de corte: estabelecimentos criados antes de hoje mantêm a opção
+                    // Estabelecimentos criados a partir de hoje (início do dia) não terão mais esta opção
+                    const cutoffDate = new Date(); // Data atual (hoje)
+                    cutoffDate.setHours(0, 0, 0, 0); // Início do dia de hoje
+                    
+                    // Verificar se o estabelecimento foi criado antes do início de hoje
+                    const isOldEstablishment = establishment?.created_at 
+                      ? parseISO(establishment.created_at) < cutoffDate
+                      : true; // Se não tiver created_at, assume que é antigo (mantém compatibilidade)
+                    
+                    // Só mostra a seção de Serviços se for um estabelecimento antigo
+                    if (!isOldEstablishment) {
+                      return null;
+                    }
+                    
+                    return (
+                      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                        <h3 className="text-lg font-medium text-white mb-4">Serviços</h3>
+                        <p className="text-sm text-gray-400 mb-6">
+                          Adicione os serviços oferecidos pelo seu estabelecimento
                         </p>
-                        <DraggableServiceList
+
+                        {/* Lista de Serviços Cadastrados */}
+                        {servicesWithPrices.length > 0 && (
+                          <div className="mb-4 border-b border-gray-800 pb-4">
+                            <h4 className="text-md font-semibold text-gray-300 mb-3">Serviços Cadastrados:</h4>
+                            <p className="text-sm text-gray-400 mb-3">
+                              Arraste os serviços para reordenar a lista
+                            </p>
+                            <DraggableServiceList
+                              services={servicesWithPrices}
+                              onReorder={(newServices) => {
+                                setServicesWithPrices(newServices);
+                                // Salvar automaticamente a nova ordem
+                                if (establishment) {
+                                  saveServicesOrder(newServices);
+                                }
+                              }}
+                              isSaving={isSavingServicesOrder}
+                            />
+                          </div>
+                        )}
+
+                        <ServiceForm
                           services={servicesWithPrices}
-                          onReorder={(newServices) => {
-                            setServicesWithPrices(newServices);
-                            // Salvar automaticamente a nova ordem
-                            if (establishment) {
-                              saveServicesOrder(newServices);
-                            }
-                          }}
-                          isSaving={isSavingServicesOrder}
+                          onChange={setServicesWithPrices}
                         />
                       </div>
-                    )}
-
-                    <ServiceForm
-                      services={servicesWithPrices}
-                      onChange={setServicesWithPrices}
-                    />
-                  </div>
+                    );
+                  })()}
 
                   {/* Configurações do PIX */}
                   <EstablishmentPixSettings
@@ -11783,13 +11802,6 @@ Estamos te aguardando! 😎✂️`;
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-gray-900">Serviços com Dropdown</h2>
-                <button
-                  onClick={() => setShowAddCategoryModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  Adicionar Categoria
-                </button>
               </div>
 
               {/* Vídeo Tutorial */}
@@ -11850,6 +11862,32 @@ Estamos te aguardando! 😎✂️`;
                   </button>
                 </div>
               )}
+
+              {/* Botão Adicionar Categoria - Movido para abaixo do vídeo */}
+              <div className="mb-6">
+                <button
+                  onClick={() => setShowAddCategoryModal(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Adicionar Categoria
+                </button>
+              </div>
+
+              {/* Lembrete/Explicação sobre como usar categorias */}
+              <div className="bg-blue-50 border-l-4 border-blue-500 rounded-lg p-4 mb-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <span className="text-blue-600 text-2xl">💡</span>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-blue-900 mb-2">Como usar as categorias:</h3>
+                    <p className="text-sm text-blue-800">
+                      Crie a sua categoria, exemplo: <strong>Cabelo</strong>. Dentro da categoria <strong>Cabelo</strong>, você adiciona os serviços de cabelo (Corte, Escova, Hidratação, etc). Assim por diante para outras categorias como <strong>Barba</strong>, <strong>Estética</strong>, etc.
+                    </p>
+                  </div>
+                </div>
+              </div>
 
               {serviceCategories.length === 0 ? (
                 <div className="text-center py-8">

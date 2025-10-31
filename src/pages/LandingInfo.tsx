@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import WhatsAppButton from '../components/WhatsAppButton';
 
-const LandingVendas = () => {
+const LandingInfo = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -666,7 +666,7 @@ const LandingVendas = () => {
                 </ul>
                 <div className="space-y-3">
                   <a
-                    href="https://pay.kiwify.com.br/gaOMAgs"
+                    href="https://pay.kiwify.com.br/6sJj9tM"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
@@ -714,7 +714,7 @@ const LandingVendas = () => {
                 </ul>
                 <div className="space-y-3">
                   <a
-                    href="https://pay.kiwify.com.br/eOJK9qJ"
+                    href="https://pay.kiwify.com.br/uadfJqr"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors font-semibold"
@@ -867,4 +867,5 @@ const LandingVendas = () => {
   );
 };
 
-export default LandingVendas;
+export default LandingInfo;
+
