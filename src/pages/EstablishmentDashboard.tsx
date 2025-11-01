@@ -1283,12 +1283,26 @@ const EstablishmentDashboard = () => {
     }
 
     try {
+      // Incrementar o display_order de todas as categorias existentes em 1
+      // para que a nova categoria apareça primeiro (com display_order: 0)
+      if (serviceCategories.length > 0) {
+        const updatePromises = serviceCategories.map(category =>
+          supabase
+            .from('service_categories')
+            .update({ display_order: (category.display_order || 0) + 1 })
+            .eq('id', category.id)
+        );
+
+        await Promise.all(updatePromises);
+      }
+
+      // Criar a nova categoria com display_order: 0 (aparecerá primeiro)
       const { error } = await supabase
         .from('service_categories')
         .insert({
           establishment_id: establishment.id,
           name: newCategory.name.trim().toUpperCase(),
-          display_order: serviceCategories.length
+          display_order: 0
         });
 
       if (error) {
@@ -1840,6 +1854,44 @@ const EstablishmentDashboard = () => {
       console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
       console.log('📱 Verificando WhatsApp:', professionals.map(p => ({ name: p.name, whatsapp: p.whatsapp })));
 
+      // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
+      const { data: establishmentData, error: fetchError } = await supabase
+        .from('establishments')
+        .select('professionals, professionals_pins')
+        .eq('id', establishment.id)
+        .single();
+
+      if (fetchError) {
+        console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
+        throw fetchError;
+      }
+
+      const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      console.log('📦 Profissionais do banco:', dbProfessionals);
+
+      // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
+      const updatedProfessionals = professionals.map(localProfessional => {
+        // Buscar dados do banco para este profissional
+        const dbProfessional = dbProfessionals.find(p => p.id === localProfessional.id) || {};
+        
+        // Mesclar: priorizar dados locais mas preservar campos do banco que não estão no local
+        return {
+          id: localProfessional.id,
+          name: localProfessional.name.trim(),
+          specialties: localProfessional.specialties || [],
+          percentage: localProfessional.percentage || 100,
+          photo_url: (localProfessional as any).photo_url || dbProfessional.photo_url || null,
+          whatsapp: localProfessional.whatsapp || dbProfessional.whatsapp || null,
+          specific_services: (localProfessional as any).specific_services || dbProfessional.specific_services || [],
+          offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
+          work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
+          absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
+          blocked_hours: (localProfessional as any).blocked_hours || dbProfessional.blocked_hours || {} // ✅ PRESERVAR HORÁRIOS BLOQUEADOS!
+        };
+      });
+
+      console.log('🔄 Profissionais mesclados:', updatedProfessionals);
+
       // Garantir que todos os profissionais tenham pins (senha padrão "0000" se não tiver)
       let updatedPins = establishment.professionals_pins || [];
 
@@ -1860,18 +1912,7 @@ const EstablishmentDashboard = () => {
       const { error } = await supabase
         .from('establishments')
         .update({
-          professionals: professionals.map(p => ({
-            id: p.id,
-            name: p.name.trim(),
-            specialties: p.specialties || [],
-            percentage: p.percentage || 100,
-            photo_url: (p as any).photo_url,
-            whatsapp: p.whatsapp || null, // ✅ ADICIONAR CAMPO WHATSAPP
-            specific_services: (p as any).specific_services || [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
-            offers_child_service: p.offers_child_service || false,
-            work_hours: p.work_hours || null,
-            absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
-          })).filter(p => p.name),
+          professionals: updatedProfessionals.filter(p => p.name),
           professionals_pins: updatedPins
         })
         .eq('id', establishment.id);
@@ -1881,9 +1922,12 @@ const EstablishmentDashboard = () => {
       // Atualizar o estado local do establishment também
       setEstablishment({
         ...establishment,
-        professionals: professionals,
+        professionals: updatedProfessionals,
         professionals_pins: updatedPins
       });
+
+      // Atualizar o estado local dos profissionais com os dados mesclados
+      setProfessionals(updatedProfessionals);
 
       console.log('✅ Profissionais e pins salvos com sucesso!');
       toast.success('Profissionais atualizados!');
@@ -5332,12 +5376,44 @@ Estamos te aguardando! 😎✂️`;
     try {
       const absences = professionalAbsences[selectedProfessionalForAbsence] || [];
 
-      // Atualizar o profissional com as ausências
-      const updatedProfessionals = professionals.map((professional: any) => {
-        if (professional.id === selectedProfessionalForAbsence) {
-          return { ...professional, absences: absences };
+      // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
+      const { data: establishmentData, error: fetchError } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishment.id)
+        .single();
+
+      if (fetchError) {
+        console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
+        toast.error('Erro ao salvar ausências do profissional');
+        return;
+      }
+
+      const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      
+      // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
+      const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
+        if (dbProfessional.id === selectedProfessionalForAbsence) {
+          // Buscar dados locais do profissional
+          const localProfessional = professionals.find(p => p.id === selectedProfessionalForAbsence);
+
+          // Mesclar todos os campos, preservando dados do banco
+          return {
+            ...dbProfessional,
+            ...(localProfessional || {}),
+            absences: absences
+          };
         }
-        return professional;
+        // Preservar outros profissionais sem alterações
+        return dbProfessional;
+      });
+
+      // Adicionar profissionais novos que possam estar no estado local mas não no banco
+      professionals.forEach(localProfessional => {
+        const existsInDb = updatedProfessionals.find(p => p.id === localProfessional.id);
+        if (!existsInDb) {
+          updatedProfessionals.push(localProfessional);
+        }
       });
 
       // Salvar no banco de dados
@@ -5352,13 +5428,14 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
 
-      // Atualizar estados locais
+      // Atualizar estados locais com dados do banco
       setProfessionals(updatedProfessionals);
       setEstablishment({
         ...establishment,
         professionals: updatedProfessionals
       });
 
+      console.log('✅ Ausências salvas:', updatedProfessionals.find(p => p.id === selectedProfessionalForAbsence)?.absences);
       toast.success('Ausências do profissional salvas com sucesso!');
       handleCloseAbsenceModal();
     } catch (error) {
@@ -5671,17 +5748,49 @@ Estamos te aguardando! 😎✂️`;
     if (!selectedProfessionalForBlock || !establishment) return;
 
     try {
-      const updatedProfessionals = professionals.map((professional: any) => {
-        if (professional.id === selectedProfessionalForBlock) {
-          const currentBlockedHours = professional.blocked_hours || {};
+      // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
+      const { data: establishmentData, error: fetchError } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishment.id)
+        .single();
+
+      if (fetchError) {
+        console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
+        toast.error('Erro ao salvar horários bloqueados');
+        return;
+      }
+
+      const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      
+      // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
+      const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
+        if (dbProfessional.id === selectedProfessionalForBlock) {
+          // Buscar dados locais do profissional
+          const localProfessional = professionals.find(p => p.id === selectedProfessionalForBlock);
+          const currentBlockedHours = (localProfessional as any)?.blocked_hours || dbProfessional.blocked_hours || {};
           const updatedBlockedHours = {
             ...currentBlockedHours,
             [blockTimeDate]: selectedBlockedHours
           };
 
-          return { ...professional, blocked_hours: updatedBlockedHours };
+          // Mesclar todos os campos, preservando dados do banco
+          return {
+            ...dbProfessional,
+            ...(localProfessional || {}),
+            blocked_hours: updatedBlockedHours
+          };
         }
-        return professional;
+        // Preservar outros profissionais sem alterações
+        return dbProfessional;
+      });
+
+      // Adicionar profissionais novos que possam estar no estado local mas não no banco
+      professionals.forEach(localProfessional => {
+        const existsInDb = updatedProfessionals.find(p => p.id === localProfessional.id);
+        if (!existsInDb) {
+          updatedProfessionals.push(localProfessional);
+        }
       });
 
       const { error: updateError } = await supabase
@@ -5695,12 +5804,14 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
 
+      // Atualizar estados locais com dados do banco
       setProfessionals(updatedProfessionals);
       setEstablishment({
         ...establishment,
         professionals: updatedProfessionals
       });
 
+      console.log('✅ Horários bloqueados salvos:', updatedProfessionals.find(p => p.id === selectedProfessionalForBlock)?.blocked_hours);
       toast.success('Horários bloqueados salvos com sucesso!');
       handleCloseBlockTimeModal();
     } catch (error) {
@@ -10236,9 +10347,34 @@ Estamos te aguardando! 😎✂️`;
                       {filteredClients.length} {filteredClients.length === 1 ? 'cliente' : 'clientes'}
                     </div>
                   </div>
-                  <p className="text-gray-700 mb-8">
+                  <p className="text-gray-700 mb-4">
                     Aqui você encontra todos os clientes que já agendaram em seu estabelecimento.
                   </p>
+
+                  {/* Botões de navegação */}
+                  <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                    <button
+                      onClick={() => handleTabChange('ranking')}
+                      className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                    >
+                      <Crown className="h-4 w-4" />
+                      Ranking Clientes
+                    </button>
+                    <button
+                      onClick={() => handleTabChange('missing-clients')}
+                      className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                    >
+                      <Users className="h-4 w-4" />
+                      Clientes Sumidos
+                    </button>
+                    <button
+                      onClick={() => handleTabChange('draw')}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                    >
+                      <Shuffle className="h-4 w-4" />
+                      Sorteio
+                    </button>
+                  </div>
 
                   {/* Controles de busca e filtros */}
                   <div className="flex flex-col gap-4 mb-6">
@@ -11592,7 +11728,33 @@ Estamos te aguardando! 😎✂️`;
           {/* Tab de Ranking */}
           {activeTab === 'ranking' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">🏆 Ranking dos Clientes Mais Fiéis</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">🏆 Ranking dos Clientes Mais Fiéis</h2>
+              
+              {/* Botões de navegação */}
+              <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                <button
+                  onClick={() => handleTabChange('ranking')}
+                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                >
+                  <Crown className="h-4 w-4" />
+                  Ranking Clientes
+                </button>
+                <button
+                  onClick={() => handleTabChange('missing-clients')}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                >
+                  <Users className="h-4 w-4" />
+                  Clientes Sumidos
+                </button>
+                <button
+                  onClick={() => handleTabChange('draw')}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Sorteio
+                </button>
+              </div>
+
               <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-700">
                   <strong>Critério:</strong> Apenas clientes com 9 ou mais agendamentos aparecem no ranking.
@@ -11661,7 +11823,33 @@ Estamos te aguardando! 😎✂️`;
           {/* Tab de Clientes Sumidos */}
           {activeTab === 'missing-clients' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">👻 Clientes Sumidos</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">👻 Clientes Sumidos</h2>
+              
+              {/* Botões de navegação */}
+              <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                <button
+                  onClick={() => handleTabChange('ranking')}
+                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                >
+                  <Crown className="h-4 w-4" />
+                  Ranking Clientes
+                </button>
+                <button
+                  onClick={() => handleTabChange('missing-clients')}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                >
+                  <Users className="h-4 w-4" />
+                  Clientes Sumidos
+                </button>
+                <button
+                  onClick={() => handleTabChange('draw')}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Sorteio
+                </button>
+              </div>
+
               <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                 <p className="text-sm text-orange-700">
                   <strong>Critério:</strong> Clientes que não agendam há 2+ meses. Se não houver nenhum, mostra os mais inativos.
@@ -11735,7 +11923,33 @@ Estamos te aguardando! 😎✂️`;
           {/* Tab de Sorteio */}
           {activeTab === 'draw' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">🎲 Sorteio de Clientes</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">🎲 Sorteio de Clientes</h2>
+              
+              {/* Botões de navegação */}
+              <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                <button
+                  onClick={() => handleTabChange('ranking')}
+                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                >
+                  <Crown className="h-4 w-4" />
+                  Ranking Clientes
+                </button>
+                <button
+                  onClick={() => handleTabChange('missing-clients')}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                >
+                  <Users className="h-4 w-4" />
+                  Clientes Sumidos
+                </button>
+                <button
+                  onClick={() => handleTabChange('draw')}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Sorteio
+                </button>
+              </div>
+
               <div className="text-center">
                 <p className="text-gray-600 mb-6 text-lg">
                   Clique no botão abaixo para abrir o sorteio de clientes fiéis.
@@ -11906,18 +12120,18 @@ Estamos te aguardando! 😎✂️`;
                     const categorySubcategories = serviceSubcategories.filter(sub => sub.category_id === category.id);
 
                     return (
-                      <div key={category.id} className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-                        <div className="flex items-center justify-between mb-4">
+                      <div key={category.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 md:p-6">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3 md:gap-2">
                           <h3 className="text-xl font-semibold text-gray-900">{category.name}</h3>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
                             <button
                               onClick={() => {
                                 setSelectedCategoryForSubcategory(category.id);
                                 setShowAddSubcategoryModal(true);
                               }}
-                              className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors flex items-center gap-1"
+                              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
                             >
-                              <Plus className="h-3 w-3" />
+                              <Plus className="h-4 w-4" />
                               Adicionar Serviço
                             </button>
                             <button
@@ -11925,9 +12139,9 @@ Estamos te aguardando! 😎✂️`;
                                 setEditingCategory(category);
                                 setShowEditCategoryModal(true);
                               }}
-                              className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
                             >
-                              <Edit className="h-3 w-3" />
+                              <Edit className="h-4 w-4" />
                               Editar
                             </button>
                             <button
@@ -11936,20 +12150,25 @@ Estamos te aguardando! 😎✂️`;
                                   handleDeleteCategory(category.id);
                                 }
                               }}
-                              className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-1"
+                              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <Trash2 className="h-4 w-4" />
                               Excluir
                             </button>
                           </div>
                         </div>
+
+                        {/* Texto descritivo discreto */}
+                        <p className="text-gray-700 text-sm font-medium mb-3">
+                          Adicione um ou mais serviços aqui dentro
+                        </p>
 
                         {categorySubcategories.length === 0 ? (
                           <p className="text-black text-sm">Nenhum serviço cadastrado nesta categoria</p>
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {categorySubcategories.map((subcategory) => (
-                              <div key={subcategory.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                              <div key={subcategory.id} className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-blue-100 transition-all">
                                 <div className="flex items-center justify-between mb-2">
                                   <h4 className="font-medium text-gray-900">{subcategory.name}</h4>
                                   <div className="flex items-center gap-1">
@@ -12303,75 +12522,100 @@ Estamos te aguardando! 😎✂️`;
                 </div>
               )}
 
-              <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                <h3 className="text-lg font-medium text-white mb-4">Profissionais</h3>
-                <p className="text-sm text-gray-400 mb-6">
-                  Cadastre os profissionais do seu estabelecimento. Para cada profissional, você deve:
-                  <br />• Informar nome e sobrenome
-                  <br />• Definir uma senha de 4 dígitos para acesso ao dashboard individual
-                  <br /><br />
-                  Cada profissional terá acesso ao seu próprio painel de controle onde poderá:
-                  <br />• Visualizar o valor total recebido no dia
-                  <br />• Acompanhar o valor total recebido no mês
-                  <br />• Ver sua lista de agendamentos do dia
-                  <br />• Criar agendamentos e cancelar agendamentos
-                  <br />• Vender produtos adicionais para clientes
-                </p>
+              <div className="bg-[#1a1b1c] rounded-lg p-4 md:p-6 border border-gray-800 mb-6">
+                <h3 className="text-lg font-medium text-white mb-4">Aqui você tem total controle sobre seus profissionais:</h3>
+                <div className="space-y-3 text-sm text-gray-300">
+                  <p className="flex items-start gap-2">
+                    <span className="text-blue-400 mt-1">•</span>
+                    <span>Adicione quantos quiser</span>
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <span className="text-blue-400 mt-1">•</span>
+                    <span>Configure nome, foto, porcentagem de comissão e WhatsApp individual</span>
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <span className="text-blue-400 mt-1">•</span>
+                    <span>Defina uma senha exclusiva (opcional — se não quiser senha, use 0000)</span>
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <span className="text-blue-400 mt-1">•</span>
+                    <span>Determine metas e serviços específicos para cada profissional</span>
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <span className="text-blue-400 mt-1">•</span>
+                    <span>Marque dias ausentes e bloqueie horários</span>
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <span className="text-blue-400 mt-1">•</span>
+                    <span>Escolha se o profissional realiza ou não serviços infantis</span>
+                  </p>
+                </div>
+                <div className="mt-4 p-3 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                  <p className="text-sm text-blue-300 font-medium mb-2 flex items-start gap-2">
+                    <span>💡</span>
+                    <span className="flex-1"><strong>Importante:</strong></span>
+                  </p>
+                  <div className="space-y-1 text-xs text-blue-200 ml-6">
+                    <p>• Cada profissional pode visualizar o total bruto e líquido do dia</p>
+                    <p>• As alterações só terão efeito após clicar em Salvar Profissionais</p>
+                  </div>
+                </div>
+              </div>
 
-                {/* Lista de Profissionais Cadastrados */}
-                {professionals.length > 0 && (
-                  <div className="mb-4 border-b border-gray-800 pb-4">
-                    <h4 className="text-md font-semibold text-gray-300 mb-3">Profissionais Cadastrados:</h4>
-                    <div className="space-y-2">
-                      {professionals.map((professional) => (
-                        <div key={professional.id} className="flex items-center justify-between bg-[#242628] p-3 rounded-lg">
-                          <span className="text-gray-300">{professional.name}</span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleUpdateProfessionalPin(professional.id, '')}
-                              className="text-xs px-2 py-1 bg-green-600/20 text-green-500 rounded"
-                            >
-                              Alterar Senha
-                            </button>
-                          </div>
+              {/* Lista de Profissionais Cadastrados */}
+              {professionals.length > 0 && (
+                <div className="mb-4 border-b border-gray-800 pb-4">
+                  <h4 className="text-md font-semibold text-gray-300 mb-3">Profissionais Cadastrados:</h4>
+                  <div className="space-y-2">
+                    {professionals.map((professional) => (
+                      <div key={professional.id} className="flex items-center justify-between bg-[#242628] p-3 rounded-lg">
+                        <span className="text-gray-300">{professional.name}</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleUpdateProfessionalPin(professional.id, '')}
+                            className="text-xs px-2 py-1 bg-green-600/20 text-green-500 rounded"
+                          >
+                            Alterar Senha
+                          </button>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                <div className="space-y-4 mb-6">
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <button
-                      type="button"
-                      onClick={handleAddProfessional}
-                      disabled={professionals.length >= 10}
-                      className="flex-1 px-4 py-2 bg-[#242628] text-white rounded-lg hover:bg-[#2a2b2d] transition-colors flex items-center justify-center gap-2 border border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Plus className="h-4 w-4" />
-                      <span>Adicionar</span>
-                    </button>
+              <div className="space-y-4 mb-6">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={handleAddProfessional}
+                    disabled={professionals.length >= 10}
+                    className="flex-1 px-4 py-2 bg-[#242628] text-white rounded-lg hover:bg-[#2a2b2d] transition-colors flex items-center justify-center gap-2 border border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Adicionar</span>
+                  </button>
 
-                    <button
-                      type="button"
-                      onClick={saveProfessionalsToDatabase}
-                      className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Check className="h-4 w-4" />
-                      <span>Salvar Profissionais</span>
-                    </button>
-                  </div>
-
-                  {/* Indicador de status */}
-                  {professionals.length > 0 && (
-                    <div className="text-xs text-yellow-400 text-center">
-                      ⚠ Clique em "Salvar Profissionais" para salvar
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    onClick={saveProfessionalsToDatabase}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Check className="h-4 w-4" />
+                    <span>Salvar Profissionais</span>
+                  </button>
                 </div>
 
-                {/* Resto do código original dos profissionais */}
-                <div className="space-y-4">
+                {/* Indicador de status */}
+                {professionals.length > 0 && (
+                  <div className="text-xs text-yellow-400 text-center">
+                    ⚠ Clique em "Salvar Profissionais" para salvar
+                  </div>
+                )}
+              </div>
+
+              {/* Resto do código original dos profissionais */}
+              <div className="space-y-4">
                   {professionals.map((professional) => (
                     <div key={professional.id} className="p-4 bg-[#242628] rounded-lg space-y-3">
                       <div className="flex justify-between items-start">
@@ -12628,7 +12872,6 @@ Estamos te aguardando! 😎✂️`;
                     </p>
                   )}
                 </div>
-              </div>
             </div>
           )}
 

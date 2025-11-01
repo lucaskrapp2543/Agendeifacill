@@ -220,10 +220,67 @@ export function TimeSlotSelector({
           continue;
         }
 
-        // Verificar se o horário está bloqueado pelo profissional
-        if (professionalBlockedHours.includes(timeString)) {
-          isAvailable = false;
-          conflictReason = 'Horário Fechado';
+        // ============================================================
+        // ⚠️ ATENÇÃO: LÓGICA CRÍTICA DE HORÁRIOS BLOQUEADOS ⚠️
+        // ============================================================
+        // Esta lógica é EXTREMAMENTE IMPORTANTE e não deve ser alterada
+        // sem entender completamente seu funcionamento!
+        //
+        // PROBLEMA RESOLVIDO:
+        // Antes: apenas verificava se o horário de INÍCIO estava bloqueado
+        // Agora: verifica se o serviço INTEIRO (início + duração) conflita
+        //        com horários bloqueados, assim como intervalos e fechamento
+        //
+        // EXEMPLO:
+        // Se profissional bloqueou: 17:00, 17:15, 17:30, 17:45
+        // Serviço de 60min às 16:45 terminaria às 17:45 → DEVE SER BLOQUEADO!
+        // 
+        // LÓGICA IMPLEMENTADA (igual à de intervalos de almoço):
+        // 1. Verifica se INÍCIO do serviço está em horário bloqueado
+        // 2. Verifica se FIM do serviço está em horário bloqueado
+        // 3. Verifica se serviço engloba completamente horário bloqueado
+        //
+        // ⚠️ SE FOR ALTERAR ESTA LÓGICA, TESTAR:
+        //    - Serviço que começa antes mas termina durante horário bloqueado
+        //    - Serviço que começa durante horário bloqueado
+        //    - Serviço que engloba completamente horário bloqueado
+        // ============================================================
+        if (professionalBlockedHours.length > 0) {
+          // Verificar se o INÍCIO do serviço está em um horário bloqueado
+          if (professionalBlockedHours.includes(timeString)) {
+            isAvailable = false;
+            conflictReason = 'Horário Fechado';
+          } else {
+            // Verificar se o serviço (considerando sua duração) ultrapassa ou conflita com algum horário bloqueado
+            for (const blockedTime of professionalBlockedHours) {
+              const blockedStartMinutes = timeToMinutes(blockedTime);
+              // Assumir que cada horário bloqueado tem duração mínima de 15 minutos (intervalo padrão)
+              const blockedEndMinutes = blockedStartMinutes + 15;
+              
+              // Verificar se o INÍCIO do serviço está dentro do horário bloqueado
+              const serviceStartsInBlocked = minutes >= blockedStartMinutes && minutes < blockedEndMinutes;
+              // Verificar se o FIM do serviço está dentro do horário bloqueado
+              const serviceEndsInBlocked = slotEndMinutes > blockedStartMinutes && slotEndMinutes <= blockedEndMinutes;
+              // Verificar se o serviço engloba completamente o horário bloqueado
+              const serviceEncompassesBlocked = minutes <= blockedStartMinutes && slotEndMinutes >= blockedEndMinutes;
+              
+              if (serviceStartsInBlocked || serviceEndsInBlocked || serviceEncompassesBlocked) {
+                isAvailable = false;
+                conflictReason = 'Horário Fechado';
+                console.log('🚨 CONFLITO COM HORÁRIO BLOQUEADO DETECTADO:', {
+                  serviceStart: minutesToTime(minutes),
+                  serviceEnd: minutesToTime(slotEndMinutes),
+                  blockedTime,
+                  blockedStart: minutesToTime(blockedStartMinutes),
+                  blockedEnd: minutesToTime(blockedEndMinutes),
+                  serviceStartsInBlocked,
+                  serviceEndsInBlocked,
+                  serviceEncompassesBlocked
+                });
+                break;
+              }
+            }
+          }
         }
 
         // Verificar se o horário está dentro do intervalo de almoço do profissional
@@ -324,10 +381,67 @@ export function TimeSlotSelector({
           continue;
         }
 
-        // Verificar se o horário está bloqueado pelo profissional
-        if (professionalBlockedHours.includes(timeString)) {
-          isAvailable = false;
-          conflictReason = 'Horário Fechado';
+        // ============================================================
+        // ⚠️ ATENÇÃO: LÓGICA CRÍTICA DE HORÁRIOS BLOQUEADOS ⚠️
+        // ============================================================
+        // Esta lógica é EXTREMAMENTE IMPORTANTE e não deve ser alterada
+        // sem entender completamente seu funcionamento!
+        //
+        // PROBLEMA RESOLVIDO:
+        // Antes: apenas verificava se o horário de INÍCIO estava bloqueado
+        // Agora: verifica se o serviço INTEIRO (início + duração) conflita
+        //        com horários bloqueados, assim como intervalos e fechamento
+        //
+        // EXEMPLO:
+        // Se profissional bloqueou: 17:00, 17:15, 17:30, 17:45
+        // Serviço de 60min às 16:45 terminaria às 17:45 → DEVE SER BLOQUEADO!
+        // 
+        // LÓGICA IMPLEMENTADA (igual à de intervalos de almoço):
+        // 1. Verifica se INÍCIO do serviço está em horário bloqueado
+        // 2. Verifica se FIM do serviço está em horário bloqueado
+        // 3. Verifica se serviço engloba completamente horário bloqueado
+        //
+        // ⚠️ SE FOR ALTERAR ESTA LÓGICA, TESTAR:
+        //    - Serviço que começa antes mas termina durante horário bloqueado
+        //    - Serviço que começa durante horário bloqueado
+        //    - Serviço que engloba completamente horário bloqueado
+        // ============================================================
+        if (professionalBlockedHours.length > 0) {
+          // Verificar se o INÍCIO do serviço está em um horário bloqueado
+          if (professionalBlockedHours.includes(timeString)) {
+            isAvailable = false;
+            conflictReason = 'Horário Fechado';
+          } else {
+            // Verificar se o serviço (considerando sua duração) ultrapassa ou conflita com algum horário bloqueado
+            for (const blockedTime of professionalBlockedHours) {
+              const blockedStartMinutes = timeToMinutes(blockedTime);
+              // Assumir que cada horário bloqueado tem duração mínima de 15 minutos (intervalo padrão)
+              const blockedEndMinutes = blockedStartMinutes + 15;
+              
+              // Verificar se o INÍCIO do serviço está dentro do horário bloqueado
+              const serviceStartsInBlocked = minutes >= blockedStartMinutes && minutes < blockedEndMinutes;
+              // Verificar se o FIM do serviço está dentro do horário bloqueado
+              const serviceEndsInBlocked = slotEndMinutes > blockedStartMinutes && slotEndMinutes <= blockedEndMinutes;
+              // Verificar se o serviço engloba completamente o horário bloqueado
+              const serviceEncompassesBlocked = minutes <= blockedStartMinutes && slotEndMinutes >= blockedEndMinutes;
+              
+              if (serviceStartsInBlocked || serviceEndsInBlocked || serviceEncompassesBlocked) {
+                isAvailable = false;
+                conflictReason = 'Horário Fechado';
+                console.log('🚨 CONFLITO COM HORÁRIO BLOQUEADO DETECTADO:', {
+                  serviceStart: minutesToTime(minutes),
+                  serviceEnd: minutesToTime(slotEndMinutes),
+                  blockedTime,
+                  blockedStart: minutesToTime(blockedStartMinutes),
+                  blockedEnd: minutesToTime(blockedEndMinutes),
+                  serviceStartsInBlocked,
+                  serviceEndsInBlocked,
+                  serviceEncompassesBlocked
+                });
+                break;
+              }
+            }
+          }
         }
 
         // Verificar se o horário está dentro do intervalo de almoço do profissional

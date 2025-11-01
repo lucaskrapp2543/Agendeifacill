@@ -103,27 +103,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       isActive: activeTab === 'clients'
     },
     {
-      id: 'ranking',
-      label: 'Ranking Clientes',
-      icon: Crown,
-      onClick: () => handleItemClick(() => onTabChange('ranking')),
-      isActive: activeTab === 'ranking'
-    },
-    {
-      id: 'missing-clients',
-      label: 'Clientes Sumidos',
-      icon: Users,
-      onClick: () => handleItemClick(() => onTabChange('missing-clients')),
-      isActive: activeTab === 'missing-clients'
-    },
-    {
-      id: 'draw',
-      label: 'Sorteio',
-      icon: Shuffle,
-      onClick: () => handleItemClick(() => onTabChange('draw')),
-      isActive: activeTab === 'draw'
-    },
-    {
       id: 'subscribers',
       label: 'Meus Assinantes',
       icon: Crown,
@@ -145,13 +124,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       isActive: false,
       disabled: true,
       tooltip: 'Em breve'
-    },
-    {
-      id: 'links',
-      label: 'Meu Link',
-      icon: Calendar,
-      onClick: () => handleItemClick(() => onTabChange('services')),
-      isActive: activeTab === 'services'
     },
     {
       id: 'dashboard',
@@ -206,16 +178,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       }),
       isActive: activeTab === 'settings'
-    },
-    {
-      id: 'increase-clients',
-      label: 'Aumente 10x seus Clientes',
-      icon: TrendingUp,
-      onClick: () => handleItemClick(() => {
-        // Por enquanto não faz nada - funcionalidade futura
-        console.log('Botão "Aumente 10x seus Clientes" clicado - funcionalidade futura');
-      }),
-      isActive: false
     },
     {
       id: 'logout',
