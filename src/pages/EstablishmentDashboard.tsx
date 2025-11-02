@@ -120,7 +120,7 @@ interface Establishment {
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo';
 
 interface AdditionalProduct {
   name: string;
@@ -268,7 +268,7 @@ const EstablishmentDashboard = () => {
 
   // Estados básicos
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TabType>('appointments');
+  const [activeTab, setActiveTab] = useState<TabType>('passo-a-passo');
   const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [isEstablishmentLoading, setIsEstablishmentLoading] = useState(true);
@@ -729,6 +729,51 @@ const EstablishmentDashboard = () => {
       [tutorialType]: !showTutorials[tutorialType]
     };
     saveTutorialPreferences(newPreferences);
+  };
+
+  // Estados para controlar modais de tutorial popup
+  const [showTutorialModals, setShowTutorialModals] = useState<{
+    appointments: boolean;
+    reserveClient: boolean;
+    config: boolean;
+    dashboard: boolean;
+    subscribers: boolean;
+    services: boolean;
+    products: boolean;
+    professionals: boolean;
+  }>({
+    appointments: false,
+    reserveClient: false,
+    config: false,
+    dashboard: false,
+    subscribers: false,
+    services: false,
+    products: false,
+    professionals: false
+  });
+
+  // Função para verificar se o usuário já marcou "não quero mais ver isso"
+  const shouldShowTutorialModal = (tutorialKey: string): boolean => {
+    const dismissedKey = `tutorial-popup-dismissed-${tutorialKey}`;
+    return localStorage.getItem(dismissedKey) !== 'true';
+  };
+
+  // Função para marcar que não quer mais ver o modal
+  const dismissTutorialModal = (tutorialKey: string) => {
+    const dismissedKey = `tutorial-popup-dismissed-${tutorialKey}`;
+    localStorage.setItem(dismissedKey, 'true');
+    setShowTutorialModals(prev => ({
+      ...prev,
+      [tutorialKey]: false
+    }));
+  };
+
+  // Função para apenas fechar o modal (sem marcar como "não quero mais ver")
+  const closeTutorialModal = (tutorialKey: string) => {
+    setShowTutorialModals(prev => ({
+      ...prev,
+      [tutorialKey]: false
+    }));
   };
 
   // Função para salvar valor bruto do mês específico
@@ -6540,16 +6585,43 @@ Estamos te aguardando! 😎✂️`;
     // Se já está desbloqueado ou não precisa de senha, mudar diretamente
     if (tab === 'financial-dashboard' && isDashboardUnlocked) {
       setActiveTab(tab as any);
+      
+      // Verificar se deve mostrar modal de tutorial
+      if (shouldShowTutorialModal('dashboard')) {
+        setShowTutorialModals(prev => ({ ...prev, dashboard: true }));
+      }
       return;
     }
 
     if (tab === 'settings' && isSettingsUnlocked) {
       setActiveTab(tab as any);
+      
+      // Verificar se deve mostrar modal de tutorial
+      if (shouldShowTutorialModal('config')) {
+        setShowTutorialModals(prev => ({ ...prev, config: true }));
+      }
       return;
     }
 
-    // Para outras tabs, mudar diretamente
+    // Para outras tabs, mudar diretamente e verificar se deve mostrar modal
     setActiveTab(tab as any);
+    
+    // Mapear tabs para chaves de tutorial
+    const tutorialKeyMap: { [key: string]: string } = {
+      'appointments': 'appointments',
+      'reserve-client': 'reserveClient',
+      'subscribers': 'subscribers',
+      'service-categories': 'services',
+      'products': 'products',
+      'professionals': 'professionals',
+      'financial-dashboard': 'dashboard',
+      'settings': 'config'
+    };
+
+    const tutorialKey = tutorialKeyMap[tab];
+    if (tutorialKey && shouldShowTutorialModal(tutorialKey)) {
+      setShowTutorialModals((prev: any) => ({ ...prev, [tutorialKey]: true }));
+    }
   };
 
   // Função para atualizar o mês selecionado
@@ -8239,6 +8311,148 @@ Estamos te aguardando! 😎✂️`;
                         <li>• O horário ficará bloqueado para novos clientes</li>
                         <li>• Aparecerá normalmente no painel de agendamentos</li>
                       </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'passo-a-passo' && (
+                <div className="space-y-6 w-full">
+                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
+                    {/* Header */}
+                    <div className="flex items-center gap-3 mb-4 sm:mb-6">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xl sm:text-2xl">🚀</span>
+                      </div>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                        Como começar
+                      </h2>
+                    </div>
+
+                    {/* Conteúdo */}
+                    <div className="space-y-4 sm:space-y-6">
+                      <p className="text-gray-700 text-base sm:text-lg leading-relaxed">
+                        Siga esse passo a passo simples para deixar seu sistema prontinho 👇
+                      </p>
+
+                      {/* Dica sobre Vídeos */}
+                      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-3 sm:p-4 border border-yellow-200">
+                        <div className="flex items-start gap-2 sm:gap-3">
+                          <span className="text-lg sm:text-xl flex-shrink-0">✨</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-gray-700 text-xs sm:text-sm leading-relaxed mb-1 sm:mb-2">
+                              <strong>Dentro de cada opção que você selecionar, vai ter um vídeo explicando direitinho como usar!</strong> 🎥
+                            </p>
+
+                            <div className="bg-white/50 rounded-lg p-2 sm:p-3 mb-1 sm:mb-2">
+                              <p className="text-gray-700 text-xs sm:text-sm leading-relaxed mb-1">
+                                <strong>Por exemplo:</strong>
+                              </p>
+                              <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                                👉 Se você clicar em <strong>"Meus Agendamentos"</strong>, vai aparecer um vídeo mostrando como seus clientes agendam com você, e também como você pode ver, organizar e gerenciar tudo de forma simples e prática. 💼📅
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <p className="text-gray-600 text-xs sm:text-sm leading-relaxed font-medium bg-yellow-100 rounded-lg p-2">
+                          ⚠ <strong>Dica:</strong> preste bastante atenção em cada vídeo, pois muitas das suas dúvidas já estão respondidas neles.
+                        </p>
+                      </div>
+
+                      {/* Passos */}
+                      <div className="space-y-3 sm:space-y-4">
+                        {/* Passo 1 */}
+                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-blue-50 rounded-lg border border-blue-200">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                            1️⃣
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                              Vá em "⚙️ Config | Página Agendamentos"
+                            </h3>
+                            <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                              Configure toda a sua página de agendamentos — é nela que seus clientes vão acessar para marcar os serviços. 💬
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Passo 2 */}
+                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-green-50 rounded-lg border border-green-200">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-green-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                            2️⃣
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                              Vá em "🗂️ Serviços por Categoria"
+                            </h3>
+                            <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                              No menu lateral, crie categorias e serviços, para que seus clientes vejam quais opções podem agendar com você. 📅
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Passo 3 */}
+                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-purple-50 rounded-lg border border-purple-200">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                            3️⃣
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                              Vá em "👤 Profissional"
+                            </h3>
+                            <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                              Cadastre o profissional e preencha todas as informações solicitadas, de acordo com o seu estabelecimento. 🏪
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Passo 4 */}
+                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-orange-50 rounded-lg border border-orange-200">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-orange-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                            4️⃣
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                              Vá em "🛍️ Meus Produtos"
+                            </h3>
+                            <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                              Cadastre seus produtos em Meus Produtos. 🧴
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Conclusão */}
+                      <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-3 sm:p-4 border border-green-200">
+                        <div className="flex items-start gap-3">
+                          <span className="text-xl sm:text-2xl">✅</span>
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">Pronto!</h3>
+                            <p className="text-gray-700 mb-2 text-xs sm:text-sm">
+                              Seu estabelecimento já estará configurado. 🎉
+                            </p>
+                            <p className="text-gray-600 text-xs sm:text-sm">
+                              Agora é só explorar os recursos extras, como assinantes, planos, e muito mais! 💡
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Dica de Atualização */}
+                      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-3 sm:p-4 border border-yellow-200">
+                        <div className="flex items-start gap-3">
+                          <span className="text-xl sm:text-2xl">🔄</span>
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-gray-900 mb-1 text-sm sm:text-base">
+                              Dica:
+                            </h3>
+                            <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
+                              Após concluir cada etapa, atualize a página (arrastando para baixo no celular ou apertando F5 no computador) para este pop-up reaparecer e você continuar para o próximo passo.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -10354,6 +10568,13 @@ Estamos te aguardando! 😎✂️`;
                   {/* Botões de navegação */}
                   <div className="flex flex-col sm:flex-row gap-3 mb-6">
                     <button
+                      onClick={() => handleTabChange('clients')}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                    >
+                      <Users className="h-4 w-4" />
+                      Meus Clientes
+                    </button>
+                    <button
                       onClick={() => handleTabChange('ranking')}
                       className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
                     >
@@ -11733,6 +11954,13 @@ Estamos te aguardando! 😎✂️`;
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
                 <button
+                  onClick={() => handleTabChange('clients')}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  <Users className="h-4 w-4" />
+                  Meus Clientes
+                </button>
+                <button
                   onClick={() => handleTabChange('ranking')}
                   className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
                 >
@@ -11827,6 +12055,13 @@ Estamos te aguardando! 😎✂️`;
               
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                <button
+                  onClick={() => handleTabChange('clients')}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  <Users className="h-4 w-4" />
+                  Meus Clientes
+                </button>
                 <button
                   onClick={() => handleTabChange('ranking')}
                   className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
@@ -11927,6 +12162,13 @@ Estamos te aguardando! 😎✂️`;
               
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                <button
+                  onClick={() => handleTabChange('clients')}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  <Users className="h-4 w-4" />
+                  Meus Clientes
+                </button>
                 <button
                   onClick={() => handleTabChange('ranking')}
                   className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
@@ -14115,6 +14357,328 @@ Estamos te aguardando! 😎✂️`;
               >
                 Fechar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modais de Tutorial Popup */}
+      
+      {/* Modal Tutorial - Meus Agendamentos */}
+      {showTutorialModals.appointments && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">📅 Meus Agendamentos</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                Aqui você pode ver todos seus agendamentos, veja o vídeo tutorial para aprender como funciona/usar.
+              </p>
+
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/1S3MdpBBHkI"
+                  title="Tutorial: Como Gerenciar Agendamentos"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => dismissTutorialModal('appointments')}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Não quero mais ver isso
+                </button>
+                <button
+                  onClick={() => closeTutorialModal('appointments')}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tutorial - Reservar Cliente */}
+      {showTutorialModals.reserveClient && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">🔗 Reservar Cliente</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                Aqui você pode fazer reservas avulsas para seus clientes, veja o vídeo tutorial para aprender como funciona/usar.
+              </p>
+
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/vL_E1P1xptU"
+                  title="Tutorial: Como Reservar Clientes"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => dismissTutorialModal('reserveClient')}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Não quero mais ver isso
+                </button>
+                <button
+                  onClick={() => closeTutorialModal('reserveClient')}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tutorial - Config | Página Agendamentos */}
+      {showTutorialModals.config && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">⚙️ Config | Página Agendamentos</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                Aqui você pode configurar toda a sua página de agendamentos, veja o vídeo tutorial para aprender como funciona/usar.
+              </p>
+
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/pB3QZ1H20xA"
+                  title="Tutorial de Configurações"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => dismissTutorialModal('config')}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Não quero mais ver isso
+                </button>
+                <button
+                  onClick={() => closeTutorialModal('config')}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tutorial - Financeiro */}
+      {showTutorialModals.dashboard && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">📊 Financeiro</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                Aqui você pode ver e gerenciar todas as informações financeiras do seu estabelecimento, veja o vídeo tutorial para aprender como funciona/usar.
+              </p>
+
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/5cIGlklZLr0"
+                  title="Tutorial: Como Usar o Dashboard"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => dismissTutorialModal('dashboard')}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Não quero mais ver isso
+                </button>
+                <button
+                  onClick={() => closeTutorialModal('dashboard')}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tutorial - Meus Assinantes */}
+      {showTutorialModals.subscribers && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">👑 Meus Assinantes</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                Aqui você pode ver e gerenciar todos os seus assinantes, veja o vídeo tutorial para aprender como funciona/usar.
+              </p>
+
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/CeWMXi4MS7g"
+                  title="Tutorial: Como Gerenciar Assinantes"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => dismissTutorialModal('subscribers')}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Não quero mais ver isso
+                </button>
+                <button
+                  onClick={() => closeTutorialModal('subscribers')}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tutorial - Meus Serviços */}
+      {showTutorialModals.services && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">🗂️ Meus Serviços</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                Aqui você pode criar categorias e serviços com dropdown, veja o vídeo tutorial para aprender como funciona/usar.
+              </p>
+
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/ABZLLHyMVq0"
+                  title="Tutorial: Como Gerenciar Serviços"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => dismissTutorialModal('services')}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Não quero mais ver isso
+                </button>
+                <button
+                  onClick={() => closeTutorialModal('services')}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tutorial - Meus Produtos */}
+      {showTutorialModals.products && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">📦 Meus Produtos</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                Aqui você pode adicionar, editar e acompanhar seus produtos, veja o vídeo tutorial para aprender como funciona/usar.
+              </p>
+
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/vNFGtcEmJ0I"
+                  title="Tutorial: Como Gerenciar Produtos"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => dismissTutorialModal('products')}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Não quero mais ver isso
+                </button>
+                <button
+                  onClick={() => closeTutorialModal('products')}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tutorial - Profissionais */}
+      {showTutorialModals.professionals && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">👤 Profissionais</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                Aqui você pode cadastrar e gerenciar profissionais do seu estabelecimento, veja o vídeo tutorial para aprender como funciona/usar.
+              </p>
+
+              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full"
+                  src="https://www.youtube.com/embed/1Sm25W596v0"
+                  title="Tutorial: Como Gerenciar Profissionais"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => dismissTutorialModal('professionals')}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Não quero mais ver isso
+                </button>
+                <button
+                  onClick={() => closeTutorialModal('professionals')}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -16,11 +16,12 @@ import {
   Shuffle,
   UserCheck,
   Users,
-  TrendingUp
+  TrendingUp,
+  Rocket
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -227,6 +228,33 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Lista de itens do menu */}
         <nav className="p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide">
+          {/* Botão Passo a Passo */}
+          <div className="relative">
+            <button
+              onClick={() => handleItemClick(() => onTabChange('passo-a-passo'))}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
+                activeTab === 'passo-a-passo'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+              title={isExpanded ? '' : 'Passo a passo'}
+            >
+              <Rocket className="h-5 w-5 flex-shrink-0" />
+              {isExpanded && (
+                <span className="text-sm font-medium whitespace-nowrap">
+                  Passo a passo
+                </span>
+              )}
+            </button>
+
+            {/* Tooltip para menu recolhido */}
+            {!isExpanded && (
+              <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
+                Passo a passo
+              </div>
+            )}
+          </div>
+
           {menuItems.map((item) => {
             const Icon = item.icon;
             return (
