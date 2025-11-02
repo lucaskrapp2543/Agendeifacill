@@ -395,17 +395,20 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
     const profStats = professionals.map(prof => {
       const profAppointments = monthAppointments.filter(app => app.professional === prof.id);
       const totalServices = profAppointments.length;
-      const baseRevenue = profAppointments.reduce((sum, app) => sum + app.price, 0);
-      const additionalRevenue = profAppointments.reduce((sum, app) => {
-        return sum + ((app.additional_products?.reduce((pSum, p) => pSum + p.price, 0)) || 0);
+      // IMPORTANTE: Usar price + additional_products (serviços extra)
+      // Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
+      const baseRevenue = profAppointments.reduce((sum, app) => {
+        const servicePrice = app.price || 0;
+        const additionalServicesTotal = (app.additional_products || []).reduce((serviceSum, p) => serviceSum + (p.price || 0), 0);
+        return sum + servicePrice + additionalServicesTotal; // Serviços extra entram na %
       }, 0);
 
       return {
         name: prof.name,
         totalServices,
         baseRevenue,
-        additionalRevenue,
-        totalRevenue: baseRevenue + additionalRevenue
+        additionalRevenue: 0, // Produtos V2 não entram no cálculo do profissional
+        totalRevenue: baseRevenue // Serviço base + serviços extra (sem produtos V2)
       };
     });
 

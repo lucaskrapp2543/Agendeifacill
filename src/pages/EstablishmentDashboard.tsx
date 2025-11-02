@@ -3359,9 +3359,13 @@ Estamos te aguardando! 😎✂️`;
 
         // Só subtrair se não for dono (100%)
         if (professionalPercentage < 100) {
-          const baseValue = appointment.total_price || appointment.price || 0;
+          // IMPORTANTE: Usar price + additional_products (serviços extra)
+          // Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
+          const serviceBasePrice = appointment.price || 0;
+          const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+          const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
 
-          // Profissional recebe % do valor BRUTO (sem descontar taxa)
+          // Profissional recebe % do valor BRUTO (serviço + serviços extra, sem produtos V2, sem descontar taxa)
           const professionalShare = (baseValue * professionalPercentage) / 100;
 
           return total + professionalShare;
@@ -3546,7 +3550,11 @@ Estamos te aguardando! 😎✂️`;
       // Descontar TODOS os profissionais (incluindo dono com 100%)
       if (professionalPercentage === 100) {
         // Para dono: bruto - taxa de cartão (se houver)
-        const baseValue = appointment.total_price || appointment.price || 0;
+        // IMPORTANTE: Usar price + additional_products (serviços extra)
+        // Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
+        const serviceBasePrice = appointment.price || 0;
+        const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+        const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
         const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
         if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
           const cardTax = (baseValue * paymentTax) / 100;
@@ -6299,21 +6307,26 @@ Estamos te aguardando! 😎✂️`;
       apt.professional === professionalName || apt.professional === professional.id
     );
 
-    // Calcular o líquido total (bruto - taxas de cartão)
+    // Calcular o líquido total (bruto do SERVIÇO + SERVIÇOS EXTRA - taxas de cartão)
+    // IMPORTANTE: Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
-        const baseValue = appointment.total_price || appointment.price || 0;
+        // Usar price + additional_products (serviços extra)
+        // Produtos V2 (appointment_products) NÃO entram no cálculo da porcentagem do profissional
+        const serviceBasePrice = appointment.price || 0;
+        const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+        const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
         const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
 
-        // Se for cartão, descontar a taxa
+        // Se for cartão, descontar a taxa apenas do serviço
         if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
           const cardTax = (baseValue * paymentTax) / 100;
           const netValue = baseValue - cardTax;
-          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} - R$ ${cardTax} (taxa) = R$ ${netValue}`);
+          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço) - R$ ${cardTax} (taxa) = R$ ${netValue}`);
           return total + netValue;
         } else {
-          // Se não for cartão, valor total
-          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (sem taxa)`);
+          // Se não for cartão, valor do serviço
+          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço, sem taxa)`);
           return total + baseValue;
         }
       }
@@ -6351,10 +6364,14 @@ Estamos te aguardando! 😎✂️`;
       }))
     });
 
-    // Calcular o líquido total (profissionais recebem % do valor BRUTO)
+    // Calcular o líquido total (profissionais recebem % do valor BRUTO: serviço + serviços extra, SEM produtos V2)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
-        const baseValue = appointment.total_price || appointment.price || 0;
+        // Usar price + additional_products (serviços extra)
+        // Produtos V2 (appointment_products) NÃO entram no cálculo da porcentagem do profissional
+        const serviceBasePrice = appointment.price || 0;
+        const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+        const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
         const netValue = (baseValue * (professional?.percentage || 0)) / 100;
         console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${professional?.percentage || 0}%)`);
         return total + netValue;
@@ -6381,7 +6398,11 @@ Estamos te aguardando! 😎✂️`;
 
   // Função para calcular valor líquido considerando taxa de cartão e percentual do profissional
   const calculateNetValueWithCardTax = (appointment: Appointment): number => {
-    const baseValue = appointment.total_price || appointment.price || 0;
+    // IMPORTANTE: Usar price + additional_products (serviços extra)
+    // Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
+    const serviceBasePrice = appointment.price || 0;
+    const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+    const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
 
     // Obter percentual do profissional
     const percentage = getProfessionalPercentageByName(appointment.professional);
@@ -6433,10 +6454,44 @@ Estamos te aguardando! 😎✂️`;
 
   // Função para calcular valor bruto (sempre o valor original)
   const calculateGrossValueWithCardTax = (appointment: Appointment): number => {
-    const baseValue = appointment.total_price || appointment.price || 0;
+    // IMPORTANTE: Usar price + additional_products (serviços extra)
+    // Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
+    const serviceBasePrice = appointment.price || 0;
+    const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+    const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
 
     // Valor bruto é sempre o valor original, independente do método de pagamento
     return baseValue;
+  };
+
+  // Função para calcular valor total que o CLIENTE PAGA (incluindo produtos V2)
+  const calculateClientTotalPayment = (appointment: Appointment): number => {
+    // Valor base do serviço
+    const serviceBasePrice = appointment.price || 0;
+    
+    // Serviços extra (additional_products)
+    const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+    
+    // Produtos V2 (sold_products/appointment_products) - INCLUIR no total do cliente
+    const productsV2Total = (appointment.sold_products || []).reduce((sum, p) => sum + (p.total || 0), 0);
+    
+    // Total que o cliente paga = serviço + serviços extra + produtos V2
+    return serviceBasePrice + additionalServicesTotal + productsV2Total;
+  };
+
+  // Função para calcular valor líquido que o CLIENTE PAGA (com taxas descontadas se for cartão)
+  const calculateClientNetPayment = (appointment: Appointment): number => {
+    const totalPayment = calculateClientTotalPayment(appointment);
+    
+    // Se for cartão, descontar taxa do valor total
+    if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
+      const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+      const cardTax = (totalPayment * paymentTax) / 100;
+      return totalPayment - cardTax;
+    }
+    
+    // Se não for cartão, retorna o valor total
+    return totalPayment;
   };
 
   // Adicione antes do return principal
@@ -7942,7 +7997,7 @@ Estamos te aguardando! 😎✂️`;
                                       )}
                                     </div>
 
-                                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-3">
+                                    <div className="flex flex-col gap-3 mt-3">
                                       <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                         <span className="text-sm text-white/80">Total:</span>
                                         <span className="text-sm font-medium text-white">
@@ -7950,9 +8005,38 @@ Estamos te aguardando! 😎✂️`;
                                             ? "GRATUITO"
                                             : appointment.is_subscriber
                                               ? 'R$ 0,00 (GRATUITO)'
-                                              : formatCurrency(appointment.total_price || appointment.price)
+                                              : formatCurrency(calculateClientTotalPayment(appointment))
                                           }
                                         </span>
+                                      </div>
+
+                                      {/* Seção "Cobrar Cliente" - Mostra valor total incluindo produtos V2 */}
+                                      <div className="flex flex-col gap-3 p-4 bg-gradient-to-r from-blue-600/40 to-purple-600/40 border-2 border-blue-400 rounded-lg shadow-lg">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xl">💰</span>
+                                          <span className="text-base font-bold text-white">Cobrar Cliente:</span>
+                                        </div>
+                                        <div className="flex flex-col gap-2 bg-white/10 rounded-lg p-2">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-sm font-semibold text-blue-100">Total a cobrar:</span>
+                                            <span className="text-lg font-bold text-white bg-blue-500/50 px-3 py-1 rounded">
+                                              {isClientPaidSubscriber(appointment.client_whatsapp)
+                                                ? "GRATUITO"
+                                                : appointment.is_subscriber
+                                                  ? 'R$ 0,00 (GRATUITO)'
+                                                  : formatCurrency(calculateClientTotalPayment(appointment))
+                                              }
+                                            </span>
+                                          </div>
+                                          {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
+                                            <div className="flex items-center justify-between pt-2 border-t border-white/20">
+                                              <span className="text-sm font-medium text-blue-200">Líquido (após taxas):</span>
+                                              <span className="text-base font-bold text-yellow-200 bg-yellow-500/30 px-3 py-1 rounded">
+                                                {formatCurrency(calculateClientNetPayment(appointment))}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
                                       </div>
 
                                       <div className="flex flex-col sm:flex-row sm:items-center gap-2">

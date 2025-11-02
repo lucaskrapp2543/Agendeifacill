@@ -49,20 +49,20 @@ const AdditionalProductModal = ({ isOpen, onClose, onAdd }: AdditionalProductMod
         </button>
 
         <h2 className="text-xl font-semibold text-white mb-4">
-          Adicionar Produto/Serviço Extra
+          Adicionar Serviço Extra
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-white mb-2">
-              Nome do Produto/Serviço
+              Nome do Serviço
             </label>
             <input
               type="text"
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
               className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-              placeholder="Ex: Shampoo Especial"
+              placeholder="Ex: Sombrancelhas\Pézinho"
               required
             />
           </div>
