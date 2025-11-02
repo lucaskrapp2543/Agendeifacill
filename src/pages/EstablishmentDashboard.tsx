@@ -1655,7 +1655,9 @@ const EstablishmentDashboard = () => {
     const value = e.target.value;
     if (!value) return;
 
-    const newDate = new Date(value);
+    // Criar data com horário local para evitar problemas de timezone
+    const [year, month, day] = value.split('-').map(Number);
+    const newDate = new Date(year, month - 1, day, 12, 0, 0); // Meio-dia local
     setSelectedDate(newDate);
 
     // Verificar se mudou de mês
@@ -2272,10 +2274,12 @@ const EstablishmentDashboard = () => {
       // Enviar notificação de cancelamento
       if (appointmentToCancel) {
         console.log('🔔 ENVIANDO NOTIFICAÇÃO DE CANCELAMENTO:', appointmentToCancel);
+        const professionalName = getProfessionalName(appointmentToCancel.professional);
         notifyCancelledAppointment(
           appointmentToCancel.client_name,
           appointmentToCancel.service,
-          appointmentToCancel.appointment_time
+          appointmentToCancel.appointment_time,
+          professionalName !== 'Profissional não encontrado' ? professionalName : undefined
         );
       }
 
@@ -3106,10 +3110,12 @@ Estamos te aguardando! 😎✂️`;
 
             if (!prevApp && currentApp.status !== 'cancelled') {
               console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
+              const professionalName = getProfessionalName(currentApp.professional);
               notifyNewAppointment(
                 currentApp.client_name,
                 currentApp.service,
-                currentApp.appointment_time
+                currentApp.appointment_time,
+                professionalName !== 'Profissional não encontrado' ? professionalName : undefined
               );
             }
           });
@@ -3120,10 +3126,12 @@ Estamos te aguardando! 😎✂️`;
 
             if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
               console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
+              const professionalName = getProfessionalName(currentApp.professional);
               notifyCancelledAppointment(
                 currentApp.client_name,
                 currentApp.service,
-                currentApp.appointment_time
+                currentApp.appointment_time,
+                professionalName !== 'Profissional não encontrado' ? professionalName : undefined
               );
             }
           });

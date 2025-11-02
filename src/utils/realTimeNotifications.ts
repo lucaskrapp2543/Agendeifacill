@@ -18,11 +18,57 @@ class RealTimeNotificationManager {
   private establishmentId: string | null = null;
   private isListening = false;
   private lastCheckTime: Date = new Date();
+  private professionalsMap: Record<string, string> = {};
 
   // Inicializar para um estabelecimento
-  init(establishmentId: string) {
+  async init(establishmentId: string) {
     this.establishmentId = establishmentId;
+    
+    // Buscar dados do establishment para ter acesso aos profissionais
+    await this.loadEstablishmentProfessionals(establishmentId);
+    
     this.startListening();
+  }
+
+  // Carregar profissionais do establishment
+  private async loadEstablishmentProfessionals(establishmentId: string) {
+    try {
+      const { data: establishment, error } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishmentId)
+        .single();
+
+      if (error) {
+        console.error('❌ Erro ao buscar profissionais:', error);
+        return;
+      }
+
+      // Criar mapeamento ID -> Nome
+      if (establishment?.professionals && Array.isArray(establishment.professionals)) {
+        establishment.professionals.forEach((prof: any) => {
+          if (prof.id && prof.name) {
+            this.professionalsMap[prof.id] = prof.name;
+          }
+        });
+      }
+
+      console.log('👥 Profissionais carregados:', this.professionalsMap);
+    } catch (error) {
+      console.error('❌ Erro ao carregar profissionais:', error);
+    }
+  }
+
+  // Obter nome do profissional
+  private getProfessionalName(professionalId: string): string {
+    // Primeiro tenta buscar pelo ID no mapa
+    if (this.professionalsMap[professionalId]) {
+      return this.professionalsMap[professionalId];
+    }
+    
+    // Se não encontrou, pode ser que já seja um nome
+    // Retorna o valor original ou texto padrão
+    return professionalId || 'Profissional não informado';
   }
 
   // Parar de escutar
@@ -68,9 +114,14 @@ class RealTimeNotificationManager {
         
         // Enviar notificação para cada novo agendamento
         newAppointments.forEach(appointment => {
+          const professionalName = this.getProfessionalName(appointment.professional || '');
+          const professionalText = professionalName && professionalName !== 'Profissional não informado' 
+            ? ` com ${professionalName}` 
+            : '';
+          
           this.sendNotification({
             title: 'Novo Agendamento! 📅',
-            body: `${appointment.client_name} agendou ${appointment.service} para ${appointment.appointment_date} às ${appointment.appointment_time}`,
+            body: `${appointment.client_name} agendou ${appointment.service} para ${appointment.appointment_date} às ${appointment.appointment_time}${professionalText}`,
             type: 'new_appointment',
             appointmentId: appointment.id
           });
@@ -159,8 +210,8 @@ class RealTimeNotificationManager {
 export const realTimeNotifications = new RealTimeNotificationManager();
 
 // Função para inicializar
-export const initRealTimeNotifications = (establishmentId: string) => {
-  realTimeNotifications.init(establishmentId);
+export const initRealTimeNotifications = async (establishmentId: string) => {
+  await realTimeNotifications.init(establishmentId);
 };
 
 // Função para parar

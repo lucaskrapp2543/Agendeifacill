@@ -297,23 +297,25 @@ export const useNotifications = () => {
   };
 
   // Notificação de novo agendamento
-  const notifyNewAppointment = (clientName: string, service: string, time: string) => {
-    console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, isPWA });
+  const notifyNewAppointment = (clientName: string, service: string, time: string, professionalName?: string) => {
+    console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, professionalName, isPWA });
 
+    const professionalText = professionalName ? ` com ${professionalName}` : '';
     sendNotification({
       title: 'Agendei Fácil',
-      body: `Novo agendamento: ${clientName} - ${service} às ${time}`,
+      body: `Novo agendamento: ${clientName} - ${service} às ${time}${professionalText}`,
       type: 'new_appointment'
     });
   };
 
   // Notificação de agendamento cancelado
-  const notifyCancelledAppointment = (clientName: string, service: string, time: string) => {
-    console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, isPWA });
+  const notifyCancelledAppointment = (clientName: string, service: string, time: string, professionalName?: string) => {
+    console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, professionalName, isPWA });
 
+    const professionalText = professionalName ? ` com ${professionalName}` : '';
     sendNotification({
       title: 'Agendei Fácil',
-      body: `Agendamento cancelado: ${clientName} - ${service} às ${time}`,
+      body: `Agendamento cancelado: ${clientName} - ${service} às ${time}${professionalText}`,
       type: 'cancelled_appointment'
     });
   };

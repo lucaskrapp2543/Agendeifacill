@@ -50,7 +50,29 @@ CREATE POLICY "Estabelecimentos podem deletar suas notificações" ON establishm
 -- Função para notificação de novo agendamento
 CREATE OR REPLACE FUNCTION create_appointment_notification()
 RETURNS TRIGGER AS $$
+DECLARE
+    professional_name TEXT;
 BEGIN
+    -- Buscar o nome do profissional do array professionals do establishment
+    -- O campo professionals é JSONB[] (array PostgreSQL), não JSONB
+    SELECT (professional_data->>'name')
+    INTO professional_name
+    FROM establishments e,
+    unnest(e.professionals) AS professional_data
+    WHERE e.id = NEW.establishment_id
+    AND (professional_data->>'id') = NEW.professional
+    LIMIT 1;
+
+    -- Se não encontrou por ID, tentar usar o valor diretamente (pode já ser um nome)
+    IF professional_name IS NULL OR professional_name = '' THEN
+        professional_name := NEW.professional;
+    END IF;
+
+    -- Se ainda não tiver nome, usar texto padrão
+    IF professional_name IS NULL OR professional_name = '' THEN
+        professional_name := 'Profissional não informado';
+    END IF;
+
     INSERT INTO establishment_notifications (
         establishment_id,
         type,
@@ -61,7 +83,7 @@ BEGIN
         NEW.establishment_id,
         'new_appointment',
         'Novo Agendamento!',
-        NEW.client_name || ' agendou ' || NEW.service || ' para ' || NEW.appointment_date || ' às ' || NEW.appointment_time,
+        NEW.client_name || ' agendou ' || NEW.service || ' para ' || NEW.appointment_date || ' às ' || NEW.appointment_time || ' com ' || professional_name,
         NEW.id
     );
     RETURN NEW;
@@ -78,8 +100,30 @@ CREATE TRIGGER trigger_create_appointment_notification
 -- Função para notificação de cancelamento
 CREATE OR REPLACE FUNCTION create_cancellation_notification()
 RETURNS TRIGGER AS $$
+DECLARE
+    professional_name TEXT;
 BEGIN
     IF OLD.status != 'cancelled' AND NEW.status = 'cancelled' THEN
+        -- Buscar o nome do profissional do array professionals do establishment
+        -- O campo professionals é JSONB[] (array PostgreSQL), não JSONB
+        SELECT (professional_data->>'name')
+        INTO professional_name
+        FROM establishments e,
+        unnest(e.professionals) AS professional_data
+        WHERE e.id = NEW.establishment_id
+        AND (professional_data->>'id') = NEW.professional
+        LIMIT 1;
+
+        -- Se não encontrou por ID, tentar usar o valor diretamente (pode já ser um nome)
+        IF professional_name IS NULL OR professional_name = '' THEN
+            professional_name := NEW.professional;
+        END IF;
+
+        -- Se ainda não tiver nome, usar texto padrão
+        IF professional_name IS NULL OR professional_name = '' THEN
+            professional_name := 'Profissional não informado';
+        END IF;
+
         INSERT INTO establishment_notifications (
             establishment_id,
             type,
@@ -90,7 +134,7 @@ BEGIN
             NEW.establishment_id,
             'cancelled_appointment',
             'Agendamento Cancelado!',
-            NEW.client_name || ' cancelou ' || NEW.service || ' de ' || NEW.appointment_date || ' às ' || NEW.appointment_time,
+            NEW.client_name || ' cancelou ' || NEW.service || ' de ' || NEW.appointment_date || ' às ' || NEW.appointment_time || ' com ' || professional_name,
             NEW.id
         );
     END IF;
