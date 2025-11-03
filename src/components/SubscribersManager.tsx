@@ -95,6 +95,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [isSavingAttendance, setIsSavingAttendance] = useState(false);
   const [subscriberAttendances, setSubscriberAttendances] = useState<any[]>([]);
   const [professionals, setProfessionals] = useState<any[]>([]);
+  const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedProfessionalForHistory, setSelectedProfessionalForHistory] = useState<string>('');
+  const [professionalPaymentHistory, setProfessionalPaymentHistory] = useState<any[]>([]);
 
   // Estados para modal de visualizar atendimentos
   const [showViewAttendancesModal, setShowViewAttendancesModal] = useState(false);
@@ -274,9 +278,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // Função para buscar atendimentos de assinantes
+  // Função para buscar atendimentos de assinantes (apenas do mês atual)
   const fetchSubscriberAttendances = async () => {
     try {
+      // Filtrar apenas atendimentos do mês atual
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
       const { data, error } = await supabase
         .from('subscriber_attendances')
         .select(`
@@ -288,6 +297,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           client_subscription_id
         `)
         .eq('establishment_id', establishmentId)
+        .gte('attendance_date', firstDayOfMonth.toISOString().split('T')[0])
+        .lte('attendance_date', lastDayOfMonth.toISOString().split('T')[0])
         .order('attendance_date', { ascending: false });
 
       if (error) {
@@ -295,10 +306,106 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
 
-      console.log('📋 Atendimentos encontrados:', data);
+      console.log('📋 Atendimentos encontrados (mês atual):', data);
       setSubscriberAttendances(data || []);
     } catch (error) {
       console.error('Erro ao buscar atendimentos de assinantes:', error);
+    }
+  };
+
+  // Função para buscar pagamentos de profissionais do mês atual
+  const fetchProfessionalPayments = async () => {
+    try {
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+      // IMPORTANTE: Buscar apenas pagamentos via assinatura (payment_source = 'subscription')
+      // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem entrar aqui
+      const { data, error } = await supabase
+        .from('professional_payments')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .eq('payment_source', 'subscription') // Só pagamentos via assinatura
+        .gte('payment_date', firstDayOfMonth.toISOString().split('T')[0])
+        .lte('payment_date', lastDayOfMonth.toISOString().split('T')[0])
+        .order('payment_date', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao buscar pagamentos:', error);
+        return;
+      }
+
+      console.log('💰 Pagamentos encontrados (mês atual):', data);
+      setProfessionalPayments(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar pagamentos:', error);
+    }
+  };
+
+  // Função para pagar profissional (registrar pagamento e zerar valor)
+  const handlePayProfessional = async (professionalName: string, amount: number) => {
+    if (!confirm(`Confirma o pagamento de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount)} para ${professionalName}?`)) {
+      return;
+    }
+
+    try {
+      // Buscar ID do profissional no array de profissionais
+      const professional = professionals.find(p => p.full_name === professionalName);
+      const professionalId = professional?.id || professionalName;
+
+      // Registrar pagamento (marcar como "via assinatura" pois vem do sistema de assinantes)
+      const { error: paymentError } = await supabase
+        .from('professional_payments')
+        .insert({
+          establishment_id: establishmentId,
+          professional_id: professionalId,
+          professional_name: professionalName,
+          amount: amount,
+          payment_date: new Date().toISOString(),
+          payment_source: 'subscription' // Marcar como pagamento via assinatura
+        });
+
+      if (paymentError) {
+        console.error('Erro ao registrar pagamento:', paymentError);
+        toast.error('Erro ao registrar pagamento.');
+        return;
+      }
+
+      toast.success(`Pagamento de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount)} registrado para ${professionalName}!`);
+      
+      // Recarregar pagamentos e atendimentos para atualizar o cálculo
+      await fetchProfessionalPayments();
+      await fetchSubscriberAttendances();
+      // Nota: O valor será zerado automaticamente no cálculo porque agora há um pagamento registrado
+    } catch (error) {
+      console.error('Erro ao pagar profissional:', error);
+      toast.error('Erro ao processar pagamento.');
+    }
+  };
+
+  // Função para buscar histórico de pagamentos de um profissional (TODOS os pagamentos via assinatura, não apenas do mês atual)
+  // IMPORTANTE: Buscar apenas pagamentos com payment_source = 'subscription' (pagamentos do sistema de assinantes)
+  // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem aparecer aqui
+  const fetchProfessionalPaymentHistory = async (professionalName: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('professional_payments')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .eq('professional_name', professionalName)
+        .eq('payment_source', 'subscription') // Só pagamentos via assinatura
+        .order('payment_date', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao buscar histórico de pagamentos:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Erro ao buscar histórico de pagamentos:', error);
+      return [];
     }
   };
 
@@ -476,6 +583,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       fetchClientSubscriptions();
       fetchProfessionals();
       fetchSubscriberAttendances();
+      fetchProfessionalPayments();
       // fetchClients(); // REMOVIDO
 
       // Recuperação automática de clientes na inicialização
@@ -1069,24 +1177,62 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   acc[professional] += parseFloat(attendance.repass_value) || 0;
                   return acc;
                 }, {} as { [key: string]: number })
-              ).map(([professional, totalValue]) => (
-                <div key={professional} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
-                  <div>
-                    <p className="text-sm font-medium text-white">{professional}</p>
-                    <p className="text-xs text-gray-400">Valor total acumulado do mês</p>
+              ).map(([professional, totalValue]) => {
+                // Calcular total pago para este profissional no mês atual
+                // IMPORTANTE: Considerar apenas pagamentos feitos via assinatura (payment_source = 'subscription')
+                // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem entrar aqui
+                const totalPaid = professionalPayments
+                  .filter(p => 
+                    p.professional_name === professional && 
+                    p.payment_source === 'subscription' // Só pagamentos via assinatura
+                  )
+                  .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+                // Valor pendente = total acumulado - total pago
+                const pendingValue = Math.max(0, totalValue - totalPaid);
+
+                return (
+                  <div key={professional} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-white">{professional}</p>
+                      <p className="text-xs text-gray-400">Valor total acumulado do mês</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className={`text-lg font-bold ${pendingValue > 0 ? 'text-green-400' : 'text-gray-500'}`}>
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pendingValue)}
+                        </p>
+                        {totalPaid > 0 && (
+                          <p className="text-xs text-gray-500 line-through">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}
+                          </p>
+                        )}
+                      </div>
+                      {pendingValue > 0 && (
+                        <>
+                          <button
+                            onClick={() => handlePayProfessional(professional, pendingValue)}
+                            className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded transition-colors"
+                          >
+                            Pagar
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={async () => {
+                          setSelectedProfessionalForHistory(professional);
+                          const history = await fetchProfessionalPaymentHistory(professional);
+                          setProfessionalPaymentHistory(history);
+                          setShowHistoryModal(true);
+                        }}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors"
+                      >
+                        Histórico
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-green-400">
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 p-3 bg-[#2a2b2c] rounded-lg border border-gray-600">
-              <p className="text-xs text-gray-400 text-center">
-                Aqui irá mostrar quanto cada profissional receberá por atendimento assinante.
-              </p>
+                );
+              })}
             </div>
           </div>
         )}
@@ -2224,6 +2370,102 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Histórico de Pagamentos */}
+      {showHistoryModal && selectedProfessionalForHistory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto border border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                Histórico de Pagamentos - {selectedProfessionalForHistory}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowHistoryModal(false);
+                  setSelectedProfessionalForHistory('');
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {(() => {
+                if (professionalPaymentHistory.length === 0) {
+                  return (
+                    <div className="text-center py-8">
+                      <p className="text-gray-400">Nenhum pagamento registrado para este profissional.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <>
+                    <div className="mb-4 p-3 bg-[#2a2b2c] rounded-lg border border-gray-600">
+                      <p className="text-sm text-gray-400">
+                        Total de pagamentos: <span className="font-bold text-white">{professionalPaymentHistory.length}</span>
+                      </p>
+                      <p className="text-sm text-gray-400 mt-1">
+                        Total pago: <span className="font-bold text-green-400">
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                            professionalPaymentHistory.reduce((sum, p) => sum + (p.amount || 0), 0)
+                          )}
+                        </span>
+                      </p>
+                    </div>
+
+                    {professionalPaymentHistory.map((payment: any) => (
+                      <div key={payment.id} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3 border border-gray-600">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-sm font-medium text-white">
+                              {new Date(payment.payment_date).toLocaleDateString('pt-BR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </p>
+                            {(payment.payment_source === 'subscription' || payment.payment_source === 'assinatura') ? (
+                              <span className="px-2 py-0.5 text-xs font-medium bg-purple-600/30 text-purple-300 rounded border border-purple-500/50">
+                                Via Assinatura
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 text-xs font-medium bg-blue-600/30 text-blue-300 rounded border border-blue-500/50">
+                                Normal
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400">Data do pagamento</p>
+                        </div>
+                        <div className="text-right">
+                          <p className={`text-lg font-bold ${payment.amount < 0 ? 'text-red-400' : 'text-green-400'}`}>
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(payment.amount || 0)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowHistoryModal(false);
+                  setSelectedProfessionalForHistory('');
+                }}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

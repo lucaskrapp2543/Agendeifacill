@@ -6309,6 +6309,16 @@ Estamos te aguardando! 😎✂️`;
 
     // Calcular o líquido total (bruto do SERVIÇO + SERVIÇOS EXTRA - taxas de cartão)
     // IMPORTANTE: Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
+    console.log(`🔍 DEBUG calculateOwnerNetValue para ${professionalName}:`, {
+      totalAppointments: professionalAppointments.length,
+      appointments: professionalAppointments.map(apt => ({
+        client: apt.client_name,
+        status: apt.status,
+        price: apt.price,
+        payment_method: apt.payment_method
+      }))
+    });
+    
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
         // Usar price + additional_products (serviços extra)
@@ -10146,11 +10156,14 @@ Estamos te aguardando! 😎✂️`;
                   </div>
 
                   {/* Receita por Profissional */}
-                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Receita por Profissional</h3>
+                  <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-xl shadow-lg border border-blue-200/50 p-6">
+                    <h3 className="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
+                      <span className="text-2xl">💼</span>
+                      <span>Receita por Profissional</span>
+                    </h3>
 
 
-                    <div className="space-y-4">
+                    <div className="space-y-5">
                       {professionals.map(professional => {
                         const professionalAppointments = monthlyAppointments.filter(
                           apt => apt.professional === professional.id && apt.status !== 'cancelled'
@@ -10192,18 +10205,22 @@ Estamos te aguardando! 😎✂️`;
                         console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
 
                         return (
-                          <div key={professional.id} className="p-4 bg-gray-50 rounded-lg space-y-4">
+                          <div key={professional.id} className="p-6 bg-gradient-to-r from-white to-blue-50/30 rounded-xl border border-blue-200/40 shadow-md hover:shadow-xl hover:border-blue-300/60 transition-all duration-300 space-y-4 backdrop-blur-sm">
                             {/* Header do Profissional */}
                             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                               <div className="flex-1">
-                                <p className="font-medium text-gray-900 text-lg">{professional.name}</p>
-                                <div className="text-sm text-gray-600 mt-1">
-                                  <p>
-                                    {professionalAppointments.length} agendamento(s) •
+                                <p className="font-bold text-gray-800 text-lg mb-2 flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                  {professional.name}
+                                </p>
+                                <div className="text-sm text-gray-600 mt-1 bg-blue-50/50 rounded-lg px-3 py-2 inline-block">
+                                  <p className="flex items-center gap-2">
+                                    <span className="font-medium">{professionalAppointments.length} agendamento(s)</span>
+                                    <span className="text-gray-400">•</span>
                                     {professional.percentage === 100 ? (
-                                      <span className="text-green-600 font-medium">Dono (100%)</span>
+                                      <span className="text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md">Dono (100%)</span>
                                     ) : (
-                                      <span>{professional.percentage || 100}%</span>
+                                      <span className="text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded-md">{professional.percentage || 100}%</span>
                                     )}
                                   </p>
                                   {extraProductsSold > 0 && (
@@ -10263,22 +10280,22 @@ Estamos te aguardando! 😎✂️`;
                               </div>
 
                               {/* Valores - Layout Mobile */}
-                              <div className="text-right sm:text-right">
-                                <p className="text-lg font-bold text-green-600">
+                              <div className="text-right sm:text-right bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-4 border border-emerald-200/50">
+                                <p className="text-2xl font-bold text-emerald-700 mb-1">
                                   {formatCurrency(professionalRevenue)}
                                 </p>
-                                <div className="text-sm text-blue-600">
+                                <div className="text-sm text-blue-700 font-medium">
                                   {professional.percentage === 100 ? (
-                                    <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
+                                    <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span></span>
                                   ) : (
-                                    <span>Líquido: {formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span>
+                                    <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span></span>
                                   )}
                                 </div>
                               </div>
                             </div>
 
                             {/* Controle de Pagamentos - Agora em linha separada */}
-                            <div className="border-t border-gray-200 pt-3">
+                            <div className="border-t border-blue-200/60 pt-4 mt-5 bg-gradient-to-r from-purple-50/30 to-pink-50/30 rounded-lg p-3 -mx-3 -mb-3">
                               <ProfessionalPaymentControl
                                 establishmentId={establishment?.id || ''}
                                 professionalId={professional.id}

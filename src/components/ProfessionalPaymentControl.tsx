@@ -47,6 +47,10 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     totalPaid
   } = useProfessionalLiquidValue(establishmentId, professionalId, currentLiquidValue, selectedMonth);
 
+  // O valor original (total do mês) é o currentLiquidValue passado como prop
+  // O valor pendente é o que sobra após descontar pagamentos já feitos
+  const totalLiquidValue = currentLiquidValue; // Valor total do mês (antes de descontar pagamentos)
+
   const paymentSummary = getPaymentSummary(professionalId);
   const professionalPayments = getProfessionalPayments(professionalId);
 
@@ -230,7 +234,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
         <div className="space-y-2">
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
             <span className="text-sm font-medium text-gray-700">
-              Líquido: {formatCurrency(currentLiquidDisplay)}
+              Líquido: {formatCurrency(totalLiquidValue)}
             </span>
             {totalPaid > 0 && (
               <span className="text-xs text-gray-500">
