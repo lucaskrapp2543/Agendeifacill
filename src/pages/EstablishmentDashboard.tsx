@@ -118,6 +118,7 @@ interface Establishment {
   carousel_position?: 'behind' | 'below'; // Posição do carrossel: atrás ou embaixo do perfil
   debit_card_tax_percentage?: number; // Taxa do cartão de débito (%)
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
+  payment_alert_enabled?: boolean; // Indica se o alerta de pagamento está ativado
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo';
@@ -435,6 +436,9 @@ const EstablishmentDashboard = () => {
 
   // Estado para mostrar/ocultar valores financeiros
   const [showFinancialValues, setShowFinancialValues] = useState(true);
+
+  // Estado para popup de alerta de pagamento
+  const [showPaymentAlert, setShowPaymentAlert] = useState(false);
 
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
@@ -3053,6 +3057,13 @@ Estamos te aguardando! 😎✂️`;
     // Carregar progresso das metas quando estiver na aba de profissionais
     if (establishment && activeTab === 'professionals' && professionals.length > 0) {
       loadAllProfessionalGoalsProgress();
+    }
+
+    // Mostrar popup de alerta quando entrar em "Meus Agendamentos" e o alerta estiver ativado
+    if (establishment && activeTab === 'appointments' && establishment.payment_alert_enabled) {
+      setShowPaymentAlert(true);
+    } else {
+      setShowPaymentAlert(false);
     }
   }, [establishment, activeTab]);
 
@@ -7148,6 +7159,49 @@ Estamos te aguardando! 😎✂️`;
               {/* Tab de Agendamentos */}
               {activeTab === 'appointments' && (
                 <>
+                  {/* Popup de Alerta de Pagamento */}
+                  {showPaymentAlert && establishment && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-yellow-600 text-2xl">⚠️</span>
+                          </div>
+                          <h2 className="text-xl font-bold text-gray-900">Atenção!</h2>
+                        </div>
+                        <p className="text-gray-700 mb-6 leading-relaxed">
+                          Seu sistema <strong>Agendei Fácil</strong> está com o pagamento em atraso.
+                        </p>
+                        <p className="text-gray-700 mb-6 leading-relaxed">
+                          Evite o bloqueio do acesso e mantenha tudo funcionando normalmente.
+                        </p>
+                        <p className="text-gray-700 mb-6 leading-relaxed">
+                          Clique em "Pagar agora" para regularizar sua assinatura.
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                          <button
+                            onClick={() => setShowPaymentAlert(false)}
+                            className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                          >
+                            Fechar
+                          </button>
+                          <button
+                            onClick={() => {
+                              const whatsappNumber = '5548991265320';
+                              const message = encodeURIComponent(`Olá! Quero deixar meu sistema em dia.\n\nNome do meu estabelecimento: ${establishment.name}`);
+                              window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                            }}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
+                          >
+                            Pagar agora
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {/* Vídeo Tutorial de Agendamentos */}
                   {showTutorials.appointments && (
                     <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">

@@ -119,3 +119,4 @@
 **Resumo: O armazenamento NÃO é um problema de custo. O custo real vem de outras tabelas (agendamentos, por exemplo) e do armazenamento de imagens no Storage.**
 
 
+

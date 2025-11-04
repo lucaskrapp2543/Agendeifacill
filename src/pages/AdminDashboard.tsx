@@ -35,6 +35,7 @@ interface Establishment {
   is_deleted?: boolean;
   is_blocked?: boolean;
   last_access?: string | null;
+  payment_alert_enabled?: boolean;
 }
 
 const AdminDashboard = () => {
@@ -219,7 +220,8 @@ const AdminDashboard = () => {
             plan_type: establishment.plan_type || 'monthly',
             payment_due_date: establishment.payment_due_date || establishment.created_at,
             is_blocked: establishment.is_blocked || false,
-            last_access: lastAppointment?.created_at || null
+            last_access: lastAppointment?.created_at || null,
+            payment_alert_enabled: establishment.payment_alert_enabled || false
           };
 
           return processedEstablishment;
@@ -235,7 +237,8 @@ const AdminDashboard = () => {
           payment_status: establishment.payment_status || 'unpaid',
           plan_type: establishment.plan_type || 'monthly',
           payment_due_date: establishment.payment_due_date || establishment.created_at,
-          is_blocked: establishment.is_blocked || false
+          is_blocked: establishment.is_blocked || false,
+          payment_alert_enabled: establishment.payment_alert_enabled || false
         };
       });
 
@@ -377,6 +380,34 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Erro ao alterar status de bloqueio:', error);
       toast.error('Erro ao alterar status de bloqueio');
+    }
+  };
+
+  // Função para ativar/desativar alerta de pagamento
+  const togglePaymentAlert = async (establishmentId: string, isEnabled: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ payment_alert_enabled: !isEnabled })
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.error('Erro no Supabase:', error);
+        throw error;
+      }
+
+      setEstablishments(prev =>
+        prev.map(est =>
+          est.id === establishmentId
+            ? { ...est, payment_alert_enabled: !isEnabled }
+            : est
+        )
+      );
+
+      toast.success(!isEnabled ? 'Alerta de pagamento ativado!' : 'Alerta de pagamento desativado!');
+    } catch (error) {
+      console.error('Erro ao alterar status do alerta:', error);
+      toast.error('Erro ao alterar status do alerta');
     }
   };
 
@@ -977,11 +1008,15 @@ const AdminDashboard = () => {
                       <td className="px-3 py-4 text-sm font-medium">
                         <div className="flex flex-wrap gap-1">
                           <button
-                            onClick={() => createSecondPassword(establishment.id, establishment.name)}
-                            className="text-green-600 hover:text-green-900 text-xs px-2 py-0.5 border border-green-300 rounded hover:bg-green-50 font-medium"
-                            title="Criar Segunda Senha"
+                            onClick={() => togglePaymentAlert(establishment.id, establishment.payment_alert_enabled || false)}
+                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
+                              establishment.payment_alert_enabled
+                                ? 'text-orange-600 border-orange-300 bg-orange-50 hover:bg-orange-100'
+                                : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+                            }`}
+                            title={establishment.payment_alert_enabled ? 'Desativar Alerta' : 'Ativar Alerta'}
                           >
-                            2ª Senha
+                            ALERTA
                           </button>
                           <button
                             onClick={() => updatePaymentStatus(establishment.id, 'paid')}
