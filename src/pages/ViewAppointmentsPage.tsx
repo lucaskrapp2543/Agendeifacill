@@ -24,9 +24,6 @@ export default function ViewAppointmentsPage() {
   const [selectedAppointmentForWhatsApp, setSelectedAppointmentForWhatsApp] = useState<any>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
-  // Estados para popup de propaganda
-  const [showPromotionPopup, setShowPromotionPopup] = useState(false);
-  const [establishmentPromotionConfig, setEstablishmentPromotionConfig] = useState<any>(null);
 
   // Buscar telefone salvo e carregar agendamentos automaticamente
   useEffect(() => {
@@ -98,16 +95,9 @@ export default function ViewAppointmentsPage() {
       const firstAppointment = data[0];
       const establishmentName = firstAppointment.establishments?.name || firstAppointment.establishment_name;
       const establishmentCode = firstAppointment.establishment_code || firstAppointment.establishments?.code;
-      console.log('🚀 PROPAGANDA - Verificando estabelecimento:', { establishmentName, establishmentCode });
       if (establishmentName) {
         console.log('🔍 Carregando configuração WhatsApp para estabelecimento:', establishmentName);
         await loadEstablishmentWhatsAppConfig(establishmentName, establishmentCode);
-        // Carregar configuração de propaganda
-        console.log('🚀🚀🚀 PROPAGANDA - Chamando loadEstablishmentPromotionConfig AGORA!');
-        console.log('🔍 DEBUG - Chamando loadEstablishmentPromotionConfig com:', { establishmentName, establishmentCode });
-        await loadEstablishmentPromotionConfig(establishmentName, establishmentCode);
-      } else {
-        console.log('❌ PROPAGANDA - establishmentName não encontrado!');
       }
     } catch (error: any) {
       console.error('❌ Erro ao buscar agendamentos:', error);
@@ -335,96 +325,6 @@ Por favor, confirme o cancelamento. Obrigado!`;
       }
     }
   }, []);
-
-  // Função para carregar configuração de propaganda do estabelecimento
-  const loadEstablishmentPromotionConfig = async (establishmentName: string, establishmentCode?: string) => {
-    console.log('🚀🚀🚀 PROPAGANDA - loadEstablishmentPromotionConfig CHAMADA!');
-    console.log('🔍 DEBUG - loadEstablishmentPromotionConfig chamada com:', { establishmentName, establishmentCode });
-
-    try {
-      let establishment = null;
-      let error = null;
-
-      // PRIORITARIAMENTE: buscar por código do estabelecimento (mais confiável)
-      if (establishmentCode) {
-        console.log('🔍 DEBUG - Buscando por código:', establishmentCode);
-        const { data: establishmentsByCode, error: errorByCode } = await supabase
-          .from('establishments')
-          .select('promotion_enabled')
-          .eq('code', establishmentCode)
-          .limit(1);
-
-        establishment = establishmentsByCode?.[0];
-        error = errorByCode;
-
-        // Se encontrou pelo código, usar esse resultado
-        if (establishment && !error) {
-          const config = {
-            promotionEnabled: establishment.promotion_enabled === true
-          };
-          console.log('✅ Configuração de propaganda carregada pelo código:');
-          console.log('  - establishment:', establishment);
-          console.log('  - promotion_enabled (raw):', establishment.promotion_enabled);
-          console.log('  - promotion_enabled (type):', typeof establishment.promotion_enabled);
-          console.log('  - promotionEnabled (processed):', config.promotionEnabled);
-          setEstablishmentPromotionConfig(config);
-          return;
-        } else {
-          console.log('❌ Não encontrou estabelecimento pelo código:', establishmentCode);
-          console.log('  - establishment:', establishment);
-          console.log('  - error:', error);
-        }
-      }
-
-      // FALLBACK: buscar por nome (caso não tenha código ou código não encontrado)
-      let { data: establishments, error: errorByName } = await supabase
-        .from('establishments')
-        .select('promotion_enabled')
-        .eq('name', establishmentName)
-        .limit(1);
-
-      establishment = establishments?.[0];
-      error = errorByName;
-
-      // Se der erro, tentar buscar por ilike (case insensitive)
-      if (error) {
-        const { data: establishments2, error: error2 } = await supabase
-          .from('establishments')
-          .select('promotion_enabled')
-          .ilike('name', establishmentName)
-          .limit(1);
-
-        establishment = establishments2?.[0];
-        error = error2;
-      }
-
-      if (error) {
-        console.error('❌ Erro ao carregar configuração de propaganda:', error);
-        const defaultConfig = {
-          promotionEnabled: false
-        };
-        setEstablishmentPromotionConfig(defaultConfig);
-        return;
-      }
-
-      const config = {
-        promotionEnabled: establishment?.promotion_enabled === true
-      };
-
-      console.log('✅ Configuração de propaganda carregada (fallback):');
-      console.log('  - establishment:', establishment);
-      console.log('  - promotion_enabled (raw):', establishment?.promotion_enabled);
-      console.log('  - promotion_enabled (type):', typeof establishment?.promotion_enabled);
-      console.log('  - promotionEnabled (processed):', config.promotionEnabled);
-      setEstablishmentPromotionConfig(config);
-    } catch (error) {
-      console.error('❌ Erro ao carregar configuração de propaganda:', error);
-      const defaultConfig = {
-        promotionEnabled: false
-      };
-      setEstablishmentPromotionConfig(defaultConfig);
-    }
-  };
 
   // Função para carregar configuração de WhatsApp do estabelecimento
   const loadEstablishmentWhatsAppConfig = async (establishmentName: string, establishmentCode?: string) => {
@@ -818,44 +718,6 @@ Por favor, confirme o cancelamento. Obrigado!`;
     }
   }, [establishmentWhatsAppConfig, pendingReminderData]);
 
-  // Verificar se deve mostrar popup de propaganda
-  useEffect(() => {
-    console.log('🔍 DEBUG - Verificando condições para popup de propaganda:');
-    console.log('  - establishmentPromotionConfig:', establishmentPromotionConfig);
-    console.log('  - promotionEnabled:', establishmentPromotionConfig?.promotionEnabled);
-    console.log('  - appointments.length:', appointments.length);
-    console.log('  - showLoginModal:', showLoginModal);
-    console.log('  - isLoading:', isLoading);
-    
-    // Verificar se já clicou em "Não quero mais ver isso"
-    const promotionDismissed = localStorage.getItem('promotion_dismissed');
-    console.log('  - promotionDismissed:', promotionDismissed);
-    
-    if (promotionDismissed === 'true') {
-      console.log('🔍 Propaganda já foi dispensada pelo usuário');
-      setShowPromotionPopup(false);
-      return;
-    }
-
-    // Verificar se propaganda está ativada e há agendamentos carregados
-    // Só mostrar se não estiver no modal de login e houver agendamentos
-    const shouldShow = 
-      establishmentPromotionConfig?.promotionEnabled === true &&
-      appointments.length > 0 &&
-      !showLoginModal &&
-      !isLoading;
-    
-    console.log('  - shouldShow:', shouldShow);
-    
-    if (shouldShow) {
-      console.log('✅ Mostrando popup de propaganda');
-      setShowPromotionPopup(true);
-    } else {
-      console.log('❌ Não mostrando popup de propaganda');
-      setShowPromotionPopup(false);
-    }
-  }, [establishmentPromotionConfig, appointments.length, showLoginModal, isLoading]);
-
   // Funções para o modal de sucesso
   const handleActivateReminder = () => {
     setReminderStep('initial');
@@ -1141,71 +1003,6 @@ Por favor, confirme o cancelamento. Obrigado!`;
         establishmentCode={localStorage.getItem('current_establishment_code') || undefined}
         establishmentId={localStorage.getItem('current_establishment_id') || undefined}
       />
-
-      {/* Popup de Propaganda */}
-      {console.log('🎯 PROPAGANDA - Renderizando popup?', showPromotionPopup)}
-      {showPromotionPopup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full relative">
-            {/* Botão X no canto superior direito */}
-            <button
-              onClick={() => setShowPromotionPopup(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <div className="p-6">
-              {/* Imagem de Indicação */}
-              <div className="mb-4">
-                <img
-                  src="/indicacao.png"
-                  alt="Indicação"
-                  className="w-full h-auto rounded-lg"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = '/indicacao.png';
-                    console.error('Erro ao carregar imagem indicacao.png');
-                  }}
-                />
-              </div>
-
-              {/* Botões */}
-              <div className="space-y-3">
-                <button
-                  onClick={() => {
-                    const whatsappNumber = '5548991265320';
-                    const message = encodeURIComponent('Olá quero indicar um barbeiro e ganhar 1 mês gratis');
-                    window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
-                  }}
-                  className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center gap-2"
-                >
-                  Indicar
-                </button>
-
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      // Salvar no localStorage para não mostrar mais
-                      localStorage.setItem('promotion_dismissed', 'true');
-                      setShowPromotionPopup(false);
-                    }}
-                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-sm"
-                  >
-                    Não quero mais ver isso
-                  </button>
-                  <button
-                    onClick={() => setShowPromotionPopup(false)}
-                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm"
-                  >
-                    Fechar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Loading overlay */}
       {isLoading && (
