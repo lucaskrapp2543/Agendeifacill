@@ -3234,6 +3234,21 @@ Estamos te aguardando! 😎✂️`;
     }
   }, [establishment, activeTab]);
 
+  // Listener para recarregar clientes quando um agendamento for criado
+  useEffect(() => {
+    const handleClientAppointmentCreated = () => {
+      console.log('🔄 Evento recebido: clientAppointmentCreated - Recarregando clientes...');
+      if (establishment && (activeTab === 'clients' || activeTab === 'subscribers')) {
+        fetchClients();
+      }
+    };
+
+    window.addEventListener('clientAppointmentCreated', handleClientAppointmentCreated);
+    return () => {
+      window.removeEventListener('clientAppointmentCreated', handleClientAppointmentCreated);
+    };
+  }, [establishment, activeTab]);
+
   // Funções para gerenciar despesas
   const loadExpenses = useCallback(async () => {
     if (!establishment?.id) return;
@@ -14438,6 +14453,11 @@ Estamos te aguardando! 😎✂️`;
             onClose={() => {
               console.log('🔍 Fechando modal ReservarCliente');
               setShowReservarClienteModal(false);
+              // Recarregar clientes quando fechar o modal (para atualizar contagem)
+              if (activeTab === 'clients' || activeTab === 'subscribers') {
+                console.log('🔄 Recarregando clientes após fechar modal de reserva...');
+                fetchClients();
+              }
             }}
           />
         )

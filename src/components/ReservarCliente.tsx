@@ -1,4 +1,4 @@
-import { CheckCircle, Clock, Scissors, User } from 'lucide-react';
+import { CheckCircle, Clock, Scissors, Search, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -49,6 +49,13 @@ interface TimeSlot {
   reason?: string;
 }
 
+interface Client {
+  id: string;
+  name: string;
+  whatsapp: string;
+  appointmentCount?: number;
+}
+
 interface ReservarClienteProps {
   establishmentId: string;
   use15MinuteInterval?: boolean;
@@ -58,7 +65,7 @@ interface ReservarClienteProps {
 
 export default function ReservarCliente({ establishmentId, use15MinuteInterval = false, use20MinuteScheduleProp = false, onClose }: ReservarClienteProps) {
   const { user } = useAuth();
-  const [step, setStep] = useState<'professional' | 'service' | 'time' | 'confirm'>('professional');
+  const [step, setStep] = useState<'initial' | 'client' | 'professional' | 'service' | 'time' | 'confirm'>('initial');
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
@@ -82,6 +89,89 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   // Estados para assinantes
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+
+  // Estados para seleção de cliente conhecido
+  const [clients, setClients] = useState<Client[]>([]);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [clientSearchQuery, setClientSearchQuery] = useState<string>('');
+  const [loadingClients, setLoadingClients] = useState(false);
+
+  // Função para carregar clientes do estabelecimento
+  const loadClients = async () => {
+    if (!establishmentId) return;
+    
+    setLoadingClients(true);
+    try {
+      console.log('🔍 Carregando clientes para establishment:', establishmentId);
+      
+      // Buscar todos os agendamentos do estabelecimento que não são avulsos
+      // Incluir clientes que têm client_id e client_whatsapp, excluindo apenas os explicitamente avulsos
+      const { data: appointments, error } = await supabase
+        .from('appointments')
+        .select('client_id, client_name, client_whatsapp, is_avulso')
+        .eq('establishment_id', establishmentId)
+        .not('client_name', 'is', null)
+        .not('client_whatsapp', 'is', null)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Erro ao buscar clientes:', error);
+        throw error;
+      }
+
+      if (!appointments || appointments.length === 0) {
+        console.log('📋 Nenhum cliente encontrado');
+        setClients([]);
+        return;
+      }
+
+      // Agrupar por client_id e contar agendamentos
+      // Filtrar apenas clientes que não são avulsos (is_avulso !== true)
+      const clientsMap = new Map<string, Client>();
+      
+      appointments.forEach((appointment) => {
+        // Pular agendamentos explicitamente avulsos
+        if (appointment.is_avulso === true) {
+          return;
+        }
+        
+        const clientId = appointment.client_id || `manual_${appointment.client_whatsapp}`;
+        
+        if (!clientsMap.has(clientId)) {
+          clientsMap.set(clientId, {
+            id: clientId,
+            name: appointment.client_name || 'Cliente sem nome',
+            whatsapp: appointment.client_whatsapp || '',
+            appointmentCount: 0
+          });
+        }
+        
+        // Incrementar contagem de agendamentos
+        const client = clientsMap.get(clientId)!;
+        client.appointmentCount = (client.appointmentCount || 0) + 1;
+      });
+
+      const clientsArray = Array.from(clientsMap.values());
+      
+      // Ordenar por nome
+      clientsArray.sort((a, b) => a.name.localeCompare(b.name));
+      
+      console.log('✅ Clientes carregados:', clientsArray.length);
+      setClients(clientsArray);
+    } catch (error) {
+      console.error('❌ Erro ao carregar clientes:', error);
+      alert('Erro ao carregar clientes. Verifique o console para mais detalhes.');
+    } finally {
+      setLoadingClients(false);
+    }
+  };
+
+  // Carregar clientes quando entrar no modo de seleção
+  useEffect(() => {
+    if (step === 'client' && clients.length === 0) {
+      loadClients();
+    }
+  }, [step]);
 
   // Carregar profissionais e configuração de horários
   useEffect(() => {
@@ -535,10 +625,21 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
     loadTimeSlots();
   }, [selectedService, selectedServices, selectedDate, selectedProfessional]);
 
+  const handleClientSelect = (client: Client) => {
+    setSelectedClient(client);
+    setStep('professional');
+  };
+
   const handleProfessionalSelect = (professional: Professional) => {
     setSelectedProfessional(professional);
     setStep('service');
   };
+
+  // Filtrar clientes por busca
+  const filteredClients = clients.filter(client => 
+    client.name.toLowerCase().includes(clientSearchQuery.toLowerCase()) ||
+    client.whatsapp.includes(clientSearchQuery)
+  );
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
@@ -642,28 +743,63 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       // Criar nome dos serviços
       const serviceNames = servicesToInsert.map(s => s.name).join(', ');
 
-      // Verificar se é um agendamento de assinante
+      // Verificar se é um agendamento de assinante ou cliente conhecido
       const isSubscriber = selectedSubscription !== null;
+      const isKnownClient = selectedClient !== null;
+
+      // Determinar client_id e client_name
+      let clientId: string;
+      let clientName: string;
+      let clientWhatsapp: string | undefined;
+      let isAvulso: boolean;
+
+      if (isSubscriber) {
+        clientId = user?.id || '';
+        clientName = 'ASSINANTE';
+        clientWhatsapp = undefined;
+        isAvulso = false;
+      } else if (isKnownClient) {
+        clientId = selectedClient.id;
+        clientName = selectedClient.name;
+        clientWhatsapp = selectedClient.whatsapp;
+        isAvulso = false; // Cliente conhecido não é avulso
+      } else {
+        clientId = user?.id || '';
+        clientName = 'CLIENTE AVULSO';
+        clientWhatsapp = undefined;
+        isAvulso = true;
+      }
 
       const { error } = await supabase
         .from('appointments')
         .insert({
-          client_id: user?.id, // Usar ID do usuário atual (estabelecimento)
+          client_id: clientId,
           establishment_id: establishmentId,
           professional: selectedProfessional.id, // Usar ID do profissional
           service: serviceNames,
-          client_name: isSubscriber ? 'ASSINANTE' : 'CLIENTE AVULSO',
+          client_name: clientName,
+          client_whatsapp: clientWhatsapp,
           appointment_date: selectedDate,
           appointment_time: selectedTime,
           status: 'confirmed',
           price: totalPrice,
           total_price: totalPrice,
           duration: totalDuration,
-          is_avulso: true,
+          is_avulso: isAvulso,
           is_subscriber: isSubscriber // Salvar se é assinante
         });
 
       if (error) throw error;
+
+      // Se foi um cliente conhecido, recarregar a lista de clientes para atualizar a contagem
+      // Isso força o dashboard a recarregar a contagem de agendamentos
+      if (isKnownClient && selectedClient) {
+        console.log('✅ Agendamento criado para cliente conhecido, disparando evento para recarregar clientes');
+        // Disparar evento customizado para recarregar clientes no dashboard
+        window.dispatchEvent(new CustomEvent('clientAppointmentCreated', {
+          detail: { clientId: selectedClient.id, clientWhatsapp: selectedClient.whatsapp }
+        }));
+      }
 
       alert('Reserva criada com sucesso!');
       onClose();
@@ -693,7 +829,122 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
         {/* Content */}
         <div className="p-6">
-          {/* Step 1: Selecionar Profissional */}
+          {/* Step 0: Escolher tipo de reserva */}
+          {step === 'initial' && (
+            <div>
+              <h3 className="text-lg font-semibold mb-6 flex items-center text-gray-800">
+                <User className="h-5 w-5 mr-2 text-gray-600" />
+                Como deseja reservar?
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={() => setStep('client')}
+                  className="p-6 border-2 border-blue-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                      <User className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-800">Reservar conhecido</h4>
+                      <p className="text-sm text-gray-600">Selecione um cliente da sua lista</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setStep('professional')}
+                  className="p-6 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
+                      <User className="h-6 w-6 text-gray-500" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-800">Reserva avulsa</h4>
+                      <p className="text-sm text-gray-600">Criar reserva para cliente avulso</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 1: Selecionar Cliente Conhecido */}
+          {step === 'client' && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold mb-4 flex items-center text-gray-800">
+                  <User className="h-5 w-5 mr-2 text-gray-600" />
+                  Selecione o Cliente
+                </h3>
+                <button
+                  onClick={() => setStep('initial')}
+                  className="text-blue-600 hover:text-blue-800 text-sm"
+                >
+                  ← Voltar
+                </button>
+              </div>
+
+              {/* Campo de busca */}
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente por nome ou WhatsApp..."
+                    value={clientSearchQuery}
+                    onChange={(e) => setClientSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                  />
+                </div>
+              </div>
+
+              {loadingClients ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <p className="mt-2 text-gray-700">Carregando clientes...</p>
+                </div>
+              ) : filteredClients.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-600 mb-4">
+                    {clientSearchQuery ? 'Nenhum cliente encontrado' : 'Nenhum cliente encontrado'}
+                  </p>
+                  {!clientSearchQuery && (
+                    <p className="text-sm text-gray-500">
+                      Clientes aparecem aqui após fazerem agendamentos no sistema.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto">
+                  {filteredClients.map((client) => (
+                    <button
+                      key={client.id}
+                      onClick={() => handleClientSelect(client)}
+                      className="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                          <User className="h-6 w-6 text-gray-500" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-800">{client.name}</h4>
+                          <p className="text-sm text-gray-600">{client.whatsapp}</p>
+                          {client.appointmentCount !== undefined && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              {client.appointmentCount} agendamento{client.appointmentCount !== 1 ? 's' : ''}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2: Selecionar Profissional */}
           {step === 'professional' && (
             <div>
               <h3 className="text-lg font-semibold mb-4 flex items-center text-gray-800">
@@ -742,10 +993,19 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   ))
                 )}
               </div>
+              
+              {/* Mostrar cliente selecionado se houver */}
+              {selectedClient && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    <strong>Cliente selecionado:</strong> {selectedClient.name} ({selectedClient.whatsapp})
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Step 2: Selecionar Serviço */}
+          {/* Step 3: Selecionar Serviço */}
           {step === 'service' && selectedProfessional && (
             <div>
               <div className="flex items-center justify-between mb-4">
@@ -754,7 +1014,13 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   Serviços de {selectedProfessional.name}
                 </h3>
                 <button
-                  onClick={() => setStep('professional')}
+                  onClick={() => {
+                    if (selectedClient) {
+                      setStep('client');
+                    } else {
+                      setStep('initial');
+                    }
+                  }}
                   className="text-blue-600 hover:text-blue-800 text-sm"
                 >
                   ← Voltar
@@ -946,7 +1212,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
             </div>
           )}
 
-          {/* Step 3: Selecionar Horário */}
+          {/* Step 4: Selecionar Horário */}
           {step === 'time' && (selectedService || selectedServices.length > 0) && (
             <div>
               <div className="flex items-center justify-between mb-4">
@@ -1007,7 +1273,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
             </div>
           )}
 
-          {/* Step 4: Confirmar Reserva */}
+          {/* Step 5: Confirmar Reserva */}
           {step === 'confirm' && selectedProfessional && (selectedService || selectedServices.length > 0) && selectedTime && (
             <div>
               <h3 className="text-lg font-semibold mb-4 flex items-center text-gray-800">
@@ -1045,7 +1311,15 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
                   <p><strong>Data:</strong> {new Date(selectedDate).toLocaleDateString('pt-BR')}</p>
                   <p><strong>Horário:</strong> {selectedTime}</p>
-                  <p><strong>Cliente:</strong> {selectedSubscription ? <span className="text-purple-600 font-semibold">ASSINANTE 👑</span> : 'CLIENTE AVULSO'}</p>
+                  <p><strong>Cliente:</strong> {
+                    selectedSubscription ? (
+                      <span className="text-purple-600 font-semibold">ASSINANTE 👑</span>
+                    ) : selectedClient ? (
+                      <span className="text-blue-600 font-semibold">{selectedClient.name}</span>
+                    ) : (
+                      'CLIENTE AVULSO'
+                    )
+                  }</p>
                 </div>
               </div>
 
