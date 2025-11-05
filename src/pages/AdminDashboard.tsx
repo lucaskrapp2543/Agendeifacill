@@ -36,6 +36,7 @@ interface Establishment {
   is_blocked?: boolean;
   last_access?: string | null;
   payment_alert_enabled?: boolean;
+  promotion_enabled?: boolean; // Indica se a propaganda está ativada
 }
 
 const AdminDashboard = () => {
@@ -221,7 +222,8 @@ const AdminDashboard = () => {
             payment_due_date: establishment.payment_due_date || establishment.created_at,
             is_blocked: establishment.is_blocked || false,
             last_access: lastAppointment?.created_at || null,
-            payment_alert_enabled: establishment.payment_alert_enabled || false
+            payment_alert_enabled: establishment.payment_alert_enabled || false,
+            promotion_enabled: establishment.promotion_enabled || false
           };
 
           return processedEstablishment;
@@ -238,7 +240,8 @@ const AdminDashboard = () => {
           plan_type: establishment.plan_type || 'monthly',
           payment_due_date: establishment.payment_due_date || establishment.created_at,
           is_blocked: establishment.is_blocked || false,
-          payment_alert_enabled: establishment.payment_alert_enabled || false
+          payment_alert_enabled: establishment.payment_alert_enabled || false,
+          promotion_enabled: establishment.promotion_enabled || false
         };
       });
 
@@ -408,6 +411,34 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Erro ao alterar status do alerta:', error);
       toast.error('Erro ao alterar status do alerta');
+    }
+  };
+
+  // Função para ativar/desativar propaganda
+  const togglePromotion = async (establishmentId: string, isEnabled: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ promotion_enabled: !isEnabled })
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.error('Erro no Supabase:', error);
+        throw error;
+      }
+
+      setEstablishments(prev =>
+        prev.map(est =>
+          est.id === establishmentId
+            ? { ...est, promotion_enabled: !isEnabled }
+            : est
+        )
+      );
+
+      toast.success(!isEnabled ? 'Propaganda ativada!' : 'Propaganda desativada!');
+    } catch (error) {
+      console.error('Erro ao alterar status da propaganda:', error);
+      toast.error('Erro ao alterar status da propaganda');
     }
   };
 
@@ -1017,6 +1048,17 @@ const AdminDashboard = () => {
                             title={establishment.payment_alert_enabled ? 'Desativar Alerta' : 'Ativar Alerta'}
                           >
                             ALERTA
+                          </button>
+                          <button
+                            onClick={() => togglePromotion(establishment.id, establishment.promotion_enabled || false)}
+                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
+                              establishment.promotion_enabled
+                                ? 'text-purple-600 border-purple-300 bg-purple-50 hover:bg-purple-100'
+                                : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+                            }`}
+                            title={establishment.promotion_enabled ? 'Desativar Propaganda' : 'Ativar Propaganda'}
+                          >
+                            PROPAGANDA
                           </button>
                           <button
                             onClick={() => updatePaymentStatus(establishment.id, 'paid')}

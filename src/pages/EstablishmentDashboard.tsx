@@ -119,6 +119,7 @@ interface Establishment {
   debit_card_tax_percentage?: number; // Taxa do cartão de débito (%)
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
   payment_alert_enabled?: boolean; // Indica se o alerta de pagamento está ativado
+  promotion_enabled?: boolean; // Indica se a propaganda está ativada
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo';
@@ -439,6 +440,9 @@ const EstablishmentDashboard = () => {
 
   // Estado para popup de alerta de pagamento
   const [showPaymentAlert, setShowPaymentAlert] = useState(false);
+
+  // Estado para popup de propaganda
+  const [showPromotionPopup, setShowPromotionPopup] = useState(false);
 
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
@@ -3064,6 +3068,14 @@ Estamos te aguardando! 😎✂️`;
       setShowPaymentAlert(true);
     } else {
       setShowPaymentAlert(false);
+    }
+
+    // Mostrar popup de propaganda quando entrar em "Meus Agendamentos" e a propaganda estiver ativada
+    const promotionDismissed = localStorage.getItem('promotion_dismissed');
+    if (establishment && activeTab === 'appointments' && establishment.promotion_enabled && promotionDismissed !== 'true') {
+      setShowPromotionPopup(true);
+    } else {
+      setShowPromotionPopup(false);
     }
   }, [establishment, activeTab]);
 
@@ -7202,6 +7214,71 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                     </div>
                   )}
+
+                  {/* Popup de Propaganda */}
+                  {showPromotionPopup && establishment && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                      <div className="bg-white rounded-lg shadow-xl max-w-md md:max-w-2xl w-full relative">
+                        {/* Botão X no canto superior direito */}
+                        <button
+                          onClick={() => setShowPromotionPopup(false)}
+                          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10"
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+
+                        <div className="p-6 md:p-8">
+                          {/* Imagem de Indicação */}
+                          <div className="mb-4 md:mb-6">
+                            <img
+                              src="/indicacao.png"
+                              alt="Indicação"
+                              className="w-full h-auto rounded-lg md:max-w-2xl mx-auto"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = '/indicacao.png';
+                                console.error('Erro ao carregar imagem indicacao.png');
+                              }}
+                            />
+                          </div>
+
+                          {/* Botões */}
+                          <div className="space-y-3 md:space-y-4">
+                            <button
+                              onClick={() => {
+                                const whatsappNumber = '5548991265320';
+                                const message = encodeURIComponent('Olá quero indicar um barbeiro e ganhar 1 mês gratis');
+                                window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                              }}
+                              className="w-full px-4 py-3 md:px-6 md:py-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium md:text-lg flex items-center justify-center gap-2"
+                            >
+                              Indicar
+                            </button>
+
+                            <div className="flex gap-3 md:gap-4">
+                              <button
+                                onClick={() => {
+                                  // Salvar no localStorage para não mostrar mais
+                                  localStorage.setItem('promotion_dismissed', 'true');
+                                  setShowPromotionPopup(false);
+                                }}
+                                className="flex-1 px-4 py-2 md:px-6 md:py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-sm md:text-base"
+                              >
+                                Não quero mais ver isso
+                              </button>
+                              <button
+                                onClick={() => setShowPromotionPopup(false)}
+                                className="flex-1 px-4 py-2 md:px-6 md:py-3 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm md:text-base"
+                              >
+                                Fechar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Vídeo Tutorial de Agendamentos */}
                   {showTutorials.appointments && (
                     <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
