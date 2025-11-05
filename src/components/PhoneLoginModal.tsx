@@ -1,19 +1,89 @@
 import { Phone, X } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 
 interface PhoneLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLogin: (phone: string) => void;
+  establishmentCode?: string; // Código do estabelecimento para detectar DDD
+  establishmentId?: string; // ID do estabelecimento como fallback
 }
 
 export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
   isOpen,
   onClose,
-  onLogin
+  onLogin,
+  establishmentCode,
+  establishmentId
 }) => {
   const [phone, setPhone] = useState('');
+  const [countryCode, setCountryCode] = useState<string>('55'); // Padrão Brasil
+
+  // Detectar código do país do estabelecimento
+  useEffect(() => {
+    const detectCountryCode = async () => {
+      if (!establishmentCode && !establishmentId) {
+        // Se não tem código nem ID, usar padrão Brasil
+        setCountryCode('55');
+        return;
+      }
+
+      try {
+        let establishment = null;
+
+        // Buscar por código primeiro (mais confiável)
+        if (establishmentCode) {
+          const { data, error } = await supabase
+            .from('establishments')
+            .select('whatsapp')
+            .eq('code', establishmentCode)
+            .limit(1);
+
+          if (!error && data && data.length > 0) {
+            establishment = data[0];
+          }
+        }
+
+        // Se não encontrou por código, tentar por ID
+        if (!establishment && establishmentId) {
+          const { data, error } = await supabase
+            .from('establishments')
+            .select('whatsapp')
+            .eq('id', establishmentId)
+            .limit(1);
+
+          if (!error && data && data.length > 0) {
+            establishment = data[0];
+          }
+        }
+
+        if (establishment?.whatsapp) {
+          const cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
+          const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+          
+          for (const code of countryCodes) {
+            if (cleanWhatsapp.startsWith(code)) {
+              setCountryCode(code);
+              console.log('✅ DDD detectado do estabelecimento:', code);
+              return;
+            }
+          }
+        }
+
+        // Se não conseguiu detectar, manter padrão Brasil
+        setCountryCode('55');
+      } catch (error) {
+        console.error('Erro ao detectar DDD do estabelecimento:', error);
+        setCountryCode('55');
+      }
+    };
+
+    if (isOpen) {
+      detectCountryCode();
+    }
+  }, [isOpen, establishmentCode, establishmentId]);
 
   if (!isOpen) return null;
 
@@ -24,7 +94,7 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
     }
 
     // Validar formato de telefone (básico)
-    const phoneRegex = /^[\d\s\(\)\-]+$/;
+    const phoneRegex = /^[\d\s\(\)\+\-\ ]+$/;
     if (!phoneRegex.test(phone)) {
       toast.error('Por favor, informe um telefone válido');
       return;
@@ -37,13 +107,37 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
     // Remove tudo que não é número
     const numbers = value.replace(/\D/g, '');
 
-    // Formata como (XX) XXXXX-XXXX
-    if (numbers.length <= 2) {
-      return numbers;
-    } else if (numbers.length <= 7) {
-      return `(${numbers.slice(0, 2)}) ${numbers.slice(2)}`;
+    // Se for Portugal (351), formatar diferente
+    if (countryCode === '351') {
+      // Formato Portugal: +351 XXX XXX XXX ou 351 XXX XXX XXX
+      if (numbers.startsWith('351')) {
+        const rest = numbers.slice(3);
+        if (rest.length <= 3) {
+          return `+351 ${rest}`;
+        } else if (rest.length <= 6) {
+          return `+351 ${rest.slice(0, 3)} ${rest.slice(3)}`;
+        } else {
+          return `+351 ${rest.slice(0, 3)} ${rest.slice(3, 6)} ${rest.slice(6, 9)}`;
+        }
+      } else {
+        // Sem código do país, formatar apenas o número
+        if (numbers.length <= 3) {
+          return numbers;
+        } else if (numbers.length <= 6) {
+          return `${numbers.slice(0, 3)} ${numbers.slice(3)}`;
+        } else {
+          return `${numbers.slice(0, 3)} ${numbers.slice(3, 6)} ${numbers.slice(6, 9)}`;
+        }
+      }
     } else {
-      return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7, 11)}`;
+      // Formato Brasil: (XX) XXXXX-XXXX
+      if (numbers.length <= 2) {
+        return numbers;
+      } else if (numbers.length <= 7) {
+        return `(${numbers.slice(0, 2)}) ${numbers.slice(2)}`;
+      } else {
+        return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7, 11)}`;
+      }
     }
   };
 
@@ -51,6 +145,14 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
     const value = e.target.value;
     const formatted = formatPhone(value);
     setPhone(formatted);
+  };
+
+  // Placeholder baseado no país
+  const getPlaceholder = () => {
+    if (countryCode === '351') {
+      return '+351 XXX XXX XXX';
+    }
+    return '(00) 00000-0000';
   };
 
   return (
@@ -92,10 +194,10 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
               type="tel"
               value={phone}
               onChange={handlePhoneChange}
-              placeholder="(00) 00000-0000"
+              placeholder={getPlaceholder()}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
               required
-              maxLength={15}
+              maxLength={countryCode === '351' ? 18 : 15}
               onKeyPress={(e) => {
                 if (e.key === 'Enter') {
                   handleLogin();

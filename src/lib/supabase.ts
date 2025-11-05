@@ -1015,13 +1015,29 @@ export const getAppointmentsByPhone = async (phone: string) => {
     const cleanPhone = phone.replace(/\D/g, '');
     console.log('📱 Telefone limpo para busca:', cleanPhone);
 
-    if (!cleanPhone || cleanPhone.length < 10) {
+    if (!cleanPhone || cleanPhone.length < 9) {
       console.log('⚠️ Telefone inválido ou muito curto');
       return { data: [], error: null };
     }
 
+    // Normalizar o número: remover código de país se houver para buscar apenas o número local
+    // Isso permite encontrar números salvos com ou sem código de país
+    const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+    let localNumber = cleanPhone;
+    let hasCountryCode = false;
+    
+    // Verificar se começa com código de país (do maior para o menor para evitar falsos positivos)
+    for (const code of countryCodes) {
+      if (cleanPhone.startsWith(code)) {
+        localNumber = cleanPhone.slice(code.length);
+        hasCountryCode = true;
+        console.log('📱 Código de país detectado:', code, '- Número local:', localNumber);
+        break;
+      }
+    }
+
     // Buscar agendamentos pelo telefone - usando múltiplas estratégias
-    // 1. Buscar pelo campo client_whatsapp (busca exata e com substring)
+    // 1. Buscar com o número completo (com código se houver)
     let data1: any[] = [];
     let error1: any = null;
 
@@ -1032,34 +1048,60 @@ export const getAppointmentsByPhone = async (phone: string) => {
         .ilike('client_whatsapp', `%${cleanPhone}%`);
       data1 = result1.data || [];
       error1 = result1.error;
-      console.log('🔍 Primeira busca (client_whatsapp com ilike):', data1?.length || 0, 'resultados');
+      console.log('🔍 Primeira busca (número completo):', data1?.length || 0, 'resultados');
       if (error1) console.error('❌ Erro na primeira busca:', error1);
     } catch (e) {
       console.error('❌ Erro ao executar primeira busca:', e);
     }
 
-    // 2. Buscar também com formato com caracteres (49 99951-6123)
+    // 2. Buscar com número local (sem código de país) - importante para Portugal/Brasil
     let data2: any[] = [];
     let error2: any = null;
 
-    try {
-      const formattedPhone = cleanPhone.length >= 11
-        ? `${cleanPhone.slice(0, 2)} ${cleanPhone.slice(2, 7)}-${cleanPhone.slice(7)}`
-        : cleanPhone;
+    if (localNumber !== cleanPhone && localNumber.length >= 9) {
+      try {
+        const result2 = await supabase
+          .from('appointments')
+          .select(`*, establishments (*)`)
+          .ilike('client_whatsapp', `%${localNumber}%`);
+        data2 = result2.data || [];
+        error2 = result2.error;
+        console.log('🔍 Segunda busca (número local):', data2?.length || 0, 'resultados');
+        if (error2) console.error('❌ Erro na segunda busca:', error2);
+      } catch (e) {
+        console.error('❌ Erro ao executar segunda busca:', e);
+      }
+    }
 
-      const result2 = await supabase
+    // 3. Buscar também com formato com caracteres (49 99951-6123 ou 333 333 333)
+    let data3: any[] = [];
+    let error3: any = null;
+
+    try {
+      // Formato brasileiro: (XX) XXXXX-XXXX
+      let formattedPhone = '';
+      if (cleanPhone.length >= 11) {
+        formattedPhone = `${cleanPhone.slice(0, 2)} ${cleanPhone.slice(2, 7)}-${cleanPhone.slice(7)}`;
+      } else if (cleanPhone.length === 9) {
+        // Formato Portugal: XXX XXX XXX
+        formattedPhone = `${cleanPhone.slice(0, 3)} ${cleanPhone.slice(3, 6)} ${cleanPhone.slice(6)}`;
+      } else {
+        formattedPhone = cleanPhone;
+      }
+
+      const result3 = await supabase
         .from('appointments')
         .select(`*, establishments (*)`)
         .ilike('client_whatsapp', `%${formattedPhone}%`);
-      data2 = result2.data || [];
-      error2 = result2.error;
-      console.log('🔍 Segunda busca (formato com caracteres):', data2?.length || 0, 'resultados');
-      if (error2) console.error('❌ Erro na segunda busca:', error2);
+      data3 = result3.data || [];
+      error3 = result3.error;
+      console.log('🔍 Terceira busca (formato com caracteres):', data3?.length || 0, 'resultados');
+      if (error3) console.error('❌ Erro na terceira busca:', error3);
     } catch (e) {
-      console.error('❌ Erro ao executar segunda busca:', e);
+      console.error('❌ Erro ao executar terceira busca:', e);
     }
 
-    // 3. Buscar por appointments recentes para debug
+    // 4. Buscar por appointments recentes para debug
     try {
       const { data: recentAppointments } = await supabase
         .from('appointments')
@@ -1075,8 +1117,8 @@ export const getAppointmentsByPhone = async (phone: string) => {
       console.error('❌ Erro ao buscar últimos agendamentos:', e);
     }
 
-    // 3. Combinar resultados
-    const allAppointments = [...(data1 || []), ...(data2 || [])];
+    // 5. Combinar resultados de todas as buscas
+    const allAppointments = [...(data1 || []), ...(data2 || []), ...(data3 || [])];
 
     // Remover duplicatas
     const uniqueAppointments = Array.from(
@@ -1084,12 +1126,13 @@ export const getAppointmentsByPhone = async (phone: string) => {
     );
 
     console.log('📊 getAppointmentsByPhone - Resultado:');
-    console.log('  - Resultados da busca client_whatsapp:', data1?.length || 0);
-    console.log('  - Resultados da busca client_name:', data2?.length || 0);
+    console.log('  - Resultados da busca número completo:', data1?.length || 0);
+    console.log('  - Resultados da busca número local:', data2?.length || 0);
+    console.log('  - Resultados da busca formato:', data3?.length || 0);
     console.log('  - Total único:', uniqueAppointments.length);
 
-    if (error1 || error2) {
-      console.error('⚠️ Erros na busca:', error1, error2);
+    if (error1 || error2 || error3) {
+      console.error('⚠️ Erros na busca:', error1, error2, error3);
     }
 
     // Resolver nomes dos profissionais se necessário

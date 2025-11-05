@@ -1799,6 +1799,7 @@ export function AppointmentForm({
               }
             }}
             establishmentId={establishment.id || establishment.establishment_id || ''}
+            establishment={establishment}
             selectedDate={selectedDate}
             showGoalProgress={false}
           />

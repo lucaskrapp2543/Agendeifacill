@@ -999,6 +999,8 @@ Por favor, confirme o cancelamento. Obrigado!`;
           }
         }}
         onLogin={handlePhoneLogin}
+        establishmentCode={localStorage.getItem('current_establishment_code') || undefined}
+        establishmentId={localStorage.getItem('current_establishment_id') || undefined}
       />
 
       {/* Loading overlay */}

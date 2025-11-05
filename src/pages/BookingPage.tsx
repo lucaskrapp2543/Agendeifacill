@@ -754,7 +754,16 @@ export default function BookingPage() {
             </Link>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate('/view-appointments')}
+                onClick={() => {
+                  // Salvar código do estabelecimento no localStorage para usar na página de agendamentos
+                  if (establishment?.code) {
+                    localStorage.setItem('current_establishment_code', establishment.code);
+                  }
+                  if (establishment?.id) {
+                    localStorage.setItem('current_establishment_id', establishment.id);
+                  }
+                  navigate('/view-appointments');
+                }}
                 className="text-blue-600 hover:text-blue-800 font-medium text-sm transition-colors"
               >
                 Meus Agendamentos

@@ -78,3 +78,5 @@ console.log('🔍 DEBUG - Resultado da verificação:', isCorrect);
 
 
 
+
+

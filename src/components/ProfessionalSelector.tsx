@@ -341,6 +341,41 @@ export function ProfessionalSelector({
     return false;
   };
 
+  // Função para detectar o código do país do estabelecimento baseado no WhatsApp
+  const getCountryCodeFromEstablishment = (): string => {
+    // Se não tiver estabelecimento ou WhatsApp, usar padrão (Brasil)
+    if (!establishment?.whatsapp) {
+      console.log('⚠️ Estabelecimento sem WhatsApp, usando padrão 55');
+      return '55';
+    }
+
+    // Limpar e formatar o número do WhatsApp do estabelecimento
+    const cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
+
+    // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+    // IMPORTANTE: 351 antes de 55 para evitar falsos positivos
+    const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+
+    // Verificar se o número já começa com algum código de país
+    for (const code of countryCodes) {
+      if (cleanWhatsapp.startsWith(code)) {
+        console.log('✅ Código do país detectado do estabelecimento:', code, 'do número:', cleanWhatsapp);
+        return code;
+      }
+    }
+
+    // Se não tiver código de país detectado, tentar inferir pelo tamanho
+    // Números brasileiros geralmente têm 10 ou 11 dígitos sem código do país
+    if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+      console.log('⚠️ Não detectou código, inferindo Brasil (55) pelo tamanho:', cleanWhatsapp.length);
+      return '55'; // Padrão Brasil
+    }
+
+    // Se não conseguir detectar, usar padrão Brasil
+    console.log('⚠️ Não conseguiu detectar código, usando padrão 55');
+    return '55';
+  };
+
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-medium text-gray-700 mb-3">
@@ -495,8 +530,39 @@ export function ProfessionalSelector({
                     <button
                       type="button"
                       onClick={() => {
-                        const cleanWhatsapp = professional.whatsapp?.replace(/\D/g, '');
-                        const whatsappUrl = `https://wa.me/55${cleanWhatsapp}?text=Olá`;
+                        // Limpar apenas números
+                        let cleanWhatsapp = professional.whatsapp?.replace(/\D/g, '') || '';
+                        
+                        // Lista de códigos de países (ordenado por tamanho, maior primeiro para evitar falsos positivos)
+                        // IMPORTANTE: 351 antes de 55 para evitar que 351 seja confundido com 55
+                        const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+                        
+                        // Verificar se o número JÁ começa com algum código de país
+                        // Verificar do maior para o menor para evitar falsos positivos
+                        let hasCountryCode = false;
+                        for (const code of countryCodes) {
+                          if (cleanWhatsapp.startsWith(code)) {
+                            hasCountryCode = true;
+                            break;
+                          }
+                        }
+                        
+                        // Se JÁ TEM código do país, usar o número como está (SEM adicionar nada)
+                        // Se NÃO TEM, adicionar o código do país do estabelecimento
+                        let finalNumber = cleanWhatsapp;
+                        if (!hasCountryCode) {
+                          const countryCode = getCountryCodeFromEstablishment();
+                          finalNumber = countryCode + cleanWhatsapp;
+                        }
+                        
+                        console.log('🔍 WhatsApp Profissional:', {
+                          original: professional.whatsapp,
+                          limpo: cleanWhatsapp,
+                          temCodigo: hasCountryCode,
+                          numeroFinal: finalNumber
+                        });
+                        
+                        const whatsappUrl = `https://wa.me/${finalNumber}?text=Olá`;
                         window.open(whatsappUrl, '_blank');
                       }}
                       className="mt-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
