@@ -119,36 +119,69 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         throw error;
       }
 
-      if (!appointments || appointments.length === 0) {
-        console.log('📋 Nenhum cliente encontrado');
-        setClients([]);
-        return;
-      }
-
-      // Agrupar por client_id e contar agendamentos
+      // Agrupar por client_whatsapp (chave única para identificar cliente)
       // Filtrar apenas clientes que não são avulsos (is_avulso !== true)
       const clientsMap = new Map<string, Client>();
       
-      appointments.forEach((appointment) => {
-        // Pular agendamentos explicitamente avulsos
-        if (appointment.is_avulso === true) {
-          return;
-        }
+      if (appointments && appointments.length > 0) {
+        appointments.forEach((appointment) => {
+          // Pular agendamentos explicitamente avulsos
+          if (appointment.is_avulso === true) {
+            return;
+          }
+          
+          // Usar WhatsApp como chave única para identificar o cliente
+          // Isso evita problemas quando múltiplos clientes manuais usam o mesmo user?.id como fallback
+          const clientWhatsapp = appointment.client_whatsapp?.replace(/\D/g, '') || '';
+          if (!clientWhatsapp) return; // Pular se não tiver WhatsApp
+          
+          // Usar client_id se existir e for UUID válido, senão usar manual_whatsapp
+          const clientId = appointment.client_id && !appointment.client_id.startsWith('manual_') 
+            ? appointment.client_id 
+            : `manual_${clientWhatsapp}`;
+          
+          // Usar WhatsApp como chave do Map para garantir agrupamento correto
+          if (!clientsMap.has(clientWhatsapp)) {
+            clientsMap.set(clientWhatsapp, {
+              id: clientId, // Manter o ID original para uso no banco
+              name: appointment.client_name || 'Cliente sem nome',
+              whatsapp: appointment.client_whatsapp || '',
+              appointmentCount: 0
+            });
+          }
+          
+          // Incrementar contagem de agendamentos
+          const client = clientsMap.get(clientWhatsapp)!;
+          client.appointmentCount = (client.appointmentCount || 0) + 1;
+        });
+      }
+
+      // Carregar clientes manuais do localStorage
+      const loadManualClientsFromStorage = () => {
+        if (!establishmentId) return {};
+        const storageKey = `manual_clients_${establishmentId}`;
+        return JSON.parse(localStorage.getItem(storageKey) || '{}');
+      };
+
+      const manualClients = loadManualClientsFromStorage();
+      console.log('📋 Clientes manuais encontrados:', Object.keys(manualClients).length);
+
+      // Adicionar clientes manuais que ainda não estão na lista
+      Object.values(manualClients).forEach((manualClient: any) => {
+        const cleanWhatsapp = manualClient.whatsapp?.replace(/\D/g, '') || '';
+        if (!cleanWhatsapp || !manualClient.name || !manualClient.whatsapp) return;
         
-        const clientId = appointment.client_id || `manual_${appointment.client_whatsapp}`;
+        const clientId = `manual_${cleanWhatsapp}`;
         
-        if (!clientsMap.has(clientId)) {
-          clientsMap.set(clientId, {
-            id: clientId,
-            name: appointment.client_name || 'Cliente sem nome',
-            whatsapp: appointment.client_whatsapp || '',
-            appointmentCount: 0
+        // Verificar se já existe um cliente com esse WhatsApp (usando WhatsApp como chave)
+        if (!clientsMap.has(cleanWhatsapp)) {
+          clientsMap.set(cleanWhatsapp, {
+            id: clientId, // Manter o ID original para uso no banco
+            name: manualClient.name,
+            whatsapp: manualClient.whatsapp,
+            appointmentCount: 0 // Clientes manuais começam com 0 agendamentos
           });
         }
-        
-        // Incrementar contagem de agendamentos
-        const client = clientsMap.get(clientId)!;
-        client.appointmentCount = (client.appointmentCount || 0) + 1;
       });
 
       const clientsArray = Array.from(clientsMap.values());
@@ -747,6 +780,32 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       const isSubscriber = selectedSubscription !== null;
       const isKnownClient = selectedClient !== null;
 
+      // Função para gerar UUID consistente a partir de uma string (para clientes manuais)
+      const generateUUIDFromString = (str: string): string => {
+        // Hash simples baseado na string para gerar valores determinísticos
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+          const char = str.charCodeAt(i);
+          hash = ((hash << 5) - hash) + char;
+          hash = hash & hash; // Convert to 32bit integer
+        }
+        
+        // Gerar UUID v4-like format (mas determinístico baseado no hash)
+        // Formato: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+        const hex = Math.abs(hash).toString(16).padStart(8, '0');
+        const hash2 = Math.abs((hash * 31) + str.length).toString(16).padStart(8, '0');
+        const hash3 = Math.abs((hash * 17) + str.charCodeAt(0)).toString(16).padStart(8, '0');
+        
+        // Construir UUID no formato correto: 8-4-4-4-12
+        const part1 = hex.slice(0, 8).padEnd(8, '0');
+        const part2 = hex.slice(0, 4).padEnd(4, '0');
+        const part3 = `4${hex.slice(4, 7)}`.padEnd(4, '0');
+        const part4 = `${((hash & 0x3) | 0x8).toString(16)}${hash2.slice(0, 3)}`.padEnd(4, '0');
+        const part5 = `${hash2}${hash3}`.slice(0, 12).padEnd(12, '0');
+        
+        return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+      };
+
       // Determinar client_id e client_name
       let clientId: string;
       let clientName: string;
@@ -759,7 +818,17 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         clientWhatsapp = undefined;
         isAvulso = false;
       } else if (isKnownClient) {
-        clientId = selectedClient.id;
+        // Se o cliente é manual (id começa com "manual_"), usar o user_id do estabelecimento
+        // O banco exige client_id NOT NULL e tem foreign key para users
+        // Como cliente manual não tem user_id, usamos o ID do estabelecimento como fallback
+        // O importante é ter client_name e client_whatsapp corretos para identificar o cliente
+        if (selectedClient.id.startsWith('manual_')) {
+          // Usar o user_id do estabelecimento como client_id (passa a foreign key check)
+          // Mas o cliente será identificado pelo client_name e client_whatsapp
+          clientId = user?.id || '';
+        } else {
+          clientId = selectedClient.id; // Cliente com UUID válido (deve existir em users)
+        }
         clientName = selectedClient.name;
         clientWhatsapp = selectedClient.whatsapp;
         isAvulso = false; // Cliente conhecido não é avulso
@@ -917,9 +986,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto">
-                  {filteredClients.map((client) => (
+                  {filteredClients.map((client, index) => (
                     <button
-                      key={client.id}
+                      key={client.whatsapp || `${client.id}_${index}`}
                       onClick={() => handleClientSelect(client)}
                       className="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
                     >
