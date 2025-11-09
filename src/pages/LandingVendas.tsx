@@ -193,30 +193,30 @@ const LandingVendas = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="pt-20 pb-16 bg-gradient-to-br from-blue-50 to-white">
+      <section className="pt-0 sm:pt-10 pb-16 bg-gradient-to-br from-blue-50 to-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <div className="flex justify-center mb-6">
+            {/* Imagem do sistema - aparece logo abaixo do cabeçalho */}
+            <div className="-mx-4 sm:mx-auto sm:max-w-4xl mb-6">
+              <img
+                src="/ppp.png"
+                alt="Sistema de Agendamentos AgendaFácil"
+                className="w-full h-auto object-cover sm:object-contain"
+                style={{ maxHeight: '500px', maxWidth: '100%' }}
+              />
+            </div>
+
+            <div className="flex justify-center mb-4">
               <div className="inline-flex items-center bg-green-100 text-green-800 px-3 py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap">
                 <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 mr-2 flex-shrink-0" />
                 Sistema mais completo para barbearias e salões de beleza
               </div>
             </div>
 
-            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-6">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-4">
               Transforme seu negócio com
               <span className="text-blue-600 block">agendamentos online</span>
             </h1>
-
-            {/* Imagem do sistema */}
-            <div className="mb-8 px-4">
-              <img
-                src="/pclanding.png"
-                alt="Sistema de Agendamentos AgendaFácil"
-                className="w-full h-auto mx-auto max-w-2xl md:max-w-4xl object-contain"
-                style={{ maxHeight: '500px' }}
-              />
-            </div>
 
             <p className="text-lg sm:text-xl text-gray-600 mb-8 max-w-3xl mx-auto px-4">
               O sistema completo de agendamentos que vai aumentar sua receita,
