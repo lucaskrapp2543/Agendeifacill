@@ -201,7 +201,13 @@ const LandingVendas = () => {
               <img
                 src="/ppp.png"
                 alt="Sistema de Agendamentos AgendaFácil"
-                className="w-full h-auto object-cover sm:object-contain"
+                className="w-full h-auto object-cover sm:hidden"
+                style={{ maxHeight: '500px', maxWidth: '100%' }}
+              />
+              <img
+                src="/pclanding.png"
+                alt="Sistema de Agendamentos AgendaFácil"
+                className="hidden sm:block w-full h-auto mx-auto object-contain md:max-w-4xl"
                 style={{ maxHeight: '500px', maxWidth: '100%' }}
               />
             </div>
