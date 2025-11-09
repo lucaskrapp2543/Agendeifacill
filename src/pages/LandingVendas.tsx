@@ -213,7 +213,7 @@ const LandingVendas = () => {
               <img
                 src="/pclanding.png"
                 alt="Sistema de Agendamentos AgendaFácil"
-                className="w-full h-auto mx-auto"
+                className="w-full h-auto mx-auto max-w-2xl md:max-w-4xl object-contain"
                 style={{ maxHeight: '500px' }}
               />
             </div>
@@ -587,12 +587,20 @@ const LandingVendas = () => {
 
           <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
             {/* Plano Mensal */}
-            <div className="bg-white border-2 border-gray-200 rounded-2xl p-8 hover:border-blue-500 transition-all duration-300 shadow-lg">
+            <div className="bg-white border-2 border-gray-200 rounded-2xl p-8 hover:border-blue-500 transition-all duration-300 shadow-lg relative">
+              <div className="absolute -top-3 left-4 bg-black text-white px-3 py-1 rounded-full text-xs sm:text-sm font-semibold tracking-wide uppercase shadow-md">
+                BLACK FRIDAY
+              </div>
               <div className="text-center">
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">Plano Mensal</h3>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold text-gray-900">R$ 67</span>
+                  <span className="text-4xl font-bold text-gray-900">R$ 57</span>
                   <span className="text-xl text-gray-600">,90/mês</span>
+                </div>
+                <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
+                  <p className="text-yellow-900 text-sm sm:text-base font-semibold leading-snug">
+                    Ao entrar por esse valor, ele fica fixo pra você, sem aumento.
+                  </p>
                 </div>
                 <ul className="space-y-3 mb-8 text-left">
                   <li className="flex items-center">
@@ -664,9 +672,14 @@ const LandingVendas = () => {
                     <span className="text-gray-700 text-sm">Notificações em tempo real de agendamentos ou cancelamentos</span>
                   </li>
                 </ul>
+              <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                <p className="text-blue-900 text-sm sm:text-base font-semibold leading-snug text-center">
+                  PARECE LOUCURA NÉ, mas é isso mesmo: R$ 57,90 para ter tudo isso. Clique agora em começar!
+                </p>
+              </div>
                 <div className="space-y-3">
                   <a
-                    href="https://pay.kiwify.com.br/gaOMAgs"
+                    href="https://pay.kiwify.com.br/6z5ZX4t"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
@@ -688,7 +701,7 @@ const LandingVendas = () => {
                   <span className="text-sm text-gray-200 line-through">R$ 814,80</span>
                 </div>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold text-white">R$ 679</span>
+                  <span className="text-4xl font-bold text-white">R$ 579</span>
                   <span className="text-xl text-gray-200">,90/ano</span>
                 </div>
                 <div className="mb-6 bg-blue-700 rounded-lg py-2 px-4">
@@ -714,7 +727,7 @@ const LandingVendas = () => {
                 </ul>
                 <div className="space-y-3">
                   <a
-                    href="https://pay.kiwify.com.br/eOJK9qJ"
+                    href="https://pay.kiwify.com.br/Z6ETL6v"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors font-semibold"
