@@ -212,6 +212,26 @@ const LandingVendas = () => {
               />
             </div>
 
+            {/* Vídeo de demonstração */}
+            <div className="text-center mb-6 sm:mb-8 px-0 sm:px-4">
+              <h3 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-gray-900 mb-4 leading-tight">
+                <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  Veja como funciona nosso sistema
+                </span>
+              </h3>
+              <div className="relative w-full max-w-4xl mx-auto">
+                <div className="aspect-video w-full">
+                  <iframe
+                    src="https://www.youtube.com/embed/YrNHIocqc5k"
+                    title="Como funciona o sistema Agendei Fácil"
+                    className="w-full h-full rounded-xl md:rounded-2xl shadow-lg"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  ></iframe>
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-center mb-4">
               <div className="inline-flex items-center bg-green-100 text-green-800 px-3 py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap">
                 <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 mr-2 flex-shrink-0" />
@@ -550,28 +570,6 @@ const LandingVendas = () => {
       {/* Pricing Section */}
       <section id="pricing" className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Vídeo e Legenda */}
-          <div className="text-center mb-8 md:mb-12 px-4">
-            <h3 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-gray-900 mb-4 md:mb-6 leading-tight">
-              <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Veja como funciona nosso sistema
-              </span>
-            </h3>
-
-            {/* Vídeo do YouTube */}
-            <div className="relative w-full max-w-4xl mx-auto mb-6 md:mb-8">
-              <div className="aspect-video w-full">
-                <iframe
-                  src="https://www.youtube.com/embed/YrNHIocqc5k"
-                  title="Como funciona o sistema Agendei Fácil"
-                  className="w-full h-full rounded-xl md:rounded-2xl shadow-lg"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                ></iframe>
-              </div>
-            </div>
-          </div>
-
           <div className="text-center mb-8 px-4">
             <div className="max-w-2xl mx-auto mb-4">
               <img
