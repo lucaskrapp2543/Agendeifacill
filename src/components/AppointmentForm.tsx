@@ -87,7 +87,6 @@ interface AppointmentFormProps {
   subscriberDetectionDisabled?: boolean; // Estado externo para desabilitar detecção
   onSubscriberDetectionDisabledChange?: (disabled: boolean) => void; // Callback para mudar o estado
   guestClientData?: { name: string; phone: string } | null; // Dados do cliente convidado (sem login)
-  dateSelectedByUser?: boolean; // Indica se a data foi selecionada pelo usuário
 }
 
 export function AppointmentForm({
@@ -101,8 +100,7 @@ export function AppointmentForm({
   onConvertToSubscriber,
   subscriberDetectionDisabled: externalSubscriberDetectionDisabled,
   guestClientData,
-  onSubscriberDetectionDisabledChange,
-  dateSelectedByUser = false
+  onSubscriberDetectionDisabledChange
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
@@ -1915,6 +1913,7 @@ export function AppointmentForm({
                           onChange={(e) => {
                             setSelectedCategory(e.target.value);
                             setSelectedSubcategory(null);
+                            setSelectedCategoryServices([]);
 
                             // Scroll automático para a próxima seção após selecionar categoria
                             if (e.target.value) {
@@ -1948,59 +1947,97 @@ export function AppointmentForm({
                     {selectedCategory && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Escolha o serviço
+                          Escolha os serviços (até 4)
                         </label>
-                        <div className="relative">
-                          <select
-                            value=""
-                            onChange={(e) => {
-                              if (e.target.value) {
-                                const subcategory = serviceCategories
-                                  .find(cat => cat.id === selectedCategory)
-                                  ?.subcategories.find((sub: any) => sub.id === e.target.value);
 
-                                if (subcategory) {
-                                  if (useMultiCategoryService) {
-                                    // ✅ MODO MÚLTIPLOS: Adicionar à lista se não exceder limite
-                                    if (selectedCategoryServices.length < 4) {
-                                      setSelectedCategoryServices(prev => [...prev, subcategory]);
+                        {useMultiCategoryService ? (
+                          <div className="space-y-3">
+                            {serviceCategories
+                              .find(cat => cat.id === selectedCategory)
+                              ?.subcategories.map((subcategory: any) => {
+                                const isSelected = selectedCategoryServices.some(service => service.id === subcategory.id);
+                                const isDisabled = !isSelected && selectedCategoryServices.length >= 4;
 
-                                      // Scroll automático para a próxima seção após selecionar serviço de categoria
-                                      scrollToNextSection();
-                                    }
-                                  } else {
-                                    // ✅ MODO ÚNICO: Selecionar apenas um
+                                return (
+                                  <button
+                                    key={subcategory.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setSelectedCategoryServices(prev => prev.filter(service => service.id !== subcategory.id));
+                                      } else if (!isDisabled) {
+                                        setSelectedCategoryServices(prev => [...prev, subcategory]);
+                                        scrollToNextSection();
+                                      }
+                                    }}
+                                    disabled={isDisabled}
+                                    className={`w-full text-left p-4 border-2 rounded-lg transition-colors ${isSelected
+                                      ? 'border-green-500 bg-green-50 text-green-900'
+                                      : 'border-gray-200 bg-white text-gray-800 hover:border-green-400 hover:bg-green-50'
+                                      } ${isDisabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                                  >
+                                    <div className="flex justify-between items-center">
+                                      <div>
+                                        <h4 className="font-semibold">{subcategory.name}</h4>
+                                        <p className="text-sm text-gray-600">
+                                          {subcategory.duration}min • R$ {subcategory.price.toFixed(2)}
+                                        </p>
+                                      </div>
+                                      <div className={`w-6 h-6 border-2 rounded-full flex items-center justify-center ${isSelected ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 text-gray-400'}`}>
+                                        {isSelected ? '✓' : '+'}
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+
+                            {selectedCategoryServices.length >= 4 && (
+                              <p className="text-xs text-green-700">
+                                Limite máximo de 4 serviços atingido. Remova algum para selecionar outro.
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="relative">
+                            <select
+                              value={selectedSubcategory?.id || ''}
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  const subcategory = serviceCategories
+                                    .find(cat => cat.id === selectedCategory)
+                                    ?.subcategories.find((sub: any) => sub.id === e.target.value);
+
+                                  if (subcategory) {
                                     setSelectedSubcategory(subcategory);
-
-                                    // Scroll automático para a próxima seção após selecionar subcategoria
                                     scrollToNextSection();
                                   }
                                 }
-                              }
-                            }}
-                            className="w-full px-3 py-3 border-2 border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white cursor-pointer hover:border-green-400 transition-colors"
-                          >
-                            <option value="">Selecione um serviço</option>
-                            {serviceCategories
-                              .find(cat => cat.id === selectedCategory)
-                              ?.subcategories.map((subcategory: any) => (
-                                <option key={subcategory.id} value={subcategory.id}>
-                                  {subcategory.name} - R$ {subcategory.price.toFixed(2)} ({subcategory.duration}min)
-                                </option>
-                              ))}
-                          </select>
-                          {/* Ícone de seta para baixo */}
-                          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                            <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
+                              }}
+                              className="w-full px-3 py-3 border-2 border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white cursor-pointer hover:border-green-400 transition-colors"
+                            >
+                              <option value="">Selecione um serviço</option>
+                              {serviceCategories
+                                .find(cat => cat.id === selectedCategory)
+                                ?.subcategories.map((subcategory: any) => (
+                                  <option key={subcategory.id} value={subcategory.id}>
+                                    {subcategory.name} - R$ {subcategory.price.toFixed(2)} ({subcategory.duration}min)
+                                  </option>
+                                ))}
+                            </select>
+                            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                              <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
                           </div>
-                        </div>
-                        {/* Dica visual */}
-                        <div className="mt-2 flex items-center gap-2 text-sm text-green-600">
-                          <span className="text-lg">👆</span>
-                          <span>Clique aqui para escolher o serviço específico</span>
-                        </div>
+                        )}
+
+                        {!useMultiCategoryService && (
+                          <div className="mt-2 flex items-center gap-2 text-sm text-green-600">
+                            <span className="text-lg">👆</span>
+                            <span>Clique aqui para escolher o serviço específico</span>
+                          </div>
+                        )}
                       </div>
                     )}
 

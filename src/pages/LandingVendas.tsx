@@ -351,124 +351,98 @@ const LandingVendas = () => {
       {/* Testimonials Section */}
       <section id="testimonials" className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Seção Página Exclusiva - Moderna e Organizada */}
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-100 rounded-2xl md:rounded-3xl p-4 sm:p-6 md:p-8 lg:p-12 mb-8 md:mb-12 border border-blue-200 shadow-xl">
-            <div className="text-center mb-6 md:mb-10">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-3 md:mb-4 leading-tight">
-                Você ganha uma página{' '}
-                <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent font-extrabold">
-                  EXCLUSIVA
-                </span>{' '}
-                só sua!
-              </h2>
-              <p className="text-lg sm:text-xl md:text-2xl text-gray-700 mb-6 md:mb-8 font-medium px-2">
-                Nela o seu cliente encontra tudo em um só lugar:
-              </p>
-            </div>
+          {/* Seção Página Exclusiva - Nova composição */}
+          <div className="relative overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-white via-blue-50 to-purple-50 shadow-[0_35px_90px_rgba(37,99,235,0.18)] mb-12">
+            <div className="absolute -top-20 -left-20 h-60 w-60 rounded-full bg-blue-200/40 blur-3xl"></div>
+            <div className="absolute -bottom-24 -right-16 h-72 w-72 rounded-full bg-purple-200/40 blur-3xl"></div>
 
-            {/* Grid de Features - Mobile Otimizado */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mb-8 md:mb-10">
-              {/* Feature 1 - Fotos */}
-              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
-                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Camera className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
-                  </div>
-                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">SUAS FOTOS</h3>
+            <div className="relative grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center p-6 sm:p-10 lg:p-14">
+              <div className="space-y-6 lg:space-y-8 text-center lg:text-left">
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/70 px-4 py-2 text-xs sm:text-sm font-semibold text-blue-600 shadow-sm backdrop-blur">
+                  <div className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
+                  Página exclusiva do seu estabelecimento
+                </span>
+
+                <div className="space-y-4">
+                  <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 leading-tight">
+                    Você ganha uma página{' '}
+                    <span className="bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600 bg-clip-text text-transparent">
+                      EXCLUSIVA
+                    </span>{' '}
+                    só sua!
+                  </h2>
+                  <p className="text-base sm:text-lg text-gray-700 leading-relaxed">
+                    Um link único com tudo que seus clientes precisam: agendamentos, fotos, avaliações,
+                    redes sociais e benefícios — em um layout moderno pensado para conversão.
+                  </p>
                 </div>
-                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Galeria completa do seu estabelecimento</p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {[
+                    {
+                      title: 'Galeria completa',
+                      description: 'Fotos profissionais do seu espaço para encantar clientes.',
+                      icon: <Camera className="w-5 h-5 text-blue-500" />
+                    },
+                    {
+                      title: 'Redes sociais conectadas',
+                      description: 'Links diretos para Instagram, Facebook e WhatsApp.',
+                      icon: <Smartphone className="w-5 h-5 text-green-500" />
+                    },
+                    {
+                      title: 'Avaliações do Google',
+                      description: 'Mostre depoimentos reais e ganhe credibilidade.',
+                      icon: <Search className="w-5 h-5 text-yellow-500" />
+                    },
+                    {
+                      title: 'Agendamento + Wi‑Fi',
+                      description: 'Cliente agenda em segundos e ainda recebe a senha do Wi‑Fi.',
+                      icon: <Calendar className="w-5 h-5 text-purple-500" />
+                    }
+                  ].map((feature) => (
+                    <div
+                      key={feature.title}
+                      className="group flex items-start gap-4 rounded-2xl border border-white/60 bg-white/80 p-5 shadow-sm backdrop-blur transition-all hover:-translate-y-1 hover:shadow-xl"
+                    >
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-white to-blue-50 shadow-inner">
+                        {feature.icon}
+                      </div>
+                      <div className="space-y-1 text-left">
+                        <h3 className="text-sm font-semibold text-gray-900 sm:text-base">{feature.title}</h3>
+                        <p className="text-xs text-gray-600 sm:text-sm">{feature.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-4">
+                  <p className="text-base sm:text-lg text-gray-700 leading-relaxed">
+                    Chega de vários QR Codes espalhados pelo salão. Seu cliente acessa tudo em um único link elegante
+                    e memorável — seja no celular ou no computador.
+                  </p>
+                  <div className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2 shadow-lg border border-blue-100">
+                    <div className="flex gap-1">
+                      <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                      <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse delay-150" />
+                      <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse delay-300" />
+                    </div>
+                    <span className="text-sm font-semibold text-gray-900">Veja um exemplo abaixo</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Feature 2 - Redes Sociais */}
-              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
-                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-green-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Smartphone className="w-5 h-5 md:w-6 md:h-6 text-green-600" />
-                  </div>
-                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">SUAS REDES SOCIAIS</h3>
+              <div className="relative">
+                <div className="absolute -top-6 -left-6 h-20 w-20 rounded-full bg-blue-300/30 blur-2xl"></div>
+                <div className="absolute -bottom-8 -right-10 h-32 w-32 rounded-full bg-purple-300/30 blur-2xl"></div>
+                <div className="relative overflow-hidden rounded-3xl border border-white/60 bg-white/80 shadow-[0_20px_60px_rgba(79,70,229,0.22)] backdrop-blur">
+                  <img
+                    src="/paginaextra.png"
+                    alt="Exemplo de página exclusiva"
+                    className="w-full h-auto"
+                  />
                 </div>
-                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Links diretos para Instagram, Facebook e WhatsApp</p>
-              </div>
-
-              {/* Feature 3 - Google Reviews */}
-              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
-                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-yellow-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Search className="w-5 h-5 md:w-6 md:h-6 text-yellow-600" />
-                  </div>
-                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">LINK AVALIAÇÃO GOOGLE</h3>
-                </div>
-                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Avaliações e comentários dos clientes</p>
-              </div>
-
-              {/* Feature 4 - Agendamento */}
-              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
-                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Calendar className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
-                  </div>
-                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">BOTÃO DE AGENDAMENTO</h3>
-                </div>
-                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Cliente agenda com você em poucos cliques!</p>
-              </div>
-
-              {/* Feature 5 - Wi-Fi */}
-              <div className="bg-white rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100 sm:col-span-2 lg:col-span-1">
-                <div className="flex items-center space-x-3 md:space-x-4 mb-2 md:mb-3">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-orange-100 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Wifi className="w-5 h-5 md:w-6 md:h-6 text-orange-600" />
-                  </div>
-                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-tight">WI-FI</h3>
-                </div>
-                <p className="text-gray-600 text-xs md:text-sm leading-relaxed">Cliente clica e já copia a senha automaticamente</p>
-              </div>
-            </div>
-
-            {/* Benefícios - Mobile Otimizado */}
-            <div className="text-center space-y-3 md:space-y-4 mb-6 md:mb-8 px-2">
-              <p className="text-lg md:text-xl text-gray-700 font-medium leading-relaxed">
-                Todas as informações importantes sobre o seu espaço.
-              </p>
-              <p className="text-lg md:text-xl text-gray-700 font-medium leading-relaxed">
-                Diga adeus 👋 aos vários QR Codes e links espalhados!
-              </p>
-              <p className="text-xl md:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent leading-tight">
-                Agora é apenas um link completo, moderno e profissional pra divulgar o seu negócio! 💙
-              </p>
-            </div>
-
-            {/* Call to Action - Mobile Otimizado */}
-            <div className="text-center">
-              <div className="inline-flex items-center space-x-1 md:space-x-2 bg-white rounded-full px-4 md:px-6 py-2 md:py-3 shadow-lg border border-gray-200">
-                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse"></div>
-                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                <span className="text-base md:text-lg font-bold text-gray-900 ml-1 md:ml-2 whitespace-nowrap">EXEMPLO ABAIXO</span>
-                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.6s' }}></div>
-                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.8s' }}></div>
               </div>
             </div>
-          </div>
-
-          {/* Imagem paginaextra - Mobile Otimizada */}
-          <div className="flex justify-center mb-6 md:mb-8 px-2">
-            <img
-              src="/paginaextra.png"
-              alt="Exemplo de página exclusiva"
-              className="w-full max-w-md md:max-w-2xl lg:max-w-4xl h-auto rounded-lg md:rounded-xl shadow-2xl border border-gray-200"
-            />
-          </div>
-
-          <div className="text-center mb-16 px-4">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              O que nossos clientes dizem
-            </h2>
-            <p className="text-lg sm:text-xl text-gray-600 mb-4">
-              Histórias reais de sucesso
-            </p>
-            <p className="text-sm text-gray-500 mb-6">
-              Se liga em alguns dos milhares de feedbacks de quem já tá com a gente 🚀
-            </p>
           </div>
 
           {/* Carrossel de imagens */}
