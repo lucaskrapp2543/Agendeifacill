@@ -574,6 +574,25 @@ export function AppointmentForm({
   const [showDateSection, setShowDateSection] = useState(false);
   const [showPaymentSection, setShowPaymentSection] = useState(false);
 
+  // Auto-selecionar profissional para assinantes se houver apenas um ou se o serviço de assinante tiver profissional definido
+  useEffect(() => {
+    if (isSubscriberBooking && !selectedProfessional && establishment.professionals) {
+      // Se há apenas um profissional, selecionar automaticamente
+      if (establishment.professionals.length === 1) {
+        console.log('🔄 Auto-selecionando único profissional para assinante:', establishment.professionals[0]);
+        setSelectedProfessional(establishment.professionals[0]);
+      }
+      // Se o serviço de assinante tem um profissional específico, usar ele
+      else if (subscriberService?.professional_id) {
+        const prof = establishment.professionals.find(p => p.id === subscriberService.professional_id);
+        if (prof) {
+          console.log('🔄 Auto-selecionando profissional do serviço de assinante:', prof);
+          setSelectedProfessional(prof);
+        }
+      }
+    }
+  }, [isSubscriberBooking, subscriberService, establishment.professionals, selectedProfessional]);
+
   // Controlar visibilidade das seções progressivamente
   useEffect(() => {
     // Mostrar seção de serviços quando um profissional for selecionado
@@ -2242,8 +2261,18 @@ export function AppointmentForm({
                 use15MinuteInterval={establishment.use_15_minute_interval ?? false}
                 use20MinuteSchedule={(establishment as any).use_20_minute_schedule ?? false}
                 selectedProfessional={selectedProfessional?.id}
-                professionalAbsences={selectedProfessional ? (selectedProfessional as any).absences || [] : []}
-                professionalBlockedHours={selectedProfessional ? (selectedProfessional as any).blocked_hours?.[selectedDate.toISOString().split('T')[0]] || [] : []}
+                professionalAbsences={(() => {
+                  const absences = selectedProfessional ? (selectedProfessional as any).absences || [] : [];
+                  console.log('🔍 DEBUG ABSENCES - Professional:', selectedProfessional?.name, 'Absences:', absences);
+                  return absences;
+                })()}
+                professionalBlockedHours={(() => {
+                  const dateKey = selectedDate.toISOString().split('T')[0];
+                  const blockedHours = selectedProfessional ? (selectedProfessional as any).blocked_hours?.[dateKey] || [] : [];
+                  console.log('🔍 DEBUG BLOCKED HOURS - Professional:', selectedProfessional?.name, 'Date:', dateKey, 'Blocked:', blockedHours);
+                  console.log('🔍 DEBUG BLOCKED HOURS - Full blocked_hours object:', selectedProfessional ? (selectedProfessional as any).blocked_hours : 'NO PROFESSIONAL');
+                  return blockedHours;
+                })()}
                 professionalWorkHours={selectedProfessional ? (selectedProfessional as any).work_hours || null : null}
               />
             )}
