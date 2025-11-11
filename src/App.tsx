@@ -35,6 +35,7 @@ import Suporte060622 from './pages/Suporte060622';
 import ViewAppointmentsPage from './pages/ViewAppointmentsPage';
 
 import AdminDashboard from './pages/AdminDashboard';
+import AppInstallPage from './pages/AppInstallPage';
 import BlockedPage from './pages/BlockedPage';
 import CadastroAg from './pages/CadastroAg';
 import Conhecer from './pages/Conhecer';
@@ -118,6 +119,7 @@ function App() {
                 />
                 <Route path="/cadastropremium060622" element={<CadastroPremium060622 />} />
                 <Route path="/cadastroestabelecimento060622" element={<CadastroEstabelecimento060622 />} />
+                <Route path="/app" element={<AppInstallPage />} />
 
                 {/* Protected Routes */}
                 <Route

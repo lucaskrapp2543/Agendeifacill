@@ -155,19 +155,23 @@ const Login = () => {
             </div>
           </div>
 
-          <div className="text-center space-y-2">
-            <div className="flex items-center justify-center">
-              <input
-                id="saveCredentials"
-                type="checkbox"
-                checked={saveCredentials}
-                onChange={(e) => setSaveCredentials(e.target.checked)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-              <label htmlFor="saveCredentials" className="ml-2 text-sm text-gray-400">
-                Salvar informações para login mais rápido
-              </label>
+          <div className="text-center space-y-3">
+            {/* Checkbox de salvar credenciais - Destacado */}
+            <div className="bg-blue-900/30 border-2 border-blue-500/50 rounded-lg p-4 hover:border-blue-400 transition-colors">
+              <div className="flex items-center justify-center gap-3">
+                <input
+                  id="saveCredentials"
+                  type="checkbox"
+                  checked={saveCredentials}
+                  onChange={(e) => setSaveCredentials(e.target.checked)}
+                  className="h-5 w-5 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-300 rounded cursor-pointer"
+                />
+                <label htmlFor="saveCredentials" className="text-sm sm:text-base text-blue-200 font-medium cursor-pointer">
+                  ✅ Salvar login para acesso rápido
+                </label>
+              </div>
             </div>
+
             <Link
               to="/recovery-password"
               className="text-blue-400 hover:text-blue-300 text-sm block"

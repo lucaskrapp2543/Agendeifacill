@@ -151,42 +151,11 @@ const LandingVendas = () => {
               <a href="#contact" className="text-gray-700 hover:text-blue-600 transition-colors">Contato</a>
             </nav>
 
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => {
-                  // Lógica para instalar o app
-                  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-                  const isAndroid = /Android/.test(navigator.userAgent);
-
-                  let message = '';
-
-                  if (isIOS) {
-                    message = 'Para instalar o app:\n\n1. Toque no botão Compartilhar (□↑)\n2. Toque em "Adicionar à Tela Inicial"\n3. Toque em "Adicionar"';
-                  } else if (isAndroid) {
-                    message = 'Para instalar o app:\n\n1. Toque nos 3 pontos (⋮)\n2. Toque em "Adicionar à tela inicial"\n3. Toque em "Adicionar"';
-                  } else {
-                    message = 'Para instalar o app:\n\n1. Clique nos 3 pontos (⋮)\n2. Clique em "Instalar Agendei Fácil"\n3. Clique em "Instalar"';
-                  }
-
-                  alert(message);
-                }}
-                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-              >
-                Instalar App
-              </button>
-              <button
-                onClick={handleLogin}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-              >
-                Login
-              </button>
-            </div>
-
             <button
-              className="md:hidden"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              onClick={handleLogin}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
             >
-              {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              Login
             </button>
           </div>
         </div>
@@ -210,26 +179,6 @@ const LandingVendas = () => {
                 className="hidden sm:block w-full h-auto mx-auto object-contain md:max-w-4xl"
                 style={{ maxHeight: '500px', maxWidth: '100%' }}
               />
-            </div>
-
-            {/* Vídeo de demonstração */}
-            <div className="text-center mb-6 sm:mb-8 px-0 sm:px-4">
-              <h3 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-gray-900 mb-4 leading-tight">
-                <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Veja como funciona nosso sistema
-                </span>
-              </h3>
-              <div className="relative w-full max-w-4xl mx-auto">
-                <div className="aspect-video w-full">
-                  <iframe
-                    src="https://www.youtube.com/embed/YrNHIocqc5k"
-                    title="Como funciona o sistema Agendei Fácil"
-                    className="w-full h-full rounded-xl md:rounded-2xl shadow-lg"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  ></iframe>
-                </div>
-              </div>
             </div>
 
             <div className="flex justify-center mb-4">
