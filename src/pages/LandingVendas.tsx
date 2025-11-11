@@ -239,15 +239,57 @@ const LandingVendas = () => {
               </div>
             </div>
 
-            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-4">
-              Transforme seu negócio com
-              <span className="text-blue-600 block">agendamentos online</span>
-            </h1>
+            <div className="mx-auto mb-8 max-w-4xl px-4">
+              <div className="overflow-hidden rounded-3xl border border-blue-100 shadow-lg sm:shadow-[0_30px_60px_rgba(59,130,246,0.15)]">
+                <img
+                  src="/praia.png"
+                  alt="Curta a praia enquanto o Agendei Fácil trabalha por você"
+                  className="w-full h-auto object-cover"
+                />
+              </div>
+            </div>
 
-            <p className="text-lg sm:text-xl text-gray-600 mb-8 max-w-3xl mx-auto px-4">
-              O sistema completo de agendamentos que vai aumentar sua receita,
-              reduzir faltas e organizar sua agenda profissional.
-            </p>
+            {/* Como Funciona */}
+            <div className="mx-auto mb-10 max-w-5xl px-4">
+              <div className="rounded-3xl border border-gray-100 bg-white/90 shadow-xl backdrop-blur-sm p-6 sm:p-10">
+                <h2 className="text-center text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900 mb-8 sm:mb-10 uppercase">
+                  Como Funciona?
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 text-left">
+                  <div className="space-y-3 rounded-2xl bg-white border border-gray-200 shadow-md p-6 sm:p-7">
+                    <h3 className="text-lg sm:text-xl font-semibold text-blue-600 sm:text-gray-900 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Link</h3>
+                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                      Primeiro você vai <strong>disponibilizar o link Agendei Fácil</strong> para o seu cliente (através do WhatsApp, Redes Sociais ou pelo seu site).
+                    </p>
+                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                      <strong>O melhor de tudo:</strong> seu cliente não precisa baixar nenhum aplicativo. Tudo acontece online, rápido e fácil.
+                    </p>
+                  </div>
+                  <div className="space-y-3 rounded-2xl bg-white border border-gray-200 shadow-md p-6 sm:p-7">
+                    <h3 className="text-lg sm:text-xl font-semibold text-blue-600 sm:text-gray-900 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Agendamento</h3>
+                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                      Depois, o seu cliente acessa o link, preenche <strong>nome e telefone</strong>, escolhe o <strong>serviço</strong>, a <strong>data</strong>, o <strong>horário</strong> e o <strong>profissional</strong> de preferência, além da forma de pagamento.
+                    </p>
+                  </div>
+                  <div className="space-y-3 rounded-2xl bg-white border border-gray-200 shadow-md p-6 sm:p-7">
+                    <h3 className="text-lg sm:text-xl font-semibold text-blue-600 sm:text-gray-900 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Notificação</h3>
+                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                      Assim que o cliente agenda, você recebe uma notificação <strong>dentro do sistema</strong> e no <strong>seu WhatsApp</strong>. E pode relaxar: nós <strong>lembramos o cliente</strong> do compromisso no dia certo.
+                    </p>
+                  </div>
+                  <div className="space-y-3 rounded-2xl bg-white border border-gray-200 shadow-md p-6 sm:p-7">
+                    <h3 className="text-lg sm:text-xl font-semibold text-blue-600 sm:text-gray-900 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Área do profissional</h3>
+                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                      Dentro do sistema, você tem <strong>controle total</strong> de tudo: financeiro (entradas e saídas), estoque de produtos,
+                      agendamentos, assinaturas, profissionais e <strong>comissões (%)</strong>.
+                    </p>
+                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                      Continue explorando o site — ainda tem <strong>muita funcionalidade poderosa</strong> pra descobrir por aqui.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12 px-4">
               <a
