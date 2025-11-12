@@ -12660,15 +12660,101 @@ Estamos te aguardando! 😎✂️`;
                           Adicione um ou mais serviços aqui dentro
                         </p>
 
+                        {categorySubcategories.length > 0 && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                            <p className="text-blue-800 text-xs sm:text-sm flex items-center gap-2">
+                              <span className="text-lg">💡</span>
+                              <span>
+                                <strong>Dica:</strong> Use as setas <span className="text-green-600 font-semibold">↑↓</span> ao lado de cada serviço para alterar a ordem de exibição. A ordem que você definir aqui será a mesma que seus clientes verão ao agendar.
+                              </span>
+                            </p>
+                          </div>
+                        )}
+
                         {categorySubcategories.length === 0 ? (
                           <p className="text-black text-sm">Nenhum serviço cadastrado nesta categoria</p>
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {categorySubcategories.map((subcategory) => (
+                            {categorySubcategories.map((subcategory, index) => (
                               <div key={subcategory.id} className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-blue-100 transition-all">
                                 <div className="flex items-center justify-between mb-2">
                                   <h4 className="font-medium text-gray-900">{subcategory.name}</h4>
                                   <div className="flex items-center gap-1">
+                                    {/* Botões de reordenação */}
+                                    <button
+                                      onClick={async () => {
+                                        if (index === 0) return;
+                                        const currentOrder = subcategory.display_order;
+                                        const prevSubcategory = categorySubcategories[index - 1];
+                                        const prevOrder = prevSubcategory.display_order;
+
+                                        try {
+                                          await Promise.all([
+                                            supabase
+                                              .from('service_subcategories')
+                                              .update({ display_order: prevOrder })
+                                              .eq('id', subcategory.id),
+                                            supabase
+                                              .from('service_subcategories')
+                                              .update({ display_order: currentOrder })
+                                              .eq('id', prevSubcategory.id)
+                                          ]);
+                                          await fetchServiceSubcategories();
+                                          toast('Ordem atualizada!', 'success');
+                                        } catch (error) {
+                                          console.error('Erro ao reordenar:', error);
+                                          toast('Erro ao reordenar serviço', 'error');
+                                        }
+                                      }}
+                                      disabled={index === 0}
+                                      className={`p-2 rounded transition-colors ${
+                                        index === 0
+                                          ? 'text-gray-400 cursor-not-allowed'
+                                          : 'text-green-600 hover:bg-green-100'
+                                      }`}
+                                      title="Mover para cima"
+                                    >
+                                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                      </svg>
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (index === categorySubcategories.length - 1) return;
+                                        const currentOrder = subcategory.display_order;
+                                        const nextSubcategory = categorySubcategories[index + 1];
+                                        const nextOrder = nextSubcategory.display_order;
+
+                                        try {
+                                          await Promise.all([
+                                            supabase
+                                              .from('service_subcategories')
+                                              .update({ display_order: nextOrder })
+                                              .eq('id', subcategory.id),
+                                            supabase
+                                              .from('service_subcategories')
+                                              .update({ display_order: currentOrder })
+                                              .eq('id', nextSubcategory.id)
+                                          ]);
+                                          await fetchServiceSubcategories();
+                                          toast('Ordem atualizada!', 'success');
+                                        } catch (error) {
+                                          console.error('Erro ao reordenar:', error);
+                                          toast('Erro ao reordenar serviço', 'error');
+                                        }
+                                      }}
+                                      disabled={index === categorySubcategories.length - 1}
+                                      className={`p-2 rounded transition-colors ${
+                                        index === categorySubcategories.length - 1
+                                          ? 'text-gray-400 cursor-not-allowed'
+                                          : 'text-green-600 hover:bg-green-100'
+                                      }`}
+                                      title="Mover para baixo"
+                                    >
+                                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                      </svg>
+                                    </button>
                                     <button
                                       onClick={() => {
                                         setEditingSubcategory(subcategory);
