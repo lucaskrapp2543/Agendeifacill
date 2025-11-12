@@ -152,3 +152,4 @@ console.log('🔍 DEBUG - onChange percentual:', {
 
 
 
+

@@ -2234,6 +2234,10 @@ const EstablishmentDashboard = () => {
   };
 
   const handleCancelAppointment = async (appointmentId: string) => {
+    console.log('========================================');
+    console.log('🔐 CANCELAMENTO DO ESTABELECIMENTO - INICIANDO');
+    console.log('========================================');
+
     try {
       // Encontrar o agendamento antes de cancelar para notificação
       const appointmentToCancel = appointments.find(apt => apt.id === appointmentId);
@@ -2243,12 +2247,44 @@ const EstablishmentDashboard = () => {
         return;
       }
 
+      // 🔐 VERIFICAR SENHA DE 4 DÍGITOS PRIMEIRO
+      console.log('🔐 Verificando senha do estabelecimento...');
+      console.log('🔐 pin_password atual:', establishment?.pin_password);
+      
+      if (!establishment?.pin_password || establishment.pin_password === '0000') {
+        console.log('❌ Senha não configurada! Bloqueando cancelamento.');
+        toast.error('Configure uma senha de 4 dígitos nas configurações para permitir cancelamentos.');
+        return;
+      }
+
+      // 🔐 SOLICITAR SENHA
+      console.log('🔐 Solicitando senha ao usuário...');
+      const enteredPassword = window.prompt('🔐 Digite a senha de 4 dígitos para cancelar:');
+
+      if (!enteredPassword) {
+        console.log('❌ Usuário cancelou');
+        return;
+      }
+
+      // 🔐 VALIDAR SENHA
+      console.log('🔐 Validando senha...');
+      console.log('  - Digitada:', enteredPassword);
+      console.log('  - Esperada:', establishment.pin_password);
+
+      if (enteredPassword !== establishment.pin_password) {
+        console.log('❌ Senha incorreta!');
+        toast.error('Senha incorreta!');
+        return;
+      }
+
+      console.log('✅ Senha correta! Prosseguindo com cancelamento...');
+
       // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
       if (appointmentToCancel.is_subscriber) {
         console.log('🔍 Verificando se é assinante e se pode cancelar...');
 
         // Verificar se o estabelecimento tem a configuração ativada
-        const { data: establishment, error: establishmentError } = await supabase
+        const { data: establishmentData, error: establishmentError } = await supabase
           .from('establishments')
           .select('prevent_same_day_reschedule')
           .eq('id', appointmentToCancel.establishment_id)
@@ -2256,7 +2292,7 @@ const EstablishmentDashboard = () => {
 
         if (establishmentError) {
           console.error('Erro ao buscar configuração do estabelecimento:', establishmentError);
-        } else if (establishment?.prevent_same_day_reschedule) {
+        } else if (establishmentData?.prevent_same_day_reschedule) {
           // Mostrar aviso de confirmação
           const confirmCancel = window.confirm(
             '⚠️ ATENÇÃO: Este cliente é um assinante e você tem a configuração de "não remarcar no mesmo dia" ativada.\n\n' +
@@ -8934,7 +8970,7 @@ Estamos te aguardando! 😎✂️`;
                           <label className="block text-sm font-medium">Senha de 4 dígitos para configurações</label>
                           <span className="text-sm text-yellow-500 flex items-center gap-1">
                             <AlertTriangle className="h-4 w-4" />
-                            Senhas salvas aqui servem para abrir (todos os profissionais/alterar senha de cada profissional/trocar % do profissional/e para entrar nas config).
+                            Senhas salvas aqui servem para abrir (todos os profissionais/alterar senha de cada profissional/trocar % do profissional/cancelar agendamentos do dashboard/e para entrar nas config).
                           </span>
                         </div>
                         <div className="flex gap-2">
