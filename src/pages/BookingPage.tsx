@@ -413,8 +413,15 @@ export default function BookingPage() {
       }
 
       if (subscriptionsData && Array.isArray(subscriptionsData)) {
-        setSubscriptions(subscriptionsData);
-        console.log('✅ Assinaturas carregadas:', subscriptionsData.length, 'planos');
+        // 👁️ FILTRAR assinaturas ocultas (is_hidden = true) para não mostrar no Booking
+        const visibleSubscriptions = subscriptionsData.filter(sub => !sub.is_hidden);
+        
+        console.log('📋 Total de assinaturas:', subscriptionsData.length);
+        console.log('👁️ Assinaturas ocultas:', subscriptionsData.filter(sub => sub.is_hidden).length);
+        console.log('✅ Assinaturas visíveis:', visibleSubscriptions.length);
+        
+        setSubscriptions(visibleSubscriptions);
+        console.log('✅ Assinaturas carregadas no Booking:', visibleSubscriptions.length, 'planos visíveis');
       } else {
         setSubscriptions([]);
         console.log('⚠️ Nenhuma assinatura encontrada ou dados inválidos');

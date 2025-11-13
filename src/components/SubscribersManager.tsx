@@ -1,6 +1,6 @@
 import { format, isPast, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Edit, Plus, Trash2, Users, X } from 'lucide-react';
+import { Edit, Eye, EyeOff, Plus, Trash2, Users, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -754,6 +754,35 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // Handler para ocultar/desocultar assinatura
+  const handleToggleHideSubscription = async (subscriptionId: string, currentHiddenState: boolean) => {
+    const action = currentHiddenState ? 'desocultar' : 'ocultar';
+    const confirmMessage = currentHiddenState 
+      ? 'Deseja desocultar esta assinatura? Ela voltará a aparecer no Booking para novos clientes.' 
+      : 'Deseja ocultar esta assinatura? Ela não aparecerá mais no Booking para novos clientes (assinantes existentes não serão afetados).';
+
+    if (window.confirm(confirmMessage)) {
+      try {
+        console.log(`🔐 ${action === 'ocultar' ? 'Ocultando' : 'Desocultando'} assinatura:`, subscriptionId);
+        
+        const { error } = await supabase
+          .from('subscriptions')
+          .update({ is_hidden: !currentHiddenState })
+          .eq('id', subscriptionId);
+
+        if (error) {
+          throw error;
+        }
+
+        toast.success(`Assinatura ${action === 'ocultar' ? 'ocultada' : 'desocultada'} com sucesso!`);
+        fetchSubscriptions();
+      } catch (error: any) {
+        console.error(`Erro ao ${action} assinatura:`, error);
+        toast.error(error.message || `Erro ao ${action} assinatura.`);
+      }
+    }
+  };
+
   // Função para salvar descrição
   const handleSaveDescription = async () => {
     if (!selectedSubscriptionForEdit) return;
@@ -776,6 +805,52 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     } catch (error: any) {
       console.error('Erro ao salvar descrição:', error);
       toast.error(error.message || 'Erro ao salvar descrição.');
+    }
+  };
+
+  // Handler para deletar/limpar profissional do controle
+  const handleDeleteProfessionalFromControl = async (professionalName: string) => {
+    if (window.confirm(`Tem certeza que deseja LIMPAR todos os registros de atendimento do profissional "${professionalName}" do mês atual?\n\nIsso irá ZERAR o valor acumulado e apagar o histórico de atendimentos deste profissional no mês.\n\nEsta ação NÃO PODE ser desfeita!`)) {
+      try {
+        console.log('🗑️ Deletando atendimentos do profissional:', professionalName);
+
+        // Calcular período do mês atual dinamicamente
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth(); // 0-11
+        
+        // Primeiro dia do mês atual
+        const firstDay = new Date(currentYear, currentMonth, 1);
+        const firstDayStr = firstDay.toISOString().split('T')[0]; // YYYY-MM-DD
+        
+        // Último dia do mês atual
+        const lastDay = new Date(currentYear, currentMonth + 1, 0);
+        const lastDayStr = lastDay.toISOString().split('T')[0]; // YYYY-MM-DD
+
+        console.log('📅 Período calculado:', { firstDayStr, lastDayStr });
+
+        // Deletar todos os subscriber_attendances deste profissional no mês atual
+        const { error } = await supabase
+          .from('subscriber_attendances')
+          .delete()
+          .eq('professional_name', professionalName)
+          .eq('establishment_id', establishmentId)
+          .gte('attendance_date', firstDayStr)
+          .lte('attendance_date', lastDayStr);
+
+        if (error) {
+          throw error;
+        }
+
+        console.log('✅ Atendimentos deletados com sucesso');
+        toast.success(`Profissional "${professionalName}" removido do controle com sucesso!`);
+        
+        // Recarregar dados
+        fetchSubscriberAttendances();
+      } catch (error: any) {
+        console.error('Erro ao deletar profissional do controle:', error);
+        toast.error(error.message || 'Erro ao limpar profissional do controle.');
+      }
     }
   };
 
@@ -1229,6 +1304,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       >
                         Histórico
                       </button>
+                      <button
+                        onClick={() => handleDeleteProfessionalFromControl(professional)}
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded transition-colors flex items-center gap-1"
+                        title="Apagar todos os registros deste profissional do mês atual"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Apagar
+                      </button>
                     </div>
                   </div>
                 );
@@ -1500,9 +1583,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         ) : (
           <div className="space-y-3">
             {subscriptions.map((sub) => (
-              <div key={sub.id} className="p-3 rounded-lg bg-[#242628] border border-gray-700 flex justify-between items-center">
+              <div key={sub.id} className={`p-3 rounded-lg ${sub.is_hidden ? 'bg-[#2a2520] border-yellow-700/50' : 'bg-[#242628] border-gray-700'} border flex justify-between items-center ${sub.is_hidden ? 'opacity-75' : ''}`}>
                 <div>
-                  <p className="font-medium text-lg">{sub.name}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-medium text-lg">{sub.name}</p>
+                    {sub.is_hidden && (
+                      <span className="px-2 py-0.5 bg-yellow-600/20 text-yellow-500 text-xs rounded-full border border-yellow-600/30">
+                        👁️ Oculta
+                      </span>
+                    )}
+                  </div>
                   <p className="text-gray-400 text-sm">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sub.value)}</p>
                   {sub.weekdays && sub.weekdays.length > 0 && (
                     <p className="text-blue-400 text-xs mt-1">
@@ -1520,6 +1610,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       }).join(', ')}
                     </p>
                   )}
+                  {sub.is_hidden && (
+                    <p className="text-yellow-500 text-xs mt-1">
+                      ⚠️ Não aparece no Booking para novos clientes
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1532,6 +1627,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     title={sub.description ? "Editar Informações" : "Adicionar Informações"}
                   >
                     <Edit className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => handleToggleHideSubscription(sub.id, sub.is_hidden || false)}
+                    className={`${sub.is_hidden ? 'text-yellow-500 hover:text-yellow-400' : 'text-gray-500 hover:text-gray-400'} transition-colors`}
+                    title={sub.is_hidden ? "Desocultar Assinatura (voltar a mostrar no Booking)" : "Ocultar Assinatura (não aparece no Booking para novos clientes)"}
+                  >
+                    {sub.is_hidden ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
                   </button>
                   <button
                     onClick={() => handleDeleteSubscription(sub.id)}

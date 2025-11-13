@@ -262,19 +262,20 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       try {
         console.log('🔍 Carregando assinaturas para establishment:', establishmentId);
 
-        // Buscar TODAS as assinaturas (SEM filtro is_active pois a coluna não existe!)
+        // Buscar assinaturas NÃO OCULTAS (is_hidden = false ou null)
         const { data: subs, error: subsError } = await supabase
           .from('subscriptions')
           .select('*')
-          .eq('establishment_id', establishmentId);
+          .eq('establishment_id', establishmentId)
+          .or('is_hidden.is.null,is_hidden.eq.false');
 
         if (subsError) {
           console.error('❌ Erro ao carregar assinaturas:', subsError);
           throw subsError;
         }
 
-        console.log('✅ Assinaturas encontradas:', subs);
-        console.log('✅ Total de assinaturas:', subs?.length || 0);
+        console.log('✅ Assinaturas encontradas (apenas visíveis):', subs);
+        console.log('✅ Total de assinaturas visíveis:', subs?.length || 0);
         console.log('✅ Detalhes:', subs);
 
         setSubscriptions(subs || []);
