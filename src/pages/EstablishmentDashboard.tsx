@@ -289,6 +289,7 @@ const EstablishmentDashboard = () => {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const previousAppointmentsRef = useRef<Appointment[]>([]);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
+  const onboardingCompletedRef = useRef(false); // Evita múltiplas chamadas ao completar onboarding
   const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showBirthdayFilter, setShowBirthdayFilter] = useState(false);
@@ -412,14 +413,15 @@ const EstablishmentDashboard = () => {
   }, []);
 
   // Estados de horários e profissionais
+  // Horários padrão para novos estabelecimentos: intervalo 12:00-12:01, fechamento 19:00
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
-    monday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    tuesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    wednesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    thursday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    friday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    saturday: { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    sunday: { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
+    monday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+    tuesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+    wednesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+    thursday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+    friday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+    saturday: { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+    sunday: { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' }
   });
 
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -443,6 +445,13 @@ const EstablishmentDashboard = () => {
 
   // Estado para popup de propaganda
   const [showPromotionPopup, setShowPromotionPopup] = useState(false);
+
+  // Estados para sistema de onboarding
+  const [onboardingStep, setOnboardingStep] = useState<number>(4); // 1=config, 2=profissional, 3=serviço, 4=completo
+  const [termsAccepted, setTermsAccepted] = useState(false); // Aceite de termos
+  const [showOnboardingPopup, setShowOnboardingPopup] = useState(false);
+  const [onboardingPopupMessage, setOnboardingPopupMessage] = useState('');
+  const [showBlockedItemModal, setShowBlockedItemModal] = useState(false); // Modal para item bloqueado
 
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
@@ -1830,7 +1839,7 @@ const EstablishmentDashboard = () => {
         professionals_pins: updatedPins
       });
 
-      toast.success('Profissional adicionado com sucesso!');
+      toast.success('Profissional adicionado à lista! Agora preencha o nome e clique em "Salvar Profissionais".');
     } catch (error) {
       console.error('Erro ao adicionar profissional:', error);
       toast.error('Erro ao adicionar profissional');
@@ -1986,6 +1995,30 @@ const EstablishmentDashboard = () => {
 
       console.log('✅ Profissionais e pins salvos com sucesso!');
       toast.success('Profissionais atualizados!');
+
+      // Se está em onboarding (step 2), verificar se tem pelo menos um profissional com nome e avançar para step 3
+      if (onboardingStep === 2) {
+        const professionalsWithNames = updatedProfessionals.filter(p => p.name && p.name.trim().length > 0);
+        
+        if (professionalsWithNames.length > 0) {
+          // Tem pelo menos um profissional válido, avançar para step 3
+          const { error: onboardingError } = await supabase
+            .from('establishments')
+            .update({ onboarding_step: 3 })
+            .eq('id', establishment.id);
+          
+          if (!onboardingError) {
+            setOnboardingStep(3);
+            setOnboardingPopupMessage('Ótimo! Agora vá em Meus Serviços, cadastre seu primeiro serviço e você liberará todas as outras funções.');
+            setShowOnboardingPopup(true);
+            setTimeout(() => {
+              setActiveTab('service-categories');
+            }, 3000);
+          }
+        } else {
+          toast.warning('Preencha pelo menos o nome de um profissional para continuar.');
+        }
+      }
     } catch (error) {
       console.error('❌ Erro ao salvar profissionais:', error);
       toast.error('Erro ao salvar profissionais');
@@ -2076,6 +2109,7 @@ const EstablishmentDashboard = () => {
         require_cpf: requireCpf, // Solicitar CPF no agendamento
         enable_whatsapp_notifications: enableWhatsAppNotifications, // Ativar notificações WhatsApp
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
+        onboarding_step: 1, // Novos estabelecimentos começam no onboarding
       };
 
       console.log('Dados do estabelecimento a serem criados:', establishmentData);
@@ -2183,6 +2217,29 @@ const EstablishmentDashboard = () => {
         payment_methods_enabled: paymentMethodsEnabled, // Formas de pagamento ativas
       };
 
+      // Sistema de progresso do onboarding
+      let newOnboardingStep = onboardingStep;
+      
+      // Step 1 -> Step 2: Configuração salva
+      if (onboardingStep === 1) {
+        newOnboardingStep = 2;
+        const { error: onboardingError } = await supabase
+          .from('establishments')
+          .update({ onboarding_step: 2 })
+          .eq('id', establishment.id);
+        
+        if (!onboardingError) {
+          setOnboardingStep(2);
+          setOnboardingPopupMessage('Parabéns! Agora basta ir em Profissionais, adicionar seu primeiro profissional e você liberará a próxima etapa.');
+          setShowOnboardingPopup(true);
+          setTimeout(() => {
+            setActiveTab('professionals');
+          }, 3000);
+        }
+      }
+      
+      // Step 3 -> Step 4: Será detectado automaticamente pelo useEffect quando serviço válido for adicionado
+
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
 
       if (error) {
@@ -2190,7 +2247,13 @@ const EstablishmentDashboard = () => {
       }
 
       setEstablishment(data?.[0]);
-      toast.success('Estabelecimento atualizado com sucesso!');
+      
+      // Toast diferente se for onboarding
+      if (onboardingStep < 4) {
+        toast.success('Configurações salvas! Avançando para a próxima etapa...');
+      } else {
+        toast.success('Estabelecimento atualizado com sucesso!');
+      }
 
     } catch (error: any) {
       toast.error(error.message || 'Erro ao atualizar estabelecimento');
@@ -2998,6 +3061,24 @@ Estamos te aguardando! 😎✂️`;
         // Carrega a configuração da imagem "Melhor do Brasil"
         setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
 
+        // Carrega o progresso do onboarding
+        const currentOnboardingStep = establishmentData.onboarding_step ?? 4; // Default = 4 (completo) para contas antigas
+        console.log('🎯 DEBUG Onboarding - Carregando onboarding_step:', {
+          fromDatabase: establishmentData.onboarding_step,
+          currentStep: currentOnboardingStep,
+          servicesCount: (establishmentData.services_with_prices || []).length
+        });
+        setOnboardingStep(currentOnboardingStep);
+        
+        // Se está em onboarding (step < 4), forçar para a aba apropriada
+        if (currentOnboardingStep === 1) {
+          setActiveTab('settings'); // Começar na config
+        } else if (currentOnboardingStep === 2) {
+          setActiveTab('professionals'); // Ir para profissionais
+        } else if (currentOnboardingStep === 3) {
+          setActiveTab('service-categories'); // Ir para serviços
+        }
+
         // ✅ CORRIGIDO: Carrega os profissionais preservando TODOS os campos existentes
         const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: any) => ({
           ...prof, // ✅ Preserva TODOS os campos existentes (incluindo specific_services, whatsapp, etc.)
@@ -3027,7 +3108,21 @@ Estamos te aguardando! 😎✂️`;
         setProfessionalAbsences(absencesData);
 
         setServicesWithPrices(establishmentData.services_with_prices || []);
-        setBusinessHours(establishmentData.business_hours || {
+        
+        // Horários padrão para novos estabelecimentos (onboarding_step < 4)
+        const isNewEstablishment = (establishmentData.onboarding_step ?? 4) < 4;
+        const defaultBusinessHoursForNew = {
+          monday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+          tuesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+          wednesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+          thursday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+          friday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+          saturday: { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
+          sunday: { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' }
+        };
+        
+        // Horários padrão para estabelecimentos antigos
+        const defaultBusinessHoursForOld = {
           monday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
           tuesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
           wednesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
@@ -3035,7 +3130,44 @@ Estamos te aguardando! 😎✂️`;
           friday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
           saturday: { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
           sunday: { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
-        });
+        };
+        
+        // Usar horários do banco se existirem, senão usar padrão baseado no tipo de estabelecimento
+        const businessHoursFromDB = establishmentData.business_hours;
+        const defaultHours = isNewEstablishment ? defaultBusinessHoursForNew : defaultBusinessHoursForOld;
+        
+        // Normalizar horários: preencher campos vazios/null com padrões
+        const normalizeBusinessHours = (hours: any, defaults: any) => {
+          const normalized: Record<string, BusinessHours> = {};
+          const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+          
+          days.forEach(day => {
+            const dayHours = hours?.[day] || {};
+            const defaultDay = defaults[day];
+            
+            normalized[day] = {
+              enabled: dayHours?.enabled ?? defaultDay.enabled,
+              open1: dayHours?.open1 || defaultDay.open1,
+              close1: dayHours?.close1 || defaultDay.close1,
+              open2: dayHours?.open2 || defaultDay.open2,
+              close2: dayHours?.close2 || defaultDay.close2
+            };
+          });
+          
+          return normalized;
+        };
+        
+        // Se é novo estabelecimento, sempre usar horários padrão novos (mesmo se tiver salvos)
+        if (isNewEstablishment) {
+          setBusinessHours(defaultBusinessHoursForNew);
+        } else if (!businessHoursFromDB) {
+          // Estabelecimento antigo sem horários salvos, usar padrão antigo
+          setBusinessHours(defaultBusinessHoursForOld);
+        } else {
+          // Para estabelecimentos antigos, normalizar horários salvos preenchendo campos vazios
+          const normalized = normalizeBusinessHours(businessHoursFromDB, defaultBusinessHoursForOld);
+          setBusinessHours(normalized);
+        }
 
         // Carrega as URLs das fotos personalizadas para pré-visualização
         if (establishmentData.custom_photo_1_url) {
@@ -3073,6 +3205,90 @@ Estamos te aguardando! 😎✂️`;
     fetchEstablishment();
     loadTutorialPreferences(); // Carregar preferências dos tutoriais
   }, [user]);
+
+  // Monitora quando um serviço válido é adicionado e desbloqueia tudo automaticamente
+  useEffect(() => {
+    // Sempre logar para ver o que está acontecendo
+    console.log('🔍 DEBUG Onboarding - useEffect executado:', {
+      onboardingStep,
+      hasEstablishment: !!establishment,
+      establishmentId: establishment?.id,
+      servicesCount: servicesWithPrices.length,
+      validServicesCount: servicesWithPrices.filter(s => s.name && s.name.trim().length > 0 && s.price > 0).length,
+      services: servicesWithPrices.map(s => ({ name: s.name, price: s.price })),
+      onboardingCompletedRef: onboardingCompletedRef.current
+    });
+    
+    if (onboardingStep === 3 && establishment && !onboardingCompletedRef.current) {
+      console.log('✅ DEBUG Onboarding - Condições atendidas! Verificando serviços válidos...');
+      const validServices = servicesWithPrices.filter(s => 
+        s.name && s.name.trim().length > 0 && s.price > 0
+      );
+      
+      console.log('✅ DEBUG Onboarding - Serviços válidos encontrados:', validServices);
+      
+      if (validServices.length > 0) {
+        // Tem pelo menos um serviço válido, salvar no banco e completar onboarding
+        onboardingCompletedRef.current = true; // Marca como completo para evitar múltiplas chamadas
+        
+        const completeOnboarding = async () => {
+          try {
+            // Primeiro, salvar os serviços no banco de dados
+            const { error: saveError } = await supabase
+              .from('establishments')
+              .update({
+                services_with_prices: validServices.map(s => ({
+                  id: s.id,
+                  name: s.name.trim(),
+                  price: Number(s.price),
+                  duration: Number(s.duration)
+                }))
+              })
+              .eq('id', establishment.id);
+            
+            if (saveError) {
+              console.error('Erro ao salvar serviços:', saveError);
+              onboardingCompletedRef.current = false;
+              return;
+            }
+            
+            // Depois, atualizar o onboarding_step
+            const { error: onboardingError } = await supabase
+              .from('establishments')
+              .update({ onboarding_step: 4 })
+              .eq('id', establishment.id);
+            
+            if (!onboardingError) {
+              setOnboardingStep(4);
+              // Atualizar o establishment local
+              setEstablishment({
+                ...establishment,
+                services_with_prices: validServices
+              });
+              // Não mostra popup, apenas desbloqueia silenciosamente
+            } else {
+              onboardingCompletedRef.current = false; // Se der erro, permite tentar novamente
+            }
+          } catch (error) {
+            console.error('Erro ao completar onboarding:', error);
+            onboardingCompletedRef.current = false;
+          }
+        };
+        
+        // Aguardar um pouco para garantir que o usuário terminou de digitar
+        const timeoutId = setTimeout(() => {
+          completeOnboarding();
+        }, 1000); // 1 segundo de delay
+        
+        return () => clearTimeout(timeoutId);
+      }
+    }
+    
+    // Resetar ref quando onboarding step mudar
+    if (onboardingStep !== 3) {
+      onboardingCompletedRef.current = false;
+    }
+  }, [servicesWithPrices, onboardingStep, establishment]);
 
   useEffect(() => {
     if (establishment && activeTab === 'financial-dashboard') {
@@ -7155,6 +7371,10 @@ Estamos te aguardando! 😎✂️`;
           onDashboardPinModal={() => setShowDashboardPinModal(true)}
           onSettingsPinModal={() => setShowPinModal(true)}
           establishment={establishment}
+          onboardingStep={onboardingStep}
+          onBlockedItemClick={() => {
+            setShowBlockedItemModal(true);
+          }}
         />
 
         {/* Conteúdo principal */}
@@ -9200,7 +9420,9 @@ Estamos te aguardando! 😎✂️`;
                   <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                     <h3 className="text-lg font-medium text-white mb-4">Horário de Funcionamento</h3>
                     <div className="space-y-4">
-                      {Object.entries(businessHours).map(([day, hours]) => (
+                      {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
+                        const hours = businessHours[day];
+                        return (
                         <div key={day} className="bg-[#242628] p-4 rounded-lg space-y-3 border border-gray-700">
                           {/* Cabeçalho do dia com checkbox */}
                           <div className="flex items-center justify-between">
@@ -9289,7 +9511,8 @@ Estamos te aguardando! 😎✂️`;
                             </div>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -10067,12 +10290,40 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   </div>
 
+                  {/* Checkbox de Aceite de Termos (visível durante todo o onboarding) */}
+                  {onboardingStep < 4 && (
+                    <div className={`${onboardingStep === 1 ? 'bg-yellow-400 border-yellow-600' : 'bg-green-400 border-green-600'} border-4 rounded-lg p-5 shadow-lg`}>
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={termsAccepted || onboardingStep > 1}
+                          onChange={(e) => onboardingStep === 1 && setTermsAccepted(e.target.checked)}
+                          disabled={onboardingStep > 1}
+                          className="mt-1 h-7 w-7 text-green-600 bg-white border-gray-800 rounded focus:ring-4 focus:ring-yellow-600"
+                        />
+                        <span className="text-lg text-gray-900 font-bold leading-relaxed">
+                          ✅ {onboardingStep === 1 ? 'Aceito os termos desses serviços e confirmo que todas as informações fornecidas estão corretas.' : 'Termos aceitos! Continue seguindo o passo a passo.'}
+                        </span>
+                      </label>
+                      {onboardingStep === 1 && (
+                        <p className="text-base text-red-700 font-bold mt-3 ml-10 bg-red-100 p-2 rounded border-2 border-red-500">
+                          ⚠️ Você precisa aceitar os termos antes de prosseguir
+                        </p>
+                      )}
+                      {onboardingStep > 1 && (
+                        <p className="text-base text-green-800 font-bold mt-3 ml-10 bg-green-100 p-2 rounded border-2 border-green-600">
+                          ✅ Etapa {onboardingStep - 1} de 3 concluída! Continue o processo.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Botão de Salvar */}
                   <div className="flex justify-end">
                     <button
                       onClick={handleUpdateEstablishment}
-                      disabled={isUpdating}
-                      className={`px-6 py-3 bg-primary text-white rounded-lg font-medium ${isUpdating ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary/80'
+                      disabled={isUpdating || (onboardingStep === 1 && !termsAccepted)}
+                      className={`px-6 py-3 bg-primary text-white rounded-lg font-medium ${(isUpdating || (onboardingStep === 1 && !termsAccepted)) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary/80'
                         } transition-colors flex items-center gap-2`}
                     >
                       {isUpdating ? (
@@ -11500,15 +11751,15 @@ Estamos te aguardando! 😎✂️`;
                   </div>
 
                   <div className="space-y-4">
-                    {Object.entries({
-                      monday: 'Segunda-feira',
-                      tuesday: 'Terça-feira',
-                      wednesday: 'Quarta-feira',
-                      thursday: 'Quinta-feira',
-                      friday: 'Sexta-feira',
-                      saturday: 'Sábado',
-                      sunday: 'Domingo'
-                    }).map(([day, dayName]) => (
+                    {[
+                      { day: 'monday', dayName: 'Segunda-feira' },
+                      { day: 'tuesday', dayName: 'Terça-feira' },
+                      { day: 'wednesday', dayName: 'Quarta-feira' },
+                      { day: 'thursday', dayName: 'Quinta-feira' },
+                      { day: 'friday', dayName: 'Sexta-feira' },
+                      { day: 'saturday', dayName: 'Sábado' },
+                      { day: 'sunday', dayName: 'Domingo' }
+                    ].map(({ day, dayName }) => (
                       <div key={day} className="bg-gray-800 rounded-lg p-4">
                         <div className="flex items-center justify-between mb-4">
                           <h4 className="text-white font-medium">{dayName}</h4>
@@ -12550,6 +12801,130 @@ Estamos te aguardando! 😎✂️`;
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-gray-900">Serviços com Dropdown</h2>
               </div>
+
+              {/* Botão para completar onboarding e desbloquear tudo */}
+              {onboardingStep === 3 && (
+                <div className="mb-6 p-5 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-lg border-4 border-green-700">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <h3 className="text-xl font-bold text-white mb-2">
+                        🎉 Complete seu cadastro!
+                      </h3>
+                      <p className="text-green-50 text-sm">
+                        Clique no botão abaixo para salvar seus serviços e liberar todas as funcionalidades do sistema.
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!establishment) return;
+                        
+                        try {
+                          // Buscar serviços de service_subcategories (sistema de categorias)
+                          const { data: subcategoriesData } = await supabase
+                            .from('service_subcategories')
+                            .select(`
+                              *,
+                              service_categories!inner (
+                                establishment_id
+                              )
+                            `)
+                            .eq('service_categories.establishment_id', establishment.id)
+                            .eq('is_active', true);
+                          
+                          // Converter subcategorias para formato de serviços
+                          const servicesFromCategories = (subcategoriesData || []).map((sub: any) => ({
+                            id: sub.id,
+                            name: sub.name,
+                            price: Number(sub.price),
+                            duration: Number(sub.duration || 30)
+                          }));
+                          
+                          // Buscar serviços salvos em services_with_prices (sistema antigo)
+                          const { data: establishmentData } = await supabase
+                            .from('establishments')
+                            .select('services_with_prices')
+                            .eq('id', establishment.id)
+                            .single();
+                          
+                          const savedServices = establishmentData?.services_with_prices || [];
+                          const localServices = servicesWithPrices || [];
+                                                  
+                          // Combinar todos os serviços
+                          const allServices = [...localServices, ...savedServices, ...servicesFromCategories];
+                          
+                          // Remover duplicatas por ID
+                          const uniqueServices = allServices.reduce((acc: any[], service: any) => {
+                            if (!acc.find(s => s.id === service.id)) {
+                              acc.push(service);
+                            }
+                            return acc;
+                          }, []);
+                          
+                          console.log('🔍 DEBUG - Verificando serviços:', {
+                            localServices: localServices.length,
+                            savedServices: savedServices.length,
+                            servicesFromCategories: servicesFromCategories.length,
+                            uniqueServices: uniqueServices.length,
+                            services: uniqueServices.map((s: any) => ({
+                              id: s.id,
+                              name: s.name,
+                              price: s.price
+                            }))
+                          });
+                          
+                          // Verificar serviços válidos (com nome e preço)
+                          const validServices = uniqueServices.filter((s: any) => 
+                            s.name && s.name.trim().length > 0 && Number(s.price) > 0
+                          );
+                          
+                          console.log('✅ DEBUG - Serviços válidos:', validServices.length);
+                          
+                          if (validServices.length === 0) {
+                            toast('Adicione pelo menos um serviço com NOME e PREÇO maior que zero antes de salvar.', 'warning');
+                            return;
+                          }
+                          
+                          // Salvar serviços válidos e completar onboarding
+                          const { error: saveError } = await supabase
+                            .from('establishments')
+                            .update({
+                              services_with_prices: validServices.map((s: any) => ({
+                                id: s.id,
+                                name: s.name.trim(),
+                                price: Number(s.price),
+                                duration: Number(s.duration || 30)
+                              })),
+                              onboarding_step: 4
+                            })
+                            .eq('id', establishment.id);
+                          
+                          if (saveError) {
+                            console.error('Erro ao salvar:', saveError);
+                            toast.error('Erro ao salvar serviços. Tente novamente.');
+                            return;
+                          }
+                          
+                          setOnboardingStep(4);
+                          setEstablishment({
+                            ...establishment,
+                            services_with_prices: validServices
+                          });
+                          setServicesWithPrices(validServices);
+                          
+                          toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
+                        } catch (error) {
+                          console.error('Erro ao completar onboarding:', error);
+                          toast.error('Erro ao salvar. Tente novamente.');
+                        }
+                      }}
+                      className="px-8 py-4 bg-white text-green-600 font-bold text-lg rounded-lg hover:bg-green-50 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 whitespace-nowrap"
+                    >
+                      <Check className="h-6 w-6" />
+                      Salvar Serviços e Abrir Todas as Funções
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Vídeo Tutorial */}
               {showTutorials.services && (
@@ -15061,6 +15436,53 @@ Estamos te aguardando! 😎✂️`;
                   Fechar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup de Progresso do Onboarding */}
+      {showOnboardingPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="text-center">
+              <div className="mb-4 text-6xl">🎉</div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Parabéns!</h2>
+              <p className="text-gray-700 mb-6 text-lg">
+                {onboardingPopupMessage}
+              </p>
+              <button
+                onClick={() => setShowOnboardingPopup(false)}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Entendi!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Item Bloqueado */}
+      {showBlockedItemModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-xl shadow-2xl max-w-md w-full p-6 border-4 border-red-500">
+            <div className="text-center">
+              <div className="mb-4 text-7xl animate-bounce">🔒</div>
+              <h2 className="text-2xl font-bold text-red-700 mb-4">Função Bloqueada!</h2>
+              <p className="text-gray-800 mb-6 text-lg leading-relaxed">
+                Esta função está bloqueada. Você deve seguir o <strong className="text-red-600">Passo a Passo</strong> para abrir seu estabelecimento e liberar todas as funcionalidades.
+              </p>
+              <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-6 text-left rounded">
+                <p className="text-sm text-yellow-800">
+                  💡 <strong>Dica:</strong> Clique em "Passo a passo" no menu lateral para ver o que precisa fazer.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowBlockedItemModal(false)}
+                className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-bold text-lg shadow-lg"
+              >
+                Entendi!
+              </button>
             </div>
           </div>
         </div>

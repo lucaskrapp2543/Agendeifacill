@@ -35,6 +35,8 @@ interface SidebarProps {
   onDashboardPinModal?: () => void;
   onSettingsPinModal?: () => void;
   establishment?: any;
+  onboardingStep?: number; // Controla o progresso do onboarding
+  onBlockedItemClick?: () => void; // Callback quando clicar em item bloqueado
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -48,9 +50,34 @@ const Sidebar: React.FC<SidebarProps> = ({
   isSettingsUnlocked = false,
   onDashboardPinModal,
   onSettingsPinModal,
-  establishment
+  establishment,
+  onboardingStep = 4,
+  onBlockedItemClick
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
+
+  // Função para verificar se um item deve estar bloqueado
+  const isItemLocked = (itemId: string): boolean => {
+    // Se onboarding completo (step >= 4), nada está bloqueado
+    if (onboardingStep >= 4) return false;
+
+    // Step 1: Apenas "settings" (Config) e "passo-a-passo" liberados
+    if (onboardingStep === 1) {
+      return itemId !== 'config' && itemId !== 'passo-a-passo' && itemId !== 'logout';
+    }
+
+    // Step 2: "professionals" também liberado
+    if (onboardingStep === 2) {
+      return itemId !== 'config' && itemId !== 'passo-a-passo' && itemId !== 'professionals' && itemId !== 'logout';
+    }
+
+    // Step 3: "service-categories" também liberado
+    if (onboardingStep === 3) {
+      return itemId !== 'config' && itemId !== 'passo-a-passo' && itemId !== 'professionals' && itemId !== 'service-categories' && itemId !== 'logout';
+    }
+
+    return false;
+  };
 
   // Detectar mudanças no tamanho da tela
   useEffect(() => {
@@ -76,46 +103,87 @@ const Sidebar: React.FC<SidebarProps> = ({
       id: 'notifications',
       label: 'Notificações',
       icon: Bell,
-      onClick: () => handleItemClick(onNotificationsClick || (() => { })),
+      onClick: () => {
+        if (isItemLocked('notifications')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(onNotificationsClick || (() => { }));
+        }
+      },
       isActive: false, // Notificações não é um tab, é um modal
       showBadge: unreadNotifications > 0,
       badgeCount: unreadNotifications,
-      disabled: !isNotificationsUnlocked
+      disabled: !isNotificationsUnlocked || isItemLocked('notifications')
     },
     {
       id: 'appointments',
       label: 'Meus Agendamentos',
       icon: Calendar,
-      onClick: () => handleItemClick(() => onTabChange('appointments')),
-      isActive: activeTab === 'appointments'
+      onClick: () => {
+        if (isItemLocked('appointments')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('appointments'));
+        }
+      },
+      isActive: activeTab === 'appointments',
+      disabled: isItemLocked('appointments')
     },
     {
       id: 'reserve-client',
       label: 'Reservar Cliente',
       icon: Link,
-      onClick: () => handleItemClick(() => onTabChange('reserve-client')),
-      isActive: activeTab === 'reserve-client'
+      onClick: () => {
+        if (isItemLocked('reserve-client')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('reserve-client'));
+        }
+      },
+      isActive: activeTab === 'reserve-client',
+      disabled: isItemLocked('reserve-client')
     },
     {
       id: 'clients',
       label: 'Meus Clientes',
       icon: Users,
-      onClick: () => handleItemClick(() => onTabChange('clients')),
-      isActive: activeTab === 'clients'
+      onClick: () => {
+        if (isItemLocked('clients')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('clients'));
+        }
+      },
+      isActive: activeTab === 'clients',
+      disabled: isItemLocked('clients')
     },
     {
       id: 'subscribers',
       label: 'Meus Assinantes',
       icon: Crown,
-      onClick: () => handleItemClick(() => onTabChange('subscribers')),
-      isActive: activeTab === 'subscribers'
+      onClick: () => {
+        if (isItemLocked('subscribers')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('subscribers'));
+        }
+      },
+      isActive: activeTab === 'subscribers',
+      disabled: isItemLocked('subscribers')
     },
     {
       id: 'service-categories',
       label: 'Meus serviços',
       icon: Layers,
-      onClick: () => handleItemClick(() => onTabChange('service-categories')),
-      isActive: activeTab === 'service-categories'
+      onClick: () => {
+        if (isItemLocked('service-categories')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('service-categories'));
+        }
+      },
+      isActive: activeTab === 'service-categories',
+      disabled: isItemLocked('service-categories')
     },
     {
       id: 'hours',
@@ -130,55 +198,97 @@ const Sidebar: React.FC<SidebarProps> = ({
       id: 'dashboard',
       label: 'Financeiro',
       icon: BarChart3,
-      onClick: () => handleItemClick(() => {
-        if (establishment?.pin_password && establishment.pin_password.length > 0 && !isDashboardUnlocked) {
-          onDashboardPinModal?.();
+      onClick: () => {
+        if (isItemLocked('dashboard')) {
+          onBlockedItemClick?.();
         } else {
-          onTabChange('financial-dashboard');
+          handleItemClick(() => {
+            if (establishment?.pin_password && establishment.pin_password.length > 0 && !isDashboardUnlocked) {
+              onDashboardPinModal?.();
+            } else {
+              onTabChange('financial-dashboard');
+            }
+          });
         }
-      }),
-      isActive: activeTab === 'financial-dashboard'
+      },
+      isActive: activeTab === 'financial-dashboard',
+      disabled: isItemLocked('dashboard')
     },
     {
       id: 'expenses',
       label: 'Despesas',
       icon: DollarSign,
-      onClick: () => handleItemClick(() => onTabChange('expenses')),
-      isActive: activeTab === 'expenses'
+      onClick: () => {
+        if (isItemLocked('expenses')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('expenses'));
+        }
+      },
+      isActive: activeTab === 'expenses',
+      disabled: isItemLocked('expenses')
     },
     {
       id: 'professionals',
       label: 'Profissionais',
       icon: UserCheck,
-      onClick: () => handleItemClick(() => onTabChange('professionals')),
-      isActive: activeTab === 'professionals'
+      onClick: () => {
+        if (isItemLocked('professionals')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('professionals'));
+        }
+      },
+      isActive: activeTab === 'professionals',
+      disabled: isItemLocked('professionals')
     },
     {
       id: 'products',
       label: 'Meus Produtos',
       icon: Package,
-      onClick: () => handleItemClick(() => onTabChange('products')),
-      isActive: activeTab === 'products'
+      onClick: () => {
+        if (isItemLocked('products')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('products'));
+        }
+      },
+      isActive: activeTab === 'products',
+      disabled: isItemLocked('products')
     },
     {
       id: 'taxes',
       label: 'Minhas Taxas',
       icon: Receipt,
-      onClick: () => handleItemClick(() => onTabChange('taxes')),
-      isActive: activeTab === 'taxes'
+      onClick: () => {
+        if (isItemLocked('taxes')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('taxes'));
+        }
+      },
+      isActive: activeTab === 'taxes',
+      disabled: isItemLocked('taxes')
     },
     {
       id: 'config',
       label: 'Config | Página Agendamentos',
       icon: Settings,
-      onClick: () => handleItemClick(() => {
-        if (establishment?.pin_password && establishment.pin_password.length > 0 && !isSettingsUnlocked) {
-          onSettingsPinModal?.();
+      onClick: () => {
+        if (isItemLocked('config')) {
+          onBlockedItemClick?.();
         } else {
-          onTabChange('settings');
+          handleItemClick(() => {
+            if (establishment?.pin_password && establishment.pin_password.length > 0 && !isSettingsUnlocked) {
+              onSettingsPinModal?.();
+            } else {
+              onTabChange('settings');
+            }
+          });
         }
-      }),
-      isActive: activeTab === 'settings'
+      },
+      isActive: activeTab === 'settings',
+      disabled: isItemLocked('config')
     },
     {
       id: 'logout',

@@ -57,6 +57,7 @@ export interface Database {
           has_parking?: boolean; // Nova coluna para comodidade Estacionamento
           has_accessibility?: boolean; // Nova coluna para comodidade Acessibilidade
           wifi_password?: string; // Senha do Wi-Fi disponibilizada pelo estabelecimento
+          onboarding_step?: number; // Controla o progresso do onboarding (1=página agendamento, 2=profissional, 3=serviço, 4=completo)
         }
       },
       premium_subscribers: {

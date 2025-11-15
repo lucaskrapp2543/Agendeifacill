@@ -498,7 +498,8 @@ export const createEstablishment = async (establishmentData: any) => {
     has_accessibility: establishmentData.has_accessibility ?? false,
     wifi_password: establishmentData.wifi_password || null,
     pin_password: establishmentData.pin_password || null, // Sem senha padrão
-    professionals_pins: [] // Array vazio para pins dos profissionais
+    professionals_pins: [], // Array vazio para pins dos profissionais
+    onboarding_step: establishmentData.onboarding_step ?? 1 // Novas contas começam no onboarding
   };
 
   console.log('Dados a serem criados:', dataToInsert);

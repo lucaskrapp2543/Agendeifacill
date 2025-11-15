@@ -192,7 +192,8 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
           plan_type: 'monthly',
           payment_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
           is_deleted: false,
-          is_blocked: false
+          is_blocked: false,
+          onboarding_step: 1 // Novas contas começam no onboarding
         });
 
       if (establishmentError) {

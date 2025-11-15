@@ -106,13 +106,13 @@ const EstablishmentDashboard = () => {
   const [customPhoto3Preview, setCustomPhoto3Preview] = useState<string | null>(null);
   
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
-    monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
-    sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
+    monday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '12:01', close2: '18:00' },
+    tuesday:   { enabled: true,  open1: '09:00', close1: '12:00', open2: '12:01', close2: '18:00' },
+    wednesday: { enabled: true,  open1: '09:00', close1: '12:00', open2: '12:01', close2: '18:00' },
+    thursday:  { enabled: true,  open1: '09:00', close1: '12:00', open2: '12:01', close2: '18:00' },
+    friday:    { enabled: true,  open1: '09:00', close1: '12:00', open2: '12:01', close2: '18:00' },
+    saturday:  { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '18:00' },
+    sunday:    { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '18:00' }
   });
   
   const [professionals, setProfessionals] = useState<Professional[]>([]);
