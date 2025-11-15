@@ -22,6 +22,7 @@ export default function BookingPage() {
 
   const [establishment, setEstablishment] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isBookingBlocked, setIsBookingBlocked] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
   const [forceRender, setForceRender] = useState(0);
@@ -301,8 +302,17 @@ export default function BookingPage() {
         throw new Error(`Estabelecimento com código "${id}" não encontrado`);
       }
 
+      // Verificar se o booking está bloqueado
+      if (data.booking_blocked) {
+        console.log('🚫 Booking bloqueado para este estabelecimento');
+        setIsBookingBlocked(true);
+        setIsLoading(false);
+        return; // Não define o estabelecimento, então a mensagem será mostrada
+      }
+
       console.log('✅ Estabelecimento encontrado:', data);
       setEstablishment(data);
+      setIsBookingBlocked(false);
 
     } catch (error: any) {
       console.error('❌ Error fetching establishment:', error);
@@ -685,6 +695,24 @@ export default function BookingPage() {
         <div className="container-custom py-8">
           <div className="flex justify-center">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Verificar se o booking está bloqueado
+  if (isBookingBlocked) {
+    return (
+      <div className="min-h-screen" style={{ backgroundColor: '#f0f6ff' }}>
+        <div className="container-custom py-8">
+          <div className="text-center">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-4 text-gray-900">Estabelecimento Inativo</h1>
+            <p className="text-gray-600 mb-4 text-lg">Este estabelecimento está inativo.</p>
+            <Link to="/" className="text-primary hover:underline">
+              Voltar para a página inicial
+            </Link>
           </div>
         </div>
       </div>

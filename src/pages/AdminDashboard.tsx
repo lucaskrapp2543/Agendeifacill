@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle,
+  Edit,
   Eye,
   EyeOff,
   FileText,
@@ -11,6 +12,7 @@ import {
   Search,
   Trash2,
   Unlock,
+  X,
   XCircle
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -37,6 +39,8 @@ interface Establishment {
   last_access?: string | null;
   payment_alert_enabled?: boolean;
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
+  booking_blocked?: boolean; // Indica se o booking está bloqueado
+  admin_notes?: string; // Observações privadas do admin
 }
 
 const AdminDashboard = () => {
@@ -58,6 +62,9 @@ const AdminDashboard = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoadingPassword, setIsLoadingPassword] = useState(false);
   const [userInfo, setUserInfo] = useState<any>(null);
+  const [showNotesModal, setShowNotesModal] = useState(false);
+  const [editingEstablishment, setEditingEstablishment] = useState<Establishment | null>(null);
+  const [notesText, setNotesText] = useState('');
 
   // Verificar se é a conta de suporte
   const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
@@ -439,6 +446,74 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Erro ao alterar status da propaganda:', error);
       toast.error('Erro ao alterar status da propaganda');
+    }
+  };
+
+  // Função para bloquear/desbloquear booking
+  const toggleBookingBlock = async (establishmentId: string, isBlocked: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ booking_blocked: !isBlocked })
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.error('Erro no Supabase:', error);
+        throw error;
+      }
+
+      setEstablishments(prev =>
+        prev.map(est =>
+          est.id === establishmentId
+            ? { ...est, booking_blocked: !isBlocked }
+            : est
+        )
+      );
+
+      toast.success(!isBlocked ? 'Booking bloqueado!' : 'Booking desbloqueado!');
+    } catch (error) {
+      console.error('Erro ao alterar status de bloqueio do booking:', error);
+      toast.error('Erro ao alterar status de bloqueio do booking');
+    }
+  };
+
+  // Função para abrir modal de observações
+  const openNotesModal = (establishment: Establishment) => {
+    setEditingEstablishment(establishment);
+    setNotesText(establishment.admin_notes || '');
+    setShowNotesModal(true);
+  };
+
+  // Função para salvar observações
+  const saveNotes = async () => {
+    if (!editingEstablishment) return;
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ admin_notes: notesText.trim() || null })
+        .eq('id', editingEstablishment.id);
+
+      if (error) {
+        console.error('Erro no Supabase:', error);
+        throw error;
+      }
+
+      setEstablishments(prev =>
+        prev.map(est =>
+          est.id === editingEstablishment.id
+            ? { ...est, admin_notes: notesText.trim() || undefined }
+            : est
+        )
+      );
+
+      toast.success('Observação salva com sucesso!');
+      setShowNotesModal(false);
+      setEditingEstablishment(null);
+      setNotesText('');
+    } catch (error) {
+      console.error('Erro ao salvar observação:', error);
+      toast.error('Erro ao salvar observação');
     }
   };
 
@@ -1050,6 +1125,17 @@ const AdminDashboard = () => {
                             ALERTA
                           </button>
                           <button
+                            onClick={() => toggleBookingBlock(establishment.id, establishment.booking_blocked || false)}
+                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
+                              establishment.booking_blocked
+                                ? 'text-red-600 border-red-300 bg-red-50 hover:bg-red-100'
+                                : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+                            }`}
+                            title={establishment.booking_blocked ? 'Desbloquear PG' : 'Bloquear PG'}
+                          >
+                            Bloquear PG
+                          </button>
+                          <button
                             onClick={() => togglePromotion(establishment.id, establishment.promotion_enabled || false)}
                             className={`text-xs px-2 py-0.5 border rounded font-medium ${
                               establishment.promotion_enabled
@@ -1080,6 +1166,18 @@ const AdminDashboard = () => {
                             title="Marcar Vencido"
                           >
                             Venc
+                          </button>
+                          <button
+                            onClick={() => openNotesModal(establishment)}
+                            className={`text-xs px-2 py-0.5 border rounded flex items-center gap-1 ${
+                              establishment.admin_notes
+                                ? 'text-blue-600 border-blue-300 bg-blue-50 hover:bg-blue-100'
+                                : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+                            }`}
+                            title={establishment.admin_notes ? 'Ver/Editar Observação' : 'Adicionar Observação'}
+                          >
+                            <FileText className="h-3 w-3" />
+                            {establishment.admin_notes && <span className="text-[10px]">Obs</span>}
                           </button>
                           <button
                             onClick={() => toggleBlockEstablishment(establishment.id, establishment.is_blocked || false)}
@@ -1262,6 +1360,69 @@ const AdminDashboard = () => {
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Observações */}
+      {showNotesModal && editingEstablishment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Observações - {editingEstablishment.name}</h2>
+                <p className="text-sm text-gray-500 mt-1">Código: {editingEstablishment.code}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowNotesModal(false);
+                  setEditingEstablishment(null);
+                  setNotesText('');
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Observações Privadas
+                  </label>
+                  <textarea
+                    value={notesText}
+                    onChange={(e) => setNotesText(e.target.value)}
+                    placeholder="Digite suas observações sobre este estabelecimento (valores pagos, informações importantes, etc)..."
+                    className="w-full h-64 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-sm text-gray-900 bg-white"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    Estas observações são privadas e visíveis apenas para você no painel admin.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 bg-gray-50">
+              <button
+                onClick={() => {
+                  setShowNotesModal(false);
+                  setEditingEstablishment(null);
+                  setNotesText('');
+                }}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveNotes}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+              >
+                <FileText className="h-4 w-4" />
+                Salvar Observação
               </button>
             </div>
           </div>
