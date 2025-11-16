@@ -426,6 +426,17 @@ export function AppointmentForm({
       setSelectedServices([]);
     }
   }, [establishment?.id, establishment?.services_with_prices]);
+
+  // ✅ NOVO: Auto-selecionar categoria única quando categorias são carregadas e profissional já está selecionado
+  useEffect(() => {
+    if (selectedProfessional && serviceCategories.length === 1 && !selectedCategory) {
+      const singleCategory = serviceCategories[0];
+      setUseCategoryService(true);
+      setUseMultiService(false);
+      setSelectedCategory(singleCategory.id);
+      console.log('✅ Auto-selecionando categoria única após carregar:', singleCategory.name);
+    }
+  }, [serviceCategories, selectedProfessional, selectedCategory]);
   const [isLoading, setIsLoading] = useState(false);
 
   // Função para scroll automático para a próxima seção
@@ -482,7 +493,21 @@ export function AppointmentForm({
 
     // Buscar serviços específicos do profissional selecionado
     const professional = establishment?.professionals?.find(p => p.id === selectedProfessional.id);
-    const specificServices = (professional as any)?.specific_services || [];
+
+    // ✅ CORRIGIDO: Verificar se specific_services existe, é um array e não está vazio
+    const specificServices = professional && (professional as any).specific_services
+      ? (Array.isArray((professional as any).specific_services)
+        ? (professional as any).specific_services.filter((s: any) => s && s.id && s.name) // Filtrar serviços válidos
+        : [])
+      : [];
+
+    console.log('🔧 DEBUG getCombinedServices:', {
+      professionalId: selectedProfessional.id,
+      professionalName: professional?.name,
+      specificServicesCount: specificServices.length,
+      specificServices: specificServices,
+      generalServicesCount: generalServices.length
+    });
 
     // ✅ MODIFICADO: Mostrar serviços específicos mesmo se não houver serviços gerais
     const combinedServices = [
@@ -926,9 +951,35 @@ export function AppointmentForm({
     return <div>Erro: Dados do estabelecimento não disponíveis</div>;
   }
 
-  // ✅ MODIFICADO: Verificar se há serviços gerais OU serviços específicos de QUALQUER profissional
+  // ✅ MODIFICADO: Verificar se há serviços gerais OU serviços específicos do PROFISSIONAL SELECIONADO
   const hasGeneralServices = establishment.services_with_prices && establishment.services_with_prices.length > 0;
-  const hasSpecificServices = establishment.professionals?.some(p => (p as any).specific_services && (p as any).specific_services.length > 0);
+
+  // Verificar serviços específicos apenas do profissional selecionado
+  const selectedProfessionalData = selectedProfessional
+    ? establishment.professionals?.find(p => p.id === selectedProfessional.id)
+    : null;
+
+  // ✅ CORRIGIDO: Verificação mais robusta - garantir que é array válido e não vazio
+  const hasSpecificServices = selectedProfessionalData
+    ? (selectedProfessionalData as any).specific_services &&
+    Array.isArray((selectedProfessionalData as any).specific_services) &&
+    (selectedProfessionalData as any).specific_services.length > 0 &&
+    (selectedProfessionalData as any).specific_services.some((s: any) => s && s.id && s.name) // Verificar se há pelo menos um serviço válido
+    : false;
+
+  console.log('🔧 DEBUG hasSpecificServices:', {
+    selectedProfessionalId: selectedProfessional?.id,
+    selectedProfessionalName: selectedProfessional?.name,
+    hasSpecificServices,
+    hasGeneralServices,
+    specificServices: selectedProfessionalData ? (selectedProfessionalData as any).specific_services : null,
+    generalServicesCount: establishment.services_with_prices?.length || 0
+  });
+
+  // ✅ CORRIGIDO: Mostrar botão "Escolha 1 ou mais serviços" APENAS se houver serviços específicos
+  // Se não houver serviços específicos, mostrar apenas "SERVIÇOS EM CATEGORIA"
+  const shouldShowMultiServiceButton = hasSpecificServices; // Apenas serviços específicos
+
   const hasAnyServices = hasGeneralServices || hasSpecificServices || useCategoryService;
 
   // Só verificar serviços se não estiver usando categorias E não houver nenhum serviço disponível
@@ -1805,10 +1856,16 @@ export function AppointmentForm({
               setSelectedSubcategory(undefined);
               setSelectedCategoryServices([]);
 
-              // ✅ NÃO LIMPAR OS MODOS (useMultiService, useCategoryService)
-              // Isso mantém a interface funcionando
-
               setSelectedProfessional(professional || undefined);
+
+              // ✅ NOVO: Se houver apenas 1 categoria, selecionar automaticamente
+              if (professional && serviceCategories.length === 1) {
+                const singleCategory = serviceCategories[0];
+                setUseCategoryService(true);
+                setUseMultiService(false);
+                setSelectedCategory(singleCategory.id);
+                console.log('✅ Auto-selecionando categoria única:', singleCategory.name);
+              }
 
               // Scroll automático para a próxima seção após selecionar profissional
               if (professional) {
@@ -1831,8 +1888,8 @@ export function AppointmentForm({
 
             {/* Toggle para escolher entre seleção única, múltipla ou categorias */}
             <div className="mb-4 flex gap-2">
-              {/* ✅ MODIFICADO: Mostrar apenas "Escolha 1 ou mais serviços" se houver serviços gerais OU específicos */}
-              {(hasGeneralServices || hasSpecificServices) && (
+              {/* ✅ CORRIGIDO: Mostrar "Escolha 1 ou mais serviços" APENAS se houver serviços específicos do profissional */}
+              {shouldShowMultiServiceButton && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1872,7 +1929,7 @@ export function AppointmentForm({
             {/* Renderizar componente apropriado */}
             {useMultiService ? (
               <MultiServiceSelector
-                services={getCombinedServices()}
+                services={getCombinedServices().filter((service: any) => service && service.id && service.name)} // ✅ Filtrar serviços inválidos
                 selectedServices={selectedServices}
                 onSelectServices={(services) => {
                   setSelectedServices(services);

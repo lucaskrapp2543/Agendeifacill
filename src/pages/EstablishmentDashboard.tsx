@@ -1926,7 +1926,9 @@ const EstablishmentDashboard = () => {
           percentage: localProfessional.percentage || 100,
           photo_url: (localProfessional as any).photo_url || dbProfessional.photo_url || null,
           whatsapp: localProfessional.whatsapp || dbProfessional.whatsapp || null,
-          specific_services: (localProfessional as any).specific_services || dbProfessional.specific_services || [],
+          specific_services: Array.isArray((localProfessional as any).specific_services) 
+            ? (localProfessional as any).specific_services 
+            : (Array.isArray(dbProfessional.specific_services) ? dbProfessional.specific_services : []),
           offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
           work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
           absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
@@ -2153,7 +2155,7 @@ const EstablishmentDashboard = () => {
           percentage: p.percentage || 100, // Manter o percentual
           photo_url: (p as any).photo_url, // Preservar a foto do profissional
           whatsapp: p.whatsapp || null, // ✅ PRESERVAR WHATSAPP!
-          specific_services: (p as any).specific_services || [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
+          specific_services: Array.isArray((p as any).specific_services) ? (p as any).specific_services : [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
           offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
           work_hours: p.work_hours || null, // PRESERVAR horários de trabalho personalizados
           absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
@@ -3062,7 +3064,9 @@ Estamos te aguardando! 😎✂️`;
         // ✅ CORRIGIDO: Carrega os profissionais preservando TODOS os campos existentes
         const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: any) => ({
           ...prof, // ✅ Preserva TODOS os campos existentes (incluindo specific_services, whatsapp, etc.)
-          percentage: prof.percentage !== undefined ? prof.percentage : 100 // Só usar 100 se realmente não existir
+          percentage: prof.percentage !== undefined ? prof.percentage : 100, // Só usar 100 se realmente não existir
+          // ✅ IMPORTANTE: Garantir que specific_services seja sempre um array (mesmo que vazio)
+          specific_services: Array.isArray(prof.specific_services) ? prof.specific_services : []
         }));
 
         console.log('🔧 DEBUG - Carregando profissionais:', professionalsWithPercentage);
@@ -5854,9 +5858,10 @@ Estamos te aguardando! 😎✂️`;
 
     try {
       // Atualizar o profissional com os novos serviços específicos
+      // ✅ IMPORTANTE: Garantir que sempre seja um array (mesmo que vazio) e nunca null/undefined
       const updatedProfessionals = professionals.map(professional =>
         professional.id === selectedProfessionalForSpecificService
-          ? { ...professional, specific_services: services }
+          ? { ...professional, specific_services: Array.isArray(services) ? services : [] }
           : professional
       );
 
