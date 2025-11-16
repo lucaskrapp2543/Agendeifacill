@@ -37,10 +37,16 @@ export const TimeSelector: React.FC<TimeSelectorProps> = ({
 
   const timeOptions = generateTimeOptions();
 
+  // Garantir que o valor seja uma string válida ou vazia
+  const selectValue = value && value !== 'null' ? value : '';
+
   return (
     <select
-      value={value || ''}
-      onChange={(e) => onChange(e.target.value || null)}
+      value={selectValue}
+      onChange={(e) => {
+        const newValue = e.target.value;
+        onChange(newValue === '' ? null : newValue);
+      }}
       disabled={disabled}
       className={`input-field ${className}`}
     >

@@ -119,3 +119,4 @@ console.log('🔍 DEBUG - Estrutura dos agendamentos:', appointmentsData.map(apt
 
 
 
+

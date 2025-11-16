@@ -37,8 +37,8 @@ interface BusinessHours {
   enabled: boolean;
   open1: string;
   close1: string;
-  open2: string;
-  close2: string;
+  open2: string | null;
+  close2: string | null;
 }
 
 interface Professional {
@@ -413,15 +413,15 @@ const EstablishmentDashboard = () => {
   }, []);
 
   // Estados de horários e profissionais
-  // Horários padrão para novos estabelecimentos: intervalo 12:00-12:01, fechamento 19:00
+  // Horários padrão para novos estabelecimentos: todos os horários em 00:00
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
-    monday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-    tuesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-    wednesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-    thursday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-    friday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-    saturday: { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-    sunday: { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' }
+    monday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    tuesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    wednesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    thursday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    friday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    saturday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    sunday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' }
   });
 
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -3112,13 +3112,13 @@ Estamos te aguardando! 😎✂️`;
         // Horários padrão para novos estabelecimentos (onboarding_step < 4)
         const isNewEstablishment = (establishmentData.onboarding_step ?? 4) < 4;
         const defaultBusinessHoursForNew = {
-          monday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-          tuesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-          wednesday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-          thursday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-          friday: { enabled: true, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-          saturday: { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' },
-          sunday: { enabled: false, open1: '09:00', close1: '12:00', open2: '12:01', close2: '19:00' }
+          monday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+          tuesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+          wednesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+          thursday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+          friday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+          saturday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+          sunday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' }
         };
         
         // Horários padrão para estabelecimentos antigos
@@ -3145,12 +3145,13 @@ Estamos te aguardando! 😎✂️`;
             const dayHours = hours?.[day] || {};
             const defaultDay = defaults[day];
             
+            // Garantir que valores null ou vazios sejam convertidos para strings válidas
             normalized[day] = {
               enabled: dayHours?.enabled ?? defaultDay.enabled,
-              open1: dayHours?.open1 || defaultDay.open1,
-              close1: dayHours?.close1 || defaultDay.close1,
-              open2: dayHours?.open2 || defaultDay.open2,
-              close2: dayHours?.close2 || defaultDay.close2
+              open1: (dayHours?.open1 && dayHours.open1 !== 'null') ? dayHours.open1 : defaultDay.open1,
+              close1: (dayHours?.close1 && dayHours.close1 !== 'null') ? dayHours.close1 : defaultDay.close1,
+              open2: (dayHours?.open2 && dayHours.open2 !== 'null') ? dayHours.open2 : defaultDay.open2,
+              close2: (dayHours?.close2 && dayHours.close2 !== 'null') ? dayHours.close2 : defaultDay.close2
             };
           });
           
@@ -9419,6 +9420,14 @@ Estamos te aguardando! 😎✂️`;
                   {/* Horário de Funcionamento */}
                   <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                     <h3 className="text-lg font-medium text-white mb-4">Horário de Funcionamento</h3>
+                    
+                    {/* Alerta sobre intervalo */}
+                    <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
+                      <p className="text-sm text-yellow-200">
+                        <span className="font-semibold">⚠️ Atenção:</span> É obrigatório colocar horário de intervalo. Se você não tira intervalo, deixe "Fecha p/ Intervalo" às 12:00 e "Reabertura" às 12:00.
+                      </p>
+                    </div>
+                    
                     <div className="space-y-4">
                       {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
                         const hours = businessHours[day];
@@ -9485,7 +9494,7 @@ Estamos te aguardando! 😎✂️`;
                                     Reabertura
                                   </label>
                                   <TimeSelector
-                                    value={hours.open2}
+                                    value={hours.open2 || null}
                                     onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
                                     disabled={!hours.enabled}
                                     className="w-full"
@@ -9496,7 +9505,7 @@ Estamos te aguardando! 😎✂️`;
                                     Fechamento
                                   </label>
                                   <TimeSelector
-                                    value={hours.close2}
+                                    value={hours.close2 || null}
                                     onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
                                     disabled={!hours.enabled}
                                     className="w-full"
@@ -9506,7 +9515,7 @@ Estamos te aguardando! 😎✂️`;
 
                               {/* Resumo visual dos horários */}
                               <div className="mt-3 p-2 bg-[#1a1b1c] rounded text-sm text-primary">
-                                <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} e {hours.open2} - {hours.close2}
+                                <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} {hours.open2 && hours.close2 ? `e ${hours.open2} - ${hours.close2}` : ''}
                               </div>
                             </div>
                           )}
