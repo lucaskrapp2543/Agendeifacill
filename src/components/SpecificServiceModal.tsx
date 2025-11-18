@@ -125,6 +125,13 @@ export function SpecificServiceModal({
             </p>
           </div>
 
+          {/* Mensagem destacada */}
+          <div className="mb-6 p-4 bg-yellow-900/30 border border-yellow-600 rounded-lg">
+            <p className="text-yellow-200 text-sm font-semibold">
+              ⚠️ Se você é o único profissional, não precisa adicionar serviços aqui, e apenas se o profissional faz um serviço que outros não fazem.
+            </p>
+          </div>
+
           {/* Lista de serviços existentes */}
           {services.length > 0 && (
             <div className="mb-6">

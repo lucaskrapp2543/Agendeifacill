@@ -239,6 +239,7 @@ interface Client {
   appointmentCount: number;
   isSubscriber: boolean; // Nova propriedade
   birthday: string | null; // Campo de aniversário
+  alert?: string | null; // Campo de alerta/anotação (máximo 100 caracteres)
 }
 
 interface Subscription {
@@ -295,6 +296,8 @@ const EstablishmentDashboard = () => {
   const [showBirthdayFilter, setShowBirthdayFilter] = useState(false);
   const [editingClientBirthday, setEditingClientBirthday] = useState<string | null>(null);
   const [newBirthday, setNewBirthday] = useState('');
+  const [editingClientAlert, setEditingClientAlert] = useState<string | null>(null);
+  const [newAlert, setNewAlert] = useState('');
 
   // Estados para adicionar cliente manualmente
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -343,6 +346,14 @@ const EstablishmentDashboard = () => {
   const [socialMediaLink, setSocialMediaLink] = useState('');
   const [pixPaymentLink, setPixPaymentLink] = useState('');
   const [locationLink, setLocationLink] = useState(''); // Novo estado para o link do local
+  
+  // ✅ Refs para debounce do auto-save
+  const linksAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const amenitiesAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scheduleConfigAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const businessHoursAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const paymentConfigAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const paymentMethodsAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [hasWifi, setHasWifi] = useState(false); // Novo estado para Wi-fi
   const [hasParking, setHasParking] = useState(false); // Novo estado para Estacionamento
   const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
@@ -571,6 +582,7 @@ const EstablishmentDashboard = () => {
 
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pinPassword, setPinPassword] = useState('');
+  const [showSavePinConfirmModal, setShowSavePinConfirmModal] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
   const [isConfigUnlocked, setIsConfigUnlocked] = useState(false);
 
@@ -1766,18 +1778,46 @@ const EstablishmentDashboard = () => {
     e.target.value = '';
   };
 
+  // Ref para rastrear se há mudanças não salvas nos horários
+  const unsavedBusinessHoursRef = useRef<Record<string, BusinessHours> | null>(null);
+
   const handleBusinessHoursChange = (
     day: keyof typeof businessHours,
     field: 'enabled' | 'open1' | 'close1' | 'open2' | 'close2',
     value: string | boolean | null
   ) => {
-    setBusinessHours(prev => ({
-      ...prev,
+    console.log('🕐 handleBusinessHoursChange chamado:', { day, field, value });
+    
+    const updatedHours = {
+      ...businessHours,
       [day]: {
-        ...prev[day],
+        ...businessHours[day],
         [field]: value
       }
-    }));
+    };
+    
+    console.log('🕐 Horários atualizados:', updatedHours);
+    
+    setBusinessHours(updatedHours);
+    
+    // Salvar referência para salvar antes de sair da página
+    unsavedBusinessHoursRef.current = updatedHours;
+    
+    // CANCELAR qualquer timeout anterior
+    if (businessHoursAutoSaveTimeoutRef.current) {
+      clearTimeout(businessHoursAutoSaveTimeoutRef.current);
+      businessHoursAutoSaveTimeoutRef.current = null;
+    }
+    
+    // SALVAR IMEDIATAMENTE - sem debounce!
+    console.log('💾 SALVANDO IMEDIATAMENTE...');
+    autoSaveBusinessHours(updatedHours).then(() => {
+      console.log('✅ Salvo com sucesso!');
+      unsavedBusinessHoursRef.current = null;
+    }).catch((error) => {
+      console.error('❌ Erro ao salvar:', error);
+      // Manter a referência para tentar salvar novamente
+    });
   };
 
   const handleAddProfessional = async () => {
@@ -3142,16 +3182,18 @@ Estamos te aguardando! 😎✂️`;
           return normalized;
         };
         
-        // Se é novo estabelecimento, sempre usar horários padrão novos (mesmo se tiver salvos)
-        if (isNewEstablishment) {
-          setBusinessHours(defaultBusinessHoursForNew);
-        } else if (!businessHoursFromDB) {
-          // Estabelecimento antigo sem horários salvos, usar padrão antigo
-          setBusinessHours(defaultBusinessHoursForOld);
-        } else {
-          // Para estabelecimentos antigos, normalizar horários salvos preenchendo campos vazios
-          const normalized = normalizeBusinessHours(businessHoursFromDB, defaultBusinessHoursForOld);
+        // SEMPRE carregar horários do banco se existirem, independente de ser novo ou antigo
+        if (businessHoursFromDB) {
+          // Usar horários salvos no banco, normalizando campos vazios/null
+          const defaultHours = isNewEstablishment ? defaultBusinessHoursForNew : defaultBusinessHoursForOld;
+          const normalized = normalizeBusinessHours(businessHoursFromDB, defaultHours);
+          console.log('✅ Carregando horários do banco de dados:', normalized);
           setBusinessHours(normalized);
+        } else {
+          // Só usar padrão se não houver horários salvos
+          const defaultHours = isNewEstablishment ? defaultBusinessHoursForNew : defaultBusinessHoursForOld;
+          console.log('⚠️ Nenhum horário salvo, usando padrão:', defaultHours);
+          setBusinessHours(defaultHours);
         }
 
         // Carrega as URLs das fotos personalizadas para pré-visualização
@@ -4212,6 +4254,104 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  // Função para salvar alerta do cliente
+  const saveAlert = async (clientWhatsapp: string, alert: string) => {
+    try {
+      console.log('⚠️ Salvando alerta:', { clientWhatsapp, alert });
+
+      // Buscar o cliente na lista local pelo WhatsApp para pegar o nome
+      const client = clients.find(c => c.whatsapp === clientWhatsapp);
+      if (!client) {
+        toast('Cliente não encontrado.', 'error');
+        return;
+      }
+
+      // Validar tamanho máximo
+      if (alert.length > 100) {
+        toast('O alerta deve ter no máximo 100 caracteres.', 'error');
+        return;
+      }
+
+      // 1. Tentar salvar no Supabase
+      try {
+        const { data, error } = await supabase
+          .from('client_alerts')
+          .upsert({
+            establishment_id: establishment?.id,
+            client_whatsapp: clientWhatsapp,
+            client_name: client.name,
+            alert: alert.trim() || null
+          }, {
+            onConflict: 'establishment_id,client_whatsapp'
+          });
+
+        if (error) throw error;
+
+        console.log('✅ Alerta salvo no Supabase:', data);
+        toast('Alerta atualizado com sucesso!', 'success');
+
+      } catch (supabaseError: any) {
+        console.warn('⚠️ Erro ao salvar no Supabase, usando localStorage:', supabaseError.message);
+
+        // 2. Fallback: Salvar no localStorage se Supabase falhar
+        const storageKey = `client_alerts_${establishment?.id}`;
+        const savedAlerts = JSON.parse(localStorage.getItem(storageKey) || '{}');
+
+        savedAlerts[client.whatsapp] = {
+          name: client.name,
+          alert: alert.trim() || null,
+          savedAt: new Date().toISOString()
+        };
+
+        localStorage.setItem(storageKey, JSON.stringify(savedAlerts));
+        console.log('✅ Alerta salvo no localStorage (fallback)');
+        toast('Alerta atualizado com sucesso!', 'success');
+      }
+
+      setEditingClientAlert(null);
+      setNewAlert('');
+
+      // Recarregar a lista para mostrar o alerta
+      fetchClients();
+
+    } catch (error: any) {
+      console.error('❌ Erro ao salvar alerta:', error);
+      toast(error.message || 'Erro ao salvar alerta', 'error');
+    }
+  };
+
+  // Função para carregar alertas do Supabase
+  const loadAlertsFromSupabase = async (): Promise<Record<string, { alert: string; name: string }>> => {
+    if (!establishment?.id) return {};
+
+    try {
+      const { data, error } = await supabase
+        .from('client_alerts')
+        .select('client_whatsapp, client_name, alert')
+        .eq('establishment_id', establishment.id);
+
+      if (error) throw error;
+
+      // Converter array para objeto indexado por whatsapp
+      const alertsMap: Record<string, { alert: string; name: string }> = {};
+      data?.forEach(item => {
+        if (item.alert) {
+          alertsMap[item.client_whatsapp] = {
+            alert: item.alert,
+            name: item.client_name
+          };
+        }
+      });
+
+      console.log('⚠️ Alertas carregados do Supabase:', alertsMap);
+      return alertsMap;
+
+    } catch (error: any) {
+      console.warn('⚠️ Erro ao carregar alertas do Supabase:', error.message);
+      return {};
+    }
+  };
+
   // Função para carregar aniversários do Supabase
   const loadBirthdaysFromSupabase = async (): Promise<Record<string, { birthday: string; name: string }>> => {
     if (!establishment?.id) return {};
@@ -4248,6 +4388,25 @@ Estamos te aguardando! 😎✂️`;
 
     const storageKey = `client_birthdays_${establishment.id}`;
     return JSON.parse(localStorage.getItem(storageKey) || '{}');
+  };
+
+  // Função para carregar alertas do localStorage (fallback)
+  const loadAlertsFromStorage = () => {
+    if (!establishment?.id) return {};
+
+    const storageKey = `client_alerts_${establishment.id}`;
+    const alerts = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    // Converter para o formato esperado
+    const alertsMap: Record<string, { alert: string; name: string }> = {};
+    Object.entries(alerts).forEach(([whatsapp, data]: [string, any]) => {
+      if (data.alert) {
+        alertsMap[whatsapp] = {
+          alert: data.alert,
+          name: data.name
+        };
+      }
+    });
+    return alertsMap;
   };
 
   // Função para carregar clientes manuais do localStorage
@@ -5098,11 +5257,28 @@ Estamos te aguardando! 😎✂️`;
         }
       });
 
+      // Carregar alertas do Supabase primeiro, depois localStorage como fallback
+      const supabaseAlerts = await loadAlertsFromSupabase();
+      const localAlerts = loadAlertsFromStorage();
+
+      // Mesclar: Supabase tem prioridade
+      const allAlerts = { ...localAlerts, ...supabaseAlerts };
+      console.log('⚠️ Alertas mesclados (Supabase + localStorage):', allAlerts);
+
+      uniqueClients.forEach(client => {
+        const savedAlert = allAlerts[client.whatsapp];
+        if (savedAlert) {
+          client.alert = savedAlert.alert;
+          console.log(`⚠️ Alerta aplicado ao cliente ${client.name}:`, savedAlert.alert);
+        }
+      });
+
       console.log('🔍 Clientes finais processados:', uniqueClients.map(c => ({
         name: c.name,
         id: c.id,
         isSubscriber: c.isSubscriber,
-        birthday: c.birthday
+        birthday: c.birthday,
+        alert: c.alert
       })));
 
       setClients(uniqueClients);
@@ -5310,18 +5486,30 @@ Estamos te aguardando! 😎✂️`;
       return;
     }
 
-    // Alternar o método
-    if (paymentMethodsEnabled.includes(method)) {
-      // Remover
-      setPaymentMethodsEnabled(paymentMethodsEnabled.filter(m => m !== method));
-    } else {
-      // Adicionar
-      setPaymentMethodsEnabled([...paymentMethodsEnabled, method]);
+    // Calcular novo array de métodos
+    const newMethods = paymentMethodsEnabled.includes(method)
+      ? paymentMethodsEnabled.filter(m => m !== method)
+      : [...paymentMethodsEnabled, method];
+    
+    // Atualizar estado
+    setPaymentMethodsEnabled(newMethods);
+    
+    // Auto-save com debounce usando o novo array
+    if (paymentMethodsAutoSaveTimeoutRef.current) {
+      clearTimeout(paymentMethodsAutoSaveTimeoutRef.current);
     }
+    paymentMethodsAutoSaveTimeoutRef.current = setTimeout(() => {
+      autoSavePaymentMethods(newMethods);
+    }, 1000);
   };
 
   // Função para salvar a senha
-  const handleSavePin = async () => {
+  const handleSavePin = () => {
+    // Mostrar modal de confirmação primeiro
+    setShowSavePinConfirmModal(true);
+  };
+
+  const handleConfirmSavePin = async () => {
     if (!establishment) return;
 
     try {
@@ -5342,6 +5530,7 @@ Estamos te aguardando! 😎✂️`;
       });
 
       toast.success(finalPassword ? 'Senha salva com sucesso!' : 'Proteção por senha removida com sucesso!');
+      setShowSavePinConfirmModal(false);
     } catch (error) {
       console.error('Erro ao salvar senha:', error);
       toast.error('Erro ao salvar senha');
@@ -5897,6 +6086,313 @@ Estamos te aguardando! 😎✂️`;
       toast.error('Erro ao salvar serviços específicos');
     }
   };
+
+  // ✅ Função de auto-save para links personalizados (salva automaticamente após 1 segundo sem digitar)
+  const autoSaveLinks = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          review_link: reviewLink.trim(),
+          social_media_link: socialMediaLink.trim(),
+          pix_payment_link: pixPaymentLink.trim(),
+          location_link: locationLink.trim()
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar links automaticamente:', error);
+        return;
+      }
+
+      console.log('✅ Links salvos automaticamente');
+      
+      // Atualizar o estado do establishment para manter sincronizado
+      setEstablishment({
+        ...establishment,
+        review_link: reviewLink.trim(),
+        social_media_link: socialMediaLink.trim(),
+        pix_payment_link: pixPaymentLink.trim(),
+        location_link: locationLink.trim()
+      });
+    } catch (error) {
+      console.error('❌ Erro ao salvar links automaticamente:', error);
+    }
+  }, [establishment, reviewLink, socialMediaLink, pixPaymentLink, locationLink]);
+
+  // ✅ Auto-save para Comodidades
+  const autoSaveAmenities = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          has_wifi: hasWifi,
+          has_parking: hasParking,
+          has_accessibility: hasAccessibility,
+          has_air_conditioning: hasAirConditioning,
+          wifi_password: wifiPassword.trim(),
+          wifi_network_name: wifiNetworkName.trim(),
+          require_cancellation_request: requireCancellationRequest,
+          prevent_same_day_reschedule: preventSameDayReschedule,
+          require_cpf: requireCpf,
+          enable_whatsapp_notifications: enableWhatsAppNotifications
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar comodidades automaticamente:', error);
+        return;
+      }
+
+      console.log('✅ Comodidades salvas automaticamente');
+      
+      setEstablishment({
+        ...establishment,
+        has_wifi: hasWifi,
+        has_parking: hasParking,
+        has_accessibility: hasAccessibility,
+        has_air_conditioning: hasAirConditioning,
+        wifi_password: wifiPassword.trim(),
+        wifi_network_name: wifiNetworkName.trim(),
+        require_cancellation_request: requireCancellationRequest,
+        prevent_same_day_reschedule: preventSameDayReschedule,
+        require_cpf: requireCpf,
+        enable_whatsapp_notifications: enableWhatsAppNotifications
+      });
+    } catch (error) {
+      console.error('❌ Erro ao salvar comodidades automaticamente:', error);
+    }
+  }, [establishment, hasWifi, hasParking, hasAccessibility, hasAirConditioning, wifiPassword, wifiNetworkName, requireCancellationRequest, preventSameDayReschedule, requireCpf, enableWhatsAppNotifications]);
+
+  // ✅ Auto-save para Configuração de Horários
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; showBestOfBrazilImage?: boolean }) => {
+    if (!establishment?.id) return;
+
+    const configToSave = {
+      use15MinuteInterval: config?.use15MinuteInterval ?? use15MinuteInterval,
+      use20MinuteSchedule: config?.use20MinuteSchedule ?? use20MinuteSchedule,
+      showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage
+    };
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          use_15_minute_interval: configToSave.use15MinuteInterval,
+          use_20_minute_schedule: configToSave.use20MinuteSchedule,
+          show_best_of_brazil_image: configToSave.showBestOfBrazilImage
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
+        return;
+      }
+
+      console.log('✅ Configuração de horários salva automaticamente', configToSave);
+      
+      setEstablishment({
+        ...establishment,
+        use_15_minute_interval: configToSave.use15MinuteInterval,
+        use_20_minute_schedule: configToSave.use20MinuteSchedule,
+        show_best_of_brazil_image: configToSave.showBestOfBrazilImage
+      });
+    } catch (error) {
+      console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
+    }
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, showBestOfBrazilImage]);
+
+  // ✅ Auto-save para Horário de Funcionamento
+  const autoSaveBusinessHours = useCallback(async (hours: Record<string, BusinessHours>): Promise<void> => {
+    if (!establishment?.id) {
+      console.warn('⚠️ Estabelecimento não encontrado, não é possível salvar horários');
+      return Promise.resolve();
+    }
+
+    if (!hours) {
+      console.warn('⚠️ Horários não fornecidos, não é possível salvar');
+      return Promise.resolve();
+    }
+
+    console.log('💾 Salvando horários de funcionamento:', hours);
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          business_hours: hours
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar horário de funcionamento automaticamente:', error);
+        toast('Erro ao salvar horários automaticamente', 'error');
+        return Promise.reject(error);
+      }
+
+      console.log('✅ Horário de funcionamento salvo automaticamente');
+      
+      setEstablishment({
+        ...establishment,
+        business_hours: hours
+      });
+
+      // Limpar referência de não salvos após sucesso
+      unsavedBusinessHoursRef.current = null;
+      
+      return Promise.resolve();
+    } catch (error) {
+      console.error('❌ Erro ao salvar horário de funcionamento automaticamente:', error);
+      toast('Erro ao salvar horários automaticamente', 'error');
+      return Promise.reject(error);
+    }
+  }, [establishment]);
+
+  // ✅ Auto-save para Configurações de Pagamento
+  const autoSavePaymentConfig = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          credit_card_tax_percentage: creditCardTaxPercentage,
+          debit_card_tax_percentage: debitCardTaxPercentage,
+          card_brand_taxes: cardBrandTaxes
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar configurações de pagamento automaticamente:', error);
+        return;
+      }
+
+      console.log('✅ Configurações de pagamento salvas automaticamente');
+      
+      setEstablishment({
+        ...establishment,
+        credit_card_tax_percentage: creditCardTaxPercentage,
+        debit_card_tax_percentage: debitCardTaxPercentage,
+        card_brand_taxes: cardBrandTaxes
+      });
+    } catch (error) {
+      console.error('❌ Erro ao salvar configurações de pagamento automaticamente:', error);
+    }
+  }, [establishment, creditCardTaxPercentage, debitCardTaxPercentage, cardBrandTaxes]);
+
+  // ✅ Auto-save para Formas de Pagamento Disponíveis
+  const autoSavePaymentMethods = useCallback(async (methods?: string[]) => {
+    if (!establishment?.id) return;
+
+    const methodsToSave = methods || paymentMethodsEnabled;
+
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          payment_methods_enabled: methodsToSave
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar formas de pagamento automaticamente:', error);
+        return;
+      }
+
+      console.log('✅ Formas de pagamento salvas automaticamente');
+      
+      setEstablishment({
+        ...establishment,
+        payment_methods_enabled: methodsToSave
+      });
+    } catch (error) {
+      console.error('❌ Erro ao salvar formas de pagamento automaticamente:', error);
+    }
+  }, [establishment, paymentMethodsEnabled]);
+
+  // ✅ Salvar horários antes de sair da página
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Se há horários não salvos, tentar salvar usando fetch com keepalive
+      if (unsavedBusinessHoursRef.current && establishment?.id) {
+        console.log('🚨 ANTES DE SAIR - Salvando horários...');
+        
+        const hoursToSave = unsavedBusinessHoursRef.current;
+        
+        // Usar fetch com keepalive para garantir que a requisição seja enviada
+        supabase
+          .from('establishments')
+          .update({ business_hours: hoursToSave })
+          .eq('id', establishment.id)
+          .then(({ error }) => {
+            if (error) {
+              console.error('❌ Erro ao salvar no beforeunload:', error);
+            } else {
+              console.log('✅ Salvo no beforeunload!');
+            }
+          })
+          .catch(err => console.error('Erro:', err));
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      // Salvar quando a página está sendo escondida (mudança de aba, minimizar, etc)
+      if (document.hidden && unsavedBusinessHoursRef.current && establishment?.id) {
+        console.log('👁️ Página escondida, salvando horários...');
+        autoSaveBusinessHours(unsavedBusinessHoursRef.current).then(() => {
+          unsavedBusinessHoursRef.current = null;
+        });
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      
+      // Salvar ao desmontar o componente também
+      if (unsavedBusinessHoursRef.current && establishment?.id) {
+        console.log('🔄 Componente desmontando, salvando horários...');
+        autoSaveBusinessHours(unsavedBusinessHoursRef.current);
+      }
+    };
+  }, [establishment, autoSaveBusinessHours]);
+
+  // ✅ Cleanup dos timeouts quando o componente desmontar
+  useEffect(() => {
+    return () => {
+      if (linksAutoSaveTimeoutRef.current) {
+        clearTimeout(linksAutoSaveTimeoutRef.current);
+      }
+      if (amenitiesAutoSaveTimeoutRef.current) {
+        clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+      }
+      if (scheduleConfigAutoSaveTimeoutRef.current) {
+        clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+      }
+      if (businessHoursAutoSaveTimeoutRef.current) {
+        // Se há timeout pendente, executar imediatamente antes de limpar
+        if (unsavedBusinessHoursRef.current && establishment?.id) {
+          console.log('⏰ Executando save pendente antes de limpar timeout...');
+          autoSaveBusinessHours(unsavedBusinessHoursRef.current);
+          unsavedBusinessHoursRef.current = null;
+        }
+        clearTimeout(businessHoursAutoSaveTimeoutRef.current);
+      }
+      if (paymentConfigAutoSaveTimeoutRef.current) {
+        clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+      }
+      if (paymentMethodsAutoSaveTimeoutRef.current) {
+        clearTimeout(paymentMethodsAutoSaveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSaveGoal = async (goalAmount: number, selectedServices: string[]) => {
     if (!selectedProfessionalForGoal || !establishment) return;
@@ -9014,66 +9510,6 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Seção de Link do Estabelecimento */}
-                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 mb-6 border border-emerald-400/50">
-                    {/* Header */}
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
-                        <LinkIcon className="h-5 w-5 text-white" />
-                      </div>
-                      <h3 className="text-lg font-semibold text-emerald-400">
-                        🌐 Sua Página de Agendamentos
-                      </h3>
-                    </div>
-
-                    {/* Texto explicativo */}
-                    <p className="text-white mb-4 text-sm leading-relaxed font-medium">
-                      Aqui você edita sua página de agendamentos, onde os clientes acessam para agendar com você.
-                      Seu link para seus clientes é:
-                    </p>
-
-                    {/* Link Box - Organizado para mobile */}
-                    <div className="bg-[#1a1b1c] rounded-lg p-4 border border-gray-700 mb-4">
-                      <p className="text-emerald-400 font-medium text-sm mb-3">Link do Estabelecimento:</p>
-
-                      {/* Link principal */}
-                      <div className="bg-gray-800 rounded-lg p-3 mb-3">
-                        <code className="text-green-400 font-mono text-sm block break-all">
-                          agendeifacil.com/booking/{establishment?.code}
-                        </code>
-                      </div>
-
-                      {/* Botões organizados */}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => copyLinkToClipboard()}
-                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                        >
-                          <Copy className="h-4 w-4 text-white" />
-                          <span className="text-white text-sm font-medium">Copiar</span>
-                        </button>
-                        <a
-                          href={`${window.location.origin}/booking/${establishment?.code}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-                        >
-                          <LinkIcon className="h-4 w-4 text-white" />
-                          <span className="text-white text-sm font-medium">Abrir</span>
-                        </a>
-                      </div>
-                    </div>
-
-                    {/* Dica */}
-                    <div className="flex items-start gap-2">
-                      <span className="text-yellow-400 text-sm">💡</span>
-                      <p className="text-white text-xs font-medium flex-1">
-                        Compartilhe este link com seus clientes para que possam agendar diretamente com você!
-                      </p>
-                    </div>
-                  </div>
-
-
                   {/* Informações Básicas */}
                   <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 mb-6">
                     <h2 className="text-xl font-semibold mb-4">Informações Básicas</h2>
@@ -9178,7 +9614,7 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Seção de Comodidades */}
                   <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                    <h3 className="text-lg font-medium text-white mb-4">Comodidades</h3>
+                    <h3 className="text-lg font-medium text-white mb-4">Comodidades/Oque seu estabelecimento oferece</h3>
                     <p className="text-sm text-gray-400 mb-4">
                       Selecione as comodidades disponíveis no seu estabelecimento:
                     </p>
@@ -9189,7 +9625,15 @@ Estamos te aguardando! 😎✂️`;
                           <input
                             type="checkbox"
                             checked={hasWifi}
-                            onChange={(e) => setHasWifi(e.target.checked)}
+                            onChange={(e) => {
+                              setHasWifi(e.target.checked);
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                              }
+                              amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveAmenities();
+                              }, 1000);
+                            }}
                             className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                           />
                           <span className="text-white">Wi-fi</span>
@@ -9200,14 +9644,30 @@ Estamos te aguardando! 😎✂️`;
                               type="text"
                               placeholder="Senha do Wi-Fi"
                               value={wifiPassword}
-                              onChange={(e) => setWifiPassword(e.target.value)}
+                              onChange={(e) => {
+                                setWifiPassword(e.target.value);
+                                if (amenitiesAutoSaveTimeoutRef.current) {
+                                  clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                }
+                                amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                  autoSaveAmenities();
+                                }, 1000);
+                              }}
                               className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
                             />
                             <input
                               type="text"
                               placeholder="Nome da rede (ex: Barbearia WiFi)"
                               value={wifiNetworkName}
-                              onChange={(e) => setWifiNetworkName(e.target.value)}
+                              onChange={(e) => {
+                                setWifiNetworkName(e.target.value);
+                                if (amenitiesAutoSaveTimeoutRef.current) {
+                                  clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                }
+                                amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                  autoSaveAmenities();
+                                }, 1000);
+                              }}
                               className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
                             />
                           </div>
@@ -9217,7 +9677,15 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="checkbox"
                           checked={hasParking}
-                          onChange={(e) => setHasParking(e.target.checked)}
+                          onChange={(e) => {
+                            setHasParking(e.target.checked);
+                            if (amenitiesAutoSaveTimeoutRef.current) {
+                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                            }
+                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveAmenities();
+                            }, 1000);
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                         />
                         <span className="text-white">Estacionamento</span>
@@ -9226,7 +9694,15 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="checkbox"
                           checked={hasAccessibility}
-                          onChange={(e) => setHasAccessibility(e.target.checked)}
+                          onChange={(e) => {
+                            setHasAccessibility(e.target.checked);
+                            if (amenitiesAutoSaveTimeoutRef.current) {
+                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                            }
+                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveAmenities();
+                            }, 1000);
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                         />
                         <span className="text-white">Acessibilidade</span>
@@ -9235,17 +9711,37 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="checkbox"
                           checked={hasAirConditioning}
-                          onChange={(e) => setHasAirConditioning(e.target.checked)}
+                          onChange={(e) => {
+                            setHasAirConditioning(e.target.checked);
+                            if (amenitiesAutoSaveTimeoutRef.current) {
+                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                            }
+                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveAmenities();
+                            }, 1000);
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                         />
                         <span className="text-white">Local Climatizado</span>
                       </label>
 
+                      <div className="ml-7 mt-2 mb-2">
+                        <span className="text-primary font-semibold text-sm">agendamentos dos clientes</span>
+                      </div>
+
                       <label className="flex items-center space-x-2">
                         <input
                           type="checkbox"
                           checked={requireCancellationRequest}
-                          onChange={(e) => setRequireCancellationRequest(e.target.checked)}
+                          onChange={(e) => {
+                            setRequireCancellationRequest(e.target.checked);
+                            if (amenitiesAutoSaveTimeoutRef.current) {
+                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                            }
+                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveAmenities();
+                            }, 1000);
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                         />
                         <div className="flex flex-col">
@@ -9260,7 +9756,15 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="checkbox"
                           checked={preventSameDayReschedule}
-                          onChange={(e) => setPreventSameDayReschedule(e.target.checked)}
+                          onChange={(e) => {
+                            setPreventSameDayReschedule(e.target.checked);
+                            if (amenitiesAutoSaveTimeoutRef.current) {
+                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                            }
+                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveAmenities();
+                            }, 1000);
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                         />
                         <div className="flex flex-col">
@@ -9275,7 +9779,15 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="checkbox"
                           checked={requireCpf}
-                          onChange={(e) => setRequireCpf(e.target.checked)}
+                          onChange={(e) => {
+                            setRequireCpf(e.target.checked);
+                            if (amenitiesAutoSaveTimeoutRef.current) {
+                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                            }
+                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveAmenities();
+                            }, 1000);
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                         />
                         <div className="flex flex-col">
@@ -9290,7 +9802,15 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="checkbox"
                           checked={enableWhatsAppNotifications}
-                          onChange={(e) => setEnableWhatsAppNotifications(e.target.checked)}
+                          onChange={(e) => {
+                            setEnableWhatsAppNotifications(e.target.checked);
+                            if (amenitiesAutoSaveTimeoutRef.current) {
+                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                            }
+                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveAmenities();
+                            }, 1000);
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                         />
                         <div className="flex flex-col">
@@ -9316,9 +9836,20 @@ Estamos te aguardando! 😎✂️`;
                             const newValue = e.target.checked;
                             setUse15MinuteInterval(newValue);
                             // Se ativar intervalo de 15 min, desativar horários de 20 em 20
+                            const newUse20MinuteSchedule = newValue ? false : use20MinuteSchedule;
                             if (newValue) {
                               setUse20MinuteSchedule(false);
                             }
+                            if (scheduleConfigAutoSaveTimeoutRef.current) {
+                              clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                            }
+                            scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveScheduleConfig({
+                                use15MinuteInterval: newValue,
+                                use20MinuteSchedule: newUse20MinuteSchedule,
+                                showBestOfBrazilImage: showBestOfBrazilImage
+                              });
+                            }, 1000);
                           }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
                         />
@@ -9342,9 +9873,20 @@ Estamos te aguardando! 😎✂️`;
                             const newValue = e.target.checked;
                             setUse20MinuteSchedule(newValue);
                             // Se ativar horários de 20 em 20, desativar intervalo de 15 min
+                            const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
                             if (newValue) {
                               setUse15MinuteInterval(false);
                             }
+                            if (scheduleConfigAutoSaveTimeoutRef.current) {
+                              clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                            }
+                            scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveScheduleConfig({
+                                use15MinuteInterval: newUse15MinuteInterval,
+                                use20MinuteSchedule: newValue,
+                                showBestOfBrazilImage: showBestOfBrazilImage
+                              });
+                            }, 1000);
                           }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
                         />
@@ -9366,7 +9908,20 @@ Estamos te aguardando! 😎✂️`;
                           type="checkbox"
                           id="showBestOfBrazilImage"
                           checked={showBestOfBrazilImage}
-                          onChange={(e) => setShowBestOfBrazilImage(e.target.checked)}
+                          onChange={(e) => {
+                            const newValue = e.target.checked;
+                            setShowBestOfBrazilImage(newValue);
+                            if (scheduleConfigAutoSaveTimeoutRef.current) {
+                              clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                            }
+                            scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveScheduleConfig({
+                                use15MinuteInterval: use15MinuteInterval,
+                                use20MinuteSchedule: use20MinuteSchedule,
+                                showBestOfBrazilImage: newValue
+                              });
+                            }, 1000);
+                          }}
                           className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded"
                         />
                         <label htmlFor="showBestOfBrazilImage" className="text-white font-medium">
@@ -9383,7 +9938,7 @@ Estamos te aguardando! 😎✂️`;
                     {/* Alerta sobre intervalo */}
                     <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
                       <p className="text-sm text-yellow-200">
-                        <span className="font-semibold">⚠️ Atenção:</span> É obrigatório colocar horário de intervalo. Se você não tira intervalo, deixe "Fecha p/ Intervalo" às 12:00 e "Reabertura" às 12:00.
+                        <span className="font-semibold">⚠️ Atenção:</span> Se você não tira intervalo, então coloque seu horário de termino em <strong>"Fecha p/ Intervalo"</strong> que o sistema irá entender que você não tira intervalo.
                       </p>
                     </div>
                     
@@ -9952,7 +10507,16 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="url"
                           value={reviewLink}
-                          onChange={(e) => setReviewLink(e.target.value)}
+                          onChange={(e) => {
+                            setReviewLink(e.target.value);
+                            // ✅ Auto-save com debounce (1 segundo após parar de digitar)
+                            if (linksAutoSaveTimeoutRef.current) {
+                              clearTimeout(linksAutoSaveTimeoutRef.current);
+                            }
+                            linksAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveLinks();
+                            }, 1000);
+                          }}
                           placeholder="Ex: https://g.page/sua-empresa/review"
                           className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
                         />
@@ -9962,7 +10526,16 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="url"
                           value={socialMediaLink}
-                          onChange={(e) => setSocialMediaLink(e.target.value)}
+                          onChange={(e) => {
+                            setSocialMediaLink(e.target.value);
+                            // ✅ Auto-save com debounce (1 segundo após parar de digitar)
+                            if (linksAutoSaveTimeoutRef.current) {
+                              clearTimeout(linksAutoSaveTimeoutRef.current);
+                            }
+                            linksAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveLinks();
+                            }, 1000);
+                          }}
                           placeholder="Ex: https://instagram.com/seuperfil"
                           className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
                         />
@@ -9972,7 +10545,16 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="url"
                           value={pixPaymentLink}
-                          onChange={(e) => setPixPaymentLink(e.target.value)}
+                          onChange={(e) => {
+                            setPixPaymentLink(e.target.value);
+                            // ✅ Auto-save com debounce (1 segundo após parar de digitar)
+                            if (linksAutoSaveTimeoutRef.current) {
+                              clearTimeout(linksAutoSaveTimeoutRef.current);
+                            }
+                            linksAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveLinks();
+                            }, 1000);
+                          }}
                           placeholder="Será preenchido automaticamente com sua chave PIX, ou digite um link personalizado"
                           className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
                         />
@@ -9982,7 +10564,16 @@ Estamos te aguardando! 😎✂️`;
                         <input
                           type="url"
                           value={locationLink}
-                          onChange={(e) => setLocationLink(e.target.value)}
+                          onChange={(e) => {
+                            setLocationLink(e.target.value);
+                            // ✅ Auto-save com debounce (1 segundo após parar de digitar)
+                            if (linksAutoSaveTimeoutRef.current) {
+                              clearTimeout(linksAutoSaveTimeoutRef.current);
+                            }
+                            linksAutoSaveTimeoutRef.current = setTimeout(() => {
+                              autoSaveLinks();
+                            }, 1000);
+                          }}
                           placeholder="Ex: https://maps.google.com"
                           className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
                         />
@@ -10046,7 +10637,15 @@ Estamos te aguardando! 😎✂️`;
                             min="0"
                             max="10"
                             value={creditCardTaxPercentage}
-                            onChange={(e) => setCreditCardTaxPercentage(parseFloat(e.target.value) || 0)}
+                            onChange={(e) => {
+                              setCreditCardTaxPercentage(parseFloat(e.target.value) || 0);
+                              if (paymentConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                              }
+                              paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSavePaymentConfig();
+                              }, 1000);
+                            }}
                             placeholder="Ex: 3.5"
                             className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                           />
@@ -10068,7 +10667,15 @@ Estamos te aguardando! 😎✂️`;
                             min="0"
                             max="10"
                             value={debitCardTaxPercentage}
-                            onChange={(e) => setDebitCardTaxPercentage(parseFloat(e.target.value) || 0)}
+                            onChange={(e) => {
+                              setDebitCardTaxPercentage(parseFloat(e.target.value) || 0);
+                              if (paymentConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                              }
+                              paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSavePaymentConfig();
+                              }, 1000);
+                            }}
                             placeholder="Ex: 2.5"
                             className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                           />
@@ -10136,6 +10743,12 @@ Estamos te aguardando! 😎✂️`;
                                     const newTaxes = { ...cardBrandTaxes };
                                     newTaxes[brand] = parseFloat(e.target.value) || 0;
                                     setCardBrandTaxes(newTaxes);
+                                    if (paymentConfigAutoSaveTimeoutRef.current) {
+                                      clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                                    }
+                                    paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                      autoSavePaymentConfig();
+                                    }, 1000);
                                   }}
                                   className="w-20 sm:w-24 px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
                                   placeholder="0.0"
@@ -10254,6 +10867,65 @@ Estamos te aguardando! 😎✂️`;
                     <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
                       <p className="text-sm text-blue-300">
                         💡 <strong>Dica:</strong> As formas de pagamento desativadas não aparecerão para os clientes durante o agendamento.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Seção de Link do Estabelecimento */}
+                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 mb-6 border border-emerald-400/50">
+                    {/* Header */}
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
+                        <LinkIcon className="h-5 w-5 text-white" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-emerald-400">
+                        🌐 Sua Página de Agendamentos
+                      </h3>
+                    </div>
+
+                    {/* Texto explicativo */}
+                    <p className="text-white mb-4 text-sm leading-relaxed font-medium">
+                      Aqui você edita sua página de agendamentos, onde os clientes acessam para agendar com você.
+                      Seu link para seus clientes é:
+                    </p>
+
+                    {/* Link Box - Organizado para mobile */}
+                    <div className="bg-[#1a1b1c] rounded-lg p-4 border border-gray-700 mb-4">
+                      <p className="text-emerald-400 font-medium text-sm mb-3">Link do Estabelecimento:</p>
+
+                      {/* Link principal */}
+                      <div className="bg-gray-800 rounded-lg p-3 mb-3">
+                        <code className="text-green-400 font-mono text-sm block break-all">
+                          agendeifacil.com/booking/{establishment?.code}
+                        </code>
+                      </div>
+
+                      {/* Botões organizados */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => copyLinkToClipboard()}
+                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                        >
+                          <Copy className="h-4 w-4 text-white" />
+                          <span className="text-white text-sm font-medium">Copiar</span>
+                        </button>
+                        <a
+                          href={`${window.location.origin}/booking/${establishment?.code}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                        >
+                          <LinkIcon className="h-4 w-4 text-white" />
+                          <span className="text-white text-sm font-medium">Abrir</span>
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Dica */}
+                    <div className="flex items-start gap-2">
+                      <span className="text-yellow-400 text-sm">💡</span>
+                      <p className="text-white text-xs font-medium flex-1">
+                        Compartilhe este link com seus clientes para que possam agendar diretamente com você!
                       </p>
                     </div>
                   </div>
@@ -11153,7 +11825,7 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                     ) : (
                       filteredClients.map((client, index) => (
-                        <div key={`${client.whatsapp}-${client.id}-${index}`} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+                        <div key={`${client.whatsapp}-${client.id}-${index}`} className={`rounded-lg p-4 border-2 shadow-sm ${client.alert ? 'bg-yellow-50 border-yellow-400' : 'bg-white border-gray-200'}`}>
                           {/* Header com nome e botões de ação */}
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -11292,6 +11964,62 @@ Estamos te aguardando! 😎✂️`;
                             )}
                           </div>
 
+                          {/* Campo de alerta */}
+                          <div className="text-gray-700 flex items-center gap-2 mb-4">
+                            <span className="text-red-500">⚠️</span>
+                            {editingClientAlert === client.whatsapp ? (
+                              <div className="flex items-center gap-2 flex-1">
+                                <input
+                                  type="text"
+                                  value={newAlert}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value.length <= 100) {
+                                      setNewAlert(value);
+                                    }
+                                  }}
+                                  maxLength={100}
+                                  placeholder="Digite o alerta (máx. 100 caracteres)"
+                                  className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary flex-1"
+                                />
+                                <span className="text-xs text-gray-500">{newAlert.length}/100</span>
+                                <button
+                                  onClick={() => saveAlert(client.whatsapp, newAlert)}
+                                  className="text-green-600 hover:text-green-800"
+                                  title="Salvar"
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingClientAlert(null);
+                                    setNewAlert('');
+                                  }}
+                                  className="text-red-600 hover:text-red-800"
+                                  title="Cancelar"
+                                >
+                                  ✗
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 flex-1">
+                                <span className={`text-sm ${client.alert ? 'text-red-700 font-semibold' : 'text-gray-500'}`}>
+                                  {client.alert || 'Nenhum alerta'}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    setEditingClientAlert(client.whatsapp);
+                                    setNewAlert(client.alert || '');
+                                  }}
+                                  className="text-blue-600 hover:text-blue-800 text-xs"
+                                  title="Editar alerta"
+                                >
+                                  ✏️
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
                           <a
                             href={(() => {
                               let phoneNumber = client.whatsapp.replace(/\D/g, '');
@@ -11347,6 +12075,34 @@ Estamos te aguardando! 😎✂️`;
               onSubmit={handleSavePin}
               title="Configure uma senha para seu estabelecimento"
             />
+          )}
+
+          {/* Modal de confirmação para salvar senha */}
+          {showSavePinConfirmModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-md w-full p-6">
+                <div className="mb-4">
+                  <h3 className="text-xl font-semibold text-white mb-2">Atenção</h3>
+                  <p className="text-gray-300">
+                    Se você é apenas 1 profissional não é necessário essa senha.
+                  </p>
+                </div>
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() => setShowSavePinConfirmModal(false)}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={handleConfirmSavePin}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Tenho profissionais
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Modal de Senha do Profissional */}
@@ -12977,6 +13733,111 @@ Estamos te aguardando! 😎✂️`;
                     </p>
                   </div>
                 </div>
+              </div>
+
+              {/* Mensagem destacada sobre flexibilidade */}
+              <div className="mb-6 p-4 bg-yellow-100 border border-yellow-400 rounded-lg">
+                <p className="text-sm text-yellow-900 font-semibold">
+                  ⚠️ Você também pode criar apenas uma categoria escrita <strong>"Meus serviços"</strong> e dentro dela colocar todos os seus serviços. A liberdade é sua, se quer ter categoria para cada serviço ou se quer uma apenas para todos.
+                </p>
+              </div>
+
+              {/* Botão para salvar serviços e abrir todas as funções */}
+              <div className="mb-6 text-center">
+                <button
+                  onClick={async () => {
+                    if (!establishment) return;
+                    
+                    try {
+                      // Buscar serviços de service_subcategories (sistema de categorias)
+                      const { data: subcategoriesData } = await supabase
+                        .from('service_subcategories')
+                        .select(`
+                          *,
+                          service_categories!inner (
+                            establishment_id
+                          )
+                        `)
+                        .eq('service_categories.establishment_id', establishment.id)
+                        .eq('is_active', true);
+                      
+                      // Converter subcategorias para formato de serviços
+                      const servicesFromCategories = (subcategoriesData || []).map((sub: any) => ({
+                        id: sub.id,
+                        name: sub.name,
+                        price: Number(sub.price),
+                        duration: Number(sub.duration || 30)
+                      }));
+                      
+                      // Buscar serviços salvos em services_with_prices (sistema antigo)
+                      const { data: establishmentData } = await supabase
+                        .from('establishments')
+                        .select('services_with_prices')
+                        .eq('id', establishment.id)
+                        .single();
+                      
+                      const savedServices = establishmentData?.services_with_prices || [];
+                      const localServices = servicesWithPrices || [];
+                                                  
+                      // Combinar todos os serviços
+                      const allServices = [...localServices, ...savedServices, ...servicesFromCategories];
+                      
+                      // Remover duplicatas por ID
+                      const uniqueServices = allServices.reduce((acc: any[], service: any) => {
+                        if (!acc.find(s => s.id === service.id)) {
+                          acc.push(service);
+                        }
+                        return acc;
+                      }, []);
+                      
+                      // Verificar serviços válidos (com nome e preço)
+                      const validServices = uniqueServices.filter((s: any) => 
+                        s.name && s.name.trim().length > 0 && Number(s.price) > 0
+                      );
+                      
+                      if (validServices.length === 0) {
+                        toast('Adicione pelo menos um serviço com NOME e PREÇO maior que zero antes de salvar.', 'warning');
+                        return;
+                      }
+                      
+                      // Salvar serviços válidos e completar onboarding
+                      const { error: saveError } = await supabase
+                        .from('establishments')
+                        .update({
+                          services_with_prices: validServices.map((s: any) => ({
+                            id: s.id,
+                            name: s.name.trim(),
+                            price: Number(s.price),
+                            duration: Number(s.duration || 30)
+                          })),
+                          onboarding_step: 4
+                        })
+                        .eq('id', establishment.id);
+                      
+                      if (saveError) {
+                        console.error('Erro ao salvar:', saveError);
+                        toast.error('Erro ao salvar serviços. Tente novamente.');
+                        return;
+                      }
+                      
+                      setOnboardingStep(4);
+                      setEstablishment({
+                        ...establishment,
+                        services_with_prices: validServices
+                      });
+                      setServicesWithPrices(validServices);
+                      
+                      toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
+                    } catch (error) {
+                      console.error('Erro ao completar onboarding:', error);
+                      toast.error('Erro ao salvar. Tente novamente.');
+                    }
+                  }}
+                  className="px-8 py-4 bg-green-600 text-white font-bold text-lg rounded-lg hover:bg-green-700 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 mx-auto"
+                >
+                  <Check className="h-6 w-6" />
+                  Salvar Serviços e Abrir Todas as Funções
+                </button>
               </div>
 
               {serviceCategories.length === 0 ? (
