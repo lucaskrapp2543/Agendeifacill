@@ -36,6 +36,7 @@ import ViewAppointmentsPage from './pages/ViewAppointmentsPage';
 
 import AdminDashboard from './pages/AdminDashboard';
 import AppInstallPage from './pages/AppInstallPage';
+import ApresentacaoWpp from './pages/ApresentacaoWpp';
 import BlockedPage from './pages/BlockedPage';
 import CadastroAg from './pages/CadastroAg';
 import Conhecer from './pages/Conhecer';
@@ -105,6 +106,7 @@ function App() {
                 <Route path="/conhecerv4" element={<ConhecerV4 />} />
                 <Route path="/conhecerv5" element={<ConhecerV5 />} />
                 <Route path="/cadastroag" element={<CadastroAg />} />
+                <Route path="/apresentacaowpp" element={<ApresentacaoWpp />} />
                 <Route path="/testefree" element={<TesteFree />} />
                 <Route path="/suporte060622" element={<Suporte060622 />} />
 

@@ -80,6 +80,14 @@ self.addEventListener('fetch', (event) => {
 
   // Estratégia para diferentes tipos de arquivos
   if (request.method === 'GET') {
+    // Vídeos - Network Only (não fazer cache, vídeos usam respostas parciais 206)
+    const isVideo = /\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i.test(url.pathname);
+    if (isVideo) {
+      console.log('🎥 Vídeo detectado, ignorando cache:', url.pathname);
+      event.respondWith(fetch(request));
+      return;
+    }
+    
     // Arquivos estáticos - Cache First
     if (STATIC_FILES.some(file => url.pathname.includes(file))) {
       event.respondWith(cacheFirst(request));
@@ -89,7 +97,7 @@ self.addEventListener('fetch', (event) => {
       event.respondWith(networkFirst(request));
     }
     // HTML pages - Network First com fallback
-    else if (request.headers.get('accept').includes('text/html')) {
+    else if (request.headers.get('accept') && request.headers.get('accept').includes('text/html')) {
       event.respondWith(networkFirstWithFallback(request));
     }
     // Outros recursos - Stale While Revalidate
@@ -164,8 +172,11 @@ async function staleWhileRevalidate(request) {
   const cachedResponse = await cache.match(request);
 
   const fetchPromise = fetch(request).then((networkResponse) => {
-    if (networkResponse.ok) {
-      cache.put(request, networkResponse.clone());
+    // Não fazer cache de respostas parciais (206) - comum em vídeos
+    if (networkResponse.ok && networkResponse.status !== 206) {
+      cache.put(request, networkResponse.clone()).catch((error) => {
+        console.log('⚠️ Erro ao fazer cache (pode ser resposta parcial):', error);
+      });
     }
     return networkResponse;
   }).catch(() => {
