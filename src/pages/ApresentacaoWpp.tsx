@@ -10,6 +10,8 @@ const ApresentacaoWpp = () => {
   const [videoSemImagemCliente, setVideoSemImagemCliente] = useState(false);
   const [videoSemImagemProfissional, setVideoSemImagemProfissional] = useState(false);
   const [showVideoProfissional, setShowVideoProfissional] = useState(false);
+  const [showVerValorButton, setShowVerValorButton] = useState(false);
+  const [showVerValorButtonFinal, setShowVerValorButtonFinal] = useState(false);
 
   useEffect(() => {
     // Timeout para detectar vídeos que não carregam
@@ -167,7 +169,7 @@ const ApresentacaoWpp = () => {
   return (
     <div className="min-h-screen bg-gray-900 py-8 px-4">
       <style>{`
-        /* Esconder controles de tempo dos vídeos */
+        /* Esconder controles de tempo dos vídeos, mas manter play/pause */
         video::-webkit-media-controls-timeline {
           display: none !important;
         }
@@ -179,6 +181,13 @@ const ApresentacaoWpp = () => {
         }
         video::-webkit-media-controls-duration {
           display: none !important;
+        }
+        /* Manter botão de play central visível */
+        video::-webkit-media-controls-play-button {
+          display: block !important;
+        }
+        video::-webkit-media-controls-start-playback-button {
+          display: block !important;
         }
         /* Firefox */
         video::-moz-media-controls-timeline {
@@ -303,7 +312,11 @@ const ApresentacaoWpp = () => {
           {!showVideoProfissional && (
             <div className="mt-6 text-center">
               <button
-                onClick={() => setShowVideoProfissional(true)}
+                onClick={() => {
+                  setShowVideoProfissional(true);
+                  setShowVerValorButton(false); // Resetar quando mostrar o vídeo
+                  setShowVerValorButtonFinal(false); // Resetar botão final também
+                }}
                 className="px-6 py-3 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
               >
                 Já vi o vídeo de cima, quero ver por dentro agora
@@ -397,6 +410,14 @@ const ApresentacaoWpp = () => {
                   setVideoSemImagemProfissional(false);
                 }
               }}
+              onTimeUpdate={(e) => {
+                const video = e.currentTarget;
+                // Mostrar botão embaixo após 2 minutos e meio (150 segundos) de vídeo
+                if (video.currentTime >= 150 && !showVerValorButton) {
+                  setShowVerValorButton(true);
+                  console.log('✅ 2 minutos e meio de vídeo assistido - mostrando botão Ver Valor embaixo');
+                }
+              }}
               onError={(e) => {
                 const video = e.currentTarget;
                 console.error('❌ onError: Erro no vídeo do profissional:', video.error);
@@ -404,31 +425,58 @@ const ApresentacaoWpp = () => {
                 setLoadingProfissional(false);
               }}
               onEnded={(e) => {
-                // Garantir que o vídeo não reinicie automaticamente
+                // Quando o vídeo terminar, mostrar botão no meio da tela
                 const video = e.currentTarget;
                 video.pause();
-                video.currentTime = 0;
+                setShowVerValorButtonFinal(true); // Mostrar botão no centro quando terminar
+                console.log('✅ Vídeo terminou - mostrando botão Ver Valor no centro da tela');
               }}
             >
               Seu navegador não suporta o elemento de vídeo.
             </video>
+            
+            {/* Botão Ver Valor - aparece no meio da tela quando vídeo termina */}
+            {showVerValorButtonFinal && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-90 z-30">
+                <div className="text-center p-6">
+                  <button
+                    onClick={() => {
+                      const phoneNumber = '48991484275';
+                      const message = 'qual valor do sistema';
+                      const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+                      window.open(whatsappUrl, '_blank');
+                    }}
+                    className="px-8 py-4 bg-green-600 text-white font-bold text-lg rounded-lg hover:bg-green-700 transition-all shadow-2xl hover:shadow-green-500/50 transform hover:scale-110 flex items-center gap-3 mx-auto animate-pulse"
+                    style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}
+                  >
+                    <span className="text-2xl">💬</span>
+                    <span>Já vi o vídeo, ir pro whatsapp ver valor clique aqui</span>
+                  </button>
+                  <p className="text-white text-sm mt-4 opacity-75">
+                    Clique no botão acima para continuar
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
           
-          {/* Botão Ver Valor */}
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                const phoneNumber = '48991484275';
-                const message = 'qual valor do sistema';
-                const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-                window.open(whatsappUrl, '_blank');
-              }}
-              className="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center gap-2 mx-auto"
-            >
-              <span>💬</span>
-              Ver Valor
-            </button>
-          </div>
+          {/* Botão Ver Valor - aparece embaixo após 2 minutos e meio */}
+          {showVerValorButton && !showVerValorButtonFinal && (
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => {
+                  const phoneNumber = '48991484275';
+                  const message = 'qual valor do sistema';
+                  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+                  window.open(whatsappUrl, '_blank');
+                }}
+                className="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center gap-2 mx-auto"
+              >
+                <span>💬</span>
+                Já vi o vídeo, ir pro whatsapp ver valor clique aqui
+              </button>
+            </div>
+          )}
         </div>
         )}
       </div>
