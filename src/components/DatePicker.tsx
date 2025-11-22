@@ -1,6 +1,6 @@
-import { addMonths, format, startOfDay } from 'date-fns';
+import { addMonths, format, startOfDay, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isSameMonth, addDays, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface DatePickerProps {
   selectedDate: Date;
@@ -30,9 +30,14 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
   const today = startOfDay(new Date());
   const maxDate = addMonths(today, 6); // Permitir agendamento até 6 meses no futuro
 
+  // Estado para controlar o mês atual sendo visualizado
+  const [currentMonth, setCurrentMonth] = useState(startOfMonth(today));
+  
   // Estado para controlar se o campo de data está vazio ou preenchido
-  // Inicializa vazio - não deve ser atualizado por useEffect
   const [localDate, setLocalDate] = useState('');
+
+  // Não pré-selecionar data - deixar o usuário escolher manualmente
+  // Removido o useEffect que pré-selecionava a data
 
   const isDayEnabled = (date: Date) => {
     // Para agendamento de assinante, sempre permitir seleção de datas
@@ -52,47 +57,128 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
     return businessHours[dayInEnglish]?.enabled ?? true;
   };
 
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const dateValue = e.target.value;
-    setLocalDate(dateValue); // Atualizar estado local
+  const handleDateClick = (date: Date) => {
+    // Verificar se o dia está habilitado
+    if (isDayEnabled(date)) {
+      onChange(date);
+      setLocalDate(format(date, 'yyyy-MM-dd'));
+    }
+  };
 
-    if (dateValue) {
-      const newDate = new Date(dateValue + 'T12:00:00'); // Adicionar horário para evitar problemas de timezone
+  // Gerar dias do mês atual
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+  const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  
+  // Adicionar dias do mês anterior para completar a primeira semana
+  const firstDayOfWeek = getDay(monthStart);
+  const daysBeforeMonth: Date[] = [];
+  for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+    daysBeforeMonth.push(subDays(monthStart, i + 1));
+  }
+  
+  // Adicionar dias do próximo mês para completar a última semana (máximo 42 dias no total)
+  const totalDays = daysBeforeMonth.length + daysInMonth.length;
+  const daysAfterMonth: Date[] = [];
+  const daysNeeded = 42 - totalDays; // 6 semanas x 7 dias = 42
+  for (let i = 1; i <= daysNeeded; i++) {
+    daysAfterMonth.push(addDays(monthEnd, i));
+  }
 
-      // Verificar se o dia está habilitado
-      if (isDayEnabled(newDate)) {
-        onChange(newDate);
-      } else {
-        // Não mostrar alert, apenas não permitir a seleção
-        // O usuário verá visualmente que o dia está fechado
-        setLocalDate(format(selectedDate, 'yyyy-MM-dd'));
-      }
+  const allDays = [...daysBeforeMonth, ...daysInMonth, ...daysAfterMonth];
+
+  const monthNames = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+
+  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  const goToPreviousMonth = () => {
+    const prevMonth = startOfMonth(subDays(currentMonth, 1));
+    if (prevMonth >= startOfMonth(today)) {
+      setCurrentMonth(prevMonth);
+    }
+  };
+
+  const goToNextMonth = () => {
+    const nextMonth = startOfMonth(addDays(monthEnd, 1));
+    if (nextMonth <= maxDate) {
+      setCurrentMonth(nextMonth);
     }
   };
 
   return (
     <div className="space-y-3">
-      {/* Input de data principal com label visual */}
-      <div className="relative">
-        <input
-          type="date"
-          value={localDate}
-          onChange={handleDateChange}
-          min={format(today, 'yyyy-MM-dd')}
-          max={format(maxDate, 'yyyy-MM-dd')}
-          className="w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary bg-white text-gray-900 text-lg"
-          required
-        />
-        {/* Label visual quando vazio */}
-        {!localDate && (
-          <div className="absolute left-4 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400 text-sm sm:text-lg select-none">
-            📅 <span className="hidden sm:inline">Clique aqui para selecionar a data</span>
-            <span className="sm:hidden">Selecionar data</span>
-          </div>
-        )}
+      {/* Cabeçalho do calendário com navegação */}
+      <div className="flex items-center justify-between mb-4">
+        <button
+          type="button"
+          onClick={goToPreviousMonth}
+          disabled={currentMonth <= startOfMonth(today)}
+          className="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-700"
+        >
+          ←
+        </button>
+        <h3 className="text-lg font-semibold text-gray-900">
+          {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+        </h3>
+        <button
+          type="button"
+          onClick={goToNextMonth}
+          disabled={addDays(monthEnd, 1) > maxDate}
+          className="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-700"
+        >
+          →
+        </button>
       </div>
 
-      {/* Informação sobre o dia selecionado - só mostra se houver data selecionada */}
+      {/* Calendário visual */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        {/* Cabeçalho dos dias da semana */}
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {weekDays.map((day) => (
+            <div key={day} className="text-center text-xs font-semibold text-gray-600 py-2">
+              {day}
+            </div>
+          ))}
+        </div>
+
+        {/* Dias do calendário */}
+        <div className="grid grid-cols-7 gap-1">
+          {allDays.map((date, index) => {
+            const isCurrentMonth = isSameMonth(date, currentMonth);
+            const isToday = isSameDay(date, today);
+            const isSelected = localDate && isSameDay(date, new Date(localDate + 'T12:00:00'));
+            const isPast = date < today;
+            const isEnabled = isDayEnabled(date) && !isPast && date <= maxDate;
+            const isFutureLimit = date > maxDate;
+
+            return (
+              <button
+                key={index}
+                type="button"
+                onClick={() => isEnabled && handleDateClick(date)}
+                disabled={!isEnabled}
+                className={`
+                  aspect-square p-2 rounded-lg text-sm font-medium transition-all
+                  ${!isCurrentMonth ? 'text-gray-300' : ''}
+                  ${isPast || isFutureLimit ? 'text-gray-300 cursor-not-allowed' : ''}
+                  ${isToday && !isSelected ? 'bg-blue-50 text-blue-600 border-2 border-blue-300' : ''}
+                  ${isSelected ? 'bg-blue-600 text-white font-bold' : ''}
+                  ${isEnabled && !isSelected && !isToday ? 'hover:bg-gray-100 text-gray-700' : ''}
+                  ${!isEnabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                  ${!isDayEnabled(date) && isCurrentMonth && !isPast ? 'bg-red-50 text-red-400' : ''}
+                `}
+              >
+                {format(date, 'd')}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Informação sobre o dia selecionado */}
       {localDate && (() => {
         const dateObj = new Date(localDate + 'T12:00:00');
         return (

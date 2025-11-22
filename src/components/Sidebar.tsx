@@ -92,10 +92,11 @@ const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Expandir automaticamente quando clicar em um item (apenas em mobile)
+  // Recolher o sidebar quando clicar em um item
   const handleItemClick = (onClick: () => void) => {
-    // Em mobile, mantém o sidebar aberto após clicar em um item
     onClick();
+    // Recolhe o sidebar após clicar em um item
+    setIsExpanded(false);
   };
 
   const menuItems = [
@@ -128,20 +129,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       isActive: activeTab === 'appointments',
       disabled: isItemLocked('appointments')
-    },
-    {
-      id: 'reserve-client',
-      label: 'Reservar Cliente',
-      icon: Link,
-      onClick: () => {
-        if (isItemLocked('reserve-client')) {
-          onBlockedItemClick?.();
-        } else {
-          handleItemClick(() => onTabChange('reserve-client'));
-        }
-      },
-      isActive: activeTab === 'reserve-client',
-      disabled: isItemLocked('reserve-client')
     },
     {
       id: 'clients',
@@ -186,13 +173,32 @@ const Sidebar: React.FC<SidebarProps> = ({
       disabled: isItemLocked('service-categories')
     },
     {
-      id: 'hours',
-      label: 'Horários',
-      icon: Clock,
-      onClick: () => handleItemClick(() => { }),
-      isActive: false,
-      disabled: true,
-      tooltip: 'Em breve'
+      id: 'products',
+      label: 'Meus Produtos',
+      icon: Package,
+      onClick: () => {
+        if (isItemLocked('products')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('products'));
+        }
+      },
+      isActive: activeTab === 'products',
+      disabled: isItemLocked('products')
+    },
+    {
+      id: 'professionals',
+      label: 'Profissionais',
+      icon: UserCheck,
+      onClick: () => {
+        if (isItemLocked('professionals')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('professionals'));
+        }
+      },
+      isActive: activeTab === 'professionals',
+      disabled: isItemLocked('professionals')
     },
     {
       id: 'dashboard',
@@ -227,34 +233,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       isActive: activeTab === 'expenses',
       disabled: isItemLocked('expenses')
-    },
-    {
-      id: 'professionals',
-      label: 'Profissionais',
-      icon: UserCheck,
-      onClick: () => {
-        if (isItemLocked('professionals')) {
-          onBlockedItemClick?.();
-        } else {
-          handleItemClick(() => onTabChange('professionals'));
-        }
-      },
-      isActive: activeTab === 'professionals',
-      disabled: isItemLocked('professionals')
-    },
-    {
-      id: 'products',
-      label: 'Meus Produtos',
-      icon: Package,
-      onClick: () => {
-        if (isItemLocked('products')) {
-          onBlockedItemClick?.();
-        } else {
-          handleItemClick(() => onTabChange('products'));
-        }
-      },
-      isActive: activeTab === 'products',
-      disabled: isItemLocked('products')
     },
     {
       id: 'taxes',
@@ -296,6 +274,16 @@ const Sidebar: React.FC<SidebarProps> = ({
       icon: LogOut,
       onClick: () => handleItemClick(onSignOut),
       isActive: false
+    },
+    {
+      id: 'hours',
+      label: 'Horários',
+      icon: Clock,
+      onClick: () => handleItemClick(() => { }),
+      isActive: false,
+      disabled: true,
+      tooltip: 'Em breve',
+      isWhite: true // Flag para aplicar estilo branco
     }
   ];
 
@@ -322,18 +310,35 @@ const Sidebar: React.FC<SidebarProps> = ({
               CLIQUE PARA RECOLHER
             </button>
           )}
-          <button
-            data-sidebar-toggle
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title={isExpanded ? 'Recolher menu' : 'Expandir menu'}
-          >
-            {isExpanded ? (
-              <ChevronLeft className="h-5 w-5 text-gray-600" />
-            ) : (
-              <ChevronRight className="h-5 w-5 text-gray-600" />
+          <div className="flex items-center gap-2">
+            <button
+              data-sidebar-toggle
+              onClick={() => setIsExpanded(!isExpanded)}
+              className={`p-2.5 rounded-lg hover:bg-gray-100 transition-all relative border-2 ${
+                !isExpanded 
+                  ? 'border-blue-500 bg-blue-50 shadow-md hover:shadow-lg hover:scale-105' 
+                  : 'border-transparent'
+              }`}
+              title={isExpanded ? 'Recolher menu' : 'Clique para abrir o menu'}
+            >
+              {isExpanded ? (
+                <ChevronLeft className="h-5 w-5 text-gray-600" />
+              ) : (
+                <div className="relative">
+                  <ChevronRight className="h-5 w-5 text-blue-600 animate-pulse" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
+                  </div>
+                </div>
+              )}
+            </button>
+            {!isExpanded && (
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap flex items-center gap-1.5 animate-pulse">
+                <span>☰</span>
+                <span>MENU</span>
+              </div>
             )}
-          </button>
+          </div>
         </div>
 
         {/* Lista de itens do menu */}
@@ -367,21 +372,25 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           {menuItems.map((item) => {
             const Icon = item.icon;
+            const isWhiteItem = (item as any).isWhite;
             return (
               <div key={item.id} className="relative">
                 <button
                   onClick={item.onClick}
                   disabled={item.disabled}
-                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${item.isActive
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : item.disabled
-                      ? 'text-gray-400 cursor-not-allowed opacity-50'
-                      : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
-                    }`}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
+                    isWhiteItem
+                      ? 'bg-white text-white hover:bg-gray-50'
+                      : item.isActive
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : item.disabled
+                          ? 'text-gray-400 cursor-not-allowed opacity-50'
+                          : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                  }`}
                   title={item.tooltip || (isExpanded ? '' : item.label)}
                 >
                   <div className="relative">
-                    <Icon className="h-5 w-5 flex-shrink-0" />
+                    <Icon className={`h-5 w-5 flex-shrink-0 ${isWhiteItem ? 'text-white' : ''}`} />
                     {item.showBadge && (
                       <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                         {item.badgeCount}
@@ -390,9 +399,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   {isExpanded && (
-                    <span className="text-sm font-medium whitespace-nowrap">
-                      {item.label}
-                    </span>
+                    <>
+                      <span className="text-sm font-medium whitespace-nowrap">
+                        {item.label}
+                      </span>
+                      {item.id !== 'config' && (
+                        <ChevronRight className="h-4 w-4 flex-shrink-0 opacity-50 ml-auto" />
+                      )}
+                    </>
                   )}
                 </button>
 

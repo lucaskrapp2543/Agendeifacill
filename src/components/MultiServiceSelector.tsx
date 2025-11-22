@@ -13,13 +13,15 @@ interface MultiServiceSelectorProps {
   selectedServices: Service[];
   onSelectServices: (services: Service[]) => void;
   maxServices?: number;
+  onBookServices?: (services: Service[]) => void; // Nova função para agendar diretamente
 }
 
 export function MultiServiceSelector({ 
   services, 
   selectedServices, 
   onSelectServices, 
-  maxServices = 4 
+  maxServices = 4,
+  onBookServices
 }: MultiServiceSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -143,16 +145,11 @@ export function MultiServiceSelector({
               {services
                 .filter(service => !selectedServices.some(s => s.id === service.id))
                 .map((service) => (
-                  <button
-                    type="button"
+                  <div
                     key={service.id}
-                    onClick={() => {
-                      handleServiceToggle(service);
-                      // Não fechar o dropdown para permitir múltiplas seleções
-                    }}
-                    className="w-full text-left px-4 py-3 hover:bg-primary/10 transition-colors"
+                    className="w-full px-4 py-3 border-b border-gray-200 last:border-b-0"
                   >
-                    <div className="flex flex-col space-y-2">
+                    <div className="flex flex-col space-y-2 mb-2">
                       <div className="flex items-center gap-2">
                         <Calendar className="h-5 w-5 text-gray-600" />
                         <span className="font-medium text-gray-900">{service.name}</span>
@@ -168,7 +165,37 @@ export function MultiServiceSelector({
                         </div>
                       </div>
                     </div>
-                  </button>
+                    {/* Botões de ação */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleServiceToggle(service);
+                        }}
+                        className={`flex-1 px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
+                          selectedServices.some(s => s.id === service.id)
+                            ? 'bg-blue-600 text-white hover:bg-blue-700'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        {selectedServices.some(s => s.id === service.id) ? '✓ Selecionado' : 'Selecionar'}
+                      </button>
+                      {onBookServices && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selectedServices.some(s => s.id === service.id)) {
+                              onSelectServices([...selectedServices, service]);
+                            }
+                            onBookServices(selectedServices.some(s => s.id === service.id) ? selectedServices : [...selectedServices, service]);
+                          }}
+                          className="flex-1 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+                        >
+                          Agendar
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ))}
             </div>
           )}

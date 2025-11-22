@@ -439,49 +439,6 @@ export function AppointmentForm({
   }, [serviceCategories, selectedProfessional, selectedCategory]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Função para scroll automático para a próxima seção
-  const scrollToNextSection = (delay = 300) => {
-    setTimeout(() => {
-      // Procurar pela próxima seção visível
-      const sections = document.querySelectorAll('.appointment-section');
-      let nextSection = null;
-
-      for (let i = 0; i < sections.length; i++) {
-        const section = sections[i] as HTMLElement;
-        const rect = section.getBoundingClientRect();
-
-        // Se a seção está parcialmente visível ou abaixo da viewport
-        if (rect.top > 100) {
-          nextSection = section;
-          break;
-        }
-      }
-
-      if (nextSection) {
-        nextSection.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start'
-        });
-      } else {
-        // Se não encontrar seção específica, scroll para baixo
-        window.scrollBy({
-          top: 200,
-          behavior: 'smooth'
-        });
-      }
-    }, delay);
-  };
-
-  // Função específica para scroll após selecionar data (vai para horário)
-  const scrollToTimeSection = (delay = 300) => {
-    setTimeout(() => {
-      // Scroll menor e mais preciso para a próxima seção
-      window.scrollBy({
-        top: 200,
-        behavior: 'smooth'
-      });
-    }, delay);
-  };
 
   // ✅ FUNÇÃO PARA COMBINAR SERVIÇOS GERAIS COM SERVIÇOS ESPECÍFICOS DO PROFISSIONAL
   const getCombinedServices = () => {
@@ -594,10 +551,8 @@ export function AppointmentForm({
   // Estados para validação de limite mensal
   const [monthlyLimitValidationDisabled, setMonthlyLimitValidationDisabled] = useState(false);
 
-  // Estados para controle progressivo do formulário
-  const [showServiceSection, setShowServiceSection] = useState(false);
-  const [showDateSection, setShowDateSection] = useState(false);
-  const [showPaymentSection, setShowPaymentSection] = useState(false);
+  // ✅ NOVO: Sistema de steps tipo quiz
+  const [currentStep, setCurrentStep] = useState(1); // 1: Profissional, 2: Serviço, 3: Dia, 4: Horário, 5: Pagamento
 
   // Auto-selecionar profissional para assinantes se houver apenas um ou se o serviço de assinante tiver profissional definido
   useEffect(() => {
@@ -618,23 +573,6 @@ export function AppointmentForm({
     }
   }, [isSubscriberBooking, subscriberService, establishment.professionals, selectedProfessional]);
 
-  // Controlar visibilidade das seções progressivamente
-  useEffect(() => {
-    // Mostrar seção de serviços quando um profissional for selecionado
-    setShowServiceSection(!!selectedProfessional);
-  }, [selectedProfessional]);
-
-  useEffect(() => {
-    // Mostrar seção de data quando um serviço for selecionado OU quando for agendamento de assinante
-    const hasService = selectedService || selectedServices.length > 0 || selectedCategoryServices.length > 0;
-    const isSubscriberWithService = isSubscriberBooking && subscriberService;
-    setShowDateSection(hasService || isSubscriberWithService);
-  }, [selectedService, selectedServices, selectedCategoryServices, isSubscriberBooking, subscriberService]);
-
-  useEffect(() => {
-    // Mostrar seção de pagamento quando data e horário forem selecionados
-    setShowPaymentSection(!!(selectedDate && selectedTime));
-  }, [selectedDate, selectedTime]);
   const [monthlyLimitError, setMonthlyLimitError] = useState<string | null>(null);
   const [monthlyLimitData, setMonthlyLimitData] = useState<{
     currentUsage: number;
@@ -1336,8 +1274,71 @@ export function AppointmentForm({
 
 
 
+  // Função para calcular o progresso
+  const totalSteps = 5;
+  const progress = (currentStep / totalSteps) * 100;
+
+  // Função para verificar se pode avançar para o próximo step
+  const canGoToNextStep = () => {
+    switch (currentStep) {
+      case 1: // Profissional
+        return !!selectedProfessional;
+      case 2: // Serviço
+        return !!(selectedService || selectedServices.length > 0 || selectedCategoryServices.length > 0 || (isSubscriberBooking && subscriberService));
+      case 3: // Dia
+        return hasSelectedDate;
+      case 4: // Horário
+        return !!selectedTime;
+      case 5: // Pagamento
+        return !!(selectedPaymentMethod || isSubscriberBooking);
+      default:
+        return false;
+    }
+  };
+
+  // Função para avançar para o próximo step
+  const goToNextStep = () => {
+    if (canGoToNextStep() && currentStep < totalSteps) {
+      setCurrentStep(currentStep + 1);
+      // Não fazer scroll - deixar o usuário continuar descendo naturalmente
+    }
+  };
+
+  // Função para voltar ao step anterior
+  const goToPreviousStep = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+      // Não fazer scroll - deixar o usuário continuar descendo naturalmente
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* CSS para animação de vibração do serviço infantil */}
+      <style>
+        {`
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+          }
+          .shake-animation {
+            animation: shake 0.5s ease-in-out infinite;
+          }
+        `}
+      </style>
+
+      {/* Barra de Progresso */}
+      <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
+        <div
+          className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out"
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+      <div className="text-center text-sm text-gray-600 mb-4">
+        Etapa {currentStep} de {totalSteps}
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg shadow-sm">
         {/* 1. NOME DO CLIENTE */}
         <div>
@@ -1838,50 +1839,84 @@ export function AppointmentForm({
 
 
 
-        {/* 3. PROFISSIONAL */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            3. Escolha o Profissional
-          </label>
-          <ProfessionalSelector
-            professionals={establishment.professionals}
-            selectedProfessional={selectedProfessional?.id || null}
-            onSelectProfessional={(professionalId) => {
-              const professional = establishment.professionals.find(p => p.id === professionalId);
-
-              // ✅ LIMPAR APENAS A SELEÇÃO ATUAL (não os modos)
-              // Isso evita que serviços específicos de um profissional apareçam com outro
-              setSelectedService(undefined);
-              setSelectedServices([]);
-              setSelectedSubcategory(undefined);
-              setSelectedCategoryServices([]);
-
-              setSelectedProfessional(professional || undefined);
-
-              // ✅ NOVO: Se houver apenas 1 categoria, selecionar automaticamente
-              if (professional && serviceCategories.length === 1) {
-                const singleCategory = serviceCategories[0];
-                setUseCategoryService(true);
-                setUseMultiService(false);
-                setSelectedCategory(singleCategory.id);
-                console.log('✅ Auto-selecionando categoria única:', singleCategory.name);
-              }
-
-              // Scroll automático para a próxima seção após selecionar profissional
-              if (professional) {
-                scrollToNextSection();
-              }
-            }}
-            establishmentId={establishment.id || establishment.establishment_id || ''}
-            establishment={establishment}
-            selectedDate={selectedDate}
-            showGoalProgress={false}
-          />
-        </div>
-
-        {/* 4. SERVIÇO - Oculto para assinantes */}
-        {!isSubscriberBooking && showServiceSection && (
+        {/* STEP 1: PROFISSIONAL */}
+        {currentStep === 1 && (
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              1. Escolha o Profissional
+            </label>
+            <ProfessionalSelector
+              professionals={establishment.professionals}
+              selectedProfessional={selectedProfessional?.id || null}
+              onSelectProfessional={(professionalId) => {
+                const professional = establishment.professionals.find(p => p.id === professionalId);
+
+                // ✅ LIMPAR APENAS A SELEÇÃO ATUAL (não os modos)
+                // Isso evita que serviços específicos de um profissional apareçam com outro
+                setSelectedService(undefined);
+                setSelectedServices([]);
+                setSelectedSubcategory(undefined);
+                setSelectedCategoryServices([]);
+
+                setSelectedProfessional(professional || undefined);
+
+                // ✅ NOVO: Se houver apenas 1 categoria, selecionar automaticamente
+                if (professional && serviceCategories.length === 1) {
+                  const singleCategory = serviceCategories[0];
+                  setUseCategoryService(true);
+                  setUseMultiService(false);
+                  setSelectedCategory(singleCategory.id);
+                  console.log('✅ Auto-selecionando categoria única:', singleCategory.name);
+                }
+
+                // ✅ Avançar automaticamente para a próxima etapa após selecionar profissional
+                if (professional) {
+                  setTimeout(() => {
+                    setCurrentStep(2);
+                    // Scroll automático para mostrar as categorias/serviços - DESCE, NÃO SOBE
+                    setTimeout(() => {
+                      const categoriesSection = document.querySelector('[data-categories-section]');
+                      if (categoriesSection) {
+                        const rect = categoriesSection.getBoundingClientRect();
+                        const scrollPosition = window.scrollY + rect.top - 100; // 100px de margem do topo
+                        window.scrollTo({
+                          top: scrollPosition,
+                          behavior: 'smooth'
+                        });
+                      } else {
+                        // Scroll genérico para BAIXO
+                        window.scrollBy({
+                          top: 400,
+                          behavior: 'smooth'
+                        });
+                      }
+                    }, 200);
+                  }, 300);
+                }
+              }}
+              establishmentId={establishment.id || establishment.establishment_id || ''}
+              establishment={establishment}
+              selectedDate={selectedDate}
+              showGoalProgress={false}
+            />
+          </div>
+        )}
+
+        {/* STEP 2: SERVIÇO - Oculto para assinantes */}
+        {currentStep === 2 && !isSubscriberBooking && (
+          <div data-categories-section>
+            {/* Botão Voltar fixo no topo */}
+            {currentStep > 1 && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={goToPreviousStep}
+                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                >
+                  ← Voltar
+                </button>
+              </div>
+            )}
             <label className="block text-sm font-medium text-gray-700 mb-2">
               4. Escolha o Serviço
             </label>
@@ -1933,11 +1968,20 @@ export function AppointmentForm({
                 selectedServices={selectedServices}
                 onSelectServices={(services) => {
                   setSelectedServices(services);
-
-                  // Scroll automático para a próxima seção após selecionar serviços
-                  if (services.length > 0) {
-                    scrollToNextSection();
-                  }
+                }}
+                onBookServices={(services) => {
+                  setSelectedServices(services);
+                  // Avançar automaticamente para a etapa de data
+                  setTimeout(() => {
+                    setCurrentStep(3);
+                    // Scroll para a seção de data
+                    setTimeout(() => {
+                      window.scrollBy({
+                        top: 300,
+                        behavior: 'smooth'
+                      });
+                    }, 100);
+                  }, 300);
                 }}
                 maxServices={4}
               />
@@ -1978,52 +2022,69 @@ export function AppointmentForm({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Seletor de Categoria */}
+                    {/* Seletor de Categoria - CATEGORIAS VISÍVEIS */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Escolha a categoria
+                      <label className="block text-lg font-bold text-blue-700 mb-3 bg-blue-50 p-3 rounded-lg border-2 border-blue-400">
+                        📋 Selecione uma categoria
                       </label>
-                      <div className="relative">
-                        <select
-                          value={selectedCategory || ''}
-                          onChange={(e) => {
-                            setSelectedCategory(e.target.value);
-                            setSelectedSubcategory(null);
-                            setSelectedCategoryServices([]);
-
-                            // Scroll automático para a próxima seção após selecionar categoria
-                            if (e.target.value) {
-                              scrollToNextSection();
-                            }
-                          }}
-                          className="w-full px-3 py-3 border-2 border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white cursor-pointer hover:border-blue-400 transition-colors"
-                        >
-                          <option value="">Selecione uma categoria</option>
-                          {serviceCategories.map((category) => (
-                            <option key={category.id} value={category.id}>
-                              {category.name}
-                            </option>
-                          ))}
-                        </select>
-                        {/* Ícone de seta para baixo */}
-                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                          <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </div>
-                      </div>
-                      {/* Dica visual */}
-                      <div className="mt-2 flex items-center gap-2 text-sm text-blue-600">
-                        <span className="text-lg">👆</span>
-                        <span>Clique aqui para escolher a categoria do serviço</span>
+                      {/* Lista de categorias como botões visíveis */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {serviceCategories.map((category) => (
+                          <button
+                            key={category.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedCategory(category.id);
+                              setSelectedSubcategory(null);
+                              setSelectedCategoryServices([]);
+                              // Scroll automático para mostrar os serviços da categoria - DESCE, NÃO SOBE
+                              setTimeout(() => {
+                                const servicesSection = document.querySelector('[data-services-section]');
+                                if (servicesSection) {
+                                  const rect = servicesSection.getBoundingClientRect();
+                                  const scrollPosition = window.scrollY + rect.top - 100; // 100px de margem do topo
+                                  window.scrollTo({
+                                    top: scrollPosition,
+                                    behavior: 'smooth'
+                                  });
+                                } else {
+                                  // Scroll genérico para BAIXO
+                                  window.scrollBy({
+                                    top: 400,
+                                    behavior: 'smooth'
+                                  });
+                                }
+                              }, 200);
+                            }}
+                            className={`
+                              p-4 rounded-lg border-2 transition-all text-left
+                              ${selectedCategory === category.id
+                                ? 'bg-blue-600 text-white border-blue-700 shadow-lg transform scale-105'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                              }
+                            `}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-base">{category.name}</span>
+                              {selectedCategory === category.id && (
+                                <span className="text-white text-xl">✓</span>
+                              )}
+                            </div>
+                            {category.description && (
+                              <p className={`text-sm mt-1 ${selectedCategory === category.id ? 'text-blue-100' : 'text-gray-500'}`}>
+                                {category.description}
+                              </p>
+                            )}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
                     {/* Seletor de Subcategoria */}
                     {selectedCategory && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Escolha os serviços (até 4)
+                      <div data-services-section>
+                        <label className="block text-base sm:text-lg font-bold text-blue-700 mb-3 bg-blue-50 p-3 rounded-lg border-2 border-blue-400 text-center">
+                          📋 Selecione um ou mais serviços
                         </label>
 
                         {useMultiCategoryService ? (
@@ -2035,26 +2096,16 @@ export function AppointmentForm({
                                 const isDisabled = !isSelected && selectedCategoryServices.length >= 4;
 
                                 return (
-                                  <button
+                                  <div
                                     key={subcategory.id}
-                                    type="button"
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setSelectedCategoryServices(prev => prev.filter(service => service.id !== subcategory.id));
-                                      } else if (!isDisabled) {
-                                        setSelectedCategoryServices(prev => [...prev, subcategory]);
-                                        scrollToNextSection();
-                                      }
-                                    }}
-                                    disabled={isDisabled}
-                                    className={`w-full text-left p-4 border-2 rounded-lg transition-colors ${isSelected
-                                      ? 'border-green-500 bg-green-50 text-green-900'
-                                      : 'border-gray-200 bg-white text-gray-800 hover:border-green-400 hover:bg-green-50'
-                                      } ${isDisabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                                    className={`w-full p-4 border-2 rounded-lg transition-colors ${isSelected
+                                      ? 'border-green-500 bg-green-50'
+                                      : 'border-gray-200 bg-white'
+                                      } ${isDisabled ? 'opacity-60' : ''}`}
                                   >
-                                    <div className="flex justify-between items-center">
+                                    <div className="flex justify-between items-center mb-3">
                                       <div>
-                                        <h4 className="font-semibold">{subcategory.name}</h4>
+                                        <h4 className="font-semibold text-gray-900">{subcategory.name}</h4>
                                         <p className="text-sm text-gray-600">
                                           {subcategory.duration}min • R$ {subcategory.price.toFixed(2)}
                                         </p>
@@ -2063,7 +2114,50 @@ export function AppointmentForm({
                                         {isSelected ? '✓' : '+'}
                                       </div>
                                     </div>
-                                  </button>
+                                    {/* Botões de ação */}
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (isSelected) {
+                                            setSelectedCategoryServices(prev => prev.filter(service => service.id !== subcategory.id));
+                                          } else if (!isDisabled) {
+                                            setSelectedCategoryServices(prev => [...prev, subcategory]);
+                                          }
+                                        }}
+                                        disabled={isDisabled}
+                                        className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${isSelected
+                                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                          } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                      >
+                                        {isSelected ? '✓ Selecionado' : 'Selecionar Serviço'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!isSelected && !isDisabled) {
+                                            setSelectedCategoryServices([subcategory]);
+                                          }
+                                          // Avançar automaticamente para a etapa de data
+                                          setTimeout(() => {
+                                            setCurrentStep(3);
+                                            // Scroll para a seção de data
+                                            setTimeout(() => {
+                                              window.scrollBy({
+                                                top: 300,
+                                                behavior: 'smooth'
+                                              });
+                                            }, 100);
+                                          }, 300);
+                                        }}
+                                        disabled={isDisabled}
+                                        className={`flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                      >
+                                        Agendar
+                                      </button>
+                                    </div>
+                                  </div>
                                 );
                               })}
 
@@ -2085,7 +2179,6 @@ export function AppointmentForm({
 
                                   if (subcategory) {
                                     setSelectedSubcategory(subcategory);
-                                    scrollToNextSection();
                                   }
                                 }
                               }}
@@ -2120,10 +2213,38 @@ export function AppointmentForm({
                     {/* ✅ RESUMO DO SERVIÇO SELECIONADO - UM OU MÚLTIPLOS */}
                     {!useMultiCategoryService && selectedSubcategory && (
                       <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                        <h4 className="font-semibold text-blue-900">{selectedSubcategory.name}</h4>
-                        <div className="flex justify-between mt-2">
+                        <h4 className="font-semibold text-blue-900 mb-2">{selectedSubcategory.name}</h4>
+                        <div className="flex justify-between mb-3">
                           <span className="text-blue-700">Preço: R$ {selectedSubcategory.price.toFixed(2)}</span>
                           <span className="text-blue-700">Duração: {selectedSubcategory.duration}min</span>
+                        </div>
+                        {/* Botões de ação */}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                          >
+                            ✓ Selecionado
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Avançar automaticamente para a etapa de data
+                              setTimeout(() => {
+                                setCurrentStep(3);
+                                // Scroll para a seção de data
+                                setTimeout(() => {
+                                  window.scrollBy({
+                                    top: 300,
+                                    behavior: 'smooth'
+                                  });
+                                }, 100);
+                              }, 300);
+                            }}
+                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+                          >
+                            Agendar
+                          </button>
                         </div>
                       </div>
                     )}
@@ -2174,16 +2295,55 @@ export function AppointmentForm({
                 services={getCombinedServices()}
                 selectedService={selectedService}
                 onSelectService={setSelectedService}
+                onBookService={(service) => {
+                  setSelectedService(service);
+                  // Avançar automaticamente para a etapa de data
+                  setTimeout(() => {
+                    setCurrentStep(3);
+                    // Scroll para a seção de data
+                    setTimeout(() => {
+                      window.scrollBy({
+                        top: 300,
+                        behavior: 'smooth'
+                      });
+                    }, 100);
+                  }, 300);
+                }}
               />
+            )}
+
+            {/* Botão para avançar após selecionar serviço */}
+            {((selectedService || selectedServices.length > 0 || selectedCategoryServices.length > 0) || (isSubscriberBooking && subscriberService)) && (
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={goToNextStep}
+                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  ESCOLHER DIA →
+                </button>
+              </div>
             )}
           </div>
         )}
 
-        {/* Serviço do Assinante - Mostrado apenas para assinantes */}
-        {isSubscriberBooking && subscriberService && (
+        {/* Serviço do Assinante - Mostrado apenas para assinantes no step 2 */}
+        {currentStep === 2 && isSubscriberBooking && subscriberService && (
           <div>
+            {/* Botão Voltar fixo no topo */}
+            {currentStep > 1 && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={goToPreviousStep}
+                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                >
+                  ← Voltar
+                </button>
+              </div>
+            )}
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              3. Serviço Incluído
+              2. Serviço Incluído
             </label>
             <div className="w-full p-4 rounded-lg border border-green-200 bg-green-50">
               <div className="flex items-center justify-between">
@@ -2196,13 +2356,34 @@ export function AppointmentForm({
                 </div>
               </div>
             </div>
+            {/* Botão para avançar */}
+            <div className="mt-6">
+              <button
+                type="button"
+                onClick={goToNextStep}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                ESCOLHER DIA →
+              </button>
+            </div>
           </div>
         )}
 
-
-        {/* 5. DATA */}
-        {showDateSection && (
+        {/* STEP 3: DATA */}
+        {currentStep === 3 && (
           <div>
+            {/* Botão Voltar fixo no topo */}
+            {currentStep > 1 && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={goToPreviousStep}
+                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                >
+                  ← Voltar
+                </button>
+              </div>
+            )}
             <label className="block text-sm font-medium text-gray-700 mb-2">
               5. Escolha a Data
             </label>
@@ -2211,11 +2392,10 @@ export function AppointmentForm({
               onChange={(date) => {
                 onSelectDate(date);
                 setHasSelectedDate(true); // Marca que o usuário selecionou uma data
-
-                // Scroll automático para a seção de horário após selecionar data
-                if (date) {
-                  scrollToTimeSection();
-                }
+                // ✅ Avançar automaticamente para a próxima etapa após selecionar data
+                setTimeout(() => {
+                  setCurrentStep(4);
+                }, 300);
               }}
               businessHours={establishment.business_hours}
               allowedWeekdays={subscriberService?.weekdays}
@@ -2224,9 +2404,21 @@ export function AppointmentForm({
           </div>
         )}
 
-        {/* 6. HORÁRIO */}
-        {showDateSection && hasSelectedDate && (selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0))) || (isSubscriberBooking && subscriberService)) && (
+        {/* STEP 4: HORÁRIO */}
+        {currentStep === 4 && (
           <div>
+            {/* Botão Voltar fixo no topo */}
+            {currentStep > 1 && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={goToPreviousStep}
+                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                >
+                  ← Voltar
+                </button>
+              </div>
+            )}
             <label className="block text-sm font-medium text-gray-700 mb-2">
               6. Escolha o Horário
             </label>
@@ -2293,23 +2485,29 @@ export function AppointmentForm({
                 selectedTime={selectedTime}
                 onTimeSelect={(time) => {
                   setSelectedTime(time);
-
-                  // Scroll automático para a seção de observação após selecionar horário
+                  // ✅ Avançar automaticamente para a próxima etapa após selecionar horário
                   if (time) {
                     setTimeout(() => {
-                      // Encontrar a seção de observação
-                      const observationSection = document.querySelector('textarea[placeholder*="observação"]');
-                      if (observationSection) {
-                        observationSection.scrollIntoView({
-                          behavior: 'smooth',
-                          block: 'start'
-                        });
-                      } else {
-                        window.scrollBy({
-                          top: 250,
-                          behavior: 'smooth'
-                        });
-                      }
+                      setCurrentStep(5);
+                      // Scroll automático para mostrar a forma de pagamento - DESCE, NÃO SOBE
+                      setTimeout(() => {
+                        const paymentSection = document.querySelector('[data-payment-section]') ||
+                          document.querySelector('label:contains("Forma de Pagamento")');
+                        if (paymentSection) {
+                          const rect = paymentSection.getBoundingClientRect();
+                          const scrollPosition = window.scrollY + rect.top - 100; // 100px de margem do topo
+                          window.scrollTo({
+                            top: scrollPosition,
+                            behavior: 'smooth'
+                          });
+                        } else {
+                          // Scroll genérico para BAIXO
+                          window.scrollBy({
+                            top: 400,
+                            behavior: 'smooth'
+                          });
+                        }
+                      }, 200);
                     }, 300);
                   }
                 }}
@@ -2333,41 +2531,36 @@ export function AppointmentForm({
                 professionalWorkHours={selectedProfessional ? (selectedProfessional as any).work_hours || null : null}
               />
             )}
+            {/* Botão para avançar após selecionar horário */}
+            {selectedTime && (
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={goToNextStep}
+                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  ESCOLHER FORMA DE PAGAMENTO →
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* 6. OBSERVAÇÃO - Opcional */}
-        {selectedTime && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Observação
-            </label>
-            <textarea
-              value={observation}
-              onChange={(e) => {
-                if (e.target.value.length <= 100) {
-                  setObservation(e.target.value);
-                }
-              }}
-              placeholder="Quer colocar alguma observação para o barbeiro?"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 resize-none"
-              rows={3}
-              maxLength={100}
-            />
-            <div className="flex justify-between items-center mt-1">
-              <p className="text-xs text-gray-500">
-                (Opcional) Máximo 100 caracteres
-              </p>
-              <span className={`text-xs ${observation.length > 90 ? 'text-red-500' : 'text-gray-400'}`}>
-                {observation.length}/100
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* 7. FORMA DE PAGAMENTO - Oculto para assinantes */}
-        {showPaymentSection && (selectedService || (useMultiService && selectedServices.length > 0) || (useCategoryService && (selectedSubcategory || (useMultiCategoryService && selectedCategoryServices.length > 0)))) && !isSubscriberBooking && (
-          <div>
+        {/* STEP 5: FORMA DE PAGAMENTO - Oculto para assinantes */}
+        {currentStep === 5 && !isSubscriberBooking && (
+          <div data-payment-section>
+            {/* Botão Voltar fixo no topo */}
+            {currentStep > 1 && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={goToPreviousStep}
+                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                >
+                  ← Voltar
+                </button>
+              </div>
+            )}
             <label className="block text-sm font-medium text-gray-700 mb-2">
               7. Forma de Pagamento
             </label>
@@ -2375,25 +2568,24 @@ export function AppointmentForm({
               selectedMethod={selectedPaymentMethod}
               onMethodSelect={(method) => {
                 setSelectedPaymentMethod(method);
-
-                // Scroll automático para o botão de agendar após selecionar método de pagamento
-                if (method) {
-                  // Pequeno delay para garantir que a UI foi atualizada
-                  setTimeout(() => {
-                    const submitButton = document.querySelector('button[type="submit"]');
-                    if (submitButton) {
-                      submitButton.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'center'
-                      });
-                    } else {
-                      window.scrollBy({
-                        top: 300,
-                        behavior: 'smooth'
-                      });
-                    }
-                  }, 300);
-                }
+                // Scroll automático para o botão FINALIZAR AGENDAMENTO - DESCE, NÃO SOBE
+                setTimeout(() => {
+                  const submitButton = document.querySelector('button[type="submit"]');
+                  if (submitButton) {
+                    const rect = submitButton.getBoundingClientRect();
+                    const scrollPosition = window.scrollY + rect.top - 100; // 100px de margem do topo
+                    window.scrollTo({
+                      top: scrollPosition,
+                      behavior: 'smooth'
+                    });
+                  } else {
+                    // Scroll genérico para BAIXO
+                    window.scrollBy({
+                      top: 400,
+                      behavior: 'smooth'
+                    });
+                  }
+                }, 200);
               }}
               showPixOptions={!!establishment.pix_key}
               pixPaymentMethod={pixPaymentMethod}
@@ -2429,12 +2621,105 @@ export function AppointmentForm({
                 />
               </div>
             )}
+            {/* OBSERVAÇÃO - Mostrada no step 5 antes do botão finalizar */}
+            {selectedTime && (
+              <div className="mt-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Observação (Opcional)
+                </label>
+                <textarea
+                  value={observation}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 100) {
+                      setObservation(e.target.value);
+                    }
+                  }}
+                  placeholder="Quer colocar alguma observação para o barbeiro?"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 resize-none"
+                  rows={3}
+                  maxLength={100}
+                />
+                <div className="flex justify-between items-center mt-1">
+                  <p className="text-xs text-gray-500">
+                    (Opcional) Máximo 100 caracteres
+                  </p>
+                  <span className={`text-xs ${observation.length > 90 ? 'text-red-500' : 'text-gray-400'}`}>
+                    {observation.length}/100
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* SERVIÇO INFANTIL - Obrigatório (só se profissional oferece) - Destacado e antes do botão finalizar */}
+            {selectedTime && selectedProfessional && selectedProfessional.offers_child_service && (
+              <div className={`mt-6 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg ${isChildService === null ? 'shake-animation' : ''}`}>
+                <label className="block text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <span className="text-red-500 text-2xl">⚠️</span>
+                  <span>Serviço infantil? <span className="text-red-500 text-xl">*</span></span>
+                </label>
+                <div className="flex gap-4 mb-2">
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="childService"
+                      value="true"
+                      checked={isChildService === true}
+                      onChange={() => setIsChildService(true)}
+                      className="mr-2 w-5 h-5 cursor-pointer"
+                    />
+                    <span className="text-base font-medium text-gray-700">Sim</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="childService"
+                      value="false"
+                      checked={isChildService === false}
+                      onChange={() => setIsChildService(false)}
+                      className="mr-2 w-5 h-5 cursor-pointer"
+                    />
+                    <span className="text-base font-medium text-gray-700">Não</span>
+                  </label>
+                </div>
+                <p className="text-sm font-semibold text-red-600 mt-2">
+                  ⚠️ (Obrigatório) Informe se é um serviço para criança
+                </p>
+              </div>
+            )}
+
+            {/* Botão para finalizar após selecionar forma de pagamento */}
+            {selectedPaymentMethod && (
+              <div className="mt-6">
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className={`w-full px-4 py-3 rounded-lg font-medium transition-colors ${isLoading
+                    ? 'bg-gray-400 cursor-not-allowed text-white'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                    }`}
+                >
+                  {isLoading ? 'Agendando...' : 'FINALIZAR AGENDAMENTO'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Pagamento já incluído - Mostrado apenas para assinantes */}
-        {isSubscriberBooking && subscriberService && (
+        {/* Pagamento já incluído - Mostrado apenas para assinantes no step 5 */}
+        {currentStep === 5 && isSubscriberBooking && subscriberService && (
           <div>
+            {/* Botão Voltar fixo no topo */}
+            {currentStep > 1 && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={goToPreviousStep}
+                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                >
+                  ← Voltar
+                </button>
+              </div>
+            )}
             <label className="block text-sm font-medium text-gray-700 mb-2">
               7. Pagamento
             </label>
@@ -2446,49 +2731,93 @@ export function AppointmentForm({
                 <p className="text-blue-800 font-medium">Pagamento já incluído na sua assinatura</p>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* 7. SERVIÇO INFANTIL - Obrigatório (só se profissional oferece) */}
-        {selectedTime && selectedProfessional && selectedProfessional.offers_child_service && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Serviço infantil? <span className="text-red-500">*</span>
-            </label>
-            <div className="flex gap-4">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="childService"
-                  value="true"
-                  checked={isChildService === true}
-                  onChange={() => setIsChildService(true)}
-                  className="mr-2"
+            {/* OBSERVAÇÃO - Mostrada no step 5 antes do botão finalizar */}
+            {selectedTime && (
+              <div className="mt-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Observação (Opcional)
+                </label>
+                <textarea
+                  value={observation}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 100) {
+                      setObservation(e.target.value);
+                    }
+                  }}
+                  placeholder="Quer colocar alguma observação para o barbeiro?"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 resize-none"
+                  rows={3}
+                  maxLength={100}
                 />
-                <span className="text-sm text-gray-700">Sim</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="childService"
-                  value="false"
-                  checked={isChildService === false}
-                  onChange={() => setIsChildService(false)}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Não</span>
-              </label>
+                <div className="flex justify-between items-center mt-1">
+                  <p className="text-xs text-gray-500">
+                    (Opcional) Máximo 100 caracteres
+                  </p>
+                  <span className={`text-xs ${observation.length > 90 ? 'text-red-500' : 'text-gray-400'}`}>
+                    {observation.length}/100
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* SERVIÇO INFANTIL - Obrigatório (só se profissional oferece) - Destacado e antes do botão finalizar */}
+            {selectedTime && selectedProfessional && selectedProfessional.offers_child_service && (
+              <div className={`mt-6 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg ${isChildService === null ? 'shake-animation' : ''}`}>
+                <label className="block text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <span className="text-red-500 text-2xl">⚠️</span>
+                  <span>Serviço infantil? <span className="text-red-500 text-xl">*</span></span>
+                </label>
+                <div className="flex gap-4 mb-2">
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="childService"
+                      value="true"
+                      checked={isChildService === true}
+                      onChange={() => setIsChildService(true)}
+                      className="mr-2 w-5 h-5 cursor-pointer"
+                    />
+                    <span className="text-base font-medium text-gray-700">Sim</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="childService"
+                      value="false"
+                      checked={isChildService === false}
+                      onChange={() => setIsChildService(false)}
+                      className="mr-2 w-5 h-5 cursor-pointer"
+                    />
+                    <span className="text-base font-medium text-gray-700">Não</span>
+                  </label>
+                </div>
+                <p className="text-sm font-semibold text-red-600 mt-2">
+                  ⚠️ (Obrigatório) Informe se é um serviço para criança
+                </p>
+              </div>
+            )}
+
+            {/* Botão para finalizar */}
+            <div className="mt-6">
+              <button
+                type="submit"
+                disabled={isLoading}
+                className={`w-full px-4 py-3 rounded-lg font-medium transition-colors ${isLoading
+                  ? 'bg-gray-400 cursor-not-allowed text-white'
+                  : 'bg-green-600 hover:bg-green-700 text-white'
+                  }`}
+              >
+                {isLoading ? 'Agendando...' : 'FINALIZAR AGENDAMENTO'}
+              </button>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
-              (Obrigatório) Informe se é um serviço para criança
-            </p>
           </div>
         )}
 
-        {/* RESUMO DO AGENDAMENTO */}
-        {((selectedService && selectedProfessional && selectedPaymentMethod && selectedTime) ||
-          (useMultiService && selectedServices.length > 0 && selectedProfessional && selectedPaymentMethod && selectedTime) ||
-          (useCategoryService && ((selectedSubcategory && selectedProfessional && selectedPaymentMethod && selectedTime) || (useMultiCategoryService && selectedCategoryServices.length > 0 && selectedProfessional && selectedPaymentMethod && selectedTime))) ||
+        {/* RESUMO DO AGENDAMENTO - Mostrado no step 5 */}
+        {currentStep === 5 && ((selectedService && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) ||
+          (useMultiService && selectedServices.length > 0 && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) ||
+          (useCategoryService && ((selectedSubcategory && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) || (useMultiCategoryService && selectedCategoryServices.length > 0 && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime))) ||
           (isSubscriberBooking && subscriberService && selectedProfessional && selectedTime)) && (
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
               <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
@@ -2531,18 +2860,6 @@ export function AppointmentForm({
               </div>
             </div>
           )}
-
-        {/* BOTÃO DE SUBMIT */}
-        <button
-          type="submit"
-          disabled={isLoading}
-          className={`w-full py-3 px-4 rounded-md text-white font-medium ${isLoading
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-primary hover:bg-primary/90'
-            }`}
-        >
-          {isLoading ? 'Agendando...' : 'Confirmar Agendamento'}
-        </button>
       </form>
 
       {/* Modal de limite excedido */}

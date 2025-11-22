@@ -122,7 +122,7 @@ interface Establishment {
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo';
 
 interface AdditionalProduct {
   name: string;
@@ -1860,6 +1860,49 @@ const EstablishmentDashboard = () => {
       });
 
       toast.success('Profissional adicionado à lista! Agora preencha o nome e clique em "Salvar Profissionais".');
+
+      // Scroll até o novo profissional após o DOM ser atualizado
+      setTimeout(() => {
+        const newProfessionalElement = document.getElementById(`professional-${newProfessional.id}`);
+        if (newProfessionalElement) {
+          // Scroll com offset para ficar um pouco mais acima
+          const elementPosition = newProfessionalElement.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - 100; // 100px acima
+          window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+          
+          // Destacar o novo profissional temporariamente
+          newProfessionalElement.style.transition = 'box-shadow 0.3s';
+          newProfessionalElement.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.5)';
+          
+          // Destacar o campo de nome do profissional
+          const nameInput = newProfessionalElement.querySelector('input[type="text"]') as HTMLInputElement;
+          if (nameInput) {
+            nameInput.style.transition = 'all 0.3s';
+            nameInput.style.borderColor = '#3b82f6';
+            nameInput.style.borderWidth = '2px';
+            nameInput.style.backgroundColor = '#1e3a8a';
+            nameInput.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.6)';
+            nameInput.focus();
+            
+            // Adicionar placeholder destacado
+            const originalPlaceholder = nameInput.placeholder;
+            nameInput.placeholder = '⚠️ DIGITE O NOME DO PROFISSIONAL AQUI ⚠️';
+            
+            setTimeout(() => {
+              newProfessionalElement.style.boxShadow = '';
+              nameInput.style.borderColor = '';
+              nameInput.style.borderWidth = '';
+              nameInput.style.backgroundColor = '';
+              nameInput.style.boxShadow = '';
+              nameInput.placeholder = originalPlaceholder;
+            }, 4000);
+          }
+          
+          setTimeout(() => {
+            newProfessionalElement.style.boxShadow = '';
+          }, 2000);
+        }
+      }, 100);
     } catch (error) {
       console.error('Erro ao adicionar profissional:', error);
       toast.error('Erro ao adicionar profissional');
@@ -7454,7 +7497,6 @@ Estamos te aguardando! 😎✂️`;
     // Mapear tabs para chaves de tutorial
     const tutorialKeyMap: { [key: string]: string } = {
       'appointments': 'appointments',
-      'reserve-client': 'reserveClient',
       'subscribers': 'subscribers',
       'service-categories': 'services',
       'products': 'products',
@@ -9192,113 +9234,6 @@ Estamos te aguardando! 😎✂️`;
                       </p>
                     </div>
                   )}
-                </div>
-              )}
-
-              {activeTab === 'reserve-client' && (
-                <div className="space-y-6">
-                  {/* Vídeo Tutorial */}
-                  {showTutorials.reserveClient && (
-                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                            <span className="text-red-600 text-xl">📺</span>
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Reservar Clientes</h3>
-                            <p className="text-sm text-gray-600">Aprenda a fazer reservas avulsas para seus clientes</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => toggleTutorial('reserveClient')}
-                          className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
-                        >
-                          Ocultar Tutorial
-                        </button>
-                      </div>
-
-                      <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
-                        <iframe
-                          className="absolute top-0 left-0 w-full h-full"
-                          src="https://www.youtube.com/embed/vL_E1P1xptU"
-                          title="Tutorial: Como Reservar Clientes"
-                          frameBorder="0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          allowFullScreen
-                        ></iframe>
-                      </div>
-
-                      <div className="mt-3 text-center">
-                        <a
-                          href="https://youtu.be/vL_E1P1xptU"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                        >
-                          Assistir no YouTube
-                        </a>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Botão para mostrar tutorial se estiver oculto */}
-                  {!showTutorials.reserveClient && (
-                    <div className="mb-6 text-center">
-                      <button
-                        onClick={() => toggleTutorial('reserveClient')}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
-                      >
-                        <span>📺</span>
-                        <span>Mostrar Tutorial</span>
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <User className="h-6 w-6 text-blue-600" />
-                      </div>
-                      <div>
-                        <h2 className="text-xl font-bold text-white">Reservar Cliente</h2>
-                        <p className="text-gray-400">Faça reservas avulsas para seus clientes</p>
-                      </div>
-                    </div>
-
-                    <div className="mb-6">
-                      <p className="text-gray-300 mb-4">
-                        Aqui você pode criar uma reserva ou visualizar os horários disponíveis.
-                        <br /><br />
-                        Basta clicar em Reservar Cliente. Em seguida, o sistema solicitará que você escolha o profissional e o serviço desejado. Após a seleção, serão exibidos todos os horários disponíveis para a data escolhida.
-                        <br /><br />
-                        Ao selecionar um horário, você poderá criar a reserva para garantir que ninguém mais agende naquele mesmo horário, além de manter o controle de caixa dos atendimentos avulsos.
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          console.log('🔍 Abrindo modal ReservarCliente para establishment:', establishment?.id);
-                          setShowReservarClienteModal(true);
-                        }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors duration-200 flex items-center gap-3"
-                      >
-                        <User className="h-5 w-5" />
-                        Reservar ou ver horários
-                      </button>
-                    </div>
-
-                    <div className="bg-gray-800 rounded-lg p-4">
-                      <h3 className="text-lg font-semibold text-white mb-2">Como funciona:</h3>
-                      <ul className="text-gray-300 space-y-2 text-sm">
-                        <li>• Selecione o profissional desejado</li>
-                        <li>• Escolha o serviço e horário disponível</li>
-                        <li>• A reserva será criada como "CLIENTE AVULSO"</li>
-                        <li>• O horário ficará bloqueado para novos clientes</li>
-                        <li>• Aparecerá normalmente no painel de agendamentos</li>
-                      </ul>
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -11749,6 +11684,16 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Botões de navegação */}
                   <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                    <button
+                      onClick={() => {
+                        console.log('🔍 Abrindo modal ReservarCliente para establishment:', establishment?.id);
+                        setShowReservarClienteModal(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                    >
+                      <User className="h-4 w-4" />
+                      Reservar Cliente
+                    </button>
                     <button
                       onClick={() => handleTabChange('clients')}
                       className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
@@ -14440,7 +14385,7 @@ Estamos te aguardando! 😎✂️`;
               {/* Resto do código original dos profissionais */}
               <div className="space-y-4">
                   {professionals.map((professional) => (
-                    <div key={professional.id} className="p-4 bg-[#242628] rounded-lg space-y-3">
+                    <div key={professional.id} id={`professional-${professional.id}`} className="p-4 bg-[#242628] rounded-lg space-y-3">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
                           <input

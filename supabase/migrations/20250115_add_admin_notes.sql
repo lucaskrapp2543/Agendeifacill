@@ -6,3 +6,4 @@ ADD COLUMN IF NOT EXISTS admin_notes TEXT DEFAULT NULL;
 COMMENT ON COLUMN establishments.admin_notes IS 'Observações privadas do admin sobre o estabelecimento (controle pessoal, valores pagos, etc)';
 
 
+

@@ -26,3 +26,4 @@ COMMENT ON COLUMN establishments.punish_client_on_cancel IS 'Se true, cliente qu
 
 
 
+
