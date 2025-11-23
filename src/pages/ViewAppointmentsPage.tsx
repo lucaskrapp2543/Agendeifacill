@@ -23,6 +23,7 @@ export default function ViewAppointmentsPage() {
   const [showWhatsAppConfirmationModal, setShowWhatsAppConfirmationModal] = useState(false);
   const [selectedAppointmentForWhatsApp, setSelectedAppointmentForWhatsApp] = useState<any>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [cancelledAppointment, setCancelledAppointment] = useState<any>(null); // Para mostrar botão de enviar mensagem após cancelar
 
 
   // Buscar telefone salvo e carregar agendamentos automaticamente
@@ -136,7 +137,6 @@ export default function ViewAppointmentsPage() {
   };
 
   const handleCancelAppointment = async (appointmentId: string) => {
-    // Ir direto para o WhatsApp sem confirmação
     const appointment = appointments.find(apt => apt.id === appointmentId);
     if (!appointment) {
       toast.error('Agendamento não encontrado');
@@ -144,7 +144,7 @@ export default function ViewAppointmentsPage() {
     }
 
     try {
-      // Buscar WhatsApp do estabelecimento
+      // Buscar configuração do estabelecimento
       const establishmentId = appointment.establishment_id || appointment.establishments?.id;
       const establishmentName = appointment.establishments?.name || appointment.establishment_name;
 
@@ -154,7 +154,7 @@ export default function ViewAppointmentsPage() {
       if (establishmentId) {
         const result = await supabase
           .from('establishments')
-          .select('whatsapp')
+          .select('enable_whatsapp_notifications, whatsapp')
           .eq('id', establishmentId)
           .single();
         establishment = result.data;
@@ -162,7 +162,7 @@ export default function ViewAppointmentsPage() {
       } else if (establishmentName) {
         const result = await supabase
           .from('establishments')
-          .select('whatsapp')
+          .select('enable_whatsapp_notifications, whatsapp')
           .eq('name', establishmentName)
           .single();
         establishment = result.data;
@@ -172,22 +172,101 @@ export default function ViewAppointmentsPage() {
         return;
       }
 
-      if (error || !establishment?.whatsapp) {
-        console.error('❌ Erro ao buscar WhatsApp:', error);
-        toast.error('Configuração de WhatsApp não encontrada');
+      if (error) {
+        console.error('❌ Erro ao buscar estabelecimento:', error);
+        toast.error('Erro ao buscar configuração do estabelecimento');
         return;
       }
 
+      // Se a opção de WhatsApp estiver MARCADA, apenas abrir WhatsApp (NÃO cancela no banco)
+      if (establishment?.enable_whatsapp_notifications) {
+        if (!establishment?.whatsapp) {
+          console.error('❌ WhatsApp não configurado');
+          toast.error('Configuração de WhatsApp não encontrada');
+          return;
+        }
+
+        // Limpar e formatar o número do WhatsApp
+        let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
+
+        // Lista de códigos de países comuns
+        const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+        const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+
+        if (!hasCountryCode) {
+          if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+            cleanWhatsapp = '55' + cleanWhatsapp;
+          } else if (cleanWhatsapp.length < 10) {
+            toast.error('Número de WhatsApp inválido');
+            return;
+          }
+        }
+
+        // Formatar data
+        const appointmentDate = formatDate(appointment.appointment_date);
+
+        // Mensagem quando opção está MARCADA: "Quero cancelar..." (pedindo para o barbeiro cancelar)
+        const message = `Quero cancelar meu agendamento pelo Agendei Fácil:
+
+*Data:* ${appointmentDate}
+*Horário:* ${appointment.appointment_time}
+*Serviço:* ${appointment.service_name || appointment.service || 'Não especificado'}
+*Profissional:* ${appointment.professional_name || 'Não especificado'}
+*Forma de Pagamento:* ${appointment.payment_method || 'Não especificada'}
+
+Por favor, confirme o cancelamento. Obrigado!`;
+
+        const encodedMessage = encodeURIComponent(message);
+        const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
+
+        window.open(whatsappUrl, '_blank');
+        toast.success('Abrindo WhatsApp para solicitar cancelamento...');
+        return;
+      }
+
+      // Se a opção estiver DESMARCADA, cancelar direto no banco
+      const { error: cancelError } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelled' })
+        .eq('id', appointmentId);
+
+      if (cancelError) {
+        console.error('❌ Erro ao cancelar agendamento:', cancelError);
+        toast.error('Erro ao cancelar agendamento');
+        return;
+      }
+
+      // Atualizar a lista de agendamentos
+      const updatedAppointments = appointments.map(apt => 
+        apt.id === appointmentId ? { ...apt, status: 'cancelled' } : apt
+      );
+      setAppointments(updatedAppointments);
+
+      toast.success('Agendamento cancelado com sucesso!');
+      setCancelledAppointment({
+        ...appointment,
+        establishment: establishment
+      });
+    } catch (error: any) {
+      console.error('❌ Erro ao processar cancelamento:', error);
+      toast.error('Erro ao processar cancelamento. Tente novamente.');
+    }
+  };
+
+  const handleSendCancellationMessage = async () => {
+    if (!cancelledAppointment || !cancelledAppointment.establishment?.whatsapp) {
+      toast.error('Configuração de WhatsApp não encontrada');
+      return;
+    }
+
+    try {
       // Limpar e formatar o número do WhatsApp
-      let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
+      let cleanWhatsapp = cancelledAppointment.establishment.whatsapp.replace(/\D/g, '');
 
-      // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+      // Lista de códigos de países comuns
       const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-
-      // Verificar se o número já começa com algum código de país
       const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
 
-      // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
       if (!hasCountryCode) {
         if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
           cleanWhatsapp = '55' + cleanWhatsapp;
@@ -198,27 +277,28 @@ export default function ViewAppointmentsPage() {
       }
 
       // Formatar data
-      const appointmentDate = formatDate(appointment.appointment_date);
+      const appointmentDate = formatDate(cancelledAppointment.appointment_date);
 
       const message = `Quero cancelar meu agendamento pelo Agendei Fácil:
 
 *Data:* ${appointmentDate}
-*Horário:* ${appointment.appointment_time}
-*Serviço:* ${appointment.service_name || appointment.service || 'Não especificado'}
-*Profissional:* ${appointment.professional_name || 'Não especificado'}
-*Forma de Pagamento:* ${appointment.payment_method || 'Não especificada'}
+*Horário:* ${cancelledAppointment.appointment_time}
+*Serviço:* ${cancelledAppointment.service_name || cancelledAppointment.service || 'Não especificado'}
+*Profissional:* ${cancelledAppointment.professional_name || 'Não especificado'}
+*Forma de Pagamento:* ${cancelledAppointment.payment_method || 'Não especificada'}
 
 Por favor, confirme o cancelamento. Obrigado!`;
 
       const encodedMessage = encodeURIComponent(message);
       const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
 
-      console.log('📱 Abrindo WhatsApp para cancelamento:', whatsappUrl);
-
       window.open(whatsappUrl, '_blank');
-      toast.success('Abrindo WhatsApp para cancelar agendamento...');
+      toast.success('Abrindo WhatsApp...');
+      
+      // Limpar o estado após enviar
+      setCancelledAppointment(null);
     } catch (error: any) {
-      console.error('❌ Erro ao enviar WhatsApp:', error);
+      console.error('❌ Erro ao enviar mensagem:', error);
       toast.error('Erro ao abrir WhatsApp. Tente novamente.');
     }
   };
@@ -908,12 +988,75 @@ Por favor, confirme o cancelamento. Obrigado!`;
                     )}
 
                     {/* Botão de Cancelamento */}
+                    {appointment.status !== 'cancelled' && (
+                      <button
+                        onClick={() => handleCancelAppointment(appointment.id)}
+                        className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center justify-center gap-2"
+                      >
+                        <X className="w-4 h-4" />
+                        Cancelar Agendamento
+                      </button>
+                    )}
+
+                  </div>
+                )}
+
+                {/* Botão de Confirmar Cancelamento (quando opção está DESMARCADA) */}
+                {appointment.status === 'cancelled' && cancelledAppointment && cancelledAppointment.id === appointment.id && (
+                  <div className="pt-4 border-t border-gray-200">
                     <button
-                      onClick={() => handleCancelAppointment(appointment.id)}
-                      className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center justify-center gap-2"
+                      onClick={async () => {
+                        try {
+                          if (!cancelledAppointment.establishment?.whatsapp) {
+                            toast.error('Configuração de WhatsApp não encontrada');
+                            return;
+                          }
+
+                          // Limpar e formatar o número do WhatsApp
+                          let cleanWhatsapp = cancelledAppointment.establishment.whatsapp.replace(/\D/g, '');
+
+                          // Lista de códigos de países comuns
+                          const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+                          const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+
+                          if (!hasCountryCode) {
+                            if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+                              cleanWhatsapp = '55' + cleanWhatsapp;
+                            } else if (cleanWhatsapp.length < 10) {
+                              toast.error('Número de WhatsApp inválido');
+                              return;
+                            }
+                          }
+
+                          // Formatar data
+                          const appointmentDate = formatDate(cancelledAppointment.appointment_date);
+
+                          // Mensagem quando opção está DESMARCADA: "Cancelei" (informando que já cancelou)
+                          const message = `Cancelei
+
+*Data:* ${appointmentDate}
+*Horário:* ${cancelledAppointment.appointment_time}
+*Serviço:* ${cancelledAppointment.service_name || cancelledAppointment.service || 'Não especificado'}
+*Profissional:* ${cancelledAppointment.professional_name || 'Não especificado'}
+*Forma de Pagamento:* ${cancelledAppointment.payment_method || 'Não especificada'}`;
+
+                          const encodedMessage = encodeURIComponent(message);
+                          const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
+
+                          window.open(whatsappUrl, '_blank');
+                          toast.success('Abrindo WhatsApp...');
+                          
+                          // Limpar o estado após enviar
+                          setCancelledAppointment(null);
+                        } catch (error: any) {
+                          console.error('❌ Erro ao enviar mensagem:', error);
+                          toast.error('Erro ao processar. Tente novamente.');
+                        }
+                      }}
+                      className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center gap-2"
                     >
-                      <X className="w-4 h-4" />
-                      Cancelar Agendamento
+                      <Phone className="w-4 h-4" />
+                      Confirmar cancelamento
                     </button>
                   </div>
                 )}
