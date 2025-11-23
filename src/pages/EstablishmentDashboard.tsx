@@ -12414,8 +12414,8 @@ Estamos te aguardando! 😎✂️`;
                   </div>
 
                   <div className="mb-6">
-                    <p className="text-gray-300 text-sm mb-4">
-                      Configure os horários de trabalho personalizados para este profissional. Se não configurado, será usado o horário padrão do estabelecimento.
+                    <p className="text-yellow-400 text-sm mb-4 font-semibold bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3">
+                      Configure os horários de trabalho personalizados para este profissional. Se não configurado, será usado o horário padrão do estabelecimento configurado em Config / página agendamento.
                     </p>
                   </div>
 
