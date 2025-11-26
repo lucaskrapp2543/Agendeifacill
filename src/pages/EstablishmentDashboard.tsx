@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import AdditionalProductModal from '../components/AdditionalProductModal';
+import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 import { DraggableServiceList } from '../components/DraggableServiceList';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
@@ -287,6 +288,8 @@ const EstablishmentDashboard = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
+  const [highlightedProfessionalId, setHighlightedProfessionalId] = useState<string | null>(null);
+  const [highlightReserveButton, setHighlightReserveButton] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const previousAppointmentsRef = useRef<Appointment[]>([]);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
@@ -7531,6 +7534,40 @@ Estamos te aguardando! 😎✂️`;
     setActiveTab('appointments');
   };
 
+  // Função para navegar até o profissional na aba de profissionais
+  const handleGoToProfessionalConfig = (professionalId: string) => {
+    setHighlightedProfessionalId(professionalId);
+    setActiveTab('professionals');
+    
+    // Após um breve delay, rolar até o profissional e limpar o highlight
+    setTimeout(() => {
+      const element = document.getElementById(`professional-${professionalId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Limpar o highlight após 3 segundos
+        setTimeout(() => {
+          setHighlightedProfessionalId(null);
+        }, 3000);
+      }
+    }, 100);
+  };
+
+  // Função para navegar até a aba de clientes
+  const handleGoToClients = () => {
+    setActiveTab('clients');
+    setHighlightReserveButton(true);
+    
+    // Scroll para o topo após um breve delay
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      
+      // Remover o highlight após 5 segundos
+      setTimeout(() => {
+        setHighlightReserveButton(false);
+      }, 5000);
+    }, 100);
+  };
+
   const createBucketIfNotExists = async () => {
     try {
       // Primeiro verifica se o bucket já existe
@@ -8079,42 +8116,30 @@ Estamos te aguardando! 😎✂️`;
                     <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                            <span className="text-red-600 text-xl">📺</span>
+                          <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center animate-spin">
+                            <span className="text-orange-600 text-xl">⏳</span>
                           </div>
                           <div>
                             <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Agendamentos</h3>
-                            <p className="text-sm text-gray-600">Aprenda a gerenciar seus agendamentos e clientes</p>
+                            <p className="text-sm text-gray-600">Vídeo novo em breve...</p>
                           </div>
                         </div>
                         <button
                           onClick={() => toggleTutorial('appointments')}
                           className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
                         >
-                          Ocultar Tutorial
+                          Ocultar
                         </button>
                       </div>
 
-                      <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
-                        <iframe
-                          className="absolute top-0 left-0 w-full h-full"
-                          src="https://www.youtube.com/embed/1S3MdpBBHkI"
-                          title="Tutorial: Como Gerenciar Agendamentos"
-                          frameBorder="0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          allowFullScreen
-                        ></iframe>
-                      </div>
-
-                      <div className="mt-3 text-center">
-                        <a
-                          href="https://youtu.be/1S3MdpBBHkI"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                        >
-                          Assistir no YouTube
-                        </a>
+                      <div className="relative w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-12 text-center">
+                        <div className="flex flex-col items-center justify-center space-y-4">
+                          <div className="w-20 h-20 bg-orange-200 rounded-full flex items-center justify-center animate-pulse">
+                            <span className="text-4xl">🎬</span>
+                          </div>
+                          <h4 className="text-xl font-bold text-gray-800">Vídeo Novo em Breve</h4>
+                          <p className="text-gray-600">Estamos preparando um tutorial atualizado para você!</p>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -8132,8 +8157,63 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
+                  {/* Logo do Sistema - Apenas Desktop */}
+                  <div className="hidden md:flex justify-center mb-6">
+                    <img 
+                      src="/melhordobrasilcortado.png" 
+                      alt="Melhor do Brasil" 
+                      className="h-20 object-contain"
+                    />
+                  </div>
+
+                  {/* ===== NOVA VISUALIZAÇÃO - TODOS OS PROFISSIONAIS ===== */}
+                  <div className="mb-6">
+                    <AllProfessionalsAppointmentsView
+                      professionals={establishment?.professionals || []}
+                      appointments={appointments}
+                      monthlyAppointments={monthlyAppointments}
+                      selectedDate={selectedDate}
+                      professionalPins={establishment?.professionals_pins || []}
+                      businessHours={establishment?.business_hours || {}}
+                      establishment={establishment}
+                      onDateChange={(newDate) => setSelectedDate(newDate)}
+                      onAppointmentUpdate={() => {
+                        fetchAppointments(selectedDate);
+                        fetchMonthlyAppointments();
+                      }}
+                      onOpenTransferModal={handleOpenTransferModal}
+                      onOpenObservationModal={handleOpenObservationModal}
+                      onOpenAdditionalProductModal={(appointmentId) => {
+                        setSelectedAppointmentForProduct(appointmentId);
+                        setShowAdditionalProductModal(true);
+                      }}
+                      onOpenProductV2Modal={(appointmentId) => {
+                        setSelectedAppointmentForProduct(appointmentId);
+                        setShowAddProductToAppointmentModal(true);
+                      }}
+                      onGenerateNF={handleGenerateNF}
+                      onOpenReminderModal={handleOpenReminderModal}
+                      onGoToProfessionalConfig={handleGoToProfessionalConfig}
+                      onGoToClients={handleGoToClients}
+                    />
+                  </div>
+
+                  {/* Divisória e Aviso - OCULTADO */}
+                  <div className="hidden my-8 border-t-4 border-purple-300 pt-6">
+                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-purple-300 rounded-lg p-4 mb-6">
+                      <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
+                        <span>⚙️</span>
+                        Visualização Avançada (com todas as funcionalidades de edição)
+                      </h3>
+                      <p className="text-sm text-gray-700 mb-2">
+                        Use esta visualização para editar agendamentos, adicionar produtos/serviços, transferir entre profissionais e todas as outras funcionalidades avançadas.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* VISUALIZAÇÃO ANTIGA COM TODAS AS FUNCIONALIDADES - OCULTADO */}
                   {/* Filtros Compactos */}
-                  <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <div className="hidden bg-white rounded-lg p-4 border border-gray-200">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Seleção de Profissionais */}
                       {establishment?.professionals && establishment.professionals.length > 0 && (
@@ -8284,7 +8364,7 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Verificador Rápido de Horários Disponíveis - Temporariamente desabilitado */}
 
-                  <div className="mb-4">
+                  <div className="hidden mb-4">
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Agendamentos do Dia</h2>
                     <p className="text-gray-700 mb-3">
                       {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' :
@@ -11672,6 +11752,18 @@ Estamos te aguardando! 😎✂️`;
 
               {activeTab === 'clients' && (
                 <div className="space-y-6">
+                  <style>{`
+                    @keyframes pulse {
+                      0%, 100% {
+                        opacity: 1;
+                        transform: scale(1.1);
+                      }
+                      50% {
+                        opacity: 0.8;
+                        transform: scale(1.15);
+                      }
+                    }
+                  `}</style>
                   <div className="flex items-center justify-between">
                     <h2 className="text-2xl font-bold text-gray-900">Meus Clientes</h2>
                     <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
@@ -11688,11 +11780,19 @@ Estamos te aguardando! 😎✂️`;
                       onClick={() => {
                         console.log('🔍 Abrindo modal ReservarCliente para establishment:', establishment?.id);
                         setShowReservarClienteModal(true);
+                        setHighlightReserveButton(false);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                      className={`flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all text-sm font-medium ${
+                        highlightReserveButton 
+                          ? 'ring-4 ring-yellow-400 shadow-2xl animate-pulse scale-110' 
+                          : ''
+                      }`}
+                      style={highlightReserveButton ? {
+                        animation: 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                      } : {}}
                     >
                       <User className="h-4 w-4" />
-                      Reservar Cliente
+                      {highlightReserveButton ? '👉 Reservar Cliente 👈' : 'Reservar Cliente'}
                     </button>
                     <button
                       onClick={() => handleTabChange('clients')}
@@ -14385,7 +14485,15 @@ Estamos te aguardando! 😎✂️`;
               {/* Resto do código original dos profissionais */}
               <div className="space-y-4">
                   {professionals.map((professional) => (
-                    <div key={professional.id} id={`professional-${professional.id}`} className="p-4 bg-[#242628] rounded-lg space-y-3">
+                    <div 
+                      key={professional.id} 
+                      id={`professional-${professional.id}`} 
+                      className={`p-4 rounded-lg space-y-3 transition-all duration-500 ${
+                        highlightedProfessionalId === professional.id 
+                          ? 'bg-blue-600/30 ring-4 ring-blue-500 shadow-xl' 
+                          : 'bg-[#242628]'
+                      }`}
+                    >
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
                           <input
@@ -15744,18 +15852,21 @@ Estamos te aguardando! 😎✂️`;
             <div className="p-6">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">📅 Meus Agendamentos</h2>
               <p className="text-gray-700 mb-6 text-lg">
-                Aqui você pode ver todos seus agendamentos, veja o vídeo tutorial para aprender como funciona/usar.
+                Estamos preparando um novo vídeo tutorial para você!
               </p>
 
-              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
-                <iframe
-                  className="absolute top-0 left-0 w-full h-full"
-                  src="https://www.youtube.com/embed/1S3MdpBBHkI"
-                  title="Tutorial: Como Gerenciar Agendamentos"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                ></iframe>
+              <div className="relative w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-16 text-center mb-4">
+                <div className="flex flex-col items-center justify-center space-y-4">
+                  <div className="w-24 h-24 bg-orange-200 rounded-full flex items-center justify-center animate-pulse">
+                    <span className="text-5xl">🎬</span>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-800">Vídeo Novo em Breve</h3>
+                  <p className="text-gray-600 text-lg">Tutorial atualizado chegando em breve!</p>
+                  <div className="flex items-center gap-2 text-orange-600">
+                    <span className="animate-spin text-2xl">⏳</span>
+                    <span className="font-semibold">Aguarde...</span>
+                  </div>
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3 mt-6">

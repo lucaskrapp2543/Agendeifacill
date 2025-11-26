@@ -7,3 +7,4 @@ COMMENT ON COLUMN establishments.booking_blocked IS 'Indica se o booking (págin
 
 
 
+

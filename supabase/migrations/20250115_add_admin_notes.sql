@@ -7,3 +7,4 @@ COMMENT ON COLUMN establishments.admin_notes IS 'Observações privadas do admin
 
 
 
+
