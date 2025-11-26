@@ -1191,11 +1191,21 @@ export default function BookingPage() {
                   href={establishment?.whatsapp ? (() => {
                     let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
 
-                    // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
-                    const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+                    // Lista de códigos de países com validação de tamanho mínimo
+                    const countryCodes = [
+                      { code: '351', minLength: 12 },
+                      { code: '244', minLength: 12 },
+                      { code: '54', minLength: 12 },
+                      { code: '56', minLength: 11 },
+                      { code: '55', minLength: 12 },
+                      { code: '34', minLength: 11 },
+                      { code: '1', minLength: 11 }
+                    ];
 
-                    // Verificar se o número já começa com algum código de país
-                    const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+                    // Verificar se o número já começa com algum código de país E tem tamanho válido
+                    const hasCountryCode = countryCodes.some(
+                      ({ code, minLength }) => phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                    );
 
                     // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
                     if (!hasCountryCode) {

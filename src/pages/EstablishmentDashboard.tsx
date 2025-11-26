@@ -2511,8 +2511,18 @@ Estamos te aguardando! 😎✂️`;
       // Formatar número do WhatsApp
       let phoneNumber = clientWhatsapp.replace(/\D/g, '');
       // Lista de códigos de países comuns
-      const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-      const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+      const countryCodes = [
+        { code: '351', minLength: 12 },
+        { code: '244', minLength: 12 },
+        { code: '54', minLength: 12 },
+        { code: '56', minLength: 11 },
+        { code: '55', minLength: 12 },
+        { code: '34', minLength: 11 },
+        { code: '1', minLength: 11 }
+      ];
+      const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+        phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+      );
       if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
         phoneNumber = '55' + phoneNumber;
       }
@@ -8793,8 +8803,18 @@ Estamos te aguardando! 😎✂️`;
                                               href={(() => {
                                                 let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
                                                 // Lista de códigos de países comuns
-                                                const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-                                                const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+                                                const countryCodes = [
+        { code: '351', minLength: 12 },
+        { code: '244', minLength: 12 },
+        { code: '54', minLength: 12 },
+        { code: '56', minLength: 11 },
+        { code: '55', minLength: 12 },
+        { code: '34', minLength: 11 },
+        { code: '1', minLength: 11 }
+      ];
+                                                const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+        phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+      );
                                                 if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                                   phoneNumber = '55' + phoneNumber;
                                                 }
@@ -8815,8 +8835,18 @@ Estamos te aguardando! 😎✂️`;
                                                 const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
                                                 let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
                                                 // Lista de códigos de países comuns
-                                                const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-                                                const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+                                                const countryCodes = [
+        { code: '351', minLength: 12 },
+        { code: '244', minLength: 12 },
+        { code: '54', minLength: 12 },
+        { code: '56', minLength: 11 },
+        { code: '55', minLength: 12 },
+        { code: '34', minLength: 11 },
+        { code: '1', minLength: 11 }
+      ];
+                                                const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+        phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+      );
                                                 if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                                   phoneNumber = '55' + phoneNumber;
                                                 }
@@ -12069,8 +12099,18 @@ Estamos te aguardando! 😎✂️`;
                             href={(() => {
                               let phoneNumber = client.whatsapp.replace(/\D/g, '');
                               // Lista de códigos de países comuns
-                              const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-                              const hasCountryCode = countryCodes.some(code => phoneNumber.startsWith(code));
+                              const countryCodes = [
+        { code: '351', minLength: 12 },
+        { code: '244', minLength: 12 },
+        { code: '54', minLength: 12 },
+        { code: '56', minLength: 11 },
+        { code: '55', minLength: 12 },
+        { code: '34', minLength: 11 },
+        { code: '1', minLength: 11 }
+      ];
+                              const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+        phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+      );
                               if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                 phoneNumber = '55' + phoneNumber;
                               }
@@ -15402,6 +15442,7 @@ Estamos te aguardando! 😎✂️`;
                     <option value="15">15 minutos</option>
                     <option value="20">20 minutos</option>
                     <option value="30">30 minutos</option>
+                    <option value="40">40 minutos</option>
                     <option value="45">45 minutos</option>
                     <option value="60">60 minutos</option>
                     <option value="90">90 minutos</option>

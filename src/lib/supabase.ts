@@ -1023,13 +1023,21 @@ export const getAppointmentsByPhone = async (phone: string) => {
 
     // Normalizar o número: remover código de país se houver para buscar apenas o número local
     // Isso permite encontrar números salvos com ou sem código de país
-    const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+    const countryCodes = [
+      { code: '351', minLength: 12 },
+      { code: '244', minLength: 12 },
+      { code: '54', minLength: 12 },
+      { code: '56', minLength: 11 },
+      { code: '55', minLength: 12 },
+      { code: '34', minLength: 11 },
+      { code: '1', minLength: 11 }
+    ];
     let localNumber = cleanPhone;
     let hasCountryCode = false;
     
     // Verificar se começa com código de país (do maior para o menor para evitar falsos positivos)
-    for (const code of countryCodes) {
-      if (cleanPhone.startsWith(code)) {
+    for (const { code, minLength } of countryCodes) {
+      if (cleanPhone.startsWith(code) && cleanPhone.length >= minLength) {
         localNumber = cleanPhone.slice(code.length);
         hasCountryCode = true;
         console.log('📱 Código de país detectado:', code, '- Número local:', localNumber);

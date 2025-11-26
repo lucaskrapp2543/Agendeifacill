@@ -31,19 +31,32 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
         // Limpar e pegar apenas números
         const cleanWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
 
-        // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
-        const countryCodes = ['351', '244', '54', '56', '34', '1']; // Removido 55 (Brasil) - não pré-preenche
+        // Se for Brasil (começa com 55), não pré-preencher nada
+        if (cleanWhatsapp.startsWith('55')) {
+          // Deixa o usuário digitar normalmente
+          return;
+        }
 
-        // Verificar se começa com algum código de país (exceto Brasil)
-        for (const code of countryCodes) {
-          if (cleanWhatsapp.startsWith(code)) {
-            // Encontrou o código de país (não Brasil), pré-preencher no campo
+        // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+        // Códigos de 3 dígitos devem vir primeiro para evitar false positives
+        const countryCodes = [
+          { code: '351', minLength: 12 }, // Portugal: 351 + 9 dígitos
+          { code: '244', minLength: 12 }, // Angola: 244 + 9 dígitos  
+          { code: '54', minLength: 12 },  // Argentina: 54 + 10 dígitos
+          { code: '56', minLength: 11 },  // Chile: 56 + 9 dígitos
+          { code: '34', minLength: 11 },  // Espanha: 34 + 9 dígitos
+          { code: '1', minLength: 11 }    // EUA/Canadá: 1 + 10 dígitos
+        ];
+
+        // Verificar se começa com algum código de país E tem tamanho apropriado
+        for (const { code, minLength } of countryCodes) {
+          if (cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength) {
+            // Encontrou o código de país válido, pré-preencher no campo
             const dialCode = `+${code} `;
             setPhone(dialCode);
             break;
           }
         }
-        // Se for Brasil (55), não pré-preencher nada - deixa o usuário digitar normalmente
       }
     }
   }, [isOpen, establishmentWhatsapp]);

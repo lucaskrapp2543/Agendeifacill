@@ -354,11 +354,19 @@ export function ProfessionalSelector({
 
     // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
     // IMPORTANTE: 351 antes de 55 para evitar falsos positivos
-    const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+    const countryCodes = [
+      { code: '351', minLength: 12 },
+      { code: '244', minLength: 12 },
+      { code: '54', minLength: 12 },
+      { code: '56', minLength: 11 },
+      { code: '55', minLength: 12 },
+      { code: '34', minLength: 11 },
+      { code: '1', minLength: 11 }
+    ];
 
     // Verificar se o número já começa com algum código de país
-    for (const code of countryCodes) {
-      if (cleanWhatsapp.startsWith(code)) {
+    for (const { code, minLength } of countryCodes) {
+      if (cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength) {
         console.log('✅ Código do país detectado do estabelecimento:', code, 'do número:', cleanWhatsapp);
         return code;
       }
@@ -535,13 +543,21 @@ export function ProfessionalSelector({
                         
                         // Lista de códigos de países (ordenado por tamanho, maior primeiro para evitar falsos positivos)
                         // IMPORTANTE: 351 antes de 55 para evitar que 351 seja confundido com 55
-                        const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+                        const countryCodes = [
+      { code: '351', minLength: 12 },
+      { code: '244', minLength: 12 },
+      { code: '54', minLength: 12 },
+      { code: '56', minLength: 11 },
+      { code: '55', minLength: 12 },
+      { code: '34', minLength: 11 },
+      { code: '1', minLength: 11 }
+    ];
                         
                         // Verificar se o número JÁ começa com algum código de país
                         // Verificar do maior para o menor para evitar falsos positivos
                         let hasCountryCode = false;
-                        for (const code of countryCodes) {
-                          if (cleanWhatsapp.startsWith(code)) {
+                        for (const { code, minLength } of countryCodes) {
+                          if (cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength) {
                             hasCountryCode = true;
                             break;
                           }

@@ -61,10 +61,20 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
 
         if (establishment?.whatsapp) {
           const cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
-          const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
           
-          for (const code of countryCodes) {
-            if (cleanWhatsapp.startsWith(code)) {
+          // Lista de códigos de países com validação de tamanho mínimo
+          const countryCodes = [
+            { code: '351', minLength: 12 }, // Portugal: 351 + 9 dígitos
+            { code: '244', minLength: 12 }, // Angola: 244 + 9 dígitos  
+            { code: '54', minLength: 12 },  // Argentina: 54 + 10 dígitos
+            { code: '56', minLength: 11 },  // Chile: 56 + 9 dígitos
+            { code: '55', minLength: 12 },  // Brasil: 55 + 2 DDD + 9 dígitos
+            { code: '34', minLength: 11 },  // Espanha: 34 + 9 dígitos
+            { code: '1', minLength: 11 }    // EUA/Canadá: 1 + 10 dígitos
+          ];
+          
+          for (const { code, minLength } of countryCodes) {
+            if (cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength) {
               setCountryCode(code);
               console.log('✅ DDD detectado do estabelecimento:', code);
               return;

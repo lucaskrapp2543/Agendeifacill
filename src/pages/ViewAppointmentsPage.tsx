@@ -189,9 +189,19 @@ export default function ViewAppointmentsPage() {
         // Limpar e formatar o número do WhatsApp
         let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
 
-        // Lista de códigos de países comuns
-        const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-        const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+        // Lista de códigos de países com validação de tamanho
+        const countryCodes = [
+          { code: '351', minLength: 12 },
+          { code: '244', minLength: 12 },
+          { code: '54', minLength: 12 },
+          { code: '56', minLength: 11 },
+          { code: '55', minLength: 12 },
+          { code: '34', minLength: 11 },
+          { code: '1', minLength: 11 }
+        ];
+        const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+          cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength
+        );
 
         if (!hasCountryCode) {
           if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
@@ -263,9 +273,19 @@ Por favor, confirme o cancelamento. Obrigado!`;
       // Limpar e formatar o número do WhatsApp
       let cleanWhatsapp = cancelledAppointment.establishment.whatsapp.replace(/\D/g, '');
 
-      // Lista de códigos de países comuns
-      const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-      const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+      // Lista de códigos de países com validação de tamanho
+      const countryCodes = [
+        { code: '351', minLength: 12 },
+        { code: '244', minLength: 12 },
+        { code: '54', minLength: 12 },
+        { code: '56', minLength: 11 },
+        { code: '55', minLength: 12 },
+        { code: '34', minLength: 11 },
+        { code: '1', minLength: 11 }
+      ];
+      const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+        cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength
+      );
 
       if (!hasCountryCode) {
         if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
