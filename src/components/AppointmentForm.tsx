@@ -2849,7 +2849,13 @@ export function AppointmentForm({
                 <div><strong>Duração:</strong> {
                   isSubscriberBooking && subscriberService
                     ? `${subscriberService.service_duration || 30} minutos` // Usar duração da assinatura
-                    : `${selectedService?.duration || 30} minutos`
+                    : useMultiService && selectedServices.length > 0
+                      ? `${selectedServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
+                      : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
+                        ? `${selectedCategoryServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
+                        : useCategoryService && selectedSubcategory
+                          ? `${selectedSubcategory.duration || 30} minutos`
+                          : `${selectedService?.duration || 30} minutos`
                 }</div>
                 {observation && (
                   <div><strong>Observação:</strong> <em>"{observation}"</em></div>
