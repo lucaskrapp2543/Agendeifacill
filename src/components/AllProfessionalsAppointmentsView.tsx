@@ -188,10 +188,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const start = parse(startTime, 'HH:mm', selectedDate);
     const end = parse(endTime, 'HH:mm', selectedDate);
 
+    // Determinar o intervalo baseado nas configurações do estabelecimento
+    const interval = establishment?.use_20_minute_schedule ? 20 : 30;
+
     let current = start;
     while (current < end) {
       allSlots.push(format(current, 'HH:mm'));
-      current = new Date(current.getTime() + 30 * 60000);
+      current = new Date(current.getTime() + interval * 60000);
     }
 
     const professionalAppointments = appointments
@@ -206,12 +209,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     professionalAppointments.forEach((apt) => {
       const startTime = apt.appointment_time;
-      const duration = apt.duration || 30;
+      const duration = apt.duration || interval;
       
       occupiedSlots.set(startTime, { appointment: apt, isOccupied: false });
       
       const startDate = parse(startTime, 'HH:mm', selectedDate);
-      for (let i = 30; i < duration; i += 30) {
+      for (let i = interval; i < duration; i += interval) {
         const occupiedTime = format(new Date(startDate.getTime() + i * 60000), 'HH:mm');
         occupiedSlots.set(occupiedTime, { isOccupied: true, parentAppointment: apt });
       }
