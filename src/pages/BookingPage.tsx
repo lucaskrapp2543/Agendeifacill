@@ -778,7 +778,7 @@ export default function BookingPage() {
   } : null;
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#f0f6ff' }}>
+    <div className="min-h-screen" style={{ backgroundColor: '#ffffff' }}>
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex flex-col space-y-6">
           {/* Cabeçalho */}
@@ -937,16 +937,16 @@ export default function BookingPage() {
             )}
 
             {/* Botões de Ação Principal */}
-            <div className="mt-6 flex flex-col space-y-4 relative z-10">
+            <div className="mt-6 flex flex-col space-y-6 relative z-10">
               {/* Botão AGENDAR - Pill com Sombra Interna */}
               <button
                 onClick={handleAgendarClick}
                 className="w-full font-bold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-gray-700"
                 style={{
-                  background: '#ffffff',
-                  borderRadius: '30px',
-                  boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1)',
-                  border: '1px solid #e5e7eb',
+                  background: '#f8f9fa',
+                  borderRadius: '12px',
+                  boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+                  border: '0.5px solid #e0e0e0',
                   position: 'relative',
                   overflow: 'hidden'
                 }}
@@ -955,6 +955,7 @@ export default function BookingPage() {
                 <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                 <img src="/calendario.png" alt="Calendário" className="h-6 w-6 relative z-10" />
                 <span className="relative z-10">QUERO AGENDAR</span>
+                <ChevronRight className="h-5 w-5 relative z-10 opacity-70" />
               </button>
 
               {/* Dropdown SER ASSINANTE */}
@@ -969,10 +970,10 @@ export default function BookingPage() {
                     }}
                     className="w-full font-bold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-gray-700"
                     style={{
-                      background: '#ffffff',
-                      borderRadius: '30px',
-                      boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1)',
-                      border: '1px solid #e5e7eb',
+                      background: '#f8f9fa',
+                      borderRadius: '12px',
+                      boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+                      border: '0.5px solid #e0e0e0',
                       position: 'relative',
                       overflow: 'hidden'
                     }}
@@ -981,6 +982,7 @@ export default function BookingPage() {
                     <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                     <img src="/coroa.png" alt="Coroa" className="h-6 w-6 relative z-10" />
                     <span className="relative z-10">SER ASSINANTE</span>
+                    <ChevronRight className="h-5 w-5 relative z-10 opacity-70" />
                   </button>
 
                   {showSubscriptionsDropdown && (
@@ -1054,67 +1056,8 @@ export default function BookingPage() {
               )}
 
 
-              {/* Botões NOS AVALIE e LOCAL lado a lado */}
-              <div className="flex gap-3 relative z-0">
-                {/* Botão NOS AVALIE */}
-                <a
-                  href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.review_link
-                    ? 'text-gray-700'
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
-                    }`}
-                  style={establishment?.review_link ? {
-                    background: '#ffffff',
-                    borderRadius: '30px',
-                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1)',
-                    border: '1px solid #e5e7eb',
-                    position: 'relative',
-                    overflow: 'hidden'
-                  } : {}}
-                >
-                  {establishment?.review_link && (
-                    <>
-                      <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    </>
-                  )}
-                  <img src="/google.png" alt="Google" className="h-5 w-5 relative z-10" />
-                  <span className="relative z-10">AVALIE-NOS</span>
-                </a>
-
-                {/* Botão LOCAL */}
-                <a
-                  href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.location_link
-                    ? 'text-gray-700'
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
-                    }`}
-                  style={establishment?.location_link ? {
-                    background: '#ffffff',
-                    borderRadius: '30px',
-                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1)',
-                    border: '1px solid #e5e7eb',
-                    position: 'relative',
-                    overflow: 'hidden'
-                  } : {}}
-                >
-                  {establishment?.location_link && (
-                    <>
-                      <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    </>
-                  )}
-                  <img src="/LOCAL.png" alt="Localização" className="h-5 w-5 relative z-10" />
-                  <span className="relative z-10">LOCAL</span>
-                </a>
-              </div>
-
               {/* Imagens INSTAGRAM, PIX e WHATSAPP lado a lado */}
-              <div className="flex items-center justify-center gap-6 relative my-6">
+              <div className="flex items-center justify-center gap-6 relative my-10">
                 {/* Linha esquerda - vai da borda até antes do Instagram com distância */}
                 <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{ width: 'calc(50% - 120px)' }}></div>
 
@@ -1224,6 +1167,67 @@ export default function BookingPage() {
                     }`}
                 >
                   <img src="/wppicon.png" alt="WhatsApp" className="h-12 w-12" />
+                </a>
+              </div>
+
+              {/* Botões NOS AVALIE e LOCAL - Abaixo dos ícones */}
+              <div className="flex gap-3 mt-6">
+                {/* Botão NOS AVALIE */}
+                <a
+                  href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.review_link
+                    ? 'text-gray-700'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                    }`}
+                  style={establishment?.review_link ? {
+                    background: '#f8f9fa',
+                    borderRadius: '12px',
+                    boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+                    border: '0.5px solid #e0e0e0',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  } : {}}
+                >
+                  {establishment?.review_link && (
+                    <>
+                      <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    </>
+                  )}
+                  <img src="/google.png" alt="Google" className="h-5 w-5 relative z-10" />
+                  <span className="relative z-10 whitespace-nowrap">AVALIE-NOS</span>
+                  {establishment?.review_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-70 flex-shrink-0" />}
+                </a>
+
+                {/* Botão LOCAL */}
+                <a
+                  href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.location_link
+                    ? 'text-gray-700'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                    }`}
+                  style={establishment?.location_link ? {
+                    background: '#f8f9fa',
+                    borderRadius: '12px',
+                    boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+                    border: '0.5px solid #e0e0e0',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  } : {}}
+                >
+                  {establishment?.location_link && (
+                    <>
+                      <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    </>
+                  )}
+                  <img src="/LOCAL.png" alt="Localização" className="h-5 w-5 relative z-10" />
+                  <span className="relative z-10 whitespace-nowrap">LOCAL</span>
+                  {establishment?.location_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-70 flex-shrink-0" />}
                 </a>
               </div>
 
@@ -1391,61 +1395,6 @@ export default function BookingPage() {
                 </div>
               )}
 
-              {/* Seção de Comodidades - Só mostra se houver pelo menos 1 ativa */}
-              {(establishment?.has_wifi || establishment?.has_parking || establishment?.has_accessibility || establishment?.has_air_conditioning) && (
-                <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Clique no item para obter informações
-                  </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {/* Wi-fi - Só mostra se estiver ativo */}
-                    {establishment?.has_wifi && (
-                      <div
-                        onClick={() => {
-                          if (establishment?.wifi_password) {
-                            navigator.clipboard.writeText(establishment.wifi_password);
-                            toast.success('Senha do Wi-Fi copiada!');
-                          }
-                        }}
-                        className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-pointer bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50"
-                        title={establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : "Wi-Fi disponível"}
-                      >
-                        {establishment?.wifi_network_name && (
-                          <span className="text-xs font-semibold text-blue-600 mb-1 text-center">{establishment.wifi_network_name}</span>
-                        )}
-                        <img src={`/wifi.png?v=${Date.now()}`} alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900">Wi-fi</span>
-                      </div>
-                    )}
-
-                    {/* Estacionamento - Só mostra se estiver ativo */}
-                    {establishment?.has_parking && (
-                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
-                        <img src={`/car.png?v=${Date.now()}`} alt="Estacionamento" className="h-8 w-8 mb-2 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900">Estacion.</span>
-                      </div>
-                    )}
-
-                    {/* Acessibilidade - Só mostra se estiver ativo */}
-                    {establishment?.has_accessibility && (
-                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
-                        <img src={`/wheelchair.png?v=${Date.now()}`} alt="Acessibilidade" className="h-8 w-8 mb-2 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900">Acessib.</span>
-                      </div>
-                    )}
-
-                    {/* Local Climatizado (Ar-Condicionado) - Só mostra se estiver ativo */}
-                    {establishment?.has_air_conditioning && (
-                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
-                        <img src={`/arcondicionado.png?v=${Date.now()}`} alt="Local Climatizado" className="h-8 w-8 mb-2 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900 text-center">Climatizado</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
               {/* Seção de Profissionais */}
               {establishment?.professionals && establishment.professionals.length > 0 && (
                 <div className="mt-8 mb-6">
@@ -1505,6 +1454,60 @@ export default function BookingPage() {
                 </div>
               )}
 
+              {/* Seção de Comodidades - Só mostra se houver pelo menos 1 ativa */}
+              {(establishment?.has_wifi || establishment?.has_parking || establishment?.has_accessibility || establishment?.has_air_conditioning) && (
+                <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Clique no item para obter informações
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {/* Wi-fi - Só mostra se estiver ativo */}
+                    {establishment?.has_wifi && (
+                      <div
+                        onClick={() => {
+                          if (establishment?.wifi_password) {
+                            navigator.clipboard.writeText(establishment.wifi_password);
+                            toast.success('Senha do Wi-Fi copiada!');
+                          }
+                        }}
+                        className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-pointer bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50"
+                        title={establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : "Wi-Fi disponível"}
+                      >
+                        {establishment?.wifi_network_name && (
+                          <span className="text-xs font-semibold text-blue-600 mb-1 text-center">{establishment.wifi_network_name}</span>
+                        )}
+                        <img src={`/wifi.png?v=${Date.now()}`} alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900">Wi-fi</span>
+                      </div>
+                    )}
+
+                    {/* Estacionamento - Só mostra se estiver ativo */}
+                    {establishment?.has_parking && (
+                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
+                        <img src={`/car.png?v=${Date.now()}`} alt="Estacionamento" className="h-8 w-8 mb-2 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900">Estacion.</span>
+                      </div>
+                    )}
+
+                    {/* Acessibilidade - Só mostra se estiver ativo */}
+                    {establishment?.has_accessibility && (
+                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
+                        <img src={`/wheelchair.png?v=${Date.now()}`} alt="Acessibilidade" className="h-8 w-8 mb-2 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900">Acessib.</span>
+                      </div>
+                    )}
+
+                    {/* Local Climatizado (Ar-Condicionado) - Só mostra se estiver ativo */}
+                    {establishment?.has_air_conditioning && (
+                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
+                        <img src={`/arcondicionado.png?v=${Date.now()}`} alt="Local Climatizado" className="h-8 w-8 mb-2 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900 text-center">Climatizado</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Seção de Horário de Atendimento */}
               <div className="mt-8 mb-6 bg-white rounded-lg p-6 shadow-md border border-gray-200">

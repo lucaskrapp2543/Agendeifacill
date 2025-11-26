@@ -2687,7 +2687,53 @@ export function AppointmentForm({
               </div>
             )}
 
-            {/* Botão para finalizar após selecionar forma de pagamento */}
+            {/* RESUMO DO AGENDAMENTO - Fluxo Normal */}
+            {selectedPaymentMethod && ((selectedService && selectedProfessional && selectedTime) ||
+              (useMultiService && selectedServices.length > 0 && selectedProfessional && selectedTime) ||
+              (useCategoryService && ((selectedSubcategory && selectedProfessional && selectedTime) || (useMultiCategoryService && selectedCategoryServices.length > 0 && selectedProfessional && selectedTime)))) && (
+                <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
+                  <div className="text-sm text-gray-700 space-y-1">
+                    <div><strong>Cliente:</strong> {clientName || 'Não informado'}</div>
+                    <div><strong>WhatsApp:</strong> {clientWhatsapp || 'Não informado'}</div>
+                    <div><strong>Serviço:</strong> {
+                      useMultiService && selectedServices.length > 0
+                        ? `${selectedServices.map(s => s.name).join(' + ')} - R$ ${selectedServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
+                        : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
+                          ? `${selectedCategoryServices.map(s => s.name).join(' + ')} - R$ ${selectedCategoryServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
+                          : useCategoryService && selectedSubcategory
+                            ? `${selectedSubcategory.name} - R$ ${selectedSubcategory.price.toFixed(2).replace('.', ',')}`
+                            : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
+                    }</div>
+                    <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
+                    <div><strong>Pagamento:</strong> {
+                      selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
+                        selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
+                          selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
+                            selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod
+                    }</div>
+                    <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
+                    <div><strong>Horário:</strong> {selectedTime}</div>
+                    <div><strong>Duração:</strong> {
+                      useMultiService && selectedServices.length > 0
+                        ? `${selectedServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
+                        : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
+                          ? `${selectedCategoryServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
+                          : useCategoryService && selectedSubcategory
+                            ? `${selectedSubcategory.duration || 30} minutos`
+                            : `${selectedService?.duration || 30} minutos`
+                    }</div>
+                    {observation && (
+                      <div><strong>Observação:</strong> <em>"{observation}"</em></div>
+                    )}
+                    {selectedProfessional && selectedProfessional.offers_child_service && (
+                      <div><strong>Serviço infantil:</strong> {isChildService === null ? 'Não informado' : (isChildService ? 'Sim' : 'Não')}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+            {/* Botão para finalizar após selecionar forma de pagamento - AGORA DEPOIS DO RESUMO */}
             {selectedPaymentMethod && (
               <div className="mt-6">
                 <button
@@ -2798,7 +2844,60 @@ export function AppointmentForm({
               </div>
             )}
 
-            {/* Botão para finalizar */}
+            {/* RESUMO DO AGENDAMENTO - Mostrado no step 5 ANTES do botão */}
+            {((selectedService && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) ||
+              (useMultiService && selectedServices.length > 0 && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) ||
+              (useCategoryService && ((selectedSubcategory && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) || (useMultiCategoryService && selectedCategoryServices.length > 0 && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime))) ||
+              (isSubscriberBooking && subscriberService && selectedProfessional && selectedTime)) && (
+                <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
+                  <div className="text-sm text-gray-700 space-y-1">
+                    <div><strong>Cliente:</strong> {isSubscriberBooking ? `${clientName} (ASSINANTE)` : (clientName || 'Não informado')}</div>
+                    <div><strong>WhatsApp:</strong> {clientWhatsapp || 'Não informado'}</div>
+                    <div><strong>Serviço:</strong> {
+                      isSubscriberBooking && subscriberService
+                        ? `${subscriberService.name} - GRÁTIS (Incluído na assinatura)`
+                        : useMultiService && selectedServices.length > 0
+                          ? `${selectedServices.map(s => s.name).join(' + ')} - R$ ${selectedServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
+                          : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
+                            ? `${selectedCategoryServices.map(s => s.name).join(' + ')} - R$ ${selectedCategoryServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
+                            : useCategoryService && selectedSubcategory
+                              ? `${selectedSubcategory.name} - R$ ${selectedSubcategory.price.toFixed(2).replace('.', ',')}`
+                              : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
+                    }</div>
+                    <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
+                    <div><strong>Pagamento:</strong> {
+                      isSubscriberBooking
+                        ? 'Já incluído na assinatura'
+                        : selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
+                          selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
+                            selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
+                              selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod
+                    }</div>
+                    <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
+                    <div><strong>Horário:</strong> {selectedTime}</div>
+                    <div><strong>Duração:</strong> {
+                      isSubscriberBooking && subscriberService
+                        ? `${subscriberService.service_duration || 30} minutos` // Usar duração da assinatura
+                        : useMultiService && selectedServices.length > 0
+                          ? `${selectedServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
+                          : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
+                            ? `${selectedCategoryServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
+                            : useCategoryService && selectedSubcategory
+                              ? `${selectedSubcategory.duration || 30} minutos`
+                              : `${selectedService?.duration || 30} minutos`
+                    }</div>
+                    {observation && (
+                      <div><strong>Observação:</strong> <em>"{observation}"</em></div>
+                    )}
+                    {selectedProfessional && selectedProfessional.offers_child_service && (
+                      <div><strong>Serviço infantil:</strong> {isChildService === null ? 'Não informado' : (isChildService ? 'Sim' : 'Não')}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+            {/* Botão para finalizar - AGORA VEM DEPOIS DO RESUMO */}
             <div className="mt-6">
               <button
                 type="submit"
@@ -2813,59 +2912,6 @@ export function AppointmentForm({
             </div>
           </div>
         )}
-
-        {/* RESUMO DO AGENDAMENTO - Mostrado no step 5 */}
-        {currentStep === 5 && ((selectedService && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) ||
-          (useMultiService && selectedServices.length > 0 && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) ||
-          (useCategoryService && ((selectedSubcategory && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime) || (useMultiCategoryService && selectedCategoryServices.length > 0 && selectedProfessional && (selectedPaymentMethod || isSubscriberBooking) && selectedTime))) ||
-          (isSubscriberBooking && subscriberService && selectedProfessional && selectedTime)) && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
-              <div className="text-sm text-gray-700 space-y-1">
-                <div><strong>Cliente:</strong> {isSubscriberBooking ? `${clientName} (ASSINANTE)` : (clientName || 'Não informado')}</div>
-                <div><strong>WhatsApp:</strong> {clientWhatsapp || 'Não informado'}</div>
-                <div><strong>Serviço:</strong> {
-                  isSubscriberBooking && subscriberService
-                    ? `${subscriberService.name} - GRÁTIS (Incluído na assinatura)`
-                    : useMultiService && selectedServices.length > 0
-                      ? `${selectedServices.map(s => s.name).join(' + ')} - R$ ${selectedServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
-                      : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
-                        ? `${selectedCategoryServices.map(s => s.name).join(' + ')} - R$ ${selectedCategoryServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
-                        : useCategoryService && selectedSubcategory
-                          ? `${selectedSubcategory.name} - R$ ${selectedSubcategory.price.toFixed(2).replace('.', ',')}`
-                          : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
-                }</div>
-                <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
-                <div><strong>Pagamento:</strong> {
-                  isSubscriberBooking
-                    ? 'Já incluído na assinatura'
-                    : selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
-                      selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
-                        selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
-                          selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod
-                }</div>
-                <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
-                <div><strong>Horário:</strong> {selectedTime}</div>
-                <div><strong>Duração:</strong> {
-                  isSubscriberBooking && subscriberService
-                    ? `${subscriberService.service_duration || 30} minutos` // Usar duração da assinatura
-                    : useMultiService && selectedServices.length > 0
-                      ? `${selectedServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
-                      : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
-                        ? `${selectedCategoryServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
-                        : useCategoryService && selectedSubcategory
-                          ? `${selectedSubcategory.duration || 30} minutos`
-                          : `${selectedService?.duration || 30} minutos`
-                }</div>
-                {observation && (
-                  <div><strong>Observação:</strong> <em>"{observation}"</em></div>
-                )}
-                {selectedProfessional && selectedProfessional.offers_child_service && (
-                  <div><strong>Serviço infantil:</strong> {isChildService === null ? 'Não informado' : (isChildService ? 'Sim' : 'Não')}</div>
-                )}
-              </div>
-            </div>
-          )}
       </form>
 
       {/* Modal de limite excedido */}
