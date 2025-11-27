@@ -65,6 +65,7 @@ interface TimeSlot {
   appointment?: Appointment;
   isEmpty: boolean;
   isOccupied: boolean;
+  isBlocked: boolean;
   parentAppointment?: Appointment;
 }
 
@@ -220,8 +221,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     });
 
+    // Verificar horários bloqueados para este profissional na data selecionada
+    const dateKey = format(selectedDate, 'yyyy-MM-dd');
+    const blockedHours = (professional as any).blocked_hours?.[dateKey] || [];
+
     const result: TimeSlot[] = allSlots.map((slot) => {
       const occupied = occupiedSlots.get(slot);
+      const isBlocked = blockedHours.includes(slot);
       
       if (occupied?.appointment) {
         return {
@@ -229,19 +235,29 @@ export const AllProfessionalsAppointmentsView: React.FC<
           appointment: occupied.appointment,
           isEmpty: false,
           isOccupied: false,
+          isBlocked: false,
         };
       } else if (occupied?.isOccupied) {
         return {
           time: slot,
           isEmpty: false,
           isOccupied: true,
+          isBlocked: false,
           parentAppointment: occupied.parentAppointment,
+        };
+      } else if (isBlocked) {
+        return {
+          time: slot,
+          isEmpty: false,
+          isOccupied: false,
+          isBlocked: true,
         };
       } else {
         return {
           time: slot,
           isEmpty: true,
           isOccupied: false,
+          isBlocked: false,
         };
       }
     });
@@ -831,7 +847,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         timeSlots.map((slot, slotIndex) => {
                           const slotColor = getSlotColor(slot);
 
-                          if (slot.isEmpty) {
+                          if (slot.isBlocked) {
+                            // Horário bloqueado
+                            return (
+                              <div
+                                key={`${slot.time}-${slotIndex}`}
+                                className="bg-gray-400 border-2 border-gray-500 rounded-lg px-3 py-2"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-white font-bold text-sm">
+                                    {slot.time}
+                                  </span>
+                                  <span className="text-white text-xs font-semibold">
+                                    🔒 BLOQUEADO
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          } else if (slot.isEmpty) {
                             // Horário disponível
                             return (
                               <div
