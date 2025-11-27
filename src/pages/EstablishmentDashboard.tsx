@@ -2926,6 +2926,12 @@ Estamos te aguardando! 😎✂️`;
       const startOfSelectedDate = format(startOfDay(selectedDate), 'yyyy-MM-dd');
       const endOfSelectedDate = format(endOfDay(selectedDate), 'yyyy-MM-dd');
 
+      console.log('🔍 BUSCANDO AGENDAMENTOS:');
+      console.log('  - Establishment ID:', establishment.id);
+      console.log('  - Data selecionada:', selectedDate.toISOString());
+      console.log('  - Start:', startOfSelectedDate);
+      console.log('  - End:', endOfSelectedDate);
+
       const { data, error } = await supabase
         .from('appointments')
         .select(`
@@ -2963,6 +2969,9 @@ Estamos te aguardando! 😎✂️`;
       if (error) throw error;
 
       const appointmentsData = data as Appointment[] || [];
+      
+      console.log('✅ AGENDAMENTOS ENCONTRADOS:', appointmentsData.length);
+      console.log('📋 Dados:', appointmentsData);
 
       // Buscar produtos vendidos para cada agendamento
       for (const appointment of appointmentsData) {
@@ -3569,12 +3578,17 @@ Estamos te aguardando! 😎✂️`;
     }
   }, [establishment, activeTab]);
 
-  // Listener para recarregar clientes quando um agendamento for criado
+  // Listener para recarregar clientes E AGENDAMENTOS quando um agendamento for criado
   useEffect(() => {
     const handleClientAppointmentCreated = () => {
-      console.log('🔄 Evento recebido: clientAppointmentCreated - Recarregando clientes...');
-      if (establishment && (activeTab === 'clients' || activeTab === 'subscribers')) {
-        fetchClients();
+      console.log('🔄 Evento recebido: clientAppointmentCreated - Recarregando clientes e agendamentos...');
+      if (establishment) {
+        if (activeTab === 'clients' || activeTab === 'subscribers') {
+          fetchClients();
+        }
+        // SEMPRE recarregar agendamentos quando criar uma nova reserva
+        fetchAppointments();
+        fetchMonthlyAppointments(selectedMonth);
       }
     };
 
@@ -3582,7 +3596,16 @@ Estamos te aguardando! 😎✂️`;
     return () => {
       window.removeEventListener('clientAppointmentCreated', handleClientAppointmentCreated);
     };
-  }, [establishment, activeTab]);
+  }, [establishment, activeTab, selectedMonth]);
+
+  // Recarregar agendamentos quando abrir a aba de agendamentos
+  useEffect(() => {
+    if (establishment && activeTab === 'appointments') {
+      console.log('🔄 Aba de agendamentos aberta - Recarregando agendamentos...');
+      fetchAppointments();
+      fetchMonthlyAppointments(selectedMonth);
+    }
+  }, [activeTab]);
 
   // Funções para gerenciar despesas
   const loadExpenses = useCallback(async () => {

@@ -118,6 +118,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onGoToProfessionalConfig,
   onGoToClients,
 }) => {
+  console.log('📋 AllProfessionalsAppointmentsView - Total de appointments recebidos:', appointments.length);
+  console.log('📅 Data selecionada:', selectedDate.toISOString());
+  console.log('🔍 Appointments:', appointments);
+  
   const { toast } = useToast();
   const [expandedAppointments, setExpandedAppointments] = useState<{ [key: string]: boolean }>({});
   const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(
@@ -127,6 +131,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
   const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
   const [showReminderInfo, setShowReminderInfo] = useState(false);
   const [showPendingWarning, setShowPendingWarning] = useState(false);
+  const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState<string>('');
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -296,6 +302,123 @@ export const AllProfessionalsAppointmentsView: React.FC<
     } catch (error: any) {
       console.error('Erro ao atualizar status:', error);
       toast(error.message || 'Erro ao atualizar status do agendamento');
+    }
+  };
+
+  const handleEditAppointmentValue = (appointmentId: string, currentValue: number) => {
+    setEditingAppointmentValue(appointmentId);
+    setEditingValue(currentValue.toFixed(2).replace('.', ','));
+  };
+
+  const handleCancelEditValue = () => {
+    setEditingAppointmentValue(null);
+    setEditingValue('');
+  };
+
+  const handleSaveAppointmentValue = async (appointmentId: string) => {
+    try {
+      const numericValue = parseFloat(editingValue.replace(',', '.'));
+      if (isNaN(numericValue) || numericValue < 0) {
+        toast('Valor inválido');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('appointments')
+        .update({ price: numericValue })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      toast('Valor atualizado com sucesso!');
+      setEditingAppointmentValue(null);
+      setEditingValue('');
+      
+      if (onAppointmentUpdate) {
+        onAppointmentUpdate();
+      }
+    } catch (error: any) {
+      console.error('Erro ao atualizar valor:', error);
+      toast(error.message || 'Erro ao atualizar valor');
+    }
+  };
+
+  const handleRemoveAdditionalProduct = async (appointmentId: string, productIndex: number) => {
+    try {
+      const appointment = appointments.find(apt => apt.id === appointmentId);
+      if (!appointment || !appointment.additional_products) return;
+
+      const updatedProducts = appointment.additional_products.filter((_, index) => index !== productIndex);
+
+      const { error } = await supabase
+        .from('appointments')
+        .update({ additional_products: updatedProducts })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      toast('Produto removido com sucesso!');
+      
+      if (onAppointmentUpdate) {
+        onAppointmentUpdate();
+      }
+    } catch (error: any) {
+      console.error('Erro ao remover produto:', error);
+      toast(error.message || 'Erro ao remover produto');
+    }
+  };
+
+  const handleRemoveProductFromAppointment = async (appointmentId: string, productId: string, productName: string) => {
+    try {
+      const appointment = appointments.find(apt => apt.id === appointmentId);
+      if (!appointment || !appointment.sold_products) return;
+
+      const productToRemove = appointment.sold_products.find((p: SoldProduct) => p.product_id === productId);
+      if (!productToRemove) return;
+
+      const updatedProducts = appointment.sold_products.filter((p: SoldProduct) => p.product_id !== productId);
+
+      const { error } = await supabase
+        .from('appointments')
+        .update({ sold_products: updatedProducts })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      // Devolver o produto ao estoque
+      if (establishment?.id) {
+        const { data: currentEstablishment } = await supabase
+          .from('establishments')
+          .select('products')
+          .eq('id', establishment.id)
+          .single();
+
+        if (currentEstablishment?.products) {
+          const updatedEstablishmentProducts = currentEstablishment.products.map((p: any) => {
+            if (p.id === productId) {
+              return {
+                ...p,
+                quantity: (p.quantity || 0) + productToRemove.quantity
+              };
+            }
+            return p;
+          });
+
+          await supabase
+            .from('establishments')
+            .update({ products: updatedEstablishmentProducts })
+            .eq('id', establishment.id);
+        }
+      }
+
+      toast(`${productName} removido e devolvido ao estoque!`);
+      
+      if (onAppointmentUpdate) {
+        onAppointmentUpdate();
+      }
+    } catch (error: any) {
+      console.error('Erro ao remover produto:', error);
+      toast(error.message || 'Erro ao remover produto');
     }
   };
 
@@ -994,27 +1117,85 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     {/* Valores */}
                                     <div className="bg-white/10 rounded p-2 mb-3">
                                       <div className="text-xs text-white/80 mb-1">Valor base:</div>
-                                      <div className="text-white font-bold">{formatCurrency(apt.price)}</div>
+                                      <div className="flex items-center gap-2">
+                                        {editingAppointmentValue === apt.id ? (
+                                          <>
+                                            <input
+                                              type="text"
+                                              value={editingValue}
+                                              onChange={(e) => setEditingValue(e.target.value)}
+                                              className="px-2 py-1 text-xs bg-white/20 border border-white/30 rounded text-white w-20"
+                                              placeholder="0,00"
+                                            />
+                                            <button
+                                              onClick={() => handleSaveAppointmentValue(apt.id)}
+                                              className="text-green-400 hover:text-green-300 text-xs px-2 py-1 bg-green-600/20 rounded"
+                                              title="Salvar"
+                                            >
+                                              ✓
+                                            </button>
+                                            <button
+                                              onClick={handleCancelEditValue}
+                                              className="text-red-400 hover:text-red-300 text-xs px-2 py-1 bg-red-600/20 rounded"
+                                              title="Cancelar"
+                                            >
+                                              ✕
+                                            </button>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <div className="text-white font-bold">{formatCurrency(apt.price)}</div>
+                                            {!apt.is_subscriber && (
+                                              <button
+                                                onClick={() => handleEditAppointmentValue(apt.id, apt.price || 0)}
+                                                className="text-blue-400 hover:text-blue-300 text-xs"
+                                                title="Editar valor"
+                                              >
+                                                ✏️
+                                              </button>
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
                                       
                                       {apt.additional_products && apt.additional_products.length > 0 && (
                                         <div className="mt-2">
                                           <div className="text-xs text-white/80 mb-1">Serviços Extras:</div>
-                                          {apt.additional_products.map((prod, idx) => (
-                                            <div key={idx} className="text-xs text-white/90">
-                                              • {prod.name}: {formatCurrency(prod.price)}
-                                            </div>
-                                          ))}
+                                          <div className="flex flex-wrap gap-1">
+                                            {apt.additional_products.map((prod, idx) => (
+                                              <div key={idx} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/10 text-white rounded group">
+                                                <span>{prod.name}: {formatCurrency(prod.price)}</span>
+                                                <button
+                                                  onClick={() => handleRemoveAdditionalProduct(apt.id, idx)}
+                                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300"
+                                                  title="Remover"
+                                                >
+                                                  <X className="h-3 w-3" />
+                                                </button>
+                                              </div>
+                                            ))}
+                                          </div>
                                         </div>
                                       )}
 
                                       {apt.sold_products && apt.sold_products.length > 0 && (
                                         <div className="mt-2">
                                           <div className="text-xs text-white/80 mb-1">Produtos:</div>
-                                          {apt.sold_products.map((prod) => (
-                                            <div key={prod.id} className="text-xs text-white/90">
-                                              • {prod.name} ({prod.quantity}x): {formatCurrency(prod.total)}
-                                            </div>
-                                          ))}
+                                          <div className="flex flex-wrap gap-1">
+                                            {apt.sold_products.map((prod) => (
+                                              <div key={prod.id} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-600/20 text-blue-200 rounded border border-blue-500/30 group">
+                                                <Package className="h-3 w-3" />
+                                                <span>{prod.name} ({prod.quantity}x): {formatCurrency(prod.total)}</span>
+                                                <button
+                                                  onClick={() => handleRemoveProductFromAppointment(apt.id, prod.product_id, prod.name)}
+                                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300"
+                                                  title="Remover produto"
+                                                >
+                                                  <X className="h-3 w-3" />
+                                                </button>
+                                              </div>
+                                            ))}
+                                          </div>
                                         </div>
                                       )}
 
@@ -1136,6 +1317,36 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             className="px-2 py-1.5 text-xs bg-red-700 text-white rounded hover:bg-red-800"
                                           >
                                             ❌ CANCELAR
+                                          </button>
+
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const establishmentCode = establishment?.code || 'codigo';
+                                              const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
+                                              let phoneNumber = (apt.client_whatsapp || '').replace(/\D/g, '');
+                                              const countryCodes = [
+                                                { code: '351', minLength: 12 },
+                                                { code: '244', minLength: 12 },
+                                                { code: '54', minLength: 12 },
+                                                { code: '56', minLength: 11 },
+                                                { code: '55', minLength: 12 },
+                                                { code: '34', minLength: 11 },
+                                                { code: '1', minLength: 11 }
+                                              ];
+                                              const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+                                                phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                                              );
+                                              if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                                                phoneNumber = '55' + phoneNumber;
+                                              }
+                                              const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+                                              window.open(whatsappUrl, '_blank');
+                                            }}
+                                            className="px-2 py-1.5 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                                            title="Enviar mensagem de imprevisto"
+                                          >
+                                            IMPREVISTO
                                           </button>
                                         </div>
 
