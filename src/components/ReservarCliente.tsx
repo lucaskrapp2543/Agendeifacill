@@ -861,15 +861,18 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
       if (error) throw error;
 
-      // Se foi um cliente conhecido, recarregar a lista de clientes para atualizar a contagem
-      // Isso força o dashboard a recarregar a contagem de agendamentos
-      if (isKnownClient && selectedClient) {
-        console.log('✅ Agendamento criado para cliente conhecido, disparando evento para recarregar clientes');
-        // Disparar evento customizado para recarregar clientes no dashboard
-        window.dispatchEvent(new CustomEvent('clientAppointmentCreated', {
-          detail: { clientId: selectedClient.id, clientWhatsapp: selectedClient.whatsapp }
-        }));
-      }
+      // ✅ SEMPRE disparar evento para recarregar agendamentos no dashboard
+      // (Independente de ser cliente conhecido, avulso ou assinante)
+      console.log('✅ Agendamento criado com sucesso, disparando evento para recarregar agendamentos');
+      window.dispatchEvent(new CustomEvent('clientAppointmentCreated', {
+        detail: { 
+          clientId: isKnownClient && selectedClient ? selectedClient.id : clientId,
+          clientWhatsapp: clientWhatsapp || '',
+          isKnownClient,
+          isSubscriber,
+          isAvulso
+        }
+      }));
 
       alert('Reserva criada com sucesso!');
       onClose();

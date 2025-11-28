@@ -196,7 +196,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const end = parse(endTime, 'HH:mm', selectedDate);
 
     // Determinar o intervalo baseado nas configurações do estabelecimento
-    const interval = establishment?.use_20_minute_schedule ? 20 : 30;
+    let interval: number;
+    if (establishment?.use_15_minute_interval) {
+      // Quando ativo, mostra de 30 em 30 min
+      interval = 30;
+    } else if (establishment?.use_20_minute_schedule) {
+      // Quando ativo, mostra de 20 em 20 min
+      interval = 20;
+    } else {
+      // Padrão: 15 em 15 min
+      interval = 15;
+    }
+    
+    console.log('🔥 AllProfessionalsAppointmentsView - Intervalo calculado:', interval, 'min', {
+      use_15_minute_interval: establishment?.use_15_minute_interval,
+      use_20_minute_schedule: establishment?.use_20_minute_schedule
+    });
 
     let current = start;
     while (current < end) {

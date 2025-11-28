@@ -3983,10 +3983,8 @@ Estamos te aguardando! 😎✂️`;
   const showTimeSlotsWithGaps = selectedProfessional !== '' && selectedProfessional !== 'all';
 
   const timeSlotsWithAppointments = React.useMemo(() => {
-    if (!showTimeSlotsWithGaps) {
-      console.log('🕐 Modo todos os profissionais - sem lacunas');
-      return filteredAppointments;
-    }
+    // SEMPRE gerar slots, mesmo quando mostrando todos os profissionais
+    // Removido o return antecipado que ignorava a configuração de intervalos
 
     // Mapear dias em português para inglês
     const dayMapping: Record<string, keyof typeof businessHours> = {
@@ -4024,10 +4022,6 @@ Estamos te aguardando! 😎✂️`;
       intervalMinutes = 15; // Horários de 15 em 15 minutos (quando DESMARCADO)
     }
 
-    console.log('🕐 use15MinuteInterval:', use15MinuteInterval);
-    console.log('🕐 use20MinuteSchedule:', use20MinuteSchedule);
-    console.log('🕐 intervalMinutes:', intervalMinutes);
-
     const convertToMinutes = (timeString: string) => {
       const [hours, mins] = timeString.split(':').map(Number);
       return hours * 60 + mins;
@@ -4053,11 +4047,11 @@ Estamos te aguardando! 😎✂️`;
         // Adicionar horário de início
         appointmentTimes.add(aptStartMinutes);
 
-        // Adicionar horários intermediários (a cada 15 minutos dentro da duração)
-        let checkMinutes = aptStartMinutes + 15;
+        // Adicionar horários intermediários usando o intervalo configurado
+        let checkMinutes = aptStartMinutes + intervalMinutes;
         while (checkMinutes < aptEndMinutes) {
           appointmentTimes.add(checkMinutes);
-          checkMinutes += 15;
+          checkMinutes += intervalMinutes;
         }
       });
 
