@@ -219,8 +219,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
       current = new Date(current.getTime() + interval * 60000);
     }
 
+    const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
     const professionalAppointments = appointments
-      .filter((apt) => apt.professional === professional.id)
+      .filter((apt) => 
+        apt.professional === professional.id &&
+        apt.appointment_date === selectedDateStr
+      )
       .sort(
         (a, b) =>
           parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
@@ -560,11 +564,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
   // Calcular valores do profissional para o modal
   const calculateProfessionalValues = (professionalId: string) => {
+    const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+    
+    // Debug: verificar todos os appointments
+    console.log('🔍 DEBUG calculateProfessionalValues:');
+    console.log('  - Professional ID:', professionalId);
+    console.log('  - Selected Date:', selectedDateStr);
+    console.log('  - Total appointments:', appointments.length);
+    console.log('  - Appointments do profissional:', appointments.filter(apt => apt.professional === professionalId).length);
+    console.log('  - Appointments do profissional na data:', appointments.filter(apt => apt.professional === professionalId && apt.appointment_date === selectedDateStr).length);
+    
     const dailyAppointments = appointments.filter(
       (apt) =>
         apt.professional === professionalId &&
+        apt.appointment_date === selectedDateStr &&
         (apt.status === 'confirmed' || apt.status === 'completed')
     );
+    
+    console.log('  - Appointments confirmados/completos:', dailyAppointments.length);
+    console.log('  - Detalhes:', dailyAppointments.map(apt => ({ id: apt.id, status: apt.status, date: apt.appointment_date })));
 
     const monthlyAppointmentsForPro = monthlyAppointments.filter(
       (apt) =>
@@ -885,9 +903,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
           <div className="flex gap-0 min-w-max scroll-content-flip">
             {professionals.map((professional, index) => {
               const timeSlots = generateTimeSlotsWithAppointments(professional);
+              const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
               const professionalAppointmentsCount = timeSlots.filter(
-                (slot) => slot.appointment && slot.appointment.status !== 'cancelled'
+                (slot) => slot.appointment && 
+                slot.appointment.appointment_date === selectedDateStr &&
+                (slot.appointment.status === 'confirmed' || slot.appointment.status === 'completed')
               ).length;
+              
+              // Debug para comparar
+              if (professional.id === professionals[0]?.id) {
+                console.log('🔍 DEBUG Card Count:');
+                console.log('  - Professional:', professional.name);
+                console.log('  - Selected Date:', selectedDateStr);
+                console.log('  - Total slots com appointment:', timeSlots.filter(s => s.appointment).length);
+                console.log('  - Slots confirmados/completos na data:', professionalAppointmentsCount);
+              }
 
               return (
                 <div

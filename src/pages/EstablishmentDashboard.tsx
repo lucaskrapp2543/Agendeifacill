@@ -8510,7 +8510,7 @@ Estamos te aguardando! 😎✂️`;
                     </div>
 
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="hidden flex items-center gap-4">
                     <button onClick={handlePreviousDay} className="btn-outline">
                       <ChevronLeft className="h-4 w-4" />
                     </button>
@@ -8526,7 +8526,7 @@ Estamos te aguardando! 😎✂️`;
                   </div>
 
                   {/* Legenda das Cores */}
-                  <div className="mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="hidden mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
                     <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
 
                     {/* Layout para mobile - 3 colunas */}
@@ -8657,7 +8657,7 @@ Estamos te aguardando! 😎✂️`;
                   )}
 
                   {/* Alerta sobre contabilização de valores */}
-                  <div className="mb-4 p-3 bg-orange-100 border-l-4 border-orange-500 rounded-r-lg">
+                  <div className="hidden mb-4 p-3 bg-orange-100 border-l-4 border-orange-500 rounded-r-lg">
                     <div className="text-orange-800 text-sm font-bold flex items-start gap-2">
                       <span className="text-orange-600 text-lg flex-shrink-0 mt-0.5">⚠️</span>
                       <div className="flex-1">
@@ -8671,7 +8671,8 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   </div>
 
-                  {/* Lista de Agendamentos */}
+                  {/* Lista de Agendamentos - OCULTA (usando AllProfessionalsAppointmentsView agora) */}
+                  <div className="hidden">
                   {(selectedProfessional === '' || (selectedProfessional === 'all' && filteredAppointments.length === 0)) ? (
                     <div className="text-center py-8">
                       <Calendar className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
@@ -9371,6 +9372,7 @@ Estamos te aguardando! 😎✂️`;
                       )}
                     </div>
                   )}
+                  </div>
                 </>
               )}
 
