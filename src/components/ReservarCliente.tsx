@@ -1,5 +1,5 @@
 import { CheckCircle, Clock, Scissors, Search, User } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -47,6 +47,8 @@ interface TimeSlot {
   available: boolean;
   isAvulso?: boolean;
   reason?: string;
+  appointmentId?: string; // ID do agendamento para cancelamento
+  appointmentStartTime?: string; // Horário de início do agendamento
 }
 
 interface Client {
@@ -392,7 +394,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         // Buscar agendamentos existentes para a data - CORRIGIDO
         const { data: appointments, error } = await supabase
           .from('appointments')
-          .select('appointment_time, duration, is_avulso, professional, status')
+          .select('id, appointment_time, duration, is_avulso, professional, status')
           .eq('establishment_id', establishmentId)
           .eq('appointment_date', selectedDate)
           .neq('status', 'cancelled'); // Incluir todos exceto cancelados
@@ -563,6 +565,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
             let available = true;
             let isAvulso = false;
             let reason = '';
+            let appointmentId: string | undefined;
+            let appointmentStartTime: string | undefined;
+            let slotAdded = false;
 
             if (appointments) {
               // Filtrar apenas agendamentos do profissional selecionado (por ID)
@@ -584,7 +589,12 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   available = false;
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
-                  break;
+                  
+                  // Se este slot é exatamente o horário de início do agendamento, marcar para mostrar o X
+                  if (time === appointment.appointment_time) {
+                    appointmentId = appointment.id;
+                    appointmentStartTime = appointment.appointment_time;
+                  }
                 }
               }
             }
@@ -593,7 +603,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
               time,
               available,
               isAvulso,
-              reason
+              reason,
+              appointmentId,
+              appointmentStartTime
             });
           }
         }
@@ -612,6 +624,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
             let available = true;
             let isAvulso = false;
             let reason = '';
+            let appointmentId: string | undefined;
+            let appointmentStartTime: string | undefined;
 
             if (appointments) {
               const professionalAppointments = appointments.filter(
@@ -628,7 +642,12 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   available = false;
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
-                  break;
+                  
+                  // Se este slot é exatamente o horário de início do agendamento, marcar para mostrar o X
+                  if (time === appointment.appointment_time) {
+                    appointmentId = appointment.id;
+                    appointmentStartTime = appointment.appointment_time;
+                  }
                 }
               }
             }
@@ -637,7 +656,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
               time,
               available,
               isAvulso,
-              reason
+              reason,
+              appointmentId,
+              appointmentStartTime
             });
           }
         }
@@ -753,6 +774,42 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
     };
     setSelectedService(serviceFromSubscription);
     setStep('time');
+  };
+
+  const handleCancelAppointment = async (appointmentId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevenir que o clique no botão selecione o horário
+    
+    if (!confirm('Quer mesmo cancelar esse agendamento?')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelled' })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      // Disparar evento para recarregar agendamentos no dashboard
+      window.dispatchEvent(new CustomEvent('clientAppointmentCreated'));
+      
+      // Forçar recarregamento dos slots alterando temporariamente a data e voltando
+      // Isso vai disparar o useEffect que recarrega os slots
+      const currentDate = selectedDate;
+      setSelectedDate('');
+      setTimeout(() => {
+        setSelectedDate(currentDate);
+      }, 100);
+      
+      alert('Agendamento cancelado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao cancelar agendamento:', error);
+      alert('Erro ao cancelar agendamento');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleTimeSelect = (time: string) => {
@@ -1319,26 +1376,40 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
               ) : (
                 <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
                   {timeSlots.map((slot) => (
-                    <button
+                    <div
                       key={slot.time}
-                      onClick={() => slot.available && handleTimeSelect(slot.time)}
-                      disabled={!slot.available}
-                      className={`p-3 text-sm rounded-lg transition-all ${slot.available
-                        ? 'bg-green-100 text-green-800 hover:bg-green-200 border border-green-300'
-                        : slot.isAvulso
-                          ? 'bg-orange-100 text-orange-800 border border-orange-300 cursor-not-allowed'
-                          : 'bg-red-100 text-red-800 border border-red-300 cursor-not-allowed'
-                        }`}
+                      className="relative"
                     >
-                      <div className="text-center">
-                        <div className="font-semibold">{slot.time}</div>
-                        {slot.isAvulso && (
-                          <div className="text-xs text-orange-600 mt-1">
-                            RESERVA AVULSA
-                          </div>
-                        )}
-                      </div>
-                    </button>
+                      <button
+                        onClick={() => slot.available && handleTimeSelect(slot.time)}
+                        disabled={!slot.available}
+                        className={`w-full p-3 text-sm rounded-lg transition-all relative ${slot.available
+                          ? 'bg-green-100 text-green-800 hover:bg-green-200 border border-green-300'
+                          : slot.isAvulso
+                            ? 'bg-orange-100 text-orange-800 border border-orange-300 cursor-not-allowed'
+                            : 'bg-red-100 text-red-800 border border-red-300 cursor-not-allowed'
+                          }`}
+                      >
+                        <div className="text-center">
+                          <div className="font-semibold">{slot.time}</div>
+                          {slot.isAvulso && (
+                            <div className="text-xs text-orange-600 mt-1">
+                              RESERVA AVULSA
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                      {/* Botão X para cancelar - só aparece no horário de início */}
+                      {slot.appointmentId && slot.appointmentStartTime === slot.time && (
+                        <button
+                          onClick={(e) => handleCancelAppointment(slot.appointmentId!, e)}
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-lg z-10 transition-colors"
+                          title="Cancelar agendamento"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

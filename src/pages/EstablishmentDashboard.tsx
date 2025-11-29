@@ -123,7 +123,7 @@ interface Establishment {
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page';
 
 interface AdditionalProduct {
   name: string;
@@ -1784,6 +1784,32 @@ const EstablishmentDashboard = () => {
   // Ref para rastrear se há mudanças não salvas nos horários
   const unsavedBusinessHoursRef = useRef<Record<string, BusinessHours> | null>(null);
 
+  // Função para ajustar horário ao intervalo configurado
+  const adjustTimeToInterval = (timeString: string): string => {
+    if (!timeString || timeString === '00:00') return timeString;
+    
+    // Determinar o intervalo configurado
+    let interval = 15; // Padrão: 15 em 15 min
+    if (use20MinuteSchedule) {
+      interval = 20;
+    } else if (use15MinuteInterval) {
+      interval = 30;
+    }
+    
+    // Converter horário para minutos
+    const [hours, minutes] = timeString.split(':').map(Number);
+    const totalMinutes = hours * 60 + minutes;
+    
+    // Arredondar para o intervalo mais próximo
+    const roundedMinutes = Math.round(totalMinutes / interval) * interval;
+    
+    // Converter de volta para string HH:mm
+    const newHours = Math.floor(roundedMinutes / 60);
+    const newMinutes = roundedMinutes % 60;
+    
+    return `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+  };
+
   const handleBusinessHoursChange = (
     day: keyof typeof businessHours,
     field: 'enabled' | 'open1' | 'close1' | 'open2' | 'close2',
@@ -1791,11 +1817,20 @@ const EstablishmentDashboard = () => {
   ) => {
     console.log('🕐 handleBusinessHoursChange chamado:', { day, field, value });
     
+    // Se for um horário (não enabled), ajustar ao intervalo configurado
+    let adjustedValue = value;
+    if (field !== 'enabled' && typeof value === 'string') {
+      adjustedValue = adjustTimeToInterval(value);
+      if (adjustedValue !== value) {
+        console.log(`⚡ Horário ajustado: ${value} → ${adjustedValue}`);
+      }
+    }
+    
     const updatedHours = {
       ...businessHours,
       [day]: {
         ...businessHours[day],
-        [field]: value
+        [field]: adjustedValue
       }
     };
     
@@ -6776,11 +6811,17 @@ Estamos te aguardando! 😎✂️`;
   };
 
   const handleUpdateWorkTime = (day: string, field: string, value: string) => {
+    // Ajustar horário ao intervalo configurado
+    const adjustedValue = adjustTimeToInterval(value);
+    if (adjustedValue !== value) {
+      console.log(`⚡ Horário de trabalho ajustado: ${value} → ${adjustedValue}`);
+    }
+    
     setWorkHoursData(prev => ({
       ...prev,
       [day]: {
         ...prev[day],
-        [field]: value
+        [field]: adjustedValue
       }
     }));
   };
@@ -9506,6 +9547,63 @@ Estamos te aguardando! 😎✂️`;
                 </div>
               )}
 
+              {activeTab === 'client-page' && (
+                <div className="space-y-6 w-full">
+                  {/* Seção de Link do Estabelecimento */}
+                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 mb-6 border border-emerald-400/50">
+                    {/* Header */}
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
+                        <LinkIcon className="h-5 w-5 text-white" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-emerald-400">
+                        🌐 Sua Página de Agendamentos
+                      </h3>
+                    </div>
+
+                    {/* Link Box - Organizado para mobile */}
+                    <div className="bg-[#1a1b1c] rounded-lg p-4 border border-gray-700 mb-4">
+                      <p className="text-emerald-400 font-medium text-sm mb-3">Link do Estabelecimento:</p>
+
+                      {/* Link principal */}
+                      <div className="bg-gray-800 rounded-lg p-3 mb-3">
+                        <code className="text-green-400 font-mono text-sm block break-all">
+                          agendeifacil.com/booking/{establishment?.code}
+                        </code>
+                      </div>
+
+                      {/* Botões organizados */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => copyLinkToClipboard()}
+                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                        >
+                          <Copy className="h-4 w-4 text-white" />
+                          <span className="text-white text-sm font-medium">Copiar</span>
+                        </button>
+                        <a
+                          href={`${window.location.origin}/booking/${establishment?.code}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                        >
+                          <LinkIcon className="h-4 w-4 text-white" />
+                          <span className="text-white text-sm font-medium">Abrir</span>
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Dica */}
+                    <div className="flex items-start gap-2">
+                      <span className="text-yellow-400 text-sm">💡</span>
+                      <p className="text-white text-xs font-medium flex-1">
+                        Compartilhe este link com seus clientes para que possam agendar diretamente com você!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'settings' && (
                 <div className="space-y-6 w-full">
                   {/* Validade Agendei Fácil */}
@@ -10048,6 +10146,7 @@ Estamos te aguardando! 😎✂️`;
                                     onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
                                     disabled={!hours.enabled}
                                     className="w-full"
+                                    intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                   />
                                 </div>
                                 <div className="space-y-2">
@@ -10059,6 +10158,7 @@ Estamos te aguardando! 😎✂️`;
                                     onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
                                     disabled={!hours.enabled}
                                     className="w-full"
+                                    intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                   />
                                 </div>
                               </div>
@@ -10074,6 +10174,7 @@ Estamos te aguardando! 😎✂️`;
                                     onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
                                     disabled={!hours.enabled}
                                     className="w-full"
+                                    intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                   />
                                 </div>
                                 <div className="space-y-2">
@@ -10085,6 +10186,7 @@ Estamos te aguardando! 😎✂️`;
                                     onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
                                     disabled={!hours.enabled}
                                     className="w-full"
+                                    intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                   />
                                 </div>
                               </div>
@@ -12604,41 +12706,45 @@ Estamos te aguardando! 😎✂️`;
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div>
                               <label className="block text-sm text-gray-300 mb-2">Entrada</label>
-                              <input
-                                type="time"
+                              <TimeSelector
                                 value={workHoursData[day]?.entry_time || '08:00'}
-                                onChange={(e) => handleUpdateWorkTime(day, 'entry_time', e.target.value)}
+                                onChange={(value) => handleUpdateWorkTime(day, 'entry_time', value || '08:00')}
+                                disabled={false}
                                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                                intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                               />
                             </div>
 
                             <div>
                               <label className="block text-sm text-gray-300 mb-2">Início Intervalo</label>
-                              <input
-                                type="time"
-                                value={workHoursData[day]?.break_start || ''}
-                                onChange={(e) => handleUpdateWorkTime(day, 'break_start', e.target.value)}
+                              <TimeSelector
+                                value={workHoursData[day]?.break_start || null}
+                                onChange={(value) => handleUpdateWorkTime(day, 'break_start', value || '')}
+                                disabled={false}
                                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                                intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                               />
                             </div>
 
                             <div>
                               <label className="block text-sm text-gray-300 mb-2">Fim Intervalo</label>
-                              <input
-                                type="time"
-                                value={workHoursData[day]?.break_end || ''}
-                                onChange={(e) => handleUpdateWorkTime(day, 'break_end', e.target.value)}
+                              <TimeSelector
+                                value={workHoursData[day]?.break_end || null}
+                                onChange={(value) => handleUpdateWorkTime(day, 'break_end', value || '')}
+                                disabled={false}
                                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                                intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                               />
                             </div>
 
                             <div>
                               <label className="block text-sm text-gray-300 mb-2">Saída</label>
-                              <input
-                                type="time"
+                              <TimeSelector
                                 value={workHoursData[day]?.exit_time || '17:00'}
-                                onChange={(e) => handleUpdateWorkTime(day, 'exit_time', e.target.value)}
+                                onChange={(value) => handleUpdateWorkTime(day, 'exit_time', value || '17:00')}
+                                disabled={false}
                                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                                intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                               />
                             </div>
                           </div>

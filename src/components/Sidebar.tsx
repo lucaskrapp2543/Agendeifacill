@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -247,6 +247,20 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       isActive: activeTab === 'taxes',
       disabled: isItemLocked('taxes')
+    },
+    {
+      id: 'client-page',
+      label: 'Página Clientes',
+      icon: Link,
+      onClick: () => {
+        if (isItemLocked('client-page')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('client-page'));
+        }
+      },
+      isActive: activeTab === 'client-page',
+      disabled: isItemLocked('client-page')
     },
     {
       id: 'config',

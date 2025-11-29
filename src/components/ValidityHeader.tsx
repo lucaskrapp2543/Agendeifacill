@@ -6,6 +6,7 @@ interface EstablishmentValidity {
   payment_due_date: string;
   payment_status: 'paid' | 'unpaid' | 'expired';
   plan_type: 'monthly' | 'annual' | 'trial';
+  name?: string;
 }
 
 interface ValidityHeaderProps {
@@ -26,7 +27,7 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
       setIsLoading(true);
       const { data, error } = await supabase
         .from('establishments')
-        .select('payment_due_date, payment_status, plan_type')
+        .select('payment_due_date, payment_status, plan_type, name')
         .eq('id', establishmentId)
         .single();
 
@@ -78,7 +79,9 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
     if (!validity || isLoading) return 'Carregando...';
 
     if (validity.payment_status === 'expired' || daysRemaining < 0) {
-      return `Vencido há ${Math.abs(daysRemaining)} dias`;
+      const daysOverdue = Math.abs(daysRemaining);
+      const daysUntilBlock = Math.max(0, 4 - daysOverdue);
+      return `⚠️ Vencido há ${daysOverdue} dia${daysOverdue !== 1 ? 's' : ''} - Acesso bloqueia em ${daysUntilBlock} dia${daysUntilBlock !== 1 ? 's' : ''}!`;
     } else if (daysRemaining === 0) {
       return 'Vence hoje';
     } else if (daysRemaining === 1) {

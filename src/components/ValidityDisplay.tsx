@@ -10,6 +10,7 @@ interface EstablishmentValidity {
   payment_due_date: string;
   payment_status: 'paid' | 'unpaid' | 'expired';
   plan_type: 'monthly' | 'annual' | 'trial';
+  name?: string;
 }
 
 export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentId }) => {
@@ -31,7 +32,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
     try {
       const { data, error } = await supabase
         .from('establishments')
-        .select('payment_due_date, payment_status, plan_type')
+        .select('payment_due_date, payment_status, plan_type, name')
         .eq('id', establishmentId)
         .single();
 
@@ -176,15 +177,34 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
         )}
 
         {(validity.payment_status === 'expired' || daysRemaining < 0) && (
-          <div className="mt-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
-            <div className="flex items-center gap-2 text-red-400">
-              <AlertTriangle className="h-4 w-4" />
-              <span className="text-sm">
-                {daysRemaining < 0
-                  ? `Vencido há ${Math.abs(daysRemaining)} dias`
-                  : 'Plano vencido'
-                }
-              </span>
+          <div className="mt-4 p-4 bg-gradient-to-r from-red-600 to-red-700 border-4 border-red-400 rounded-xl shadow-2xl animate-pulse">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-white">
+                <AlertTriangle className="h-6 w-6 animate-bounce" />
+                <div className="flex-1">
+                  <p className="text-lg font-bold">
+                    {daysRemaining < 0
+                      ? `⚠️ VENCIDO HÁ ${Math.abs(daysRemaining)} DIA${Math.abs(daysRemaining) !== 1 ? 'S' : ''}!`
+                      : '⚠️ PLANO VENCIDO!'
+                    }
+                  </p>
+                  <p className="text-sm text-red-100 font-semibold mt-1">
+                    🔒 Acesso será bloqueado em {Math.max(0, 4 - Math.abs(daysRemaining))} dia{Math.max(0, 4 - Math.abs(daysRemaining)) !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => {
+                  const establishmentName = validity?.name || 'Meu Estabelecimento';
+                  const message = `Olá! Quero deixar meu sistema em dia. Estabelecimento: ${establishmentName}`;
+                  const whatsappUrl = `https://wa.me/5548991265320?text=${encodeURIComponent(message)}`;
+                  window.open(whatsappUrl, '_blank');
+                }}
+                className="w-full bg-white text-red-600 font-bold py-3 px-4 rounded-lg hover:bg-red-50 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-base"
+              >
+                💳 PAGAR AGORA
+              </button>
             </div>
           </div>
         )}
