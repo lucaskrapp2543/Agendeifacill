@@ -27,10 +27,12 @@ export default defineConfig({
       'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0, s-maxage=0, no-transform',
       'Pragma': 'no-cache',
       'Expires': '0',
-      'Last-Modified': new Date().toUTCString(),
-      'ETag': `"${Date.now()}-${Math.random()}"`,
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
+    },
+    // Forçar reload quando chunks mudarem
+    fs: {
+      strict: true,
     },
     // Forçar reload automático
     hmr: {
@@ -51,18 +53,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: undefined,
-        // Adicionar timestamp para evitar cache
-        assetFileNames: (assetInfo) => {
-          const info = assetInfo.name.split('.');
-          const ext = info[info.length - 1];
-          const timestamp = Date.now();
-          if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(ext)) {
-            return `assets/[name]-v2.1.0-[hash]-${timestamp}.${ext}`;
-          }
-          return `assets/[name]-v2.1.0-[hash]-${timestamp}.${ext}`;
-        },
-        chunkFileNames: `assets/[name]-v2.1.0-[hash]-${Date.now()}.js`,
-        entryFileNames: `assets/[name]-v2.1.0-[hash]-${Date.now()}.js`,
+        // Usar hash baseado no conteúdo para evitar referências a chunks antigos
+        assetFileNames: 'assets/[name]-[hash][extname]',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
       },
     },
     // Configurações anti-cache

@@ -95,6 +95,7 @@ interface AllProfessionalsAppointmentsViewProps {
   onOpenReminderModal?: (appointment: Appointment) => void;
   onGoToProfessionalConfig?: (professionalId: string) => void;
   onGoToClients?: () => void;
+  onCancelAppointment?: (appointmentId: string) => void;
 }
 
 export const AllProfessionalsAppointmentsView: React.FC<
@@ -117,6 +118,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onOpenReminderModal,
   onGoToProfessionalConfig,
   onGoToClients,
+  onCancelAppointment,
 }) => {
   console.log('📋 AllProfessionalsAppointmentsView - Total de appointments recebidos:', appointments.length);
   console.log('📅 Data selecionada:', selectedDate.toISOString());
@@ -1357,7 +1359,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              handleUpdateAppointmentStatus(apt.id, 'cancelled');
+                                              // Se tiver função de cancelamento customizada, usar ela (para pedir senha)
+                                              if (onCancelAppointment) {
+                                                onCancelAppointment(apt.id);
+                                              } else {
+                                                // Fallback: cancelar direto
+                                                handleUpdateAppointmentStatus(apt.id, 'cancelled');
+                                              }
                                             }}
                                             className="px-2 py-1.5 text-xs bg-red-700 text-white rounded hover:bg-red-800"
                                           >

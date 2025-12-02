@@ -349,7 +349,7 @@ const EstablishmentDashboard = () => {
   const [socialMediaLink, setSocialMediaLink] = useState('');
   const [pixPaymentLink, setPixPaymentLink] = useState('');
   const [locationLink, setLocationLink] = useState(''); // Novo estado para o link do local
-  
+
   // ✅ Refs para debounce do auto-save
   const linksAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const amenitiesAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -367,6 +367,7 @@ const EstablishmentDashboard = () => {
   const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
   const [requireCpf, setRequireCpf] = useState(false); // Solicitar CPF no agendamento
   const [enableWhatsAppNotifications, setEnableWhatsAppNotifications] = useState(false); // Ativar notificações WhatsApp após agendamentos
+  const [requireCancelPassword, setRequireCancelPassword] = useState(false); // Exigir senha para cancelar agendamento
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
   const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState<string[]>(['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
@@ -488,6 +489,7 @@ const EstablishmentDashboard = () => {
   const [showReminderPopup, setShowReminderPopup] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
+  const [showCancelPasswordModal, setShowCancelPasswordModal] = useState(false);
 
   // Estados para modal de lembrete
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
@@ -1787,7 +1789,7 @@ const EstablishmentDashboard = () => {
   // Função para ajustar horário ao intervalo configurado
   const adjustTimeToInterval = (timeString: string): string => {
     if (!timeString || timeString === '00:00') return timeString;
-    
+
     // Determinar o intervalo configurado
     let interval = 15; // Padrão: 15 em 15 min
     if (use20MinuteSchedule) {
@@ -1795,18 +1797,18 @@ const EstablishmentDashboard = () => {
     } else if (use15MinuteInterval) {
       interval = 30;
     }
-    
+
     // Converter horário para minutos
     const [hours, minutes] = timeString.split(':').map(Number);
     const totalMinutes = hours * 60 + minutes;
-    
+
     // Arredondar para o intervalo mais próximo
     const roundedMinutes = Math.round(totalMinutes / interval) * interval;
-    
+
     // Converter de volta para string HH:mm
     const newHours = Math.floor(roundedMinutes / 60);
     const newMinutes = roundedMinutes % 60;
-    
+
     return `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
   };
 
@@ -1816,7 +1818,7 @@ const EstablishmentDashboard = () => {
     value: string | boolean | null
   ) => {
     console.log('🕐 handleBusinessHoursChange chamado:', { day, field, value });
-    
+
     // Se for um horário (não enabled), ajustar ao intervalo configurado
     let adjustedValue = value;
     if (field !== 'enabled' && typeof value === 'string') {
@@ -1825,7 +1827,7 @@ const EstablishmentDashboard = () => {
         console.log(`⚡ Horário ajustado: ${value} → ${adjustedValue}`);
       }
     }
-    
+
     const updatedHours = {
       ...businessHours,
       [day]: {
@@ -1833,20 +1835,20 @@ const EstablishmentDashboard = () => {
         [field]: adjustedValue
       }
     };
-    
+
     console.log('🕐 Horários atualizados:', updatedHours);
-    
+
     setBusinessHours(updatedHours);
-    
+
     // Salvar referência para salvar antes de sair da página
     unsavedBusinessHoursRef.current = updatedHours;
-    
+
     // CANCELAR qualquer timeout anterior
     if (businessHoursAutoSaveTimeoutRef.current) {
       clearTimeout(businessHoursAutoSaveTimeoutRef.current);
       businessHoursAutoSaveTimeoutRef.current = null;
     }
-    
+
     // SALVAR IMEDIATAMENTE - sem debounce!
     console.log('💾 SALVANDO IMEDIATAMENTE...');
     autoSaveBusinessHours(updatedHours).then(() => {
@@ -1907,11 +1909,11 @@ const EstablishmentDashboard = () => {
           const elementPosition = newProfessionalElement.getBoundingClientRect().top;
           const offsetPosition = elementPosition + window.pageYOffset - 100; // 100px acima
           window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
-          
+
           // Destacar o novo profissional temporariamente
           newProfessionalElement.style.transition = 'box-shadow 0.3s';
           newProfessionalElement.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.5)';
-          
+
           // Destacar o campo de nome do profissional
           const nameInput = newProfessionalElement.querySelector('input[type="text"]') as HTMLInputElement;
           if (nameInput) {
@@ -1921,11 +1923,11 @@ const EstablishmentDashboard = () => {
             nameInput.style.backgroundColor = '#1e3a8a';
             nameInput.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.6)';
             nameInput.focus();
-            
+
             // Adicionar placeholder destacado
             const originalPlaceholder = nameInput.placeholder;
             nameInput.placeholder = '⚠️ DIGITE O NOME DO PROFISSIONAL AQUI ⚠️';
-            
+
             setTimeout(() => {
               newProfessionalElement.style.boxShadow = '';
               nameInput.style.borderColor = '';
@@ -1935,7 +1937,7 @@ const EstablishmentDashboard = () => {
               nameInput.placeholder = originalPlaceholder;
             }, 4000);
           }
-          
+
           setTimeout(() => {
             newProfessionalElement.style.boxShadow = '';
           }, 2000);
@@ -2038,7 +2040,7 @@ const EstablishmentDashboard = () => {
       const updatedProfessionals = professionals.map(localProfessional => {
         // Buscar dados do banco para este profissional
         const dbProfessional = dbProfessionals.find(p => p.id === localProfessional.id) || {};
-        
+
         // Mesclar: priorizar dados locais mas preservar campos do banco que não estão no local
         return {
           id: localProfessional.id,
@@ -2047,8 +2049,8 @@ const EstablishmentDashboard = () => {
           percentage: localProfessional.percentage || 100,
           photo_url: (localProfessional as any).photo_url || dbProfessional.photo_url || null,
           whatsapp: localProfessional.whatsapp || dbProfessional.whatsapp || null,
-          specific_services: Array.isArray((localProfessional as any).specific_services) 
-            ? (localProfessional as any).specific_services 
+          specific_services: Array.isArray((localProfessional as any).specific_services)
+            ? (localProfessional as any).specific_services
             : (Array.isArray(dbProfessional.specific_services) ? dbProfessional.specific_services : []),
           offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
           work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
@@ -2102,14 +2104,14 @@ const EstablishmentDashboard = () => {
       // Se está em onboarding (step 2), verificar se tem pelo menos um profissional com nome e avançar para step 3
       if (onboardingStep === 2) {
         const professionalsWithNames = updatedProfessionals.filter(p => p.name && p.name.trim().length > 0);
-        
+
         if (professionalsWithNames.length > 0) {
           // Tem pelo menos um profissional válido, avançar para step 3
           const { error: onboardingError } = await supabase
             .from('establishments')
             .update({ onboarding_step: 3 })
             .eq('id', establishment.id);
-          
+
           if (!onboardingError) {
             setOnboardingStep(3);
             setOnboardingPopupMessage('Ótimo! Agora vá em Meus Serviços, cadastre seu primeiro serviço e você liberará todas as outras funções.');
@@ -2322,7 +2324,7 @@ const EstablishmentDashboard = () => {
 
       // Sistema de progresso do onboarding
       let newOnboardingStep = onboardingStep;
-      
+
       // Step 1 -> Step 2: Configuração salva
       if (onboardingStep === 1) {
         newOnboardingStep = 2;
@@ -2330,7 +2332,7 @@ const EstablishmentDashboard = () => {
           .from('establishments')
           .update({ onboarding_step: 2 })
           .eq('id', establishment.id);
-        
+
         if (!onboardingError) {
           setOnboardingStep(2);
           setOnboardingPopupMessage('Parabéns! Agora basta ir em Profissionais, adicionar seu primeiro profissional e você liberará a próxima etapa.');
@@ -2340,7 +2342,7 @@ const EstablishmentDashboard = () => {
           }, 3000);
         }
       }
-      
+
       // Step 3 -> Step 4: Será detectado automaticamente pelo useEffect quando serviço válido for adicionado
 
       const { data, error } = await updateEstablishment(establishment.id, establishmentData);
@@ -2350,7 +2352,7 @@ const EstablishmentDashboard = () => {
       }
 
       setEstablishment(data?.[0]);
-      
+
       // Toast diferente se for onboarding
       if (onboardingStep < 4) {
         toast.success('Configurações salvas! Avançando para a próxima etapa...');
@@ -2413,37 +2415,8 @@ const EstablishmentDashboard = () => {
         return;
       }
 
-      // 🔐 VERIFICAR SENHA DE 4 DÍGITOS PRIMEIRO
-      console.log('🔐 Verificando senha do estabelecimento...');
-      console.log('🔐 pin_password atual:', establishment?.pin_password);
-      
-      if (!establishment?.pin_password || establishment.pin_password === '0000') {
-        console.log('❌ Senha não configurada! Bloqueando cancelamento.');
-        toast.error('Configure uma senha de 4 dígitos nas configurações para permitir cancelamentos.');
-        return;
-      }
-
-      // 🔐 SOLICITAR SENHA
-      console.log('🔐 Solicitando senha ao usuário...');
-      const enteredPassword = window.prompt('🔐 Digite a senha de 4 dígitos para cancelar:');
-
-      if (!enteredPassword) {
-        console.log('❌ Usuário cancelou');
-        return;
-      }
-
-      // 🔐 VALIDAR SENHA
-      console.log('🔐 Validando senha...');
-      console.log('  - Digitada:', enteredPassword);
-      console.log('  - Esperada:', establishment.pin_password);
-
-      if (enteredPassword !== establishment.pin_password) {
-        console.log('❌ Senha incorreta!');
-        toast.error('Senha incorreta!');
-        return;
-      }
-
-      console.log('✅ Senha correta! Prosseguindo com cancelamento...');
+      // A senha já foi validada no modal antes de chegar aqui
+      console.log('✅ Prosseguindo com cancelamento...');
 
       // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
       if (appointmentToCancel.is_subscriber) {
@@ -2505,9 +2478,79 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleCancelClick = (appointmentId: string) => {
+  const handleCancelClick = async (appointmentId: string) => {
+    console.log('🔍 DEBUG CANCELAR - Verificando configurações:');
+    console.log('  - requireCancelPassword (estado):', requireCancelPassword);
+    console.log('  - establishment?.pin_password:', establishment?.pin_password);
+    console.log('  - establishment?.require_cancel_password:', (establishment as any)?.require_cancel_password);
+
+    // Buscar valor atualizado do banco para garantir
+    if (establishment?.id) {
+      const { data: currentEstablishment, error } = await supabase
+        .from('establishments')
+        .select('require_cancel_password, pin_password')
+        .eq('id', establishment.id)
+        .single();
+
+      if (!error && currentEstablishment) {
+        console.log('  - Valor do banco (require_cancel_password):', currentEstablishment.require_cancel_password);
+        console.log('  - Valor do banco (pin_password existe):', !!currentEstablishment.pin_password);
+
+        const needsPassword = currentEstablishment.require_cancel_password === true;
+        const hasPassword = currentEstablishment.pin_password &&
+          currentEstablishment.pin_password !== '0000' &&
+          currentEstablishment.pin_password.trim() !== '';
+
+        console.log('  - needsPassword (do banco):', needsPassword);
+        console.log('  - hasPassword (do banco):', hasPassword);
+
+        setAppointmentToCancel(appointmentId);
+
+        if (needsPassword && hasPassword) {
+          console.log('✅ Pedindo senha para cancelar');
+          setShowCancelPasswordModal(true);
+          return;
+        }
+      }
+    }
+
+    // Fallback: usar valores do estado se não conseguir buscar do banco
+    const needsPassword = requireCancelPassword || (establishment as any)?.require_cancel_password;
+    const hasPassword = establishment?.pin_password &&
+      establishment.pin_password !== '0000' &&
+      establishment.pin_password.trim() !== '';
+
+    console.log('  - needsPassword (fallback):', needsPassword);
+    console.log('  - hasPassword (fallback):', hasPassword);
+
     setAppointmentToCancel(appointmentId);
-    setShowCancelConfirm(true);
+
+    if (needsPassword && hasPassword) {
+      console.log('✅ Pedindo senha para cancelar (fallback)');
+      setShowCancelPasswordModal(true);
+    } else {
+      console.log('❌ Não precisa de senha - mostrando confirmação direto');
+      console.log('  - Motivo: needsPassword =', needsPassword, ', hasPassword =', hasPassword);
+      setShowCancelConfirm(true);
+    }
+  };
+
+  // Função para validar senha de cancelamento
+  const handleCancelPasswordSubmit = (pin: string) => {
+    if (!establishment?.pin_password) {
+      toast('Senha não configurada', 'error');
+      setShowCancelPasswordModal(false);
+      return;
+    }
+
+    // Verificar se é a senha mestre ou a senha do estabelecimento
+    const MASTER_PIN = '2543';
+    if (pin === MASTER_PIN || pin === establishment.pin_password) {
+      setShowCancelPasswordModal(false);
+      setShowCancelConfirm(true);
+    } else {
+      toast('Senha incorreta!', 'error');
+    }
   };
 
   // Função para abrir modal de lembrete
@@ -2555,7 +2598,7 @@ Estamos te aguardando! 😎✂️`;
         { code: '34', minLength: 11 },
         { code: '1', minLength: 11 }
       ];
-      const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+      const hasCountryCode = countryCodes.some(({ code, minLength }) =>
         phoneNumber.startsWith(code) && phoneNumber.length >= minLength
       );
       if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
@@ -3004,7 +3047,7 @@ Estamos te aguardando! 😎✂️`;
       if (error) throw error;
 
       const appointmentsData = data as Appointment[] || [];
-      
+
       console.log('✅ AGENDAMENTOS ENCONTRADOS:', appointmentsData.length);
       console.log('📋 Dados:', appointmentsData);
 
@@ -3164,6 +3207,10 @@ Estamos te aguardando! 😎✂️`;
         setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
         setRequireCpf(establishmentData.require_cpf ?? false); // Solicitar CPF no agendamento
         setEnableWhatsAppNotifications(establishmentData.enable_whatsapp_notifications ?? false); // Ativar notificações WhatsApp
+        const requireCancelPasswordValue = (establishmentData as any).require_cancel_password ?? false;
+        setRequireCancelPassword(requireCancelPasswordValue); // Exigir senha para cancelar agendamento
+        console.log('🔍 Carregado require_cancel_password do banco:', requireCancelPasswordValue);
+        console.log('🔍 establishmentData completo:', establishmentData);
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
         setPaymentMethodsEnabled(establishmentData.payment_methods_enabled || ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
@@ -3191,7 +3238,7 @@ Estamos te aguardando! 😎✂️`;
           servicesCount: (establishmentData.services_with_prices || []).length
         });
         setOnboardingStep(currentOnboardingStep);
-        
+
         // Se está em onboarding (step < 4), forçar para a aba apropriada
         if (currentOnboardingStep === 1) {
           setActiveTab('settings'); // Começar na config
@@ -3232,7 +3279,7 @@ Estamos te aguardando! 😎✂️`;
         setProfessionalAbsences(absencesData);
 
         setServicesWithPrices(establishmentData.services_with_prices || []);
-        
+
         // Horários padrão para novos estabelecimentos (onboarding_step < 4)
         const isNewEstablishment = (establishmentData.onboarding_step ?? 4) < 4;
         const defaultBusinessHoursForNew = {
@@ -3244,7 +3291,7 @@ Estamos te aguardando! 😎✂️`;
           saturday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
           sunday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' }
         };
-        
+
         // Horários padrão para estabelecimentos antigos
         const defaultBusinessHoursForOld = {
           monday: { enabled: true, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
@@ -3255,20 +3302,20 @@ Estamos te aguardando! 😎✂️`;
           saturday: { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' },
           sunday: { enabled: false, open1: '09:00', close1: '12:00', open2: '13:30', close2: '18:00' }
         };
-        
+
         // Usar horários do banco se existirem, senão usar padrão baseado no tipo de estabelecimento
         const businessHoursFromDB = establishmentData.business_hours;
         const defaultHours = isNewEstablishment ? defaultBusinessHoursForNew : defaultBusinessHoursForOld;
-        
+
         // Normalizar horários: preencher campos vazios/null com padrões
         const normalizeBusinessHours = (hours: any, defaults: any) => {
           const normalized: Record<string, BusinessHours> = {};
           const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-          
+
           days.forEach(day => {
             const dayHours = hours?.[day] || {};
             const defaultDay = defaults[day];
-            
+
             // Garantir que valores null ou vazios sejam convertidos para strings válidas
             normalized[day] = {
               enabled: dayHours?.enabled ?? defaultDay.enabled,
@@ -3278,10 +3325,10 @@ Estamos te aguardando! 😎✂️`;
               close2: (dayHours?.close2 && dayHours.close2 !== 'null') ? dayHours.close2 : defaultDay.close2
             };
           });
-          
+
           return normalized;
         };
-        
+
         // SEMPRE carregar horários do banco se existirem, independente de ser novo ou antigo
         if (businessHoursFromDB) {
           // Usar horários salvos no banco, normalizando campos vazios/null
@@ -3345,19 +3392,19 @@ Estamos te aguardando! 😎✂️`;
       services: servicesWithPrices.map(s => ({ name: s.name, price: s.price })),
       onboardingCompletedRef: onboardingCompletedRef.current
     });
-    
+
     if (onboardingStep === 3 && establishment && !onboardingCompletedRef.current) {
       console.log('✅ DEBUG Onboarding - Condições atendidas! Verificando serviços válidos...');
-      const validServices = servicesWithPrices.filter(s => 
+      const validServices = servicesWithPrices.filter(s =>
         s.name && s.name.trim().length > 0 && s.price > 0
       );
-      
+
       console.log('✅ DEBUG Onboarding - Serviços válidos encontrados:', validServices);
-      
+
       if (validServices.length > 0) {
         // Tem pelo menos um serviço válido, salvar no banco e completar onboarding
         onboardingCompletedRef.current = true; // Marca como completo para evitar múltiplas chamadas
-        
+
         const completeOnboarding = async () => {
           try {
             // Primeiro, salvar os serviços no banco de dados
@@ -3372,19 +3419,19 @@ Estamos te aguardando! 😎✂️`;
                 }))
               })
               .eq('id', establishment.id);
-            
+
             if (saveError) {
               console.error('Erro ao salvar serviços:', saveError);
               onboardingCompletedRef.current = false;
               return;
             }
-            
+
             // Depois, atualizar o onboarding_step
             const { error: onboardingError } = await supabase
               .from('establishments')
               .update({ onboarding_step: 4 })
               .eq('id', establishment.id);
-            
+
             if (!onboardingError) {
               setOnboardingStep(4);
               // Atualizar o establishment local
@@ -3401,16 +3448,16 @@ Estamos te aguardando! 😎✂️`;
             onboardingCompletedRef.current = false;
           }
         };
-        
+
         // Aguardar um pouco para garantir que o usuário terminou de digitar
         const timeoutId = setTimeout(() => {
           completeOnboarding();
         }, 1000); // 1 segundo de delay
-        
+
         return () => clearTimeout(timeoutId);
       }
     }
-    
+
     // Resetar ref quando onboarding step mudar
     if (onboardingStep !== 3) {
       onboardingCompletedRef.current = false;
@@ -5598,10 +5645,10 @@ Estamos te aguardando! 😎✂️`;
     const newMethods = paymentMethodsEnabled.includes(method)
       ? paymentMethodsEnabled.filter(m => m !== method)
       : [...paymentMethodsEnabled, method];
-    
+
     // Atualizar estado
     setPaymentMethodsEnabled(newMethods);
-    
+
     // Auto-save com debounce usando o novo array
     if (paymentMethodsAutoSaveTimeoutRef.current) {
       clearTimeout(paymentMethodsAutoSaveTimeoutRef.current);
@@ -6023,7 +6070,7 @@ Estamos te aguardando! 😎✂️`;
       }
 
       const dbProfessionals = (establishmentData?.professionals || []) as any[];
-      
+
       // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
       const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
         if (dbProfessional.id === selectedProfessionalForAbsence) {
@@ -6216,7 +6263,7 @@ Estamos te aguardando! 😎✂️`;
       }
 
       console.log('✅ Links salvos automaticamente');
-      
+
       // Atualizar o estado do establishment para manter sincronizado
       setEstablishment({
         ...establishment,
@@ -6248,16 +6295,27 @@ Estamos te aguardando! 😎✂️`;
           prevent_same_day_reschedule: preventSameDayReschedule,
           require_cpf: requireCpf,
           enable_whatsapp_notifications: enableWhatsAppNotifications
+          // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
         })
         .eq('id', establishment.id);
 
       if (error) {
         console.error('❌ Erro ao salvar comodidades automaticamente:', error);
+        console.error('❌ Detalhes do erro:', error.message);
+        console.error('❌ Código do erro:', error.code);
+        console.error('❌ Erro completo:', JSON.stringify(error, null, 2));
+
+        if (error.message?.includes('require_cancel_password') || error.code === '42703') {
+          toast.error('Erro: Coluna require_cancel_password não existe no banco. Execute o SQL primeiro!');
+        } else {
+          toast.error(`Erro ao salvar: ${error.message || 'Erro desconhecido'}`);
+        }
         return;
       }
 
       console.log('✅ Comodidades salvas automaticamente');
-      
+      // require_cancel_password não é salvo aqui, é salvo imediatamente quando o checkbox muda
+
       setEstablishment({
         ...establishment,
         has_wifi: hasWifi,
@@ -6270,11 +6328,12 @@ Estamos te aguardando! 😎✂️`;
         prevent_same_day_reschedule: preventSameDayReschedule,
         require_cpf: requireCpf,
         enable_whatsapp_notifications: enableWhatsAppNotifications
-      });
+        // require_cancel_password é salvo imediatamente, não precisa do auto-save
+      } as any);
     } catch (error) {
       console.error('❌ Erro ao salvar comodidades automaticamente:', error);
     }
-  }, [establishment, hasWifi, hasParking, hasAccessibility, hasAirConditioning, wifiPassword, wifiNetworkName, requireCancellationRequest, preventSameDayReschedule, requireCpf, enableWhatsAppNotifications]);
+  }, [establishment, hasWifi, hasParking, hasAccessibility, hasAirConditioning, wifiPassword, wifiNetworkName, requireCancellationRequest, preventSameDayReschedule, requireCpf, enableWhatsAppNotifications, requireCancelPassword]);
 
   // ✅ Auto-save para Configuração de Horários
   const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; showBestOfBrazilImage?: boolean }) => {
@@ -6302,7 +6361,7 @@ Estamos te aguardando! 😎✂️`;
       }
 
       console.log('✅ Configuração de horários salva automaticamente', configToSave);
-      
+
       setEstablishment({
         ...establishment,
         use_15_minute_interval: configToSave.use15MinuteInterval,
@@ -6343,7 +6402,7 @@ Estamos te aguardando! 😎✂️`;
       }
 
       console.log('✅ Horário de funcionamento salvo automaticamente');
-      
+
       setEstablishment({
         ...establishment,
         business_hours: hours
@@ -6351,7 +6410,7 @@ Estamos te aguardando! 😎✂️`;
 
       // Limpar referência de não salvos após sucesso
       unsavedBusinessHoursRef.current = null;
-      
+
       return Promise.resolve();
     } catch (error) {
       console.error('❌ Erro ao salvar horário de funcionamento automaticamente:', error);
@@ -6380,7 +6439,7 @@ Estamos te aguardando! 😎✂️`;
       }
 
       console.log('✅ Configurações de pagamento salvas automaticamente');
-      
+
       setEstablishment({
         ...establishment,
         credit_card_tax_percentage: creditCardTaxPercentage,
@@ -6412,7 +6471,7 @@ Estamos te aguardando! 😎✂️`;
       }
 
       console.log('✅ Formas de pagamento salvas automaticamente');
-      
+
       setEstablishment({
         ...establishment,
         payment_methods_enabled: methodsToSave
@@ -6428,9 +6487,9 @@ Estamos te aguardando! 😎✂️`;
       // Se há horários não salvos, tentar salvar usando fetch com keepalive
       if (unsavedBusinessHoursRef.current && establishment?.id) {
         console.log('🚨 ANTES DE SAIR - Salvando horários...');
-        
+
         const hoursToSave = unsavedBusinessHoursRef.current;
-        
+
         // Usar fetch com keepalive para garantir que a requisição seja enviada
         supabase
           .from('establishments')
@@ -6463,7 +6522,7 @@ Estamos te aguardando! 😎✂️`;
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      
+
       // Salvar ao desmontar o componente também
       if (unsavedBusinessHoursRef.current && establishment?.id) {
         console.log('🔄 Componente desmontando, salvando horários...');
@@ -6703,7 +6762,7 @@ Estamos te aguardando! 😎✂️`;
       }
 
       const dbProfessionals = (establishmentData?.professionals || []) as any[];
-      
+
       // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
       const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
         if (dbProfessional.id === selectedProfessionalForBlock) {
@@ -6816,7 +6875,7 @@ Estamos te aguardando! 😎✂️`;
     if (adjustedValue !== value) {
       console.log(`⚡ Horário de trabalho ajustado: ${value} → ${adjustedValue}`);
     }
-    
+
     setWorkHoursData(prev => ({
       ...prev,
       [day]: {
@@ -7204,7 +7263,7 @@ Estamos te aguardando! 😎✂️`;
         payment_method: apt.payment_method
       }))
     });
-    
+
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
         // Usar price + additional_products (serviços extra)
@@ -7364,13 +7423,13 @@ Estamos te aguardando! 😎✂️`;
   const calculateClientTotalPayment = (appointment: Appointment): number => {
     // Valor base do serviço
     const serviceBasePrice = appointment.price || 0;
-    
+
     // Serviços extra (additional_products)
     const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-    
+
     // Produtos V2 (sold_products/appointment_products) - INCLUIR no total do cliente
     const productsV2Total = (appointment.sold_products || []).reduce((sum, p) => sum + (p.total || 0), 0);
-    
+
     // Total que o cliente paga = serviço + serviços extra + produtos V2
     return serviceBasePrice + additionalServicesTotal + productsV2Total;
   };
@@ -7378,14 +7437,14 @@ Estamos te aguardando! 😎✂️`;
   // Função para calcular valor líquido que o CLIENTE PAGA (com taxas descontadas se for cartão)
   const calculateClientNetPayment = (appointment: Appointment): number => {
     const totalPayment = calculateClientTotalPayment(appointment);
-    
+
     // Se for cartão, descontar taxa do valor total
     if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
       const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
       const cardTax = (totalPayment * paymentTax) / 100;
       return totalPayment - cardTax;
     }
-    
+
     // Se não for cartão, retorna o valor total
     return totalPayment;
   };
@@ -7544,7 +7603,7 @@ Estamos te aguardando! 😎✂️`;
     // Se já está desbloqueado ou não precisa de senha, mudar diretamente
     if (tab === 'financial-dashboard' && isDashboardUnlocked) {
       setActiveTab(tab as any);
-      
+
       // Verificar se deve mostrar modal de tutorial
       if (shouldShowTutorialModal('dashboard')) {
         setShowTutorialModals(prev => ({ ...prev, dashboard: true }));
@@ -7554,7 +7613,7 @@ Estamos te aguardando! 😎✂️`;
 
     if (tab === 'settings' && isSettingsUnlocked) {
       setActiveTab(tab as any);
-      
+
       // Verificar se deve mostrar modal de tutorial
       if (shouldShowTutorialModal('config')) {
         setShowTutorialModals(prev => ({ ...prev, config: true }));
@@ -7564,7 +7623,7 @@ Estamos te aguardando! 😎✂️`;
 
     // Para outras tabs, mudar diretamente e verificar se deve mostrar modal
     setActiveTab(tab as any);
-    
+
     // Mapear tabs para chaves de tutorial
     const tutorialKeyMap: { [key: string]: string } = {
       'appointments': 'appointments',
@@ -7606,7 +7665,7 @@ Estamos te aguardando! 😎✂️`;
   const handleGoToProfessionalConfig = (professionalId: string) => {
     setHighlightedProfessionalId(professionalId);
     setActiveTab('professionals');
-    
+
     // Após um breve delay, rolar até o profissional e limpar o highlight
     setTimeout(() => {
       const element = document.getElementById(`professional-${professionalId}`);
@@ -7624,11 +7683,11 @@ Estamos te aguardando! 😎✂️`;
   const handleGoToClients = () => {
     setActiveTab('clients');
     setHighlightReserveButton(true);
-    
+
     // Scroll para o topo após um breve delay
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      
+
       // Remover o highlight após 5 segundos
       setTimeout(() => {
         setHighlightReserveButton(false);
@@ -8227,9 +8286,9 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Logo do Sistema - Apenas Desktop */}
                   <div className="hidden md:flex justify-center mb-6">
-                    <img 
-                      src="/melhordobrasilcortado.png" 
-                      alt="Melhor do Brasil" 
+                    <img
+                      src="/melhordobrasilcortado.png"
+                      alt="Melhor do Brasil"
                       className="h-20 object-contain"
                     />
                   </div>
@@ -8263,6 +8322,7 @@ Estamos te aguardando! 😎✂️`;
                       onOpenReminderModal={handleOpenReminderModal}
                       onGoToProfessionalConfig={handleGoToProfessionalConfig}
                       onGoToClients={handleGoToClients}
+                      onCancelAppointment={handleCancelClick}
                     />
                   </div>
 
@@ -8673,705 +8733,705 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Lista de Agendamentos - OCULTA (usando AllProfessionalsAppointmentsView agora) */}
                   <div className="hidden">
-                  {(selectedProfessional === '' || (selectedProfessional === 'all' && filteredAppointments.length === 0)) ? (
-                    <div className="text-center py-8">
-                      <Calendar className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
-                      <p className={`text-lg font-semibold ${selectedProfessional === ''
-                        ? 'text-blue-600 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200'
-                        : 'text-gray-400'
-                        }`}>
-                        {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' : 'Nenhum agendamento para este dia'}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 mt-4 w-full max-w-[100vw] overflow-x-hidden">
-                      {timeSlotsWithAppointments.map((item, index) =>
-                        item._isEmpty ? (
-                          // Horário vazio (lacuna)
-                          <div key={`empty-${index}-${item._time}`} className="bg-blue-50 rounded-lg w-full p-4 border-2 border-dashed border-blue-300">
-                            <div className="flex justify-between items-center">
-                              <span className="text-blue-900 text-base font-bold">{item._time}</span>
-                              <span className="text-blue-700 text-sm font-semibold uppercase tracking-wide">✓ HORÁRIO DISPONÍVEL</span>
-                            </div>
-                          </div>
-                        ) : item._isOccupied ? (
-                          // Horário ocupado pela duração de um agendamento
-                          <div
-                            key={`occupied-${index}-${item._time}`}
-                            className={`${item._parentAppointment.status === 'cancelled' ? 'bg-red-800/90' :
-                              item._parentAppointment.status === 'completed' ? 'bg-green-600' :
-                                item._parentAppointment.status === 'pending' || item._parentAppointment.status === 'confirmed' ? 'bg-yellow-600' :
-                                  'bg-yellow-600'
-                              } rounded-lg w-full p-4 opacity-75`}
-                          >
-                            <div className="flex justify-between items-center">
-                              <span className="text-white text-base font-bold">{item._time}</span>
-                              <span className="text-white text-sm font-semibold uppercase tracking-wide">🔒 OCUPADO</span>
-                            </div>
-                          </div>
-                        ) : (() => {
-                          // Agendamento normal
-                          const appointment = item;
-                          return (
-                            <div key={appointment.id} className={`${appointment.status === 'cancelled' ? 'bg-red-800/90' :
-                              appointment.status === 'completed' ? 'bg-green-600' :
-                                appointment.status === 'pending' || appointment.status === 'confirmed' ? 'bg-yellow-600' :
-                                  'bg-yellow-600'
-                              } rounded-lg w-full overflow-hidden`}>
-
-                              {/* Versão compacta - sempre visível */}
-                              <div
-                                className="p-3 cursor-pointer hover:bg-black/10 transition-colors"
-                                onClick={() => {
-                                  const newDropdowns = { ...appointmentDropdowns };
-                                  newDropdowns[appointment.id] = !newDropdowns[appointment.id];
-                                  setAppointmentDropdowns(newDropdowns);
-                                }}
-                              >
-                                {/* Layout como na imagem - data/hora e nome/valor lado a lado */}
-                                <div className="flex justify-between items-start mb-2">
-                                  {/* Lado esquerdo: Data e Nome */}
-                                  <div className="flex flex-col gap-1">
-                                    <span className="text-white text-sm">
-                                      {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                      {/* Edição de nome para cliente avulso */}
-                                      {appointment.is_avulso && editingClientName === appointment.id ? (
-                                        <div className="flex items-center gap-2">
-                                          <input
-                                            type="text"
-                                            value={editingClientNameValue}
-                                            onChange={(e) => setEditingClientNameValue(e.target.value)}
-                                            className="px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white w-32"
-                                            placeholder="Nome do cliente"
-                                            autoFocus
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter') {
-                                                handleSaveClientName(appointment.id);
-                                              } else if (e.key === 'Escape') {
-                                                handleCancelEditClientName();
-                                              }
-                                            }}
-                                          />
-                                          <button
-                                            onClick={() => handleSaveClientName(appointment.id)}
-                                            className="text-green-400 hover:text-green-300 text-xs"
-                                            title="Salvar"
-                                          >
-                                            ✓
-                                          </button>
-                                          <button
-                                            onClick={handleCancelEditClientName}
-                                            className="text-red-400 hover:text-red-300 text-xs"
-                                            title="Cancelar"
-                                          >
-                                            ✕
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <>
-                                          <span className="text-white text-sm truncate flex items-center gap-1">
-                                            {appointment.is_subscriber ? (
-                                              // Assinante: sempre mostrar com coroa
-                                              <>{appointment.client_name || 'ASSINANTE'} 👑</>
-                                            ) : appointment.is_avulso ? (
-                                              // Cliente Avulso: mostrar o nome salvo
-                                              appointment.client_name || 'CLIENTE AVULSO'
-                                            ) : (
-                                              // Cliente normal: mostrar o nome
-                                              appointment.client_name
-                                            )}
-                                          </span>
-                                          {(appointment.is_avulso || appointment.is_subscriber) && (
-                                            <button
-                                              onClick={() => handleEditClientName(
-                                                appointment.id,
-                                                '' // Sempre começar vazio para digitar o nome
-                                              )}
-                                              className="text-blue-400 hover:text-blue-300 text-xs"
-                                              title="Editar nome do cliente"
-                                            >
-                                              ✏️
-                                            </button>
-                                          )}
-                                        </>
-                                      )}
-                                      {appointment.client_id && newClientsInfo[appointment.client_id] && (
-                                        <span className="px-1 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                                          Novo
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {/* Lado direito: Horário e Valor */}
-                                  <div className="flex flex-col gap-1 text-right">
-                                    <span className="text-white text-sm">
-                                      {appointment.appointment_time}
-                                    </span>
-                                    <span className="text-white font-medium text-sm">
-                                      {isClientPaidSubscriber(appointment.client_whatsapp)
-                                        ? "GRATUITO"
-                                        : appointment.is_subscriber
-                                          ? 'GRATUITO'
-                                          : formatCurrency(appointment.total_price || appointment.price)
-                                      }
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Botão "Enviar lembrete" e "clique para ver" */}
-                                {!appointmentDropdowns[appointment.id] && (
-                                  <div className="flex items-center justify-between">
-                                    <button
-                                      onClick={() => handleOpenReminderModal(appointment)}
-                                      className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
-                                      title="Enviar lembrete via WhatsApp"
-                                    >
-                                      📱 Enviar lembrete
-                                    </button>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs text-white/70">
-                                        clique para ver
-                                      </span>
-                                      <ChevronDown className="h-4 w-4 text-white/70" />
-                                    </div>
-                                  </div>
-                                )}
+                    {(selectedProfessional === '' || (selectedProfessional === 'all' && filteredAppointments.length === 0)) ? (
+                      <div className="text-center py-8">
+                        <Calendar className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
+                        <p className={`text-lg font-semibold ${selectedProfessional === ''
+                          ? 'text-blue-600 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200'
+                          : 'text-gray-400'
+                          }`}>
+                          {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' : 'Nenhum agendamento para este dia'}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 mt-4 w-full max-w-[100vw] overflow-x-hidden">
+                        {timeSlotsWithAppointments.map((item, index) =>
+                          item._isEmpty ? (
+                            // Horário vazio (lacuna)
+                            <div key={`empty-${index}-${item._time}`} className="bg-blue-50 rounded-lg w-full p-4 border-2 border-dashed border-blue-300">
+                              <div className="flex justify-between items-center">
+                                <span className="text-blue-900 text-base font-bold">{item._time}</span>
+                                <span className="text-blue-700 text-sm font-semibold uppercase tracking-wide">✓ HORÁRIO DISPONÍVEL</span>
                               </div>
+                            </div>
+                          ) : item._isOccupied ? (
+                            // Horário ocupado pela duração de um agendamento
+                            <div
+                              key={`occupied-${index}-${item._time}`}
+                              className={`${item._parentAppointment.status === 'cancelled' ? 'bg-red-800/90' :
+                                item._parentAppointment.status === 'completed' ? 'bg-green-600' :
+                                  item._parentAppointment.status === 'pending' || item._parentAppointment.status === 'confirmed' ? 'bg-yellow-600' :
+                                    'bg-yellow-600'
+                                } rounded-lg w-full p-4 opacity-75`}
+                            >
+                              <div className="flex justify-between items-center">
+                                <span className="text-white text-base font-bold">{item._time}</span>
+                                <span className="text-white text-sm font-semibold uppercase tracking-wide">🔒 OCUPADO</span>
+                              </div>
+                            </div>
+                          ) : (() => {
+                            // Agendamento normal
+                            const appointment = item;
+                            return (
+                              <div key={appointment.id} className={`${appointment.status === 'cancelled' ? 'bg-red-800/90' :
+                                appointment.status === 'completed' ? 'bg-green-600' :
+                                  appointment.status === 'pending' || appointment.status === 'confirmed' ? 'bg-yellow-600' :
+                                    'bg-yellow-600'
+                                } rounded-lg w-full overflow-hidden`}>
 
-                              {/* Detalhes expandidos - só aparece quando clicado */}
-                              {appointmentDropdowns[appointment.id] && (
-                                <div className="border-t border-white/20 p-3">
-                                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-2">
-                                    <div className="flex flex-col gap-1 flex-grow min-w-0">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-medium text-white truncate">{appointment.client_name}</span>
-                                        {isClientPaidSubscriber(appointment.client_whatsapp) && (
-                                          <Crown className="h-5 w-5 text-yellow-400" />
+                                {/* Versão compacta - sempre visível */}
+                                <div
+                                  className="p-3 cursor-pointer hover:bg-black/10 transition-colors"
+                                  onClick={() => {
+                                    const newDropdowns = { ...appointmentDropdowns };
+                                    newDropdowns[appointment.id] = !newDropdowns[appointment.id];
+                                    setAppointmentDropdowns(newDropdowns);
+                                  }}
+                                >
+                                  {/* Layout como na imagem - data/hora e nome/valor lado a lado */}
+                                  <div className="flex justify-between items-start mb-2">
+                                    {/* Lado esquerdo: Data e Nome */}
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-white text-sm">
+                                        {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        {/* Edição de nome para cliente avulso */}
+                                        {appointment.is_avulso && editingClientName === appointment.id ? (
+                                          <div className="flex items-center gap-2">
+                                            <input
+                                              type="text"
+                                              value={editingClientNameValue}
+                                              onChange={(e) => setEditingClientNameValue(e.target.value)}
+                                              className="px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white w-32"
+                                              placeholder="Nome do cliente"
+                                              autoFocus
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  handleSaveClientName(appointment.id);
+                                                } else if (e.key === 'Escape') {
+                                                  handleCancelEditClientName();
+                                                }
+                                              }}
+                                            />
+                                            <button
+                                              onClick={() => handleSaveClientName(appointment.id)}
+                                              className="text-green-400 hover:text-green-300 text-xs"
+                                              title="Salvar"
+                                            >
+                                              ✓
+                                            </button>
+                                            <button
+                                              onClick={handleCancelEditClientName}
+                                              className="text-red-400 hover:text-red-300 text-xs"
+                                              title="Cancelar"
+                                            >
+                                              ✕
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <>
+                                            <span className="text-white text-sm truncate flex items-center gap-1">
+                                              {appointment.is_subscriber ? (
+                                                // Assinante: sempre mostrar com coroa
+                                                <>{appointment.client_name || 'ASSINANTE'} 👑</>
+                                              ) : appointment.is_avulso ? (
+                                                // Cliente Avulso: mostrar o nome salvo
+                                                appointment.client_name || 'CLIENTE AVULSO'
+                                              ) : (
+                                                // Cliente normal: mostrar o nome
+                                                appointment.client_name
+                                              )}
+                                            </span>
+                                            {(appointment.is_avulso || appointment.is_subscriber) && (
+                                              <button
+                                                onClick={() => handleEditClientName(
+                                                  appointment.id,
+                                                  '' // Sempre começar vazio para digitar o nome
+                                                )}
+                                                className="text-blue-400 hover:text-blue-300 text-xs"
+                                                title="Editar nome do cliente"
+                                              >
+                                                ✏️
+                                              </button>
+                                            )}
+                                          </>
                                         )}
                                         {appointment.client_id && newClientsInfo[appointment.client_id] && (
-                                          <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                                            Novo Cliente
+                                          <span className="px-1 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                                            Novo
                                           </span>
                                         )}
-                                        {appointment.client_whatsapp && (
-                                          <div className="flex items-center gap-2">
-                                            <a
-                                              href={(() => {
-                                                let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
-                                                // Lista de códigos de países comuns
-                                                const countryCodes = [
-        { code: '351', minLength: 12 },
-        { code: '244', minLength: 12 },
-        { code: '54', minLength: 12 },
-        { code: '56', minLength: 11 },
-        { code: '55', minLength: 12 },
-        { code: '34', minLength: 11 },
-        { code: '1', minLength: 11 }
-      ];
-                                                const hasCountryCode = countryCodes.some(({ code, minLength }) => 
-        phoneNumber.startsWith(code) && phoneNumber.length >= minLength
-      );
-                                                if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
-                                                  phoneNumber = '55' + phoneNumber;
-                                                }
-                                                return `https://wa.me/${phoneNumber}`;
-                                              })()}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="inline-flex items-center text-white hover:text-white/80"
-                                              title="Enviar WhatsApp"
-                                            >
-                                              <img src="/wppicon.png" alt="WhatsApp" className="h-4 w-4" />
-                                            </a>
+                                      </div>
+                                    </div>
 
-                                            {/* Botão IMPREVISTO */}
+                                    {/* Lado direito: Horário e Valor */}
+                                    <div className="flex flex-col gap-1 text-right">
+                                      <span className="text-white text-sm">
+                                        {appointment.appointment_time}
+                                      </span>
+                                      <span className="text-white font-medium text-sm">
+                                        {isClientPaidSubscriber(appointment.client_whatsapp)
+                                          ? "GRATUITO"
+                                          : appointment.is_subscriber
+                                            ? 'GRATUITO'
+                                            : formatCurrency(appointment.total_price || appointment.price)
+                                        }
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Botão "Enviar lembrete" e "clique para ver" */}
+                                  {!appointmentDropdowns[appointment.id] && (
+                                    <div className="flex items-center justify-between">
+                                      <button
+                                        onClick={() => handleOpenReminderModal(appointment)}
+                                        className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                                        title="Enviar lembrete via WhatsApp"
+                                      >
+                                        📱 Enviar lembrete
+                                      </button>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-white/70">
+                                          clique para ver
+                                        </span>
+                                        <ChevronDown className="h-4 w-4 text-white/70" />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Detalhes expandidos - só aparece quando clicado */}
+                                {appointmentDropdowns[appointment.id] && (
+                                  <div className="border-t border-white/20 p-3">
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-2">
+                                      <div className="flex flex-col gap-1 flex-grow min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="font-medium text-white truncate">{appointment.client_name}</span>
+                                          {isClientPaidSubscriber(appointment.client_whatsapp) && (
+                                            <Crown className="h-5 w-5 text-yellow-400" />
+                                          )}
+                                          {appointment.client_id && newClientsInfo[appointment.client_id] && (
+                                            <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                                              Novo Cliente
+                                            </span>
+                                          )}
+                                          {appointment.client_whatsapp && (
+                                            <div className="flex items-center gap-2">
+                                              <a
+                                                href={(() => {
+                                                  let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
+                                                  // Lista de códigos de países comuns
+                                                  const countryCodes = [
+                                                    { code: '351', minLength: 12 },
+                                                    { code: '244', minLength: 12 },
+                                                    { code: '54', minLength: 12 },
+                                                    { code: '56', minLength: 11 },
+                                                    { code: '55', minLength: 12 },
+                                                    { code: '34', minLength: 11 },
+                                                    { code: '1', minLength: 11 }
+                                                  ];
+                                                  const hasCountryCode = countryCodes.some(({ code, minLength }) =>
+                                                    phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                                                  );
+                                                  if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                                                    phoneNumber = '55' + phoneNumber;
+                                                  }
+                                                  return `https://wa.me/${phoneNumber}`;
+                                                })()}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center text-white hover:text-white/80"
+                                                title="Enviar WhatsApp"
+                                              >
+                                                <img src="/wppicon.png" alt="WhatsApp" className="h-4 w-4" />
+                                              </a>
+
+                                              {/* Botão IMPREVISTO */}
+                                              <button
+                                                onClick={() => {
+                                                  const establishmentCode = establishment?.code || 'codigo';
+                                                  const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
+                                                  let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
+                                                  // Lista de códigos de países comuns
+                                                  const countryCodes = [
+                                                    { code: '351', minLength: 12 },
+                                                    { code: '244', minLength: 12 },
+                                                    { code: '54', minLength: 12 },
+                                                    { code: '56', minLength: 11 },
+                                                    { code: '55', minLength: 12 },
+                                                    { code: '34', minLength: 11 },
+                                                    { code: '1', minLength: 11 }
+                                                  ];
+                                                  const hasCountryCode = countryCodes.some(({ code, minLength }) =>
+                                                    phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                                                  );
+                                                  if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                                                    phoneNumber = '55' + phoneNumber;
+                                                  }
+                                                  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+                                                  window.open(whatsappUrl, '_blank');
+                                                }}
+                                                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-orange-600 text-white hover:bg-orange-700"
+                                                title="Enviar mensagem de imprevisto"
+                                              >
+                                                IMPREVISTO
+                                              </button>
+
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* CPF - Só exibir se existir */}
+                                        {appointment.client_cpf && (
+                                          <div className="mt-2 px-3 py-2 bg-white/5 rounded-md border border-white/10">
+                                            <span className="text-xs text-white/60 font-medium">CPF:</span>
+                                            <span className="text-sm text-white ml-2">
+                                              {appointment.client_cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
+                                            </span>
+                                          </div>
+                                        )}
+
+                                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/90">
+                                          <span className="inline-flex items-center gap-1">
+                                            <Calendar className="h-4 w-4" />
+                                            {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
+                                          </span>
+                                          <span className="inline-flex items-center gap-1">
+                                            <Clock className="h-4 w-4" />
+                                            {appointment.appointment_time}
+                                          </span>
+                                          <span className="inline-flex items-center gap-1">
+                                            <User className="h-4 w-4" />
+                                            {getProfessionalName(appointment.professional)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      {appointment.is_premium && (
+                                        <Crown className="h-5 w-5 text-yellow-300" />
+                                      )}
+                                    </div>
+
+                                    <div className="flex flex-col w-full mt-3">
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                                          <span className="text-sm text-white/80">Serviço:</span>
+                                          <span className="text-sm text-white truncate">{appointment.service}</span>
+                                        </div>
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                                          <span className="text-sm text-white/80">Duração:</span>
+                                          <span className="text-sm text-white">{formatDuration(appointment.duration)}</span>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex flex-col gap-3 mt-3">
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                                          <span className="text-sm text-white/80">Valor base:</span>
+                                          <div className="flex items-center gap-2">
+                                            {editingAppointmentValue === appointment.id ? (
+                                              <div className="flex items-center gap-2">
+                                                <input
+                                                  type="text"
+                                                  value={editingValue}
+                                                  onChange={(e) => setEditingValue(e.target.value)}
+                                                  className="px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white w-20"
+                                                  placeholder="0,00"
+                                                />
+                                                <button
+                                                  onClick={() => handleSaveAppointmentValue(appointment.id)}
+                                                  className="text-green-400 hover:text-green-300 text-xs"
+                                                  title="Salvar"
+                                                >
+                                                  ✓
+                                                </button>
+                                                <button
+                                                  onClick={handleCancelEditValue}
+                                                  className="text-red-400 hover:text-red-300 text-xs"
+                                                  title="Cancelar"
+                                                >
+                                                  ✕
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-sm text-white">
+                                                  {isClientPaidSubscriber(appointment.client_whatsapp)
+                                                    ? "GRATUITO"
+                                                    : appointment.is_subscriber
+                                                      ? 'R$ 0,00 (GRATUITO)'
+                                                      : formatCurrency(appointment.price)
+                                                  }
+                                                </span>
+                                                {!isClientPaidSubscriber(appointment.client_whatsapp || '') && !appointment.is_subscriber && (
+                                                  <button
+                                                    onClick={() => handleEditAppointmentValue(appointment.id, appointment.price || 0)}
+                                                    className="text-blue-400 hover:text-blue-300 text-xs"
+                                                    title="Editar valor"
+                                                  >
+                                                    ✏️
+                                                  </button>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Botão de Histórico - Só aparece se houve alterações */}
+                                        {hasValueHistory(appointment.id) && (
+                                          <div className="relative">
                                             <button
-                                              onClick={() => {
-                                                const establishmentCode = establishment?.code || 'codigo';
-                                                const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
-                                                let phoneNumber = (appointment.client_whatsapp || '').replace(/\D/g, '');
-                                                // Lista de códigos de países comuns
-                                                const countryCodes = [
-        { code: '351', minLength: 12 },
-        { code: '244', minLength: 12 },
-        { code: '54', minLength: 12 },
-        { code: '56', minLength: 11 },
-        { code: '55', minLength: 12 },
-        { code: '34', minLength: 11 },
-        { code: '1', minLength: 11 }
-      ];
-                                                const hasCountryCode = countryCodes.some(({ code, minLength }) => 
-        phoneNumber.startsWith(code) && phoneNumber.length >= minLength
-      );
-                                                if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
-                                                  phoneNumber = '55' + phoneNumber;
-                                                }
-                                                const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-                                                window.open(whatsappUrl, '_blank');
-                                              }}
-                                              className="px-2 py-1 text-xs font-medium rounded transition-colors bg-orange-600 text-white hover:bg-orange-700"
-                                              title="Enviar mensagem de imprevisto"
+                                              onClick={() => toggleHistoryDropdown(appointment.id)}
+                                              className="text-xs text-blue-400 hover:text-blue-300 underline"
                                             >
-                                              IMPREVISTO
+                                              📊 Histórico
                                             </button>
 
+                                            {/* Dropdown do Histórico */}
+                                            {showHistoryDropdown === appointment.id && (
+                                              <div className="absolute top-6 left-0 bg-gray-800 border border-gray-600 rounded-lg p-3 shadow-lg z-10 min-w-64">
+                                                <div className="text-xs text-gray-300 mb-2 font-medium">
+                                                  Histórico de Alterações de Valor
+                                                </div>
+                                                <div className="space-y-2">
+                                                  {appointmentValueHistory[appointment.id] && (
+                                                    <>
+                                                      <div className="text-xs text-gray-400 border-b border-gray-600 pb-1">
+                                                        Valor Original: {formatCurrency(appointmentValueHistory[appointment.id].originalValue)}
+                                                      </div>
+                                                      {appointmentValueHistory[appointment.id].changes.map((change, index) => (
+                                                        <div key={index} className="flex justify-between items-center text-xs">
+                                                          <span className="text-white">{formatCurrency(change.value)}</span>
+                                                          <span className="text-gray-400">{change.date}</span>
+                                                        </div>
+                                                      ))}
+                                                    </>
+                                                  )}
+                                                </div>
+                                                <button
+                                                  onClick={() => setShowHistoryDropdown(null)}
+                                                  className="mt-2 text-xs text-gray-400 hover:text-white"
+                                                >
+                                                  ✕ Fechar
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {appointment.additional_products && appointment.additional_products.length > 0 && (
+                                          <div className="flex flex-col">
+                                            <span className="text-sm text-white/80 mb-1">Produtos/Serviços Adicionais:</span>
+                                            <div className="flex flex-wrap gap-2">
+                                              {appointment.additional_products.map((product: any, index: number) => (
+                                                <div key={index} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/10 text-white rounded group">
+                                                  <span>{product.name} - {formatCurrency(product.price)}</span>
+                                                  <button
+                                                    onClick={() => handleRemoveAdditionalProduct(appointment.id, index)}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 ml-1"
+                                                    title="Remover produto"
+                                                  >
+                                                    <X className="h-3 w-3" />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Produtos do Estoque (V2) */}
+                                        {appointment.sold_products && appointment.sold_products.length > 0 && (
+                                          <div className="flex flex-col">
+                                            <span className="text-sm text-white/80 mb-1">Produtos do Estoque:</span>
+                                            <div className="flex flex-wrap gap-2">
+                                              {appointment.sold_products.map((product: any, index: number) => (
+                                                <div key={index} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-600/20 text-blue-200 rounded border border-blue-500/30 group">
+                                                  <Package className="h-3 w-3" />
+                                                  <span>{product.name} - {formatCurrency(product.total)}</span>
+                                                  <span className="text-blue-300">({product.quantity}x)</span>
+                                                  <button
+                                                    onClick={() => handleRemoveProductFromAppointment(appointment.id, product.product_id, product.name)}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 ml-1"
+                                                    title="Remover produto do agendamento"
+                                                  >
+                                                    <X className="h-3 w-3" />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
                                           </div>
                                         )}
                                       </div>
 
-                                      {/* CPF - Só exibir se existir */}
-                                      {appointment.client_cpf && (
-                                        <div className="mt-2 px-3 py-2 bg-white/5 rounded-md border border-white/10">
-                                          <span className="text-xs text-white/60 font-medium">CPF:</span>
-                                          <span className="text-sm text-white ml-2">
-                                            {appointment.client_cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
+                                      <div className="flex flex-col gap-3 mt-3">
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                                          <span className="text-sm text-white/80">Total:</span>
+                                          <span className="text-sm font-medium text-white">
+                                            {isClientPaidSubscriber(appointment.client_whatsapp)
+                                              ? "GRATUITO"
+                                              : appointment.is_subscriber
+                                                ? 'R$ 0,00 (GRATUITO)'
+                                                : formatCurrency(calculateClientTotalPayment(appointment))
+                                            }
                                           </span>
                                         </div>
-                                      )}
 
-                                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/90">
-                                        <span className="inline-flex items-center gap-1">
-                                          <Calendar className="h-4 w-4" />
-                                          {format(parseISO(appointment.appointment_date), "dd/MM/yyyy")}
-                                        </span>
-                                        <span className="inline-flex items-center gap-1">
-                                          <Clock className="h-4 w-4" />
-                                          {appointment.appointment_time}
-                                        </span>
-                                        <span className="inline-flex items-center gap-1">
-                                          <User className="h-4 w-4" />
-                                          {getProfessionalName(appointment.professional)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    {appointment.is_premium && (
-                                      <Crown className="h-5 w-5 text-yellow-300" />
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-col w-full mt-3">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                                        <span className="text-sm text-white/80">Serviço:</span>
-                                        <span className="text-sm text-white truncate">{appointment.service}</span>
-                                      </div>
-                                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                                        <span className="text-sm text-white/80">Duração:</span>
-                                        <span className="text-sm text-white">{formatDuration(appointment.duration)}</span>
-                                      </div>
-                                    </div>
-
-                                    <div className="flex flex-col gap-3 mt-3">
-                                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                                        <span className="text-sm text-white/80">Valor base:</span>
-                                        <div className="flex items-center gap-2">
-                                          {editingAppointmentValue === appointment.id ? (
-                                            <div className="flex items-center gap-2">
-                                              <input
-                                                type="text"
-                                                value={editingValue}
-                                                onChange={(e) => setEditingValue(e.target.value)}
-                                                className="px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white w-20"
-                                                placeholder="0,00"
-                                              />
-                                              <button
-                                                onClick={() => handleSaveAppointmentValue(appointment.id)}
-                                                className="text-green-400 hover:text-green-300 text-xs"
-                                                title="Salvar"
-                                              >
-                                                ✓
-                                              </button>
-                                              <button
-                                                onClick={handleCancelEditValue}
-                                                className="text-red-400 hover:text-red-300 text-xs"
-                                                title="Cancelar"
-                                              >
-                                                ✕
-                                              </button>
-                                            </div>
-                                          ) : (
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-sm text-white">
+                                        {/* Seção "Cobrar Cliente" - Mostra valor total incluindo produtos V2 */}
+                                        <div className="flex flex-col gap-3 p-4 bg-gradient-to-r from-blue-600/40 to-purple-600/40 border-2 border-blue-400 rounded-lg shadow-lg">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xl">💰</span>
+                                            <span className="text-base font-bold text-white">Cobrar Cliente:</span>
+                                          </div>
+                                          <div className="flex flex-col gap-2 bg-white/10 rounded-lg p-2">
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-sm font-semibold text-blue-100">Total a cobrar:</span>
+                                              <span className="text-lg font-bold text-white bg-blue-500/50 px-3 py-1 rounded">
                                                 {isClientPaidSubscriber(appointment.client_whatsapp)
                                                   ? "GRATUITO"
                                                   : appointment.is_subscriber
                                                     ? 'R$ 0,00 (GRATUITO)'
-                                                    : formatCurrency(appointment.price)
+                                                    : formatCurrency(calculateClientTotalPayment(appointment))
                                                 }
                                               </span>
-                                              {!isClientPaidSubscriber(appointment.client_whatsapp || '') && !appointment.is_subscriber && (
-                                                <button
-                                                  onClick={() => handleEditAppointmentValue(appointment.id, appointment.price || 0)}
-                                                  className="text-blue-400 hover:text-blue-300 text-xs"
-                                                  title="Editar valor"
-                                                >
-                                                  ✏️
-                                                </button>
+                                            </div>
+                                            {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
+                                              <div className="flex items-center justify-between pt-2 border-t border-white/20">
+                                                <span className="text-sm font-medium text-blue-200">Líquido (após taxas):</span>
+                                                <span className="text-base font-bold text-yellow-200 bg-yellow-500/30 px-3 py-1 rounded">
+                                                  {formatCurrency(calculateClientNetPayment(appointment))}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                          <select
+                                            value={appointment.payment_method || 'pendente'}
+                                            onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
+                                            className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
+                                          >
+                                            <option value="pendente" className="bg-green-700 text-white">Forma de Pagamento</option>
+                                            <option value="pix" className="bg-green-700 text-white">PIX</option>
+                                            <option value="credito" className="bg-green-700 text-white">Cartão de Crédito</option>
+                                            <option value="debito" className="bg-green-700 text-white">Cartão de Débito</option>
+                                            <option value="dinheiro" className="bg-green-700 text-white">Dinheiro</option>
+                                            <option value="pagar_local" className="bg-green-700 text-white">Pagar no Local</option>
+                                          </select>
+
+                                          {/* Seletor de Bandeira para Cartões */}
+                                          {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
+                                            <select
+                                              value={appointment.card_brand || 'bandeira'}
+                                              onChange={(e) => handleCardBrandChange(appointment.id, e.target.value)}
+                                              className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
+                                            >
+                                              <option value="bandeira" className="bg-green-700 text-white">Bandeira</option>
+                                              <option value="visa" className="bg-green-700 text-white">Visa</option>
+                                              <option value="mastercard" className="bg-green-700 text-white">Mastercard</option>
+                                              <option value="elo" className="bg-green-700 text-white">Elo</option>
+                                              <option value="hipercard" className="bg-green-700 text-white">Hipercard</option>
+                                              <option value="american_express" className="bg-green-700 text-white">American Express</option>
+                                              <option value="discover" className="bg-green-700 text-white">Discover</option>
+                                              <option value="jcb" className="bg-green-700 text-white">JCB</option>
+                                              <option value="outros" className="bg-green-700 text-white">Outros</option>
+                                            </select>
+                                          )}
+
+                                          {/* Mostrar taxa para cartões */}
+                                          {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
+                                            <div className="flex flex-col gap-1">
+                                              <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20">
+                                                Taxa: {getPaymentMethodTax(appointment.payment_method, appointment.card_brand)}%
+                                              </span>
+                                              {appointment.card_brand && appointment.card_brand !== 'bandeira' && (
+                                                <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded border border-blue-400/20">
+                                                  Bandeira: {appointment.card_brand.toUpperCase()}
+                                                </span>
                                               )}
                                             </div>
                                           )}
+
+                                          {appointment.payment_method === 'pix' && (
+                                            <select
+                                              value={appointment.pix_payment_status || 'confirmado'}
+                                              onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
+                                              className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
+                                            >
+                                              <option value="confirmado" className="bg-green-700 text-white">PIX Confirmado</option>
+                                              <option value="rejeitado" className="bg-green-700 text-white">PIX Rejeitado</option>
+                                            </select>
+                                          )}
                                         </div>
                                       </div>
+                                    </div>
 
-                                      {/* Botão de Histórico - Só aparece se houve alterações */}
-                                      {hasValueHistory(appointment.id) && (
-                                        <div className="relative">
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-4 sm:justify-end">
+                                      {appointment.status !== 'cancelled' && (
+                                        <>
                                           <button
-                                            onClick={() => toggleHistoryDropdown(appointment.id)}
-                                            className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                            onClick={() => {
+                                              setSelectedAppointmentForProduct(appointment.id);
+                                              setShowAddProductToAppointmentModal(true);
+                                            }}
+                                            className="inline-flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors mb-2"
                                           >
-                                            📊 Histórico
+                                            <Package className="h-4 w-4 mr-1" />
+                                            Adicionar Produto V2
                                           </button>
 
-                                          {/* Dropdown do Histórico */}
-                                          {showHistoryDropdown === appointment.id && (
-                                            <div className="absolute top-6 left-0 bg-gray-800 border border-gray-600 rounded-lg p-3 shadow-lg z-10 min-w-64">
-                                              <div className="text-xs text-gray-300 mb-2 font-medium">
-                                                Histórico de Alterações de Valor
-                                              </div>
-                                              <div className="space-y-2">
-                                                {appointmentValueHistory[appointment.id] && (
-                                                  <>
-                                                    <div className="text-xs text-gray-400 border-b border-gray-600 pb-1">
-                                                      Valor Original: {formatCurrency(appointmentValueHistory[appointment.id].originalValue)}
-                                                    </div>
-                                                    {appointmentValueHistory[appointment.id].changes.map((change, index) => (
-                                                      <div key={index} className="flex justify-between items-center text-xs">
-                                                        <span className="text-white">{formatCurrency(change.value)}</span>
-                                                        <span className="text-gray-400">{change.date}</span>
-                                                      </div>
-                                                    ))}
-                                                  </>
-                                                )}
-                                              </div>
+                                          <button
+                                            onClick={() => {
+                                              setSelectedAppointmentForProduct(appointment.id);
+                                              setShowAdditionalProductModal(true);
+                                            }}
+                                            className="inline-flex items-center px-3 py-1.5 text-sm bg-white/20 text-white rounded hover:bg-white/30 transition-colors"
+                                          >
+                                            <Plus className="h-4 w-4 mr-1" />
+                                            SERVIÇO EXTRA
+                                          </button>
+
+                                          {appointment.payment_method === 'pix' && appointment.pix_proof_url && (
+                                            <button
+                                              onClick={() => handleOpenProof(appointment.pix_proof_url!)}
+                                              className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+                                            >
+                                              <ImageIcon className="h-4 w-4 mr-1" />
+                                              Ver Comprovante
+                                            </button>
+                                          )}
+
+
+                                          {/* Botões de Status - Responsivo */}
+                                          <div className="space-y-2">
+                                            {/* Linha 1: Observação e Tipo de Serviço */}
+                                            <div className="flex flex-wrap gap-1">
+                                              {appointment.observation && (
+                                                <button
+                                                  onClick={() => handleShowClientObservation(appointment.observation || '')}
+                                                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                                                  title="Ver observação do cliente"
+                                                >
+                                                  Ver Observação
+                                                </button>
+                                              )}
+
+                                              {appointment.is_child_service !== undefined && (
+                                                <button
+                                                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${appointment.is_child_service
+                                                    ? 'bg-purple-600 text-white hover:bg-purple-700'
+                                                    : 'bg-gray-600 text-white hover:bg-gray-700'
+                                                    }`}
+                                                  title={`Serviço infantil: ${appointment.is_child_service ? 'Sim' : 'Não'}`}
+                                                >
+                                                  {appointment.is_child_service ? '👶 Infantil' : '👤 Adulto'}
+                                                </button>
+                                              )}
+                                            </div>
+
+                                            {/* Linha 2: Botões de Status - Organizados para mobile */}
+                                            <div className="grid grid-cols-2 gap-1">
                                               <button
-                                                onClick={() => setShowHistoryDropdown(null)}
-                                                className="mt-2 text-xs text-gray-400 hover:text-white"
+                                                onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
+                                                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
+                                                title="Marcar como CONCLUÍDO"
                                               >
-                                                ✕ Fechar
+                                                ✅ CONCLUÍDO
                                               </button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
 
-                                      {appointment.additional_products && appointment.additional_products.length > 0 && (
-                                        <div className="flex flex-col">
-                                          <span className="text-sm text-white/80 mb-1">Produtos/Serviços Adicionais:</span>
-                                          <div className="flex flex-wrap gap-2">
-                                            {appointment.additional_products.map((product: any, index: number) => (
-                                              <div key={index} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/10 text-white rounded group">
-                                                <span>{product.name} - {formatCurrency(product.price)}</span>
-                                                <button
-                                                  onClick={() => handleRemoveAdditionalProduct(appointment.id, index)}
-                                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 ml-1"
-                                                  title="Remover produto"
-                                                >
-                                                  <X className="h-3 w-3" />
-                                                </button>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {/* Produtos do Estoque (V2) */}
-                                      {appointment.sold_products && appointment.sold_products.length > 0 && (
-                                        <div className="flex flex-col">
-                                          <span className="text-sm text-white/80 mb-1">Produtos do Estoque:</span>
-                                          <div className="flex flex-wrap gap-2">
-                                            {appointment.sold_products.map((product: any, index: number) => (
-                                              <div key={index} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-600/20 text-blue-200 rounded border border-blue-500/30 group">
-                                                <Package className="h-3 w-3" />
-                                                <span>{product.name} - {formatCurrency(product.total)}</span>
-                                                <span className="text-blue-300">({product.quantity}x)</span>
-                                                <button
-                                                  onClick={() => handleRemoveProductFromAppointment(appointment.id, product.product_id, product.name)}
-                                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 ml-1"
-                                                  title="Remover produto do agendamento"
-                                                >
-                                                  <X className="h-3 w-3" />
-                                                </button>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    <div className="flex flex-col gap-3 mt-3">
-                                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                                        <span className="text-sm text-white/80">Total:</span>
-                                        <span className="text-sm font-medium text-white">
-                                          {isClientPaidSubscriber(appointment.client_whatsapp)
-                                            ? "GRATUITO"
-                                            : appointment.is_subscriber
-                                              ? 'R$ 0,00 (GRATUITO)'
-                                              : formatCurrency(calculateClientTotalPayment(appointment))
-                                          }
-                                        </span>
-                                      </div>
-
-                                      {/* Seção "Cobrar Cliente" - Mostra valor total incluindo produtos V2 */}
-                                      <div className="flex flex-col gap-3 p-4 bg-gradient-to-r from-blue-600/40 to-purple-600/40 border-2 border-blue-400 rounded-lg shadow-lg">
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-xl">💰</span>
-                                          <span className="text-base font-bold text-white">Cobrar Cliente:</span>
-                                        </div>
-                                        <div className="flex flex-col gap-2 bg-white/10 rounded-lg p-2">
-                                          <div className="flex items-center justify-between">
-                                            <span className="text-sm font-semibold text-blue-100">Total a cobrar:</span>
-                                            <span className="text-lg font-bold text-white bg-blue-500/50 px-3 py-1 rounded">
-                                              {isClientPaidSubscriber(appointment.client_whatsapp)
-                                                ? "GRATUITO"
-                                                : appointment.is_subscriber
-                                                  ? 'R$ 0,00 (GRATUITO)'
-                                                  : formatCurrency(calculateClientTotalPayment(appointment))
-                                              }
-                                            </span>
-                                          </div>
-                                          {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
-                                            <div className="flex items-center justify-between pt-2 border-t border-white/20">
-                                              <span className="text-sm font-medium text-blue-200">Líquido (após taxas):</span>
-                                              <span className="text-base font-bold text-yellow-200 bg-yellow-500/30 px-3 py-1 rounded">
-                                                {formatCurrency(calculateClientNetPayment(appointment))}
-                                              </span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                                        <select
-                                          value={appointment.payment_method || 'pendente'}
-                                          onChange={(e) => handlePaymentMethodChange(appointment.id, e.target.value)}
-                                          className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
-                                        >
-                                          <option value="pendente" className="bg-green-700 text-white">Forma de Pagamento</option>
-                                          <option value="pix" className="bg-green-700 text-white">PIX</option>
-                                          <option value="credito" className="bg-green-700 text-white">Cartão de Crédito</option>
-                                          <option value="debito" className="bg-green-700 text-white">Cartão de Débito</option>
-                                          <option value="dinheiro" className="bg-green-700 text-white">Dinheiro</option>
-                                          <option value="pagar_local" className="bg-green-700 text-white">Pagar no Local</option>
-                                        </select>
-
-                                        {/* Seletor de Bandeira para Cartões */}
-                                        {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
-                                          <select
-                                            value={appointment.card_brand || 'bandeira'}
-                                            onChange={(e) => handleCardBrandChange(appointment.id, e.target.value)}
-                                            className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
-                                          >
-                                            <option value="bandeira" className="bg-green-700 text-white">Bandeira</option>
-                                            <option value="visa" className="bg-green-700 text-white">Visa</option>
-                                            <option value="mastercard" className="bg-green-700 text-white">Mastercard</option>
-                                            <option value="elo" className="bg-green-700 text-white">Elo</option>
-                                            <option value="hipercard" className="bg-green-700 text-white">Hipercard</option>
-                                            <option value="american_express" className="bg-green-700 text-white">American Express</option>
-                                            <option value="discover" className="bg-green-700 text-white">Discover</option>
-                                            <option value="jcb" className="bg-green-700 text-white">JCB</option>
-                                            <option value="outros" className="bg-green-700 text-white">Outros</option>
-                                          </select>
-                                        )}
-
-                                        {/* Mostrar taxa para cartões */}
-                                        {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
-                                          <div className="flex flex-col gap-1">
-                                            <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20">
-                                              Taxa: {getPaymentMethodTax(appointment.payment_method, appointment.card_brand)}%
-                                            </span>
-                                            {appointment.card_brand && appointment.card_brand !== 'bandeira' && (
-                                              <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded border border-blue-400/20">
-                                                Bandeira: {appointment.card_brand.toUpperCase()}
-                                              </span>
-                                            )}
-                                          </div>
-                                        )}
-
-                                        {appointment.payment_method === 'pix' && (
-                                          <select
-                                            value={appointment.pix_payment_status || 'confirmado'}
-                                            onChange={(e) => handlePixPaymentStatusChange(appointment.id, e.target.value)}
-                                            className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
-                                          >
-                                            <option value="confirmado" className="bg-green-700 text-white">PIX Confirmado</option>
-                                            <option value="rejeitado" className="bg-green-700 text-white">PIX Rejeitado</option>
-                                          </select>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-4 sm:justify-end">
-                                    {appointment.status !== 'cancelled' && (
-                                      <>
-                                        <button
-                                          onClick={() => {
-                                            setSelectedAppointmentForProduct(appointment.id);
-                                            setShowAddProductToAppointmentModal(true);
-                                          }}
-                                          className="inline-flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors mb-2"
-                                        >
-                                          <Package className="h-4 w-4 mr-1" />
-                                          Adicionar Produto V2
-                                        </button>
-
-                                        <button
-                                          onClick={() => {
-                                            setSelectedAppointmentForProduct(appointment.id);
-                                            setShowAdditionalProductModal(true);
-                                          }}
-                                          className="inline-flex items-center px-3 py-1.5 text-sm bg-white/20 text-white rounded hover:bg-white/30 transition-colors"
-                                        >
-                                          <Plus className="h-4 w-4 mr-1" />
-                                          SERVIÇO EXTRA
-                                        </button>
-
-                                        {appointment.payment_method === 'pix' && appointment.pix_proof_url && (
-                                          <button
-                                            onClick={() => handleOpenProof(appointment.pix_proof_url!)}
-                                            className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
-                                          >
-                                            <ImageIcon className="h-4 w-4 mr-1" />
-                                            Ver Comprovante
-                                          </button>
-                                        )}
-
-
-                                        {/* Botões de Status - Responsivo */}
-                                        <div className="space-y-2">
-                                          {/* Linha 1: Observação e Tipo de Serviço */}
-                                          <div className="flex flex-wrap gap-1">
-                                            {appointment.observation && (
                                               <button
-                                                onClick={() => handleShowClientObservation(appointment.observation || '')}
+                                                onClick={() => handleUpdateAppointmentStatus(appointment.id, 'pending')}
+                                                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-yellow-600 text-white hover:bg-yellow-700"
+                                                title="Marcar como PENDENTE"
+                                              >
+                                                ⏳ PENDENTE
+                                              </button>
+
+                                              <button
+                                                onClick={() => handleOpenTransferModal(appointment)}
                                                 className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
-                                                title="Ver observação do cliente"
+                                                title="Transferir para outro profissional"
                                               >
-                                                Ver Observação
+                                                🔄 TRANSFERIR
                                               </button>
-                                            )}
 
-                                            {appointment.is_child_service !== undefined && (
                                               <button
-                                                className={`px-2 py-1 text-xs font-medium rounded transition-colors ${appointment.is_child_service
-                                                  ? 'bg-purple-600 text-white hover:bg-purple-700'
-                                                  : 'bg-gray-600 text-white hover:bg-gray-700'
-                                                  }`}
-                                                title={`Serviço infantil: ${appointment.is_child_service ? 'Sim' : 'Não'}`}
+                                                onClick={() => handleCancelClick(appointment.id)}
+                                                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-red-700 text-white hover:bg-red-800"
+                                                title="Cancelar agendamento"
                                               >
-                                                {appointment.is_child_service ? '👶 Infantil' : '👤 Adulto'}
+                                                ❌ CANCELAR
                                               </button>
-                                            )}
-                                          </div>
 
-                                          {/* Linha 2: Botões de Status - Organizados para mobile */}
-                                          <div className="grid grid-cols-2 gap-1">
-                                            <button
-                                              onClick={() => handleUpdateAppointmentStatus(appointment.id, 'completed')}
-                                              className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
-                                              title="Marcar como CONCLUÍDO"
-                                            >
-                                              ✅ CONCLUÍDO
-                                            </button>
+                                              <button
+                                                onClick={() => handleGenerateNF(appointment)}
+                                                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
+                                                title="Gerar Nota Fiscal (XML)"
+                                              >
+                                                📄 Gerar NF
+                                              </button>
 
-                                            <button
-                                              onClick={() => handleUpdateAppointmentStatus(appointment.id, 'pending')}
-                                              className="px-2 py-1 text-xs font-medium rounded transition-colors bg-yellow-600 text-white hover:bg-yellow-700"
-                                              title="Marcar como PENDENTE"
-                                            >
-                                              ⏳ PENDENTE
-                                            </button>
+                                            </div>
 
-                                            <button
-                                              onClick={() => handleOpenTransferModal(appointment)}
-                                              className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
-                                              title="Transferir para outro profissional"
-                                            >
-                                              🔄 TRANSFERIR
-                                            </button>
+                                            {/* Linha 3: Botão de Observações */}
+                                            <div className="mt-2">
+                                              <button
+                                                onClick={() => handleOpenObservationModal(appointment.id, appointment.establishment_observation)}
+                                                className="w-full px-2 py-1 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
+                                                title="Adicionar observações ao agendamento"
+                                              >
+                                                📝 Minhas Observações
+                                              </button>
+                                            </div>
 
-                                            <button
-                                              onClick={() => handleCancelClick(appointment.id)}
-                                              className="px-2 py-1 text-xs font-medium rounded transition-colors bg-red-700 text-white hover:bg-red-800"
-                                              title="Cancelar agendamento"
-                                            >
-                                              ❌ CANCELAR
-                                            </button>
-
-                                            <button
-                                              onClick={() => handleGenerateNF(appointment)}
-                                              className="px-2 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700"
-                                              title="Gerar Nota Fiscal (XML)"
-                                            >
-                                              📄 Gerar NF
-                                            </button>
-
-                                          </div>
-
-                                          {/* Linha 3: Botão de Observações */}
-                                          <div className="mt-2">
-                                            <button
-                                              onClick={() => handleOpenObservationModal(appointment.id, appointment.establishment_observation)}
-                                              className="w-full px-2 py-1 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
-                                              title="Adicionar observações ao agendamento"
-                                            >
-                                              📝 Minhas Observações
-                                            </button>
-                                          </div>
-
-                                          {/* Exibir observação do estabelecimento se existir */}
-                                          {appointment.establishment_observation && (
-                                            <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded-lg">
-                                              <div className="flex items-start gap-2">
-                                                <span className="text-purple-600 text-sm">📝</span>
-                                                <div className="flex-1">
-                                                  <p className="text-xs text-purple-800 font-medium mb-1">Minha Observação:</p>
-                                                  <p className="text-xs text-purple-700 break-words">{appointment.establishment_observation}</p>
+                                            {/* Exibir observação do estabelecimento se existir */}
+                                            {appointment.establishment_observation && (
+                                              <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded-lg">
+                                                <div className="flex items-start gap-2">
+                                                  <span className="text-purple-600 text-sm">📝</span>
+                                                  <div className="flex-1">
+                                                    <p className="text-xs text-purple-800 font-medium mb-1">Minha Observação:</p>
+                                                    <p className="text-xs text-purple-700 break-words">{appointment.establishment_observation}</p>
+                                                  </div>
                                                 </div>
                                               </div>
-                                            </div>
-                                          )}
+                                            )}
 
-                                        </div>
-                                      </>
-                                    )}
+                                          </div>
+                                        </>
+                                      )}
 
-                                    {appointment.status === 'cancelled' && (
-                                      <div className="space-y-2">
-                                        {/* Linha 1: Status cancelado */}
-                                        <div className="flex justify-center">
-                                          <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
-                                            <X className="h-4 w-4 mr-1" />
-                                            ❌ CANCELADO
-                                          </span>
-                                        </div>
+                                      {appointment.status === 'cancelled' && (
+                                        <div className="space-y-2">
+                                          {/* Linha 1: Status cancelado */}
+                                          <div className="flex justify-center">
+                                            <span className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-700/50 text-gray-400 rounded">
+                                              <X className="h-4 w-4 mr-1" />
+                                              ❌ CANCELADO
+                                            </span>
+                                          </div>
 
-                                        {/* Linha 2: Botão de exclusão */}
-                                        <div className="flex justify-center">
-                                          <button
-                                            onClick={() => handleDeleteAppointment(appointment.id)}
-                                            className="inline-flex items-center px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                                            title="Excluir agendamento permanentemente"
-                                          >
-                                            <Trash2 className="h-4 w-4 mr-1" />
-                                            🗑️ EXCLUIR
-                                          </button>
+                                          {/* Linha 2: Botão de exclusão */}
+                                          <div className="flex justify-center">
+                                            <button
+                                              onClick={() => handleDeleteAppointment(appointment.id)}
+                                              className="inline-flex items-center px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                              title="Excluir agendamento permanentemente"
+                                            >
+                                              <Trash2 className="h-4 w-4 mr-1" />
+                                              🗑️ EXCLUIR
+                                            </button>
+                                          </div>
                                         </div>
-                                      </div>
-                                    )}
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()
-                      )}
-                    </div>
-                  )}
+                                )}
+                              </div>
+                            );
+                          })()
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -9982,6 +10042,68 @@ Estamos te aguardando! 😎✂️`;
                           </span>
                         </div>
                       </label>
+
+                      <label className="flex items-center space-x-2 bg-[#2a2b2c] p-3 rounded-lg border border-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={requireCancelPassword}
+                          onChange={async (e) => {
+                            const newValue = e.target.checked;
+                            console.log('🔍 Checkbox Senha Cancelamento alterado para:', newValue);
+
+                            // CANCELAR qualquer auto-save pendente para evitar sobrescrever
+                            if (amenitiesAutoSaveTimeoutRef.current) {
+                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                              amenitiesAutoSaveTimeoutRef.current = null;
+                            }
+
+                            // Atualizar o estado
+                            setRequireCancelPassword(newValue);
+
+                            // Salvar imediatamente para garantir
+                            if (establishment?.id) {
+                              try {
+                                const { error } = await supabase
+                                  .from('establishments')
+                                  .update({ require_cancel_password: newValue })
+                                  .eq('id', establishment.id);
+
+                                if (error) {
+                                  console.error('❌ Erro ao salvar require_cancel_password:', error);
+                                  console.error('❌ Erro completo:', JSON.stringify(error, null, 2));
+                                  toast(`Erro ao salvar: ${error.message}`, 'error');
+                                  // Reverter o estado se der erro
+                                  setRequireCancelPassword(!newValue);
+                                } else {
+                                  console.log('✅ require_cancel_password salvo com sucesso:', newValue);
+                                  toast('Configuração salva!', 'success');
+                                  // Atualizar o estado do establishment (usando type assertion para evitar erro de tipo)
+                                  setEstablishment({
+                                    ...establishment,
+                                    require_cancel_password: newValue
+                                  } as any);
+                                }
+                              } catch (err: any) {
+                                console.error('❌ Erro ao salvar:', err);
+                                toast('Erro ao salvar configuração', 'error');
+                                setRequireCancelPassword(!newValue);
+                              }
+                            }
+                          }}
+                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-white font-semibold">🔐 Senha de cancelamento</span>
+                          <span className="text-xs text-gray-400 mt-1">
+                            Ao ativar, será necessário digitar a senha ao cancelar um agendamento. A senha usada é a mesma "Senha de 4 dígitos para configurações" (configure acima). Se deixar desmarcado não pede senha ao cancelar.
+                          </span>
+                          {requireCancelPassword && (!establishment?.pin_password || establishment.pin_password === '0000') && (
+                            <span className="text-xs text-yellow-400 mt-1 font-semibold">
+                              ⚠️ Configure a senha acima primeiro!
+                            </span>
+                          )}
+                        </div>
+                      </label>
                     </div>
                   </div>
 
@@ -10096,110 +10218,110 @@ Estamos te aguardando! 😎✂️`;
                   {/* Horário de Funcionamento */}
                   <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                     <h3 className="text-lg font-medium text-white mb-4">Horário de Funcionamento</h3>
-                    
+
                     {/* Alerta sobre intervalo */}
                     <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
                       <p className="text-sm text-yellow-200">
                         <span className="font-semibold">⚠️ Atenção:</span> Se você não tira intervalo, então coloque seu horário de termino em <strong>"Fecha p/ Intervalo"</strong> que o sistema irá entender que você não tira intervalo.
                       </p>
                     </div>
-                    
+
                     <div className="space-y-4">
                       {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
                         const hours = businessHours[day];
                         return (
-                        <div key={day} className="bg-[#242628] p-4 rounded-lg space-y-3 border border-gray-700">
-                          {/* Cabeçalho do dia com checkbox */}
-                          <div className="flex items-center justify-between">
-                            <label className="inline-flex items-center">
-                              <input
-                                type="checkbox"
-                                checked={hours.enabled}
-                                onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
-                                className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-700 rounded"
-                              />
-                              <span className="ml-2 font-medium text-white">
-                                {day === 'monday' ? 'Segunda-feira' :
-                                  day === 'tuesday' ? 'Terça-feira' :
-                                    day === 'wednesday' ? 'Quarta-feira' :
-                                      day === 'thursday' ? 'Quinta-feira' :
-                                        day === 'friday' ? 'Sexta-feira' :
-                                          day === 'saturday' ? 'Sábado' : 'Domingo'}
-                              </span>
-                            </label>
-                            {!hours.enabled && (
-                              <span className="text-sm text-gray-400 bg-[#1a1b1c] px-2 py-1 rounded">
-                                Fechado
-                              </span>
+                          <div key={day} className="bg-[#242628] p-4 rounded-lg space-y-3 border border-gray-700">
+                            {/* Cabeçalho do dia com checkbox */}
+                            <div className="flex items-center justify-between">
+                              <label className="inline-flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={hours.enabled}
+                                  onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
+                                  className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-700 rounded"
+                                />
+                                <span className="ml-2 font-medium text-white">
+                                  {day === 'monday' ? 'Segunda-feira' :
+                                    day === 'tuesday' ? 'Terça-feira' :
+                                      day === 'wednesday' ? 'Quarta-feira' :
+                                        day === 'thursday' ? 'Quinta-feira' :
+                                          day === 'friday' ? 'Sexta-feira' :
+                                            day === 'saturday' ? 'Sábado' : 'Domingo'}
+                                </span>
+                              </label>
+                              {!hours.enabled && (
+                                <span className="text-sm text-gray-400 bg-[#1a1b1c] px-2 py-1 rounded">
+                                  Fechado
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Horários - Layout responsivo */}
+                            {hours.enabled && (
+                              <div className="space-y-3">
+                                {/* Período da manhã */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div className="space-y-2">
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                      Abertura
+                                    </label>
+                                    <TimeSelector
+                                      value={hours.open1}
+                                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
+                                      disabled={!hours.enabled}
+                                      className="w-full"
+                                      intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                      Fecha p/ Intervalo
+                                    </label>
+                                    <TimeSelector
+                                      value={hours.close1}
+                                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
+                                      disabled={!hours.enabled}
+                                      className="w-full"
+                                      intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Período da tarde */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div className="space-y-2">
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                      Reabertura
+                                    </label>
+                                    <TimeSelector
+                                      value={hours.open2 || null}
+                                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
+                                      disabled={!hours.enabled}
+                                      className="w-full"
+                                      intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                      Fechamento
+                                    </label>
+                                    <TimeSelector
+                                      value={hours.close2 || null}
+                                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
+                                      disabled={!hours.enabled}
+                                      className="w-full"
+                                      intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Resumo visual dos horários */}
+                                <div className="mt-3 p-2 bg-[#1a1b1c] rounded text-sm text-primary">
+                                  <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} {hours.open2 && hours.close2 ? `e ${hours.open2} - ${hours.close2}` : ''}
+                                </div>
+                              </div>
                             )}
                           </div>
-
-                          {/* Horários - Layout responsivo */}
-                          {hours.enabled && (
-                            <div className="space-y-3">
-                              {/* Período da manhã */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div className="space-y-2">
-                                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                    Abertura
-                                  </label>
-                                  <TimeSelector
-                                    value={hours.open1}
-                                    onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
-                                    disabled={!hours.enabled}
-                                    className="w-full"
-                                    intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                    Fecha p/ Intervalo
-                                  </label>
-                                  <TimeSelector
-                                    value={hours.close1}
-                                    onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
-                                    disabled={!hours.enabled}
-                                    className="w-full"
-                                    intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Período da tarde */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div className="space-y-2">
-                                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                    Reabertura
-                                  </label>
-                                  <TimeSelector
-                                    value={hours.open2 || null}
-                                    onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
-                                    disabled={!hours.enabled}
-                                    className="w-full"
-                                    intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                    Fechamento
-                                  </label>
-                                  <TimeSelector
-                                    value={hours.close2 || null}
-                                    onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
-                                    disabled={!hours.enabled}
-                                    className="w-full"
-                                    intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Resumo visual dos horários */}
-                              <div className="mt-3 p-2 bg-[#1a1b1c] rounded text-sm text-primary">
-                                <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} {hours.open2 && hours.close2 ? `e ${hours.open2} - ${hours.close2}` : ''}
-                              </div>
-                            </div>
-                          )}
-                        </div>
                         );
                       })}
                     </div>
@@ -10609,17 +10731,17 @@ Estamos te aguardando! 😎✂️`;
                     // Estabelecimentos criados a partir de hoje (início do dia) não terão mais esta opção
                     const cutoffDate = new Date(); // Data atual (hoje)
                     cutoffDate.setHours(0, 0, 0, 0); // Início do dia de hoje
-                    
+
                     // Verificar se o estabelecimento foi criado antes do início de hoje
-                    const isOldEstablishment = establishment?.created_at 
+                    const isOldEstablishment = establishment?.created_at
                       ? parseISO(establishment.created_at) < cutoffDate
                       : true; // Se não tiver created_at, assume que é antigo (mantém compatibilidade)
-                    
+
                     // Só mostra a seção de Serviços se for um estabelecimento antigo
                     if (!isOldEstablishment) {
                       return null;
                     }
-                    
+
                     return (
                       <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                         <h3 className="text-lg font-medium text-white mb-4">Serviços</h3>
@@ -11933,11 +12055,10 @@ Estamos te aguardando! 😎✂️`;
                         setShowReservarClienteModal(true);
                         setHighlightReserveButton(false);
                       }}
-                      className={`flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all text-sm font-medium ${
-                        highlightReserveButton 
-                          ? 'ring-4 ring-yellow-400 shadow-2xl animate-pulse scale-110' 
-                          : ''
-                      }`}
+                      className={`flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all text-sm font-medium ${highlightReserveButton
+                        ? 'ring-4 ring-yellow-400 shadow-2xl animate-pulse scale-110'
+                        : ''
+                        }`}
                       style={highlightReserveButton ? {
                         animation: 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                       } : {}}
@@ -12221,17 +12342,17 @@ Estamos te aguardando! 😎✂️`;
                               let phoneNumber = client.whatsapp.replace(/\D/g, '');
                               // Lista de códigos de países comuns
                               const countryCodes = [
-        { code: '351', minLength: 12 },
-        { code: '244', minLength: 12 },
-        { code: '54', minLength: 12 },
-        { code: '56', minLength: 11 },
-        { code: '55', minLength: 12 },
-        { code: '34', minLength: 11 },
-        { code: '1', minLength: 11 }
-      ];
-                              const hasCountryCode = countryCodes.some(({ code, minLength }) => 
-        phoneNumber.startsWith(code) && phoneNumber.length >= minLength
-      );
+                                { code: '351', minLength: 12 },
+                                { code: '244', minLength: 12 },
+                                { code: '54', minLength: 12 },
+                                { code: '56', minLength: 11 },
+                                { code: '55', minLength: 12 },
+                                { code: '34', minLength: 11 },
+                                { code: '1', minLength: 11 }
+                              ];
+                              const hasCountryCode = countryCodes.some(({ code, minLength }) =>
+                                phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                              );
                               if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                 phoneNumber = '55' + phoneNumber;
                               }
@@ -12676,7 +12797,7 @@ Estamos te aguardando! 😎✂️`;
 
                   <div className="mb-6">
                     <p className="text-yellow-400 text-sm mb-4 font-semibold bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3">
-                      Configure os horários de trabalho personalizados para este profissional. Se não configurado, será usado o horário padrão do estabelecimento configurado em Config / página agendamento.
+                      Coloque horário de trabalho de cada profissional <span className="text-red-400">* Obrigatório</span>
                     </p>
                   </div>
 
@@ -13426,7 +13547,7 @@ Estamos te aguardando! 😎✂️`;
           {activeTab === 'ranking' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">🏆 Ranking dos Clientes Mais Fiéis</h2>
-              
+
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
                 <button
@@ -13528,7 +13649,7 @@ Estamos te aguardando! 😎✂️`;
           {activeTab === 'missing-clients' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">👻 Clientes Sumidos</h2>
-              
+
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
                 <button
@@ -13635,7 +13756,7 @@ Estamos te aguardando! 😎✂️`;
           {activeTab === 'draw' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">🎲 Sorteio de Clientes</h2>
-              
+
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
                 <button
@@ -13751,7 +13872,7 @@ Estamos te aguardando! 😎✂️`;
                     <button
                       onClick={async () => {
                         if (!establishment) return;
-                        
+
                         try {
                           // Buscar serviços de service_subcategories (sistema de categorias)
                           const { data: subcategoriesData } = await supabase
@@ -13764,7 +13885,7 @@ Estamos te aguardando! 😎✂️`;
                             `)
                             .eq('service_categories.establishment_id', establishment.id)
                             .eq('is_active', true);
-                          
+
                           // Converter subcategorias para formato de serviços
                           const servicesFromCategories = (subcategoriesData || []).map((sub: any) => ({
                             id: sub.id,
@@ -13772,20 +13893,20 @@ Estamos te aguardando! 😎✂️`;
                             price: Number(sub.price),
                             duration: Number(sub.duration || 30)
                           }));
-                          
+
                           // Buscar serviços salvos em services_with_prices (sistema antigo)
                           const { data: establishmentData } = await supabase
                             .from('establishments')
                             .select('services_with_prices')
                             .eq('id', establishment.id)
                             .single();
-                          
+
                           const savedServices = establishmentData?.services_with_prices || [];
                           const localServices = servicesWithPrices || [];
-                                                  
+
                           // Combinar todos os serviços
                           const allServices = [...localServices, ...savedServices, ...servicesFromCategories];
-                          
+
                           // Remover duplicatas por ID
                           const uniqueServices = allServices.reduce((acc: any[], service: any) => {
                             if (!acc.find(s => s.id === service.id)) {
@@ -13793,7 +13914,7 @@ Estamos te aguardando! 😎✂️`;
                             }
                             return acc;
                           }, []);
-                          
+
                           console.log('🔍 DEBUG - Verificando serviços:', {
                             localServices: localServices.length,
                             savedServices: savedServices.length,
@@ -13805,19 +13926,19 @@ Estamos te aguardando! 😎✂️`;
                               price: s.price
                             }))
                           });
-                          
+
                           // Verificar serviços válidos (com nome e preço)
-                          const validServices = uniqueServices.filter((s: any) => 
+                          const validServices = uniqueServices.filter((s: any) =>
                             s.name && s.name.trim().length > 0 && Number(s.price) > 0
                           );
-                          
+
                           console.log('✅ DEBUG - Serviços válidos:', validServices.length);
-                          
+
                           if (validServices.length === 0) {
                             toast('Adicione pelo menos um serviço com NOME e PREÇO maior que zero antes de salvar.', 'warning');
                             return;
                           }
-                          
+
                           // Salvar serviços válidos e completar onboarding
                           const { error: saveError } = await supabase
                             .from('establishments')
@@ -13831,20 +13952,20 @@ Estamos te aguardando! 😎✂️`;
                               onboarding_step: 4
                             })
                             .eq('id', establishment.id);
-                          
+
                           if (saveError) {
                             console.error('Erro ao salvar:', saveError);
                             toast.error('Erro ao salvar serviços. Tente novamente.');
                             return;
                           }
-                          
+
                           setOnboardingStep(4);
                           setEstablishment({
                             ...establishment,
                             services_with_prices: validServices
                           });
                           setServicesWithPrices(validServices);
-                          
+
                           toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
                         } catch (error) {
                           console.error('Erro ao completar onboarding:', error);
@@ -13957,7 +14078,7 @@ Estamos te aguardando! 😎✂️`;
                 <button
                   onClick={async () => {
                     if (!establishment) return;
-                    
+
                     try {
                       // Buscar serviços de service_subcategories (sistema de categorias)
                       const { data: subcategoriesData } = await supabase
@@ -13970,7 +14091,7 @@ Estamos te aguardando! 😎✂️`;
                         `)
                         .eq('service_categories.establishment_id', establishment.id)
                         .eq('is_active', true);
-                      
+
                       // Converter subcategorias para formato de serviços
                       const servicesFromCategories = (subcategoriesData || []).map((sub: any) => ({
                         id: sub.id,
@@ -13978,20 +14099,20 @@ Estamos te aguardando! 😎✂️`;
                         price: Number(sub.price),
                         duration: Number(sub.duration || 30)
                       }));
-                      
+
                       // Buscar serviços salvos em services_with_prices (sistema antigo)
                       const { data: establishmentData } = await supabase
                         .from('establishments')
                         .select('services_with_prices')
                         .eq('id', establishment.id)
                         .single();
-                      
+
                       const savedServices = establishmentData?.services_with_prices || [];
                       const localServices = servicesWithPrices || [];
-                                                  
+
                       // Combinar todos os serviços
                       const allServices = [...localServices, ...savedServices, ...servicesFromCategories];
-                      
+
                       // Remover duplicatas por ID
                       const uniqueServices = allServices.reduce((acc: any[], service: any) => {
                         if (!acc.find(s => s.id === service.id)) {
@@ -13999,17 +14120,17 @@ Estamos te aguardando! 😎✂️`;
                         }
                         return acc;
                       }, []);
-                      
+
                       // Verificar serviços válidos (com nome e preço)
-                      const validServices = uniqueServices.filter((s: any) => 
+                      const validServices = uniqueServices.filter((s: any) =>
                         s.name && s.name.trim().length > 0 && Number(s.price) > 0
                       );
-                      
+
                       if (validServices.length === 0) {
                         toast('Adicione pelo menos um serviço com NOME e PREÇO maior que zero antes de salvar.', 'warning');
                         return;
                       }
-                      
+
                       // Salvar serviços válidos e completar onboarding
                       const { error: saveError } = await supabase
                         .from('establishments')
@@ -14023,20 +14144,20 @@ Estamos te aguardando! 😎✂️`;
                           onboarding_step: 4
                         })
                         .eq('id', establishment.id);
-                      
+
                       if (saveError) {
                         console.error('Erro ao salvar:', saveError);
                         toast.error('Erro ao salvar serviços. Tente novamente.');
                         return;
                       }
-                      
+
                       setOnboardingStep(4);
                       setEstablishment({
                         ...establishment,
                         services_with_prices: validServices
                       });
                       setServicesWithPrices(validServices);
-                      
+
                       toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
                     } catch (error) {
                       console.error('Erro ao completar onboarding:', error);
@@ -14157,11 +14278,10 @@ Estamos te aguardando! 😎✂️`;
                                         }
                                       }}
                                       disabled={index === 0}
-                                      className={`p-2 rounded transition-colors ${
-                                        index === 0
-                                          ? 'text-gray-400 cursor-not-allowed'
-                                          : 'text-green-600 hover:bg-green-100'
-                                      }`}
+                                      className={`p-2 rounded transition-colors ${index === 0
+                                        ? 'text-gray-400 cursor-not-allowed'
+                                        : 'text-green-600 hover:bg-green-100'
+                                        }`}
                                       title="Mover para cima"
                                     >
                                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -14194,11 +14314,10 @@ Estamos te aguardando! 😎✂️`;
                                         }
                                       }}
                                       disabled={index === categorySubcategories.length - 1}
-                                      className={`p-2 rounded transition-colors ${
-                                        index === categorySubcategories.length - 1
-                                          ? 'text-gray-400 cursor-not-allowed'
-                                          : 'text-green-600 hover:bg-green-100'
-                                      }`}
+                                      className={`p-2 rounded transition-colors ${index === categorySubcategories.length - 1
+                                        ? 'text-gray-400 cursor-not-allowed'
+                                        : 'text-green-600 hover:bg-green-100'
+                                        }`}
                                       title="Mover para baixo"
                                     >
                                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -14649,270 +14768,269 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Resto do código original dos profissionais */}
               <div className="space-y-4">
-                  {professionals.map((professional) => (
-                    <div 
-                      key={professional.id} 
-                      id={`professional-${professional.id}`} 
-                      className={`p-4 rounded-lg space-y-3 transition-all duration-500 ${
-                        highlightedProfessionalId === professional.id 
-                          ? 'bg-blue-600/30 ring-4 ring-blue-500 shadow-xl' 
-                          : 'bg-[#242628]'
+                {professionals.map((professional) => (
+                  <div
+                    key={professional.id}
+                    id={`professional-${professional.id}`}
+                    className={`p-4 rounded-lg space-y-3 transition-all duration-500 ${highlightedProfessionalId === professional.id
+                      ? 'bg-blue-600/30 ring-4 ring-blue-500 shadow-xl'
+                      : 'bg-[#242628]'
                       }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            value={professional.name}
-                            onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
-                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                            placeholder="Nome do profissional"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveProfessional(professional.id)}
-                          className="ml-2 text-red-500 hover:text-red-400"
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </button>
-                      </div>
-
-                      {/* Campo de foto do profissional */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">Foto do Profissional</label>
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-600 flex-shrink-0">
-                            <img
-                              src={(professional as any).photo_url || '/fotopessoa.png'}
-                              alt={professional.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.src = '/fotopessoa.png';
-                              }}
-                            />
-                          </div>
-                          <input
-                            type="file"
-                            accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                            onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
-                            className="hidden"
-                            id={`photo-${professional.id}`}
-                          />
-                          <label
-                            htmlFor={`photo-${professional.id}`}
-                            className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 cursor-pointer transition-colors"
-                          >
-                            Alterar Foto
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Campo de percentual do profissional */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">% do profissional</label>
-                        {professionalPercentageEditable[professional.id] ? (
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={professional.percentage || 0}
-                            onChange={(e) => {
-                              handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0);
-                            }}
-                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                            placeholder="Percentual (%)"
-                          />
-                        ) : (
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <input
-                              type="text"
-                              value="••••"
-                              readOnly
-                              className="flex-1 px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
-                              placeholder="Percentual oculto"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleRequestPercentageEdit(professional.id)}
-                              className="w-full sm:w-auto px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                            >
-                              Ver %
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Campo de senha do profissional */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">Senha do profissional</label>
-                        {professionalPasswordVisible[professional.id] ? (
-                          <input
-                            type="text"
-                            maxLength={4}
-                            value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
-                            onChange={(e) => {
-                              const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-                              setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
-                              if (value.length === 4) {
-                                handleUpdateProfessionalPin(professional.id, value);
-                              }
-                            }}
-                            className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                            placeholder="Senha de 4 dígitos"
-                          />
-                        ) : (
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <input
-                              type="password"
-                              value="••••"
-                              readOnly
-                              className="flex-1 px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
-                              placeholder="Senha oculta"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleRequestPasswordVisibility(professional.id)}
-                              className="w-full sm:w-auto px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                            >
-                              Ver
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Campo de WhatsApp do profissional */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">WhatsApp do profissional</label>
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
                         <input
                           type="text"
-                          value={professional.whatsapp || ''}
-                          onChange={(e) => handleProfessionalChange(professional.id, 'whatsapp', e.target.value)}
+                          value={professional.name}
+                          onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
                           className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                          placeholder={(() => {
-                            // Detectar país do estabelecimento pelo WhatsApp
-                            const establishmentWhatsapp = establishment?.whatsapp || '';
-                            const cleanEstablishmentWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
-
-                            if (cleanEstablishmentWhatsapp.startsWith('351')) {
-                              return '+351 964 272 201'; // Portugal
-                            } else if (cleanEstablishmentWhatsapp.startsWith('34')) {
-                              return '+34 612 345 678'; // Espanha
-                            } else if (cleanEstablishmentWhatsapp.startsWith('54')) {
-                              return '+54 11 1234-5678'; // Argentina
-                            } else if (cleanEstablishmentWhatsapp.startsWith('56')) {
-                              return '+56 9 1234 5678'; // Chile
-                            } else if (cleanEstablishmentWhatsapp.startsWith('244')) {
-                              return '+244 912 345 678'; // Angola
-                            } else if (cleanEstablishmentWhatsapp.startsWith('1') && cleanEstablishmentWhatsapp.length >= 10) {
-                              return '+1 (555) 123-4567'; // EUA
-                            }
-                            return '(47) 99999-9999'; // Brasil (padrão)
-                          })()}
-                          maxLength={20}
+                          placeholder="Nome do profissional"
                         />
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveProfessional(professional.id)}
+                        className="ml-2 text-red-500 hover:text-red-400"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
 
-                      {/* Campo de Meta */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">Definir meta mensal</label>
-                        <button
-                          onClick={() => handleOpenGoalModal(professional.id)}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <span>🎯</span>
-                          <span>META</span>
-                        </button>
-                      </div>
-
-                      {/* Barra de Progresso da Meta */}
-                      {professionalGoalProgress[professional.id] && professionalGoalProgress[professional.id].goalAmount > 0 && (
-                        <div className="mt-3">
-                          <GoalProgressBar
-                            goalAmount={professionalGoalProgress[professional.id].goalAmount}
-                            completedServices={professionalGoalProgress[professional.id].completedServices}
-                            professionalName={professional.name}
-                            isCompact={true}
+                    {/* Campo de foto do profissional */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Foto do Profissional</label>
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-600 flex-shrink-0">
+                          <img
+                            src={(professional as any).photo_url || '/fotopessoa.png'}
+                            alt={professional.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = '/fotopessoa.png';
+                            }}
                           />
                         </div>
-                      )}
-
-                      {/* ✅ Campo de Serviço Específico */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">Serviço Específico</label>
-                        <button
-                          onClick={() => handleOpenSpecificServiceModal(professional.id)}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                        <input
+                          type="file"
+                          accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                          onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
+                          className="hidden"
+                          id={`photo-${professional.id}`}
+                        />
+                        <label
+                          htmlFor={`photo-${professional.id}`}
+                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 cursor-pointer transition-colors"
                         >
-                          <span>🔧</span>
-                          <span>SERVIÇO ESPECÍFICO</span>
-                        </button>
-                      </div>
-
-                      {/* Campo de Ausência */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">Configurar dias ausente</label>
-                        <button
-                          onClick={() => handleOpenAbsenceModal(professional.id)}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <span>📅</span>
-                          <span>Ausência</span>
-                        </button>
-                      </div>
-
-                      {/* Campo de Bloquear Horário */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">Bloquear horários específicos</label>
-                        <button
-                          onClick={() => handleOpenBlockTimeModal(professional.id)}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <span>🔒</span>
-                          <span>Bloquear Horário</span>
-                        </button>
-                      </div>
-
-                      {/* Campo de Horários de Trabalho */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">Definir horários personalizados</label>
-                        <button
-                          onClick={() => handleOpenWorkHoursModal(professional.id)}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <span>⏰</span>
-                          <span>Horários de Trabalho</span>
-                        </button>
-                      </div>
-
-                      {/* Campo de Serviço Infantil */}
-                      <div className="space-y-2">
-                        <label className="block text-sm text-gray-400">Oferecer corte infantil</label>
-                        <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <span>👶</span>
-                            <span className="text-white">Serviço Infantil</span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={professional.offers_child_service || false}
-                              onChange={(e) => handleToggleChildService(professional.id, e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                          </label>
-                        </div>
+                          Alterar Foto
+                        </label>
                       </div>
                     </div>
-                  ))}
-                  {professionals.length === 0 && (
-                    <p className="text-gray-400 text-center py-4">
-                      Nenhum profissional cadastrado. Clique em "Adicionar" para começar.
-                    </p>
-                  )}
-                </div>
+
+                    {/* Campo de percentual do profissional */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">% do profissional</label>
+                      {professionalPercentageEditable[professional.id] ? (
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={professional.percentage || 0}
+                          onChange={(e) => {
+                            handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0);
+                          }}
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          placeholder="Percentual (%)"
+                        />
+                      ) : (
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="text"
+                            value="••••"
+                            readOnly
+                            className="flex-1 px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
+                            placeholder="Percentual oculto"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRequestPercentageEdit(professional.id)}
+                            className="w-full sm:w-auto px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                          >
+                            Ver %
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Campo de senha do profissional */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Senha do profissional</label>
+                      {professionalPasswordVisible[professional.id] ? (
+                        <input
+                          type="text"
+                          maxLength={4}
+                          value={professionalPins[professional.id] ?? (establishment?.professionals_pins?.find(p => p.professional_id === professional.id)?.pin || '0000')}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                            setProfessionalPins(prev => ({ ...prev, [professional.id]: value }));
+                            if (value.length === 4) {
+                              handleUpdateProfessionalPin(professional.id, value);
+                            }
+                          }}
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          placeholder="Senha de 4 dígitos"
+                        />
+                      ) : (
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="password"
+                            value="••••"
+                            readOnly
+                            className="flex-1 px-4 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed"
+                            placeholder="Senha oculta"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRequestPasswordVisibility(professional.id)}
+                            className="w-full sm:w-auto px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                          >
+                            Ver
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Campo de WhatsApp do profissional */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">WhatsApp do profissional</label>
+                      <input
+                        type="text"
+                        value={professional.whatsapp || ''}
+                        onChange={(e) => handleProfessionalChange(professional.id, 'whatsapp', e.target.value)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                        placeholder={(() => {
+                          // Detectar país do estabelecimento pelo WhatsApp
+                          const establishmentWhatsapp = establishment?.whatsapp || '';
+                          const cleanEstablishmentWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
+
+                          if (cleanEstablishmentWhatsapp.startsWith('351')) {
+                            return '+351 964 272 201'; // Portugal
+                          } else if (cleanEstablishmentWhatsapp.startsWith('34')) {
+                            return '+34 612 345 678'; // Espanha
+                          } else if (cleanEstablishmentWhatsapp.startsWith('54')) {
+                            return '+54 11 1234-5678'; // Argentina
+                          } else if (cleanEstablishmentWhatsapp.startsWith('56')) {
+                            return '+56 9 1234 5678'; // Chile
+                          } else if (cleanEstablishmentWhatsapp.startsWith('244')) {
+                            return '+244 912 345 678'; // Angola
+                          } else if (cleanEstablishmentWhatsapp.startsWith('1') && cleanEstablishmentWhatsapp.length >= 10) {
+                            return '+1 (555) 123-4567'; // EUA
+                          }
+                          return '(47) 99999-9999'; // Brasil (padrão)
+                        })()}
+                        maxLength={20}
+                      />
+                    </div>
+
+                    {/* Campo de Meta */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Definir meta mensal</label>
+                      <button
+                        onClick={() => handleOpenGoalModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>🎯</span>
+                        <span>META</span>
+                      </button>
+                    </div>
+
+                    {/* Barra de Progresso da Meta */}
+                    {professionalGoalProgress[professional.id] && professionalGoalProgress[professional.id].goalAmount > 0 && (
+                      <div className="mt-3">
+                        <GoalProgressBar
+                          goalAmount={professionalGoalProgress[professional.id].goalAmount}
+                          completedServices={professionalGoalProgress[professional.id].completedServices}
+                          professionalName={professional.name}
+                          isCompact={true}
+                        />
+                      </div>
+                    )}
+
+                    {/* ✅ Campo de Serviço Específico */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Serviço Específico</label>
+                      <button
+                        onClick={() => handleOpenSpecificServiceModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>🔧</span>
+                        <span>SERVIÇO ESPECÍFICO</span>
+                      </button>
+                    </div>
+
+                    {/* Campo de Ausência */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Configurar dias ausente</label>
+                      <button
+                        onClick={() => handleOpenAbsenceModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>📅</span>
+                        <span>Ausência</span>
+                      </button>
+                    </div>
+
+                    {/* Campo de Bloquear Horário */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Bloquear horários específicos</label>
+                      <button
+                        onClick={() => handleOpenBlockTimeModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>🔒</span>
+                        <span>Bloquear Horário</span>
+                      </button>
+                    </div>
+
+                    {/* Campo de Horários de Trabalho */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Definir horários personalizados</label>
+                      <button
+                        onClick={() => handleOpenWorkHoursModal(professional.id)}
+                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <span>⏰</span>
+                        <span>Horários de Trabalho</span>
+                      </button>
+                    </div>
+
+                    {/* Campo de Serviço Infantil */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Oferecer corte infantil</label>
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>👶</span>
+                          <span className="text-white">Serviço Infantil</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={professional.offers_child_service || false}
+                            onChange={(e) => handleToggleChildService(professional.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {professionals.length === 0 && (
+                  <p className="text-gray-400 text-center py-4">
+                    Nenhum profissional cadastrado. Clique em "Adicionar" para começar.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -15837,6 +15955,18 @@ Estamos te aguardando! 😎✂️`;
         )
       }
 
+      {/* Modal de senha para cancelamento */}
+      {showCancelPasswordModal && (
+        <PinPasswordModal
+          onClose={() => {
+            setShowCancelPasswordModal(false);
+            setAppointmentToCancel(null);
+          }}
+          onSubmit={handleCancelPasswordSubmit}
+          title="Digite a senha para cancelar"
+        />
+      )}
+
       {/* Popup de confirmação para cancelar */}
       {
         showCancelConfirm && (
@@ -16010,7 +16140,7 @@ Estamos te aguardando! 😎✂️`;
 
 
       {/* Modais de Tutorial Popup */}
-      
+
       {/* Modal Tutorial - Meus Agendamentos */}
       {showTutorialModals.appointments && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">

@@ -68,6 +68,39 @@
     // Expor função globalmente
     window.forceUpdate = forceReload;
     
+    // Detectar erros 404 de chunks automaticamente
+    window.addEventListener('error', function(event) {
+        const target = event.target;
+        if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')) {
+            const src = target.src || target.href || '';
+            // Verificar se é um chunk JavaScript que falhou
+            if ((src.includes('chunk-') || (src.includes('.js') && src.includes('assets/'))) && 
+                event.message && event.message.includes('404')) {
+                console.error('❌ Erro 404 detectado em chunk:', src);
+                console.log('🔄 Forçando atualização automática...');
+                
+                // Aguardar um pouco antes de recarregar para evitar loop
+                setTimeout(() => {
+                    if (!sessionStorage.getItem('chunk-reload-attempted')) {
+                        sessionStorage.setItem('chunk-reload-attempted', 'true');
+                        forceReload();
+                    } else {
+                        // Se já tentou recarregar, limpar tudo e tentar novamente
+                        sessionStorage.removeItem('chunk-reload-attempted');
+                        setTimeout(() => {
+                            forceReload();
+                        }, 1000);
+                    }
+                }, 500);
+            }
+        }
+    }, true); // Usar capture phase
+    
+    // Limpar flag de reload após 5 segundos
+    setTimeout(() => {
+        sessionStorage.removeItem('chunk-reload-attempted');
+    }, 5000);
+    
     // Adicionar botão de força apenas em desenvolvimento ou para admins
     waitForDOM().then(() => {
         // Só mostrar em desenvolvimento ou se for admin
