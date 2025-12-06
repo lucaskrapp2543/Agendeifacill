@@ -13,3 +13,5 @@ FROM establishments
 WHERE require_cancel_password IS NOT NULL
 LIMIT 10;
 
+
+

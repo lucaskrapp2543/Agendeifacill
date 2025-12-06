@@ -7,3 +7,5 @@ ADD COLUMN IF NOT EXISTS require_cancel_password BOOLEAN DEFAULT false;
 -- Comentário explicativo
 COMMENT ON COLUMN establishments.require_cancel_password IS 'Se true, exige senha ao cancelar agendamento no dashboard';
 
+
+

@@ -1,4 +1,4 @@
-import { Check, EyeOff, History, Minus } from 'lucide-react';
+import { Check, EyeOff, History, Minus, Trash2 } from 'lucide-react';
 import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useProfessionalLiquidValue } from '../hooks/useProfessionalLiquidValue';
@@ -25,6 +25,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   const {
     loading,
     recordPayment,
+    deletePayment,
     getPaymentSummary,
     getProfessionalPayments
   } = useProfessionalPayments(establishmentId, selectedMonth);
@@ -226,6 +227,73 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     });
   };
 
+  const handleDeletePayment = async (paymentId: string, paymentAmount: number) => {
+    // Calcular o valor total pago atual
+    const currentTotalPaid = paymentSummary.totalPaid;
+
+    // Calcular o valor que ficaria após deletar este pagamento
+    const newTotalPaid = currentTotalPaid - paymentAmount;
+
+    // Validar: não pode deixar o valor acumulado negativo
+    // O valor acumulado é o currentLiquidValue menos o total pago
+    // Se deletar este pagamento, o novo total pago seria newTotalPaid
+    // O valor acumulado seria: currentLiquidValue - newTotalPaid
+    // Isso não pode ser negativo, então: currentLiquidValue - newTotalPaid >= 0
+    // Ou seja: newTotalPaid <= currentLiquidValue
+    // Ou: currentTotalPaid - paymentAmount <= currentLiquidValue
+    // Ou: paymentAmount >= currentTotalPaid - currentLiquidValue
+
+    // Se o total pago já é maior que o valor líquido (bug de duplicação),
+    // só pode deletar o excesso para não deixar negativo
+    if (currentTotalPaid > currentLiquidValue) {
+      const maxAllowedToDelete = currentTotalPaid - currentLiquidValue;
+
+      if (paymentAmount > maxAllowedToDelete) {
+        const excessAmount = paymentAmount - maxAllowedToDelete;
+        toast.error(
+          `Não é possível deletar este pagamento de ${formatCurrency(paymentAmount)}. ` +
+          `Isso deixaria o valor acumulado negativo em ${formatCurrency(excessAmount)}. ` +
+          `Você só pode deletar até ${formatCurrency(maxAllowedToDelete)} para manter o valor correto. ` +
+          `(Valor líquido: ${formatCurrency(currentLiquidValue)}, Total pago: ${formatCurrency(currentTotalPaid)})`
+        );
+        return;
+      }
+    }
+
+    // Confirmar antes de deletar
+    if (!window.confirm(
+      `Tem certeza que deseja deletar este pagamento de ${formatCurrency(paymentAmount)}?\n\n` +
+      `Valor total pago atual: ${formatCurrency(currentTotalPaid)}\n` +
+      `Valor total pago após deletar: ${formatCurrency(newTotalPaid)}`
+    )) {
+      return;
+    }
+
+    if (isProcessing) {
+      toast.error('Processando... Aguarde!');
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      await deletePayment(paymentId);
+      toast.success(`Pagamento de ${formatCurrency(paymentAmount)} deletado com sucesso!`);
+      onPaymentRecorded?.();
+
+      // Forçar refresh da página após deletar para garantir atualização
+      setTimeout(() => {
+        console.log('🔄 Fazendo refresh após deletar pagamento');
+        window.location.reload();
+      }, 1000);
+    } catch (error: any) {
+      console.error('Erro ao deletar pagamento:', error);
+      toast.error('Erro ao deletar pagamento: ' + error.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="space-y-2">
       {/* Controles de Pagamento - Layout Mobile Responsivo */}
@@ -392,7 +460,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             {professionalPayments.map((payment) => (
               <div
                 key={payment.id}
-                className="flex items-center justify-between bg-gray-50 rounded-lg p-2"
+                className="flex items-center justify-between bg-gray-50 rounded-lg p-2 hover:bg-gray-100 transition-colors"
               >
                 <div className="flex-1">
                   <div className={`text-sm font-medium ${payment.amount > 0 ? 'text-gray-700' : 'text-orange-600'}`}>
@@ -402,8 +470,18 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                     {formatDate(payment.payment_date)}
                   </div>
                 </div>
-                <div className={`text-xs font-medium ${payment.amount > 0 ? 'text-green-600' : 'text-orange-600'}`}>
-                  {payment.amount > 0 ? '✓ Pago' : '↩ Retirado'}
+                <div className="flex items-center gap-2">
+                  <div className={`text-xs font-medium ${payment.amount > 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                    {payment.amount > 0 ? '✓ Pago' : '↩ Retirado'}
+                  </div>
+                  <button
+                    onClick={() => handleDeletePayment(payment.id, payment.amount)}
+                    disabled={isProcessing}
+                    className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Deletar este pagamento"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             ))}

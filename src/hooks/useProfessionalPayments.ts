@@ -136,6 +136,33 @@ export const useProfessionalPayments = (establishmentId: string, selectedMonth?:
     return payments.filter(p => p.professional_id === professionalId);
   };
 
+  // Deletar pagamento
+  const deletePayment = async (paymentId: string) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { error } = await supabase
+        .from('professional_payments')
+        .delete()
+        .eq('id', paymentId);
+
+      if (error) throw error;
+
+      // Atualizar lista local removendo o pagamento deletado
+      setPayments(prev => prev.filter(p => p.id !== paymentId));
+      console.log('✅ Pagamento deletado:', paymentId);
+
+      return true;
+    } catch (err: any) {
+      console.error('❌ Erro ao deletar pagamento:', err);
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Calcular valor líquido pendente (considerando pagamentos já feitos)
   const calculatePendingAmount = (
     professionalId: string,
@@ -160,6 +187,7 @@ export const useProfessionalPayments = (establishmentId: string, selectedMonth?:
     loading,
     error,
     recordPayment,
+    deletePayment,
     getPaymentSummary,
     getProfessionalPayments,
     calculatePendingAmount,

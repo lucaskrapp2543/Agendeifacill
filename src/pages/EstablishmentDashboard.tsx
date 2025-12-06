@@ -1,6 +1,6 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -645,6 +645,10 @@ const EstablishmentDashboard = () => {
   });
   const [selectedProductForSales, setSelectedProductForSales] = useState<string | null>(null);
   const [productSalesData, setProductSalesData] = useState<Record<string, any[]>>({});
+  // Estado para mês selecionado na aba de produtos
+  const [selectedProductsMonth, setSelectedProductsMonth] = useState(new Date());
+  // Estado para armazenar vendas de produtos por período
+  const [productSalesByPeriod, setProductSalesByPeriod] = useState<Record<string, number>>({});
 
   const handleShowProductSales = async (productId: string) => {
     if (selectedProductForSales === productId) {
@@ -856,11 +860,93 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  // Função para buscar vendas de produtos por funcionário no mês atual
+  // Função para buscar vendas de produtos por período
+  const fetchProductSalesByPeriod = async (month: Date) => {
+    if (!establishment?.id) return;
+
+    try {
+      const start = startOfMonth(month);
+      const end = endOfMonth(month);
+
+      // Buscar todos os appointment_products do período
+      const { data: appointmentProducts, error: productsError } = await supabase
+        .from('appointment_products')
+        .select(`
+          id,
+          product_id,
+          quantity,
+          unit_price,
+          appointment_id
+        `)
+        .order('created_at', { ascending: false });
+
+      if (productsError) {
+        console.error('Erro ao buscar produtos vendidos:', productsError);
+        return;
+      }
+
+      // Buscar appointments relacionados para filtrar por data e establishment
+      const appointmentIds = appointmentProducts?.map(p => p.appointment_id) || [];
+
+      if (appointmentIds.length === 0) {
+        setProductSalesByPeriod({});
+        return;
+      }
+
+      const { data: appointments, error: appointmentsError } = await supabase
+        .from('appointments')
+        .select(`
+          id,
+          appointment_date,
+          establishment_id,
+          status
+        `)
+        .in('id', appointmentIds)
+        .eq('establishment_id', establishment.id)
+        .neq('status', 'cancelled');
+
+      if (appointmentsError) {
+        console.error('Erro ao buscar appointments:', appointmentsError);
+        return;
+      }
+
+      // Filtrar appointments do período selecionado
+      const periodAppointments = appointments?.filter(apt => {
+        const aptDate = new Date(apt.appointment_date);
+        return aptDate >= start && aptDate <= end;
+      }) || [];
+
+      const periodAppointmentIds = new Set(periodAppointments.map(apt => apt.id));
+
+      // Agrupar vendas por product_id
+      const salesByProduct: Record<string, number> = {};
+
+      appointmentProducts?.forEach(productSale => {
+        if (periodAppointmentIds.has(productSale.appointment_id)) {
+          const currentQuantity = salesByProduct[productSale.product_id] || 0;
+          salesByProduct[productSale.product_id] = currentQuantity + productSale.quantity;
+        }
+      });
+
+      console.log('📊 Vendas de produtos no período:', {
+        month: month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+        salesByProduct
+      });
+
+      setProductSalesByPeriod(salesByProduct);
+    } catch (error) {
+      console.error('Erro ao buscar vendas por período:', error);
+    }
+  };
+
+  // Função para buscar vendas de produtos por funcionário no período selecionado
   const fetchProductSalesByProfessional = async (productId: string) => {
     if (!establishment?.id) return [];
 
     try {
+      const start = startOfMonth(selectedProductsMonth);
+      const end = endOfMonth(selectedProductsMonth);
+
       // 1. PRIMEIRO: Buscar TODOS os funcionários do estabelecimento
       const allProfessionals = establishment.professionals || [];
       const professionalNames = allProfessionals.map(p => p.name);
@@ -936,12 +1022,26 @@ const EstablishmentDashboard = () => {
         };
       });
 
-      // 5. Processar vendas reais
+      // 5. Filtrar appointments do período selecionado
+      const periodAppointments = filteredAppointments?.filter(apt => {
+        const aptDate = new Date(apt.appointment_date);
+        return aptDate >= start && aptDate <= end;
+      }) || [];
+
+      // 6. Processar vendas reais do período
       console.log('🔍 DEBUG - Dados de vendas:', data);
       console.log('🔍 DEBUG - Appointments encontrados:', appointments);
+      console.log('🔍 DEBUG - Appointments do período:', periodAppointments);
+
+      const periodAppointmentIds = new Set(periodAppointments.map(apt => apt.id));
 
       data?.forEach(sale => {
-        const appointment = filteredAppointments?.find(apt => apt.id === sale.appointment_id);
+        // Só processar vendas do período selecionado
+        if (!periodAppointmentIds.has(sale.appointment_id)) {
+          return;
+        }
+
+        const appointment = periodAppointments.find(apt => apt.id === sale.appointment_id);
 
         // Converter ID do profissional para nome
         let professionalName = 'Funcionário não identificado';
@@ -3121,14 +3221,25 @@ Estamos te aguardando! 😎✂️`;
       });
       console.log('🏢 Establishment ID:', establishment.id);
 
+      // Formatar datas para comparação (YYYY-MM-DD)
+      const startDateStr = format(start, 'yyyy-MM-dd');
+      const endDateStr = format(end, 'yyyy-MM-dd');
+
+      console.log('🔍 DEBUG - Query de agendamentos mensais:');
+      console.log('  - Start:', startDateStr);
+      console.log('  - End:', endDateStr);
+      console.log('  - Mês:', month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
+
       const { data: appointments, error } = await supabase
         .from('appointments')
         .select('*')
         .eq('establishment_id', establishment.id)
-        .gte('appointment_date', start.toISOString())
-        .lte('appointment_date', end.toISOString())
+        .gte('appointment_date', startDateStr)
+        .lte('appointment_date', endDateStr)
         .neq('status', 'cancelled')
         .order('appointment_date', { ascending: true });
+
+      console.log('  - Agendamentos retornados pela query:', appointments?.length || 0);
 
       if (error) {
         console.error('Erro ao buscar agendamentos:', error);
@@ -3473,6 +3584,7 @@ Estamos te aguardando! 😎✂️`;
     }
     if (establishment && activeTab === 'products') {
       fetchProducts();
+      fetchProductSalesByPeriod(selectedProductsMonth);
     }
     if (establishment && activeTab === 'service-categories') {
       fetchServiceCategories();
@@ -11928,19 +12040,49 @@ Estamos te aguardando! 😎✂️`;
                       {(() => {
                         const daysWithRevenue = Array.from({ length: 31 }, (_, i) => {
                           const day = i + 1;
+                          // Filtrar agendamentos do dia específico
                           const dayAppointments = monthlyAppointments.filter(apt => {
-                            const aptDate = new Date(apt.appointment_date);
-                            return aptDate.getDate() === day && apt.status !== 'cancelled';
+                            if (apt.status === 'cancelled') return false;
+
+                            // Extrair apenas a data (YYYY-MM-DD) e comparar o dia
+                            const aptDateStr = apt.appointment_date?.split('T')[0] || ''; // Pega só a data
+                            if (!aptDateStr) return false;
+
+                            const aptDateParts = aptDateStr.split('-');
+                            if (aptDateParts.length !== 3) return false;
+
+                            const aptDay = parseInt(aptDateParts[2], 10); // Dia do mês
+
+                            return aptDay === day;
                           });
+
+                          console.log(`🔍 Dia ${day} - Total de agendamentos encontrados:`, dayAppointments.length);
+                          if (dayAppointments.length > 0) {
+                            console.log(`📋 Agendamentos do dia ${day}:`, dayAppointments.map(apt => ({
+                              id: apt.id,
+                              client: apt.client_name,
+                              date: apt.appointment_date,
+                              status: apt.status,
+                              price: apt.total_price || apt.price,
+                              isSubscriber: isClientPaidSubscriber(apt.client_whatsapp)
+                            })));
+                          }
+
+                          // Calcular receita (excluindo assinantes pagos)
                           const dayRevenue = dayAppointments.reduce((total, apt) => {
                             if (isClientPaidSubscriber(apt.client_whatsapp)) {
+                              console.log(`💰 Assinante pago excluído da receita: ${apt.client_name} - R$ ${apt.total_price || apt.price}`);
                               return total; // Não adiciona ao faturamento se for assinante pago
                             }
-                            return total + (apt.total_price || apt.price || 0);
+                            const value = apt.total_price || apt.price || 0;
+                            console.log(`💰 Agendamento normal: ${apt.client_name} - R$ ${value}`);
+                            return total + value;
                           }, 0);
 
+                          console.log(`💰 Dia ${day} - Receita total: R$ ${dayRevenue}, Agendamentos: ${dayAppointments.length}`);
+
                           return { day, revenue: dayRevenue, appointments: dayAppointments.length };
-                        }).filter(day => day.revenue > 0);
+                        }).filter(day => day.revenue > 0 || day.appointments > 0);
 
                         return daysWithRevenue.slice(0, 4).map(({ day, revenue, appointments }) => (
                           <div key={day} className="p-3 bg-green-50 rounded-lg">
@@ -11958,10 +12100,23 @@ Estamos te aguardando! 😎✂️`;
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
                           {Array.from({ length: 31 }, (_, i) => {
                             const day = i + 1;
+                            // Filtrar agendamentos do dia específico
                             const dayAppointments = monthlyAppointments.filter(apt => {
-                              const aptDate = new Date(apt.appointment_date);
-                              return aptDate.getDate() === day && apt.status !== 'cancelled';
+                              if (apt.status === 'cancelled') return false;
+
+                              // Extrair apenas a data (YYYY-MM-DD) e comparar o dia
+                              const aptDateStr = apt.appointment_date?.split('T')[0] || ''; // Pega só a data
+                              if (!aptDateStr) return false;
+
+                              const aptDateParts = aptDateStr.split('-');
+                              if (aptDateParts.length !== 3) return false;
+
+                              const aptDay = parseInt(aptDateParts[2], 10); // Dia do mês
+
+                              return aptDay === day;
                             });
+
+                            // Calcular receita (excluindo assinantes pagos)
                             const dayRevenue = dayAppointments.reduce((total, apt) => {
                               if (isClientPaidSubscriber(apt.client_whatsapp)) {
                                 return total; // Não adiciona ao faturamento se for assinante pago
@@ -14442,12 +14597,76 @@ Estamos te aguardando! 😎✂️`;
                 </div>
               )}
 
+              {/* Seletor de Período */}
+              {products.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-3">
+                      <Calendar className="h-5 w-5 text-gray-600" />
+                      <h3 className="text-lg font-semibold text-gray-900">Período de Análise</h3>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => {
+                          const newDate = subMonths(selectedProductsMonth, 1);
+                          setSelectedProductsMonth(newDate);
+                          fetchProductSalesByPeriod(newDate);
+                        }}
+                        className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                        title="Mês anterior"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
+                      <input
+                        type="month"
+                        value={format(selectedProductsMonth, 'yyyy-MM')}
+                        onChange={(e) => {
+                          const newDate = new Date(e.target.value + '-01');
+                          setSelectedProductsMonth(newDate);
+                          fetchProductSalesByPeriod(newDate);
+                        }}
+                        className="px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                      <button
+                        onClick={() => {
+                          const newDate = addMonths(selectedProductsMonth, 1);
+                          // Não permitir selecionar mês futuro
+                          if (newDate <= new Date()) {
+                            setSelectedProductsMonth(newDate);
+                            fetchProductSalesByPeriod(newDate);
+                          }
+                        }}
+                        disabled={addMonths(selectedProductsMonth, 1) > new Date()}
+                        className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Próximo mês"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          const today = new Date();
+                          setSelectedProductsMonth(today);
+                          fetchProductSalesByPeriod(today);
+                        }}
+                        className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        title="Voltar para mês atual"
+                      >
+                        Hoje
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-2">
+                    Mostrando dados de {selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  </p>
+                </div>
+              )}
+
               {/* Relatório de Faturamento */}
               {products.length > 0 && (
                 <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4 mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                     <DollarSign className="h-5 w-5 text-green-600" />
-                    Faturamento dos Produtos
+                    Faturamento dos Produtos - {selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="bg-white rounded-lg p-4 border border-gray-200">
@@ -14455,9 +14674,12 @@ Estamos te aguardando! 😎✂️`;
                         <div>
                           <p className="text-sm text-gray-600">Faturamento Bruto</p>
                           <p className="text-2xl font-bold text-green-600">
-                            {formatCurrency(products.reduce((total, product) => total + (product.sale_price * product.sold_quantity), 0))}
+                            {formatCurrency(products.reduce((total, product) => {
+                              const periodQuantity = productSalesByPeriod[product.id] || 0;
+                              return total + (product.sale_price * periodQuantity);
+                            }, 0))}
                           </p>
-                          <p className="text-xs text-gray-500">Total vendido em produtos</p>
+                          <p className="text-xs text-gray-500">Total vendido no período</p>
                         </div>
                         <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
                           <TrendingUp className="h-6 w-6 text-green-600" />
@@ -14470,14 +14692,61 @@ Estamos te aguardando! 😎✂️`;
                         <div>
                           <p className="text-sm text-gray-600">Lucro Líquido</p>
                           <p className="text-2xl font-bold text-blue-600">
-                            {formatCurrency(products.reduce((total, product) => total + ((product.sale_price - product.cost_price) * product.sold_quantity), 0))}
+                            {formatCurrency(products.reduce((total, product) => {
+                              const periodQuantity = productSalesByPeriod[product.id] || 0;
+                              return total + ((product.sale_price - product.cost_price) * periodQuantity);
+                            }, 0))}
                           </p>
-                          <p className="text-xs text-gray-500">Lucro real obtido</p>
+                          <p className="text-xs text-gray-500">Lucro real do período</p>
                         </div>
                         <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                           <Receipt className="h-6 w-6 text-blue-600" />
                         </div>
                       </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <p className="text-sm text-gray-600">Total Vendido</p>
+                      <p className="text-xl font-bold text-gray-900">
+                        {products.reduce((total, product) => {
+                          const periodQuantity = productSalesByPeriod[product.id] || 0;
+                          return total + periodQuantity;
+                        }, 0)} unidades
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm text-gray-600">Produtos com Vendas</p>
+                        <div className="group relative">
+                          <HelpCircle className="h-4 w-4 text-gray-400 hover:text-blue-600 cursor-help transition-colors" />
+                          <div className="absolute left-0 bottom-full mb-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                            <p className="font-semibold mb-1">O que significa?</p>
+                            <p>Mostra quantos produtos diferentes tiveram pelo menos 1 venda no período selecionado.</p>
+                            <p className="mt-2 text-gray-300">Exemplo: Se você tem 10 produtos cadastrados e 6 deles venderam em novembro, aparecerá "6 produtos".</p>
+                            <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xl font-bold text-gray-900">
+                        {products.filter(product => (productSalesByPeriod[product.id] || 0) > 0).length} produtos
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <p className="text-sm text-gray-600">Ticket Médio</p>
+                      <p className="text-xl font-bold text-gray-900">
+                        {(() => {
+                          const totalQuantity = products.reduce((total, product) => {
+                            const periodQuantity = productSalesByPeriod[product.id] || 0;
+                            return total + periodQuantity;
+                          }, 0);
+                          const totalRevenue = products.reduce((total, product) => {
+                            const periodQuantity = productSalesByPeriod[product.id] || 0;
+                            return total + (product.sale_price * periodQuantity);
+                          }, 0);
+                          return totalQuantity > 0 ? formatCurrency(totalRevenue / totalQuantity) : formatCurrency(0);
+                        })()}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -14497,8 +14766,11 @@ Estamos te aguardando! 😎✂️`;
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {products.map((product) => {
+                    // Usar vendas do período selecionado
+                    const periodSoldQuantity = productSalesByPeriod[product.id] || 0;
                     const totalProfit = (product.sale_price - product.cost_price) * product.stock_quantity;
-                    const currentProfit = (product.sale_price - product.cost_price) * product.sold_quantity;
+                    const currentProfit = (product.sale_price - product.cost_price) * periodSoldQuantity;
+                    const periodRevenue = product.sale_price * periodSoldQuantity;
 
                     return (
                       <div key={product.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
@@ -14531,9 +14803,16 @@ Estamos te aguardando! 😎✂️`;
                           </div>
 
                           <div className="flex justify-between">
-                            <span className="text-sm text-black">Vendidos:</span>
-                            <span className="text-sm font-medium text-black">{product.sold_quantity} unidades</span>
+                            <span className="text-sm text-black">Vendidos ({selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}):</span>
+                            <span className="text-sm font-medium text-black">{periodSoldQuantity} unidades</span>
                           </div>
+
+                          {product.sold_quantity > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-xs text-gray-500">Total acumulado:</span>
+                              <span className="text-xs text-gray-500">{product.sold_quantity} unidades</span>
+                            </div>
+                          )}
 
                           <div className="flex justify-between">
                             <span className="text-sm text-black">Preço de venda:</span>
@@ -14547,12 +14826,17 @@ Estamos te aguardando! 😎✂️`;
 
                           <div className="border-t pt-2 mt-2">
                             <div className="flex justify-between">
-                              <span className="text-sm text-black">Lucro total estimado:</span>
+                              <span className="text-sm text-black">Lucro total estimado (estoque):</span>
                               <span className="text-sm font-bold text-green-600">{formatCurrency(totalProfit)}</span>
                             </div>
 
                             <div className="flex justify-between">
-                              <span className="text-sm text-black">Lucro atual:</span>
+                              <span className="text-sm text-black">Faturamento ({selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}):</span>
+                              <span className="text-sm font-bold text-green-600">{formatCurrency(periodRevenue)}</span>
+                            </div>
+
+                            <div className="flex justify-between">
+                              <span className="text-sm text-black">Lucro do período:</span>
                               <span className="text-sm font-bold text-blue-600">{formatCurrency(currentProfit)}</span>
                             </div>
                           </div>
