@@ -7,6 +7,7 @@ import {
   Clock,
   Crown,
   DollarSign,
+  Gift,
   Layers,
   Link,
   LogOut,
@@ -21,7 +22,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page' | 'indication';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -129,6 +130,20 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       isActive: activeTab === 'appointments',
       disabled: isItemLocked('appointments')
+    },
+    {
+      id: 'indication',
+      label: 'Quero 1 mês grátis',
+      icon: Gift,
+      onClick: () => {
+        if (isItemLocked('indication')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('indication'));
+        }
+      },
+      isActive: activeTab === 'indication',
+      disabled: isItemLocked('indication')
     },
     {
       id: 'clients',
@@ -384,58 +399,63 @@ const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {menuItems.map((item) => {
+          {menuItems.map((item, index) => {
             const Icon = item.icon;
             const isWhiteItem = (item as any).isWhite;
+            const isIndicationItem = item.id === 'indication';
             return (
-              <div key={item.id} className="relative">
-                <button
-                  onClick={item.onClick}
-                  disabled={item.disabled}
-                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
-                    isWhiteItem
-                      ? 'bg-white text-white hover:bg-gray-50'
-                      : item.isActive
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : item.disabled
-                          ? 'text-gray-400 cursor-not-allowed opacity-50'
-                          : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
-                  title={item.tooltip || (isExpanded ? '' : item.label)}
-                >
-                  <div className="relative">
-                    <Icon className={`h-5 w-5 flex-shrink-0 ${isWhiteItem ? 'text-white' : ''}`} />
-                    {item.showBadge && (
-                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                        {item.badgeCount}
-                      </span>
-                    )}
-                  </div>
-
-                  {isExpanded && (
-                    <>
-                      <span className="text-sm font-medium whitespace-nowrap">
-                        {item.label}
-                      </span>
-                      {item.id !== 'config' && (
-                        <ChevronRight className="h-4 w-4 flex-shrink-0 opacity-50 ml-auto" />
+              <React.Fragment key={item.id}>
+                <div className="relative">
+                  <button
+                    onClick={item.onClick}
+                    disabled={item.disabled}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
+                      isWhiteItem
+                        ? 'bg-white text-white hover:bg-gray-50'
+                        : isIndicationItem
+                          ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
+                          : item.isActive
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : item.disabled
+                              ? 'text-gray-400 cursor-not-allowed opacity-50'
+                              : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                    }`}
+                    title={item.tooltip || (isExpanded ? '' : item.label)}
+                  >
+                    <div className="relative">
+                      <Icon className={`h-5 w-5 flex-shrink-0 ${isWhiteItem ? 'text-white' : isIndicationItem ? 'text-white' : ''}`} />
+                      {item.showBadge && (
+                        <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                          {item.badgeCount}
+                        </span>
                       )}
-                    </>
-                  )}
-                </button>
+                    </div>
 
-                {/* Tooltip para menu recolhido */}
-                {!isExpanded && !item.disabled && (
-                  <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
-                    {item.label}
-                    {item.tooltip && (
-                      <div className="text-gray-300 text-xs mt-1">
-                        {item.tooltip}
-                      </div>
+                    {isExpanded && (
+                      <>
+                        <span className="text-sm font-medium whitespace-nowrap">
+                          {item.label}
+                        </span>
+                        {item.id !== 'config' && (
+                          <ChevronRight className="h-4 w-4 flex-shrink-0 opacity-50 ml-auto" />
+                        )}
+                      </>
                     )}
-                  </div>
-                )}
-              </div>
+                  </button>
+
+                  {/* Tooltip para menu recolhido */}
+                  {!isExpanded && !item.disabled && (
+                    <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
+                      {item.label}
+                      {item.tooltip && (
+                        <div className="text-gray-300 text-xs mt-1">
+                          {item.tooltip}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </React.Fragment>
             );
           })}
         </nav>

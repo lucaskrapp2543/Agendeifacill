@@ -121,7 +121,7 @@ interface Establishment {
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page' | 'indication';
 
 interface AdditionalProduct {
   name: string;
@@ -10152,6 +10152,70 @@ Estamos te aguardando! 😎✂️`;
                       <p className="text-white text-xs font-medium flex-1">
                         Compartilhe este link com seus clientes para que possam agendar diretamente com você!
                       </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab de Indicação - Quero 1 mês grátis */}
+              {activeTab === 'indication' && (
+                <div className="space-y-6 w-full">
+                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
+                    {/* Header */}
+                    <div className="flex items-center gap-3 mb-4 sm:mb-6">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xl sm:text-2xl">🎁</span>
+                      </div>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                        Quero 1 mês grátis
+                      </h2>
+                    </div>
+
+                    {/* Conteúdo */}
+                    <div className="space-y-6">
+                      <div className="text-center">
+                        <p className="text-gray-700 text-base sm:text-lg leading-relaxed mb-6">
+                          Indique um colega e ganhe <strong className="text-green-600">1 mês grátis ou mais</strong>! 🎉
+                        </p>
+                      </div>
+
+                      {/* Imagem */}
+                      <div className="flex justify-center mb-6">
+                        <img
+                          src="/indicacao2.png"
+                          alt="Indicação"
+                          className="w-full max-w-md h-auto rounded-lg shadow-lg"
+                        />
+                      </div>
+
+                      {/* Botão de Indicar */}
+                      <div className="flex justify-center">
+                        <button
+                          onClick={() => {
+                            const whatsappNumber = '5548991265320';
+                            const message = 'quero indicar um colega e ganhar 1 mês grátis ou mais';
+                            const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+                            window.open(whatsappUrl, '_blank');
+                          }}
+                          className="w-full max-w-md bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-4 px-8 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-colors text-lg shadow-lg flex items-center justify-center gap-2"
+                        >
+                          <span>💬</span>
+                          <span>Indicar</span>
+                        </button>
+                      </div>
+
+                      {/* Informação adicional */}
+                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
+                        <div className="flex items-start gap-3">
+                          <span className="text-green-600 text-xl flex-shrink-0">💡</span>
+                          <div>
+                            <p className="text-gray-700 text-sm leading-relaxed">
+                              <strong>Como funciona:</strong> Clique no botão "Indicar" acima e envie a mensagem para nosso WhatsApp.
+                              Nossa equipe entrará em contato para processar sua indicação e garantir seu mês grátis!
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
