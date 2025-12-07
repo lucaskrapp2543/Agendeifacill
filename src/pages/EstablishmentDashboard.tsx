@@ -7,7 +7,6 @@ import { v4 as uuidv4 } from 'uuid';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
-import { DraggableServiceList } from '../components/DraggableServiceList';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
 import { ExpensesManager } from '../components/ExpensesManager';
 import { FinancialDashboard } from '../components/FinancialDashboard';
@@ -20,7 +19,6 @@ import { ProfessionalPaymentControl } from '../components/ProfessionalPaymentCon
 import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
 import ReservarCliente from '../components/ReservarCliente';
-import { ServiceForm } from '../components/ServiceForm';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
@@ -429,6 +427,12 @@ const EstablishmentDashboard = () => {
 
   // Estados de horários e profissionais
   // Horários padrão para novos estabelecimentos: todos os horários em 00:00
+  // Estados para o quiz passo-a-passo (apenas novos usuários)
+  const [quizStep, setQuizStep] = useState<number>(1);
+  const [isNewUser, setIsNewUser] = useState<boolean>(false);
+  const [quizCompleted, setQuizCompleted] = useState<boolean>(false); // Quiz foi completado
+  const [quizAlertMessage, setQuizAlertMessage] = useState<string>(''); // Mensagem de alerta quando requisito não atendido
+
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
     monday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
     tuesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
@@ -467,6 +471,8 @@ const EstablishmentDashboard = () => {
   const [showOnboardingPopup, setShowOnboardingPopup] = useState(false);
   const [onboardingPopupMessage, setOnboardingPopupMessage] = useState('');
   const [showBlockedItemModal, setShowBlockedItemModal] = useState(false); // Modal para item bloqueado
+  const [showInfoModal, setShowInfoModal] = useState(false); // Modal de informações mobile
+  const [infoModalContent, setInfoModalContent] = useState<{ title: string; content: string } | null>(null); // Conteúdo do modal
 
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
@@ -2116,6 +2122,70 @@ const EstablishmentDashboard = () => {
   const saveProfessionalsToDatabase = async () => {
     if (!establishment || professionals.length === 0) return;
 
+    // ✅ VALIDAÇÃO OBRIGATÓRIA SEMPRE: Verificar se TODOS os profissionais com nome têm horário configurado
+    // Isso vale para novos estabelecimentos (isNewUser) ou quem está no onboarding
+    const needsValidation = isNewUser || onboardingStep <= 3;
+
+    console.log('🔍 DEBUG VALIDAÇÃO:', { isNewUser, onboardingStep, needsValidation, professionals: professionals.map(p => ({ name: p.name, hasWorkHours: !!p.work_hours })) });
+
+    if (needsValidation) {
+      // Verificar cada profissional
+      for (const professional of professionals) {
+        // Só validar profissionais que têm nome
+        if (!professional.name || professional.name.trim().length === 0) {
+          console.log('⏭️ Pulando profissional sem nome');
+          continue; // Pular profissionais sem nome
+        }
+
+        console.log('🔍 Validando profissional:', professional.name, 'work_hours:', professional.work_hours);
+
+        // Verificar horários do estado local
+        const workHours = professional.work_hours;
+
+        // Se não tem work_hours OU é null/undefined OU é objeto vazio
+        if (!workHours || typeof workHours !== 'object' || Object.keys(workHours).length === 0) {
+          console.log('❌ PROFISSIONAL SEM WORK_HOURS:', professional.name);
+          toast.error('Selecione horário de serviço do profissional');
+          return; // BLOQUEAR salvamento
+        }
+
+        // Verificar se pelo menos UM dia está habilitado
+        const hasEnabledDay = Object.keys(workHours).some(day => {
+          const daySchedule = workHours[day];
+          return daySchedule && daySchedule.enabled === true;
+        });
+
+        if (!hasEnabledDay) {
+          console.log('❌ PROFISSIONAL SEM DIA HABILITADO:', professional.name);
+          toast.error('Selecione horário de serviço do profissional');
+          return; // BLOQUEAR salvamento
+        }
+
+        // Verificar se o dia habilitado tem entrada e saída configurados
+        const hasValidHours = Object.keys(workHours).some(day => {
+          const daySchedule = workHours[day];
+          if (!daySchedule || !daySchedule.enabled) {
+            return false;
+          }
+          // Verificar se tem entrada e saída válidos
+          const isValid = daySchedule.entry_time &&
+            daySchedule.exit_time &&
+            daySchedule.entry_time.trim() !== '' &&
+            daySchedule.exit_time.trim() !== '';
+          console.log(`🔍 Dia ${day}:`, { enabled: daySchedule.enabled, entry_time: daySchedule.entry_time, exit_time: daySchedule.exit_time, isValid });
+          return isValid;
+        });
+
+        if (!hasValidHours) {
+          console.log('❌ PROFISSIONAL SEM HORÁRIOS VÁLIDOS:', professional.name);
+          toast.error('Selecione horário de serviço do profissional');
+          return; // BLOQUEAR salvamento
+        }
+
+        console.log('✅ PROFISSIONAL VÁLIDO:', professional.name);
+      }
+    }
+
     try {
       console.log('💾 Salvando profissionais:', professionals);
       console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
@@ -2142,7 +2212,7 @@ const EstablishmentDashboard = () => {
         const dbProfessional = dbProfessionals.find(p => p.id === localProfessional.id) || {};
 
         // Mesclar: priorizar dados locais mas preservar campos do banco que não estão no local
-        return {
+        const mergedProfessional = {
           id: localProfessional.id,
           name: localProfessional.name.trim(),
           specialties: localProfessional.specialties || [],
@@ -2157,6 +2227,35 @@ const EstablishmentDashboard = () => {
           absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
           blocked_hours: (localProfessional as any).blocked_hours || dbProfessional.blocked_hours || {} // ✅ PRESERVAR HORÁRIOS BLOQUEADOS!
         };
+
+        // ✅ VALIDAÇÃO FINAL APÓS MESCLAR: Verificar se profissional com nome tem horário
+        if (needsValidation && mergedProfessional.name && mergedProfessional.name.trim().length > 0) {
+          const workHours = mergedProfessional.work_hours;
+
+          if (!workHours || typeof workHours !== 'object' || Object.keys(workHours).length === 0) {
+            console.log('❌ VALIDAÇÃO FINAL FALHOU - SEM WORK_HOURS:', mergedProfessional.name);
+            toast.error('Selecione horário de serviço do profissional');
+            throw new Error('Profissional sem horário de trabalho configurado');
+          }
+
+          const hasValidHours = Object.keys(workHours).some(day => {
+            const daySchedule = workHours[day];
+            return daySchedule &&
+              daySchedule.enabled === true &&
+              daySchedule.entry_time &&
+              daySchedule.exit_time &&
+              daySchedule.entry_time.trim() !== '' &&
+              daySchedule.exit_time.trim() !== '';
+          });
+
+          if (!hasValidHours) {
+            console.log('❌ VALIDAÇÃO FINAL FALHOU - SEM HORÁRIOS VÁLIDOS:', mergedProfessional.name);
+            toast.error('Selecione horário de serviço do profissional');
+            throw new Error('Profissional sem horário de trabalho válido');
+          }
+        }
+
+        return mergedProfessional;
       });
 
       console.log('🔄 Profissionais mesclados:', updatedProfessionals);
@@ -2199,29 +2298,75 @@ const EstablishmentDashboard = () => {
       setProfessionals(updatedProfessionals);
 
       console.log('✅ Profissionais e pins salvos com sucesso!');
-      toast.success('Profissionais atualizados!');
 
-      // Se está em onboarding (step 2), verificar se tem pelo menos um profissional com nome e avançar para step 3
-      if (onboardingStep === 2) {
-        const professionalsWithNames = updatedProfessionals.filter(p => p.name && p.name.trim().length > 0);
-
-        if (professionalsWithNames.length > 0) {
-          // Tem pelo menos um profissional válido, avançar para step 3
-          const { error: onboardingError } = await supabase
-            .from('establishments')
-            .update({ onboarding_step: 3 })
-            .eq('id', establishment.id);
-
-          if (!onboardingError) {
-            setOnboardingStep(3);
-            setOnboardingPopupMessage('Ótimo! Agora vá em Meus Serviços, cadastre seu primeiro serviço e você liberará todas as outras funções.');
-            setShowOnboardingPopup(true);
-            setTimeout(() => {
-              setActiveTab('service-categories');
-            }, 3000);
+      // ✅ VALIDAÇÃO FINAL: Verificar novamente se todos têm horários antes de avançar
+      if (isNewUser) {
+        const professionalsWithNamesAndHours = updatedProfessionals.filter(p => {
+          if (!p.name || p.name.trim().length === 0) {
+            return false;
           }
-        } else {
-          toast.warning('Preencha pelo menos o nome de um profissional para continuar.');
+
+          const workHours = p.work_hours;
+          if (!workHours || typeof workHours !== 'object' || Object.keys(workHours).length === 0) {
+            return false;
+          }
+
+          // Verificar se tem pelo menos um dia habilitado com horários válidos
+          return Object.keys(workHours).some(day => {
+            const daySchedule = workHours[day];
+            return daySchedule &&
+              daySchedule.enabled === true &&
+              daySchedule.entry_time &&
+              daySchedule.exit_time &&
+              daySchedule.entry_time.trim() !== '' &&
+              daySchedule.exit_time.trim() !== '';
+          });
+        });
+
+        // Se não passar na validação final, não avança
+        if (professionalsWithNamesAndHours.length === 0) {
+          toast.error('Selecione horário de serviço do profissional');
+          return; // Não avançar, não mostrar sucesso
+        }
+
+        toast.success('Profissionais atualizados!');
+
+        // Avançar para a próxima etapa (Meus Serviços)
+        const { error: onboardingError } = await supabase
+          .from('establishments')
+          .update({ onboarding_step: 3 })
+          .eq('id', establishment.id);
+
+        if (!onboardingError) {
+          setOnboardingStep(3);
+          toast.success('✅ Avançando para Meus Serviços...');
+
+          // Avançar imediatamente para a aba de serviços
+          setTimeout(() => {
+            setActiveTab('service-categories');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }, 1000);
+        }
+      } else {
+        // Para usuários antigos, apenas mostrar sucesso
+        toast.success('Profissionais atualizados!');
+
+        // Se está em onboarding (step 2), avançar normalmente
+        if (onboardingStep === 2) {
+          const professionalsWithNames = updatedProfessionals.filter(p => p.name && p.name.trim().length > 0);
+          if (professionalsWithNames.length > 0) {
+            const { error: onboardingError } = await supabase
+              .from('establishments')
+              .update({ onboarding_step: 3 })
+              .eq('id', establishment.id);
+
+            if (!onboardingError) {
+              setOnboardingStep(3);
+              setTimeout(() => {
+                setActiveTab('service-categories');
+              }, 1000);
+            }
+          }
         }
       }
     } catch (error) {
@@ -2435,11 +2580,6 @@ const EstablishmentDashboard = () => {
 
         if (!onboardingError) {
           setOnboardingStep(2);
-          setOnboardingPopupMessage('Parabéns! Agora basta ir em Profissionais, adicionar seu primeiro profissional e você liberará a próxima etapa.');
-          setShowOnboardingPopup(true);
-          setTimeout(() => {
-            setActiveTab('professionals');
-          }, 3000);
         }
       }
 
@@ -2455,9 +2595,17 @@ const EstablishmentDashboard = () => {
 
       // Toast diferente se for onboarding
       if (onboardingStep < 4) {
-        toast.success('Configurações salvas! Avançando para a próxima etapa...');
+        toast.success('Configurações salvas! Abrindo Profissionais...');
+        // Sempre ir para profissionais após salvar
+        setTimeout(() => {
+          setActiveTab('professionals');
+        }, 500);
       } else {
         toast.success('Estabelecimento atualizado com sucesso!');
+        // Mesmo para usuários antigos, ir para profissionais se clicou no botão
+        setTimeout(() => {
+          setActiveTab('professionals');
+        }, 500);
       }
 
     } catch (error: any) {
@@ -3341,6 +3489,26 @@ Estamos te aguardando! 😎✂️`;
         // Carrega a configuração da imagem "Melhor do Brasil"
         setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
 
+        // Verificar se é um novo usuário (criado hoje ou depois) E se o quiz não foi completado
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const createdDate = establishmentData.created_at ? new Date(establishmentData.created_at) : null;
+        const isNewUserCheck = createdDate && createdDate >= today;
+        const quizCompletedCheck = (establishmentData as any).quiz_completed === true;
+
+        // Só mostrar quiz se for novo usuário E quiz não foi completado
+        setIsNewUser(Boolean(isNewUserCheck && !quizCompletedCheck));
+        setQuizCompleted(Boolean(quizCompletedCheck));
+
+        // Carregar progresso do quiz do localStorage (se for novo usuário e quiz não completo)
+        if (isNewUserCheck && !quizCompletedCheck && establishmentData.id) {
+          const savedProgress = localStorage.getItem(`quiz_progress_${establishmentData.id}`);
+          if (savedProgress) {
+            const progress = parseInt(savedProgress, 10);
+            setQuizStep(progress);
+          }
+        }
+
         // Carrega o progresso do onboarding
         const currentOnboardingStep = establishmentData.onboarding_step ?? 4; // Default = 4 (completo) para contas antigas
         console.log('🎯 DEBUG Onboarding - Carregando onboarding_step:', {
@@ -3351,13 +3519,22 @@ Estamos te aguardando! 😎✂️`;
         setOnboardingStep(currentOnboardingStep);
 
         // Se está em onboarding (step < 4), forçar para a aba apropriada
-        if (currentOnboardingStep === 1) {
-          setActiveTab('settings'); // Começar na config
-        } else if (currentOnboardingStep === 2) {
-          setActiveTab('professionals'); // Ir para profissionais
-        } else if (currentOnboardingStep === 3) {
-          setActiveTab('service-categories'); // Ir para serviços
+        // MAS só se o usuário ainda não tiver navegado manualmente (verificar se já está em uma aba válida)
+        // Isso permite que o usuário volte para config se quiser
+        const currentTabIsValid = activeTab === 'settings' || activeTab === 'professionals' || activeTab === 'service-categories';
+
+        // Só forçar aba se não estiver já em uma aba válida do onboarding
+        // Isso permite navegação livre entre as abas do onboarding
+        if (!currentTabIsValid) {
+          if (currentOnboardingStep === 1) {
+            setActiveTab('settings'); // Começar na config
+          } else if (currentOnboardingStep === 2) {
+            setActiveTab('professionals'); // Ir para profissionais
+          } else if (currentOnboardingStep === 3) {
+            setActiveTab('service-categories'); // Ir para serviços
+          }
         }
+        // Se já está em uma aba válida (settings, professionals, service-categories), não força mudança
 
         // ✅ CORRIGIDO: Carrega os profissionais preservando TODOS os campos existentes
         const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: any) => ({
@@ -3483,6 +3660,200 @@ Estamos te aguardando! 😎✂️`;
       toast('Erro ao carregar estabelecimento', 'error');
     } finally {
       setIsEstablishmentLoading(false);
+    }
+  };
+
+  // Funções de validação para cada etapa do quiz
+  const validateQuizStep = (step: number): { isValid: boolean; message: string } => {
+    switch (step) {
+      case 1: // Comodidades - pelo menos 1 opção
+        const hasAnyAmenity = hasWifi || hasParking || hasAccessibility || hasAirConditioning;
+        return {
+          isValid: hasAnyAmenity,
+          message: hasAnyAmenity ? '' : 'Selecione ao menos 1 comodidade para continuar'
+        };
+
+      case 2: // Configuração de horários - sempre válido
+        return { isValid: true, message: '' };
+
+      case 3: // Horário de Funcionamento - sempre válido (pode modificar algo)
+        return { isValid: true, message: '' };
+
+      case 4: // Fotos - sempre válido
+        return { isValid: true, message: '' };
+
+      case 5: // PIX - verificar se preencheu (pode ser opcional, mas vamos exigir para o quiz)
+        // Verificar se tem PIX configurado OU se digitou "naotenhopix"
+        const hasPix = (pixKeyType && pixKey && pixKey.trim() !== '' && pixKey.trim().toLowerCase() !== 'naotenhopix') ||
+          (pixKey && pixKey.trim().toLowerCase() === 'naotenhopix') ||
+          (establishment?.pix_key && establishment.pix_key.trim() !== '' && establishment.pix_key.trim().toLowerCase() !== 'naotenhopix');
+        return {
+          isValid: hasPix,
+          message: hasPix ? '' : 'Preencha os dados do PIX ou digite "naotenhopix" para continuar'
+        };
+
+      case 6: // Links Personalizados - pelo menos 1 link
+        const hasAnyLink = (reviewLink && reviewLink.trim() !== '') ||
+          (socialMediaLink && socialMediaLink.trim() !== '') ||
+          (pixPaymentLink && pixPaymentLink.trim() !== '') ||
+          (locationLink && locationLink.trim() !== '');
+        return {
+          isValid: hasAnyLink,
+          message: hasAnyLink ? '' : 'Adicione ao menos 1 link antes de avançar'
+        };
+
+      case 7: // WhatsApp - confirmar
+        return { isValid: true, message: '' };
+
+      case 8: // Configurações de Pagamento - sempre válido
+        return { isValid: true, message: '' };
+
+      case 9: // Formas de Pagamento - selecionar ou desmarcar ao menos 1
+        // Verificar se há alguma forma de pagamento selecionada
+        const hasPaymentMethods = paymentMethodsEnabled && paymentMethodsEnabled.length > 0;
+        return {
+          isValid: hasPaymentMethods,
+          message: hasPaymentMethods ? '' : 'Selecione ao menos 1 forma de pagamento para continuar'
+        };
+
+      case 10: // Confirmação final
+        return { isValid: true, message: '' };
+
+      default:
+        return { isValid: true, message: '' };
+    }
+  };
+
+  // Função para avançar no quiz
+  const handleQuizNext = () => {
+    const validation = validateQuizStep(quizStep);
+    if (!validation.isValid) {
+      setQuizAlertMessage(validation.message);
+      return;
+    }
+
+    setQuizAlertMessage('');
+    const nextStep = quizStep + 1;
+    setQuizStep(nextStep);
+
+    // Salvar progresso no localStorage
+    if (establishment?.id) {
+      localStorage.setItem(`quiz_progress_${establishment.id}`, nextStep.toString());
+    }
+
+    // Scroll para o início da próxima seção do quiz (não para o topo)
+    setTimeout(() => {
+      // IDs das seções de cada etapa
+      const sectionIds: Record<number, string> = {
+        1: 'quiz-section-comodidades',
+        2: 'quiz-section-horarios',
+        3: 'quiz-section-funcionamento',
+        4: 'quiz-section-fotos',
+        5: 'quiz-section-pix',
+        6: 'quiz-section-links',
+        7: 'quiz-section-whatsapp',
+        8: 'quiz-section-pagamento',
+        9: 'quiz-section-formas-pagamento',
+        10: 'quiz-section-confirmacao'
+      };
+
+      const sectionId = sectionIds[nextStep];
+      if (sectionId) {
+        const element = document.getElementById(sectionId);
+        if (element) {
+          const offset = 100; // Offset para não ficar colado no topo
+          const elementPosition = element.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - offset;
+          window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+        }
+      }
+    }, 100); // Pequeno delay para garantir que o DOM foi atualizado
+  };
+
+  // Função para voltar no quiz
+  const handleQuizPrevious = () => {
+    if (quizStep > 1) {
+      const previousStep = quizStep - 1;
+      setQuizStep(previousStep);
+      setQuizAlertMessage('');
+
+      // Salvar progresso no localStorage
+      if (establishment?.id) {
+        localStorage.setItem(`quiz_progress_${establishment.id}`, previousStep.toString());
+      }
+
+      // Scroll para o início da seção anterior do quiz
+      setTimeout(() => {
+        // IDs das seções de cada etapa
+        const sectionIds: Record<number, string> = {
+          1: 'quiz-section-comodidades',
+          2: 'quiz-section-horarios',
+          3: 'quiz-section-funcionamento',
+          4: 'quiz-section-fotos',
+          5: 'quiz-section-pix',
+          6: 'quiz-section-links',
+          7: 'quiz-section-whatsapp',
+          8: 'quiz-section-pagamento',
+          9: 'quiz-section-formas-pagamento',
+          10: 'quiz-section-confirmacao'
+        };
+
+        const sectionId = sectionIds[previousStep];
+        if (sectionId) {
+          const element = document.getElementById(sectionId);
+          if (element) {
+            const offset = 100; // Offset para não ficar colado no topo
+            const elementPosition = element.getBoundingClientRect().top;
+            const offsetPosition = elementPosition + window.pageYOffset - offset;
+            window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+          }
+        }
+      }, 100); // Pequeno delay para garantir que o DOM foi atualizado
+    }
+  };
+
+  // Função para salvar todas as configurações (chamada na etapa 10)
+  const handleSaveAllSettings = async () => {
+    try {
+      // Salvar todas as configurações pendentes
+      await autoSaveAmenities();
+      await autoSaveScheduleConfig({
+        use15MinuteInterval: use15MinuteInterval,
+        use20MinuteSchedule: use20MinuteSchedule,
+        showBestOfBrazilImage: showBestOfBrazilImage
+      });
+      await autoSaveLinks();
+      await autoSavePaymentConfig();
+
+      // Marcar quiz como completo no banco de dados
+      if (establishment?.id) {
+        const { error } = await supabase
+          .from('establishments')
+          .update({ quiz_completed: true })
+          .eq('id', establishment.id);
+
+        if (error) {
+          console.error('Erro ao marcar quiz como completo:', error);
+        } else {
+          setQuizCompleted(true);
+          setIsNewUser(false); // Não mostrar mais o quiz
+        }
+      }
+
+      // Limpar progresso do quiz do localStorage (quiz completo)
+      if (establishment?.id) {
+        localStorage.removeItem(`quiz_progress_${establishment.id}`);
+      }
+
+      toast('Configurações salvas com sucesso! Agora vamos configurar seus profissionais.', 'success');
+
+      // Avançar para a próxima etapa (Profissionais)
+      setTimeout(() => {
+        setActiveTab('professionals');
+      }, 1000);
+    } catch (error) {
+      console.error('Erro ao salvar configurações:', error);
+      toast('Erro ao salvar configurações. Tente novamente.', 'error');
     }
   };
 
@@ -7708,6 +8079,12 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  // Função helper para mostrar modal de informações (mobile)
+  const showInfoModalFunc = (title: string, content: string) => {
+    setInfoModalContent({ title, content });
+    setShowInfoModal(true);
+  };
+
   // ✅ Função customizada para mudança de tab com validação automática
   const handleTabChange = (tab: string) => {
     console.log('🔄 Tentando mudar para tab:', tab);
@@ -9780,6 +10157,28 @@ Estamos te aguardando! 😎✂️`;
 
               {activeTab === 'settings' && (
                 <div className="space-y-6 w-full">
+                  {/* Quiz Passo-a-Passo para Novos Usuários (só aparece se não foi completado) */}
+                  {isNewUser && !quizCompleted && (
+                    <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-4 mb-6 text-white">
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-xl font-bold">Configuração Passo-a-Passo</h2>
+                        <div className="text-sm">
+                          Etapa {quizStep} de 10
+                        </div>
+                      </div>
+                      <div className="w-full bg-white/20 rounded-full h-2 mb-4">
+                        <div
+                          className="bg-white rounded-full h-2 transition-all duration-300"
+                          style={{ width: `${(quizStep / 10) * 100}%` }}
+                        ></div>
+                      </div>
+                      {quizAlertMessage && (
+                        <div className="mb-4 p-3 bg-red-500 rounded-lg text-white font-semibold">
+                          ⚠️ {quizAlertMessage}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {/* Validade Agendei Fácil */}
                   {establishment?.id && (
                     <ValidityDisplay establishmentId={establishment.id} />
@@ -9844,123 +10243,200 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Informações Básicas */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 mb-6">
-                    <h2 className="text-xl font-semibold mb-4">Informações Básicas</h2>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Nome do Estabelecimento</label>
-                        <input
-                          type="text"
-                          value={establishment?.name || ''}
-                          onChange={(e) => handleInputChange('name', e.target.value)}
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-
-                      {/* Logo do Estabelecimento */}
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Logo do Estabelecimento</label>
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                          <div className="relative w-24 h-24 flex-shrink-0">
-                            <div className="w-24 h-24 rounded-full overflow-hidden bg-[#242628] border-2 border-dashed border-gray-700">
-                              {establishment?.logo_url ? (
-                                <div className="relative h-full">
-                                  <img
-                                    src={establishment.logo_url}
-                                    alt="Logo"
-                                    className="w-full h-full object-cover"
-                                  />
-                                  <button
-                                    onClick={() => handleRemoveLogo()}
-                                    className="absolute top-1 right-1 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                                  >
-                                    <Trash2 className="h-3 w-3 text-white" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <img
-                                  src="/logoagendamento.png"
-                                  alt="Logo padrão"
-                                  className="w-full h-full object-cover"
-                                />
-                              )}
-                            </div>
-                            <label className="absolute bottom-0 right-0 p-1 bg-primary rounded-full cursor-pointer hover:bg-primary/80 transition-colors">
-                              <Plus className="h-4 w-4 text-white" />
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={handleLogoChange}
-                                className="hidden"
-                              />
-                            </label>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-gray-400">
-                              Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos.
-                              <br />
-                              Recomendamos uma imagem quadrada de pelo menos 200x200 pixels.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Descrição</label>
-                        <textarea
-                          value={establishment?.description || ''}
-                          onChange={(e) => handleInputChange('description', e.target.value)}
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
-                          rows={4}
-                        />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <label className="block text-sm font-medium">Senha de 4 dígitos para configurações</label>
-                          <span className="text-sm text-yellow-500 flex items-center gap-1">
-                            <AlertTriangle className="h-4 w-4" />
-                            Senhas salvas aqui servem para abrir (todos os profissionais/alterar senha de cada profissional/trocar % do profissional/cancelar agendamentos do dashboard/e para entrar nas config).
-                          </span>
-                        </div>
-                        <div className="flex gap-2">
+                  {/* Informações Básicas - Apenas para usuários antigos OU etapa 1 do quiz */}
+                  {(!isNewUser || (isNewUser && quizStep === 1)) && (
+                    <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 mb-6">
+                      <h2 className="text-xl font-semibold mb-4">Informações Básicas</h2>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Nome do Estabelecimento</label>
                           <input
-                            type="password"
-                            maxLength={4}
-                            value={pinPassword}
-                            onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                            placeholder="Digite uma senha de 4 dígitos"
+                            type="text"
+                            value={establishment?.name || ''}
+                            onChange={(e) => handleInputChange('name', e.target.value)}
                             className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
                           />
-                          <button
-                            onClick={handleSavePin}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                          >
-                            Salvar Senha
-                          </button>
                         </div>
-                        <p className="text-sm text-gray-400 mt-1">
-                          {establishment?.pin_password && establishment.pin_password !== '0000' ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
-                        </p>
+
+                        {/* Logo do Estabelecimento */}
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Logo do Estabelecimento</label>
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                            <div className="relative w-24 h-24 flex-shrink-0">
+                              <div className="w-24 h-24 rounded-full overflow-hidden bg-[#242628] border-2 border-dashed border-gray-700">
+                                {establishment?.logo_url ? (
+                                  <div className="relative h-full">
+                                    <img
+                                      src={establishment.logo_url}
+                                      alt="Logo"
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <button
+                                      onClick={() => handleRemoveLogo()}
+                                      className="absolute top-1 right-1 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                    >
+                                      <Trash2 className="h-3 w-3 text-white" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <img
+                                    src="/logoagendamento.png"
+                                    alt="Logo padrão"
+                                    className="w-full h-full object-cover"
+                                  />
+                                )}
+                              </div>
+                              <label className="absolute bottom-0 right-0 p-1 bg-primary rounded-full cursor-pointer hover:bg-primary/80 transition-colors">
+                                <Plus className="h-4 w-4 text-white" />
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                  onChange={handleLogoChange}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="hidden sm:block text-sm text-gray-400">
+                                Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos.
+                                <br />
+                                Recomendamos uma imagem quadrada de pelo menos 200x200 pixels.
+                              </p>
+                              <button
+                                onClick={() => showInfoModalFunc(
+                                  'Logo do Estabelecimento',
+                                  'Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos. Recomendamos uma imagem quadrada de pelo menos 200x200 pixels.'
+                                )}
+                                className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                              >
+                                <HelpCircle className="h-3 w-3" />
+                                Ver informações
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Descrição</label>
+                          <textarea
+                            value={establishment?.description || ''}
+                            onChange={(e) => handleInputChange('description', e.target.value)}
+                            className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                            rows={4}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+                            <label className="block text-sm font-medium">Senha de 4 dígitos para configurações</label>
+                            <span className="hidden sm:flex text-sm text-yellow-500 items-center gap-1">
+                              <AlertTriangle className="h-4 w-4" />
+                              Senhas salvas aqui servem para abrir (todos os profissionais/alterar senha de cada profissional/trocar % do profissional/cancelar agendamentos do dashboard/e para entrar nas config).
+                            </span>
+                            <button
+                              onClick={() => showInfoModalFunc(
+                                'Senha de 4 dígitos para configurações',
+                                'Senhas salvas aqui servem para abrir (todos os profissionais/alterar senha de cada profissional/trocar % do profissional/cancelar agendamentos do dashboard/e para entrar nas config).'
+                              )}
+                              className="sm:hidden text-xs text-yellow-400 hover:text-yellow-300 underline flex items-center gap-1"
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Ver informações
+                            </button>
+                          </div>
+                          <div className="flex gap-2">
+                            <input
+                              type="password"
+                              maxLength={4}
+                              value={pinPassword}
+                              onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                              placeholder="Digite uma senha de 4 dígitos"
+                              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                            />
+                            <button
+                              onClick={handleSavePin}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                              Salvar Senha
+                            </button>
+                          </div>
+                          <p className="text-sm text-gray-400 mt-1">
+                            {establishment?.pin_password && establishment.pin_password !== '0000' ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Seção de Comodidades */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                    <h3 className="text-lg font-medium text-white mb-4">Comodidades/Oque seu estabelecimento oferece</h3>
-                    <p className="text-sm text-gray-400 mb-4">
-                      Selecione as comodidades disponíveis no seu estabelecimento:
-                    </p>
-                    <div className="space-y-4">
-                      {/* Wi-fi + Senha + Nome da Rede */}
-                      <div className="space-y-2">
-                        <label className="inline-flex items-center space-x-2">
+                  {/* Seção de Comodidades - Etapa 1 do Quiz */}
+                  {(!isNewUser || quizStep === 1) && (
+                    <div id="quiz-section-comodidades" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                      <h3 className="text-lg font-medium text-white mb-4">
+                        {isNewUser && quizStep === 1 ? '1. Comodidades' : 'Comodidades/Oque seu estabelecimento oferece'}
+                      </h3>
+                      <p className="text-sm text-gray-400 mb-4">
+                        Selecione as comodidades disponíveis no seu estabelecimento:
+                      </p>
+                      <div className="space-y-4">
+                        {/* Wi-fi + Senha + Nome da Rede */}
+                        <div className="space-y-2">
+                          <label className="inline-flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={hasWifi}
+                              onChange={(e) => {
+                                setHasWifi(e.target.checked);
+                                if (amenitiesAutoSaveTimeoutRef.current) {
+                                  clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                }
+                                amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                  autoSaveAmenities();
+                                }, 1000);
+                              }}
+                              className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                            />
+                            <span className="text-white">Wi-fi</span>
+                          </label>
+                          {hasWifi && (
+                            <div className="flex flex-col sm:flex-row gap-3 ml-7">
+                              <input
+                                type="text"
+                                placeholder="Senha do Wi-Fi"
+                                value={wifiPassword}
+                                onChange={(e) => {
+                                  setWifiPassword(e.target.value);
+                                  if (amenitiesAutoSaveTimeoutRef.current) {
+                                    clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                  }
+                                  amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                    autoSaveAmenities();
+                                  }, 1000);
+                                }}
+                                className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
+                              />
+                              <input
+                                type="text"
+                                placeholder="Nome da rede (ex: Barbearia WiFi)"
+                                value={wifiNetworkName}
+                                onChange={(e) => {
+                                  setWifiNetworkName(e.target.value);
+                                  if (amenitiesAutoSaveTimeoutRef.current) {
+                                    clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                  }
+                                  amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                    autoSaveAmenities();
+                                  }, 1000);
+                                }}
+                                className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <label className="flex items-center space-x-2">
                           <input
                             type="checkbox"
-                            checked={hasWifi}
+                            checked={hasParking}
                             onChange={(e) => {
-                              setHasWifi(e.target.checked);
+                              setHasParking(e.target.checked);
                               if (amenitiesAutoSaveTimeoutRef.current) {
                                 clearTimeout(amenitiesAutoSaveTimeoutRef.current);
                               }
@@ -9970,1387 +10446,1625 @@ Estamos te aguardando! 😎✂️`;
                             }}
                             className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                           />
-                          <span className="text-white">Wi-fi</span>
+                          <span className="text-white">Estacionamento</span>
                         </label>
-                        {hasWifi && (
-                          <div className="flex flex-col sm:flex-row gap-3 ml-7">
-                            <input
-                              type="text"
-                              placeholder="Senha do Wi-Fi"
-                              value={wifiPassword}
-                              onChange={(e) => {
-                                setWifiPassword(e.target.value);
-                                if (amenitiesAutoSaveTimeoutRef.current) {
-                                  clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                                }
-                                amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                                  autoSaveAmenities();
-                                }, 1000);
-                              }}
-                              className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Nome da rede (ex: Barbearia WiFi)"
-                              value={wifiNetworkName}
-                              onChange={(e) => {
-                                setWifiNetworkName(e.target.value);
-                                if (amenitiesAutoSaveTimeoutRef.current) {
-                                  clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                                }
-                                amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                                  autoSaveAmenities();
-                                }, 1000);
-                              }}
-                              className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-primary"
-                            />
-                          </div>
-                        )}
-                      </div>
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={hasParking}
-                          onChange={(e) => {
-                            setHasParking(e.target.checked);
-                            if (amenitiesAutoSaveTimeoutRef.current) {
-                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                            }
-                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveAmenities();
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                        />
-                        <span className="text-white">Estacionamento</span>
-                      </label>
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={hasAccessibility}
-                          onChange={(e) => {
-                            setHasAccessibility(e.target.checked);
-                            if (amenitiesAutoSaveTimeoutRef.current) {
-                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                            }
-                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveAmenities();
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                        />
-                        <span className="text-white">Acessibilidade</span>
-                      </label>
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={hasAirConditioning}
-                          onChange={(e) => {
-                            setHasAirConditioning(e.target.checked);
-                            if (amenitiesAutoSaveTimeoutRef.current) {
-                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                            }
-                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveAmenities();
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                        />
-                        <span className="text-white">Local Climatizado</span>
-                      </label>
-
-                      <div className="ml-7 mt-2 mb-2">
-                        <span className="text-primary font-semibold text-sm">agendamentos dos clientes</span>
-                      </div>
-
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={requireCancellationRequest}
-                          onChange={(e) => {
-                            setRequireCancellationRequest(e.target.checked);
-                            if (amenitiesAutoSaveTimeoutRef.current) {
-                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                            }
-                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveAmenities();
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                        />
-                        <div className="flex flex-col">
-                          <span className="text-white">Cancelamento</span>
-                          <span className="text-xs text-gray-400">
-                            Ao ativar essa opção seus clientes não podem agendar e depois cancelar, mas sim terá um botão que o cliente clica e envia uma mensagem no seu WhatsApp com a mensagem "Olá, queria cancelar agendamento... motivo é"
-                          </span>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={preventSameDayReschedule}
-                          onChange={(e) => {
-                            setPreventSameDayReschedule(e.target.checked);
-                            if (amenitiesAutoSaveTimeoutRef.current) {
-                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                            }
-                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveAmenities();
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                        />
-                        <div className="flex flex-col">
-                          <span className="text-white">Clientes assinantes não podem desmarcar e remarcar no mesmo dia</span>
-                          <span className="text-xs text-gray-400">
-                            Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia. Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
-                          </span>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={requireCpf}
-                          onChange={(e) => {
-                            setRequireCpf(e.target.checked);
-                            if (amenitiesAutoSaveTimeoutRef.current) {
-                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                            }
-                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveAmenities();
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                        />
-                        <div className="flex flex-col">
-                          <span className="text-white">Pedir CPF antes do agendamento</span>
-                          <span className="text-xs text-gray-400">
-                            Se ativada, os clientes serão obrigados a informar o CPF durante o agendamento. Útil para estabelecimentos que emitem nota fiscal.
-                          </span>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={enableWhatsAppNotifications}
-                          onChange={(e) => {
-                            setEnableWhatsAppNotifications(e.target.checked);
-                            if (amenitiesAutoSaveTimeoutRef.current) {
-                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                            }
-                            amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveAmenities();
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                        />
-                        <div className="flex flex-col">
-                          <span className="text-white">Quero receber mensagem no WhatsApp após agendamentos ou cancelamentos de clientes</span>
-                          <span className="text-xs text-gray-400">
-                            Ao ativar essa opção, quando um cliente finalizar um agendamento, será exibida uma mensagem diferente no modal final, incentivando o cliente a confirmar o agendamento. Isso enviará uma notificação automática para seu WhatsApp com os detalhes do agendamento.
-                          </span>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center space-x-2 bg-[#2a2b2c] p-3 rounded-lg border border-gray-700">
-                        <input
-                          type="checkbox"
-                          checked={requireCancelPassword}
-                          onChange={async (e) => {
-                            const newValue = e.target.checked;
-                            console.log('🔍 Checkbox Senha Cancelamento alterado para:', newValue);
-
-                            // CANCELAR qualquer auto-save pendente para evitar sobrescrever
-                            if (amenitiesAutoSaveTimeoutRef.current) {
-                              clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                              amenitiesAutoSaveTimeoutRef.current = null;
-                            }
-
-                            // Atualizar o estado
-                            setRequireCancelPassword(newValue);
-
-                            // Salvar imediatamente para garantir
-                            if (establishment?.id) {
-                              try {
-                                const { error } = await supabase
-                                  .from('establishments')
-                                  .update({ require_cancel_password: newValue })
-                                  .eq('id', establishment.id);
-
-                                if (error) {
-                                  console.error('❌ Erro ao salvar require_cancel_password:', error);
-                                  console.error('❌ Erro completo:', JSON.stringify(error, null, 2));
-                                  toast(`Erro ao salvar: ${error.message}`, 'error');
-                                  // Reverter o estado se der erro
-                                  setRequireCancelPassword(!newValue);
-                                } else {
-                                  console.log('✅ require_cancel_password salvo com sucesso:', newValue);
-                                  toast('Configuração salva!', 'success');
-                                  // Atualizar o estado do establishment (usando type assertion para evitar erro de tipo)
-                                  setEstablishment({
-                                    ...establishment,
-                                    require_cancel_password: newValue
-                                  } as any);
-                                }
-                              } catch (err: any) {
-                                console.error('❌ Erro ao salvar:', err);
-                                toast('Erro ao salvar configuração', 'error');
-                                setRequireCancelPassword(!newValue);
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={hasAccessibility}
+                            onChange={(e) => {
+                              setHasAccessibility(e.target.checked);
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
                               }
-                            }
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                        />
-                        <div className="flex flex-col">
-                          <span className="text-white font-semibold">🔐 Senha de cancelamento</span>
-                          <span className="text-xs text-gray-400 mt-1">
-                            Ao ativar, será necessário digitar a senha ao cancelar um agendamento. A senha usada é a mesma "Senha de 4 dígitos para configurações" (configure acima). Se deixar desmarcado não pede senha ao cancelar.
-                          </span>
-                          {requireCancelPassword && (!establishment?.pin_password || establishment.pin_password === '0000') && (
-                            <span className="text-xs text-yellow-400 mt-1 font-semibold">
-                              ⚠️ Configure a senha acima primeiro!
-                            </span>
-                          )}
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Configuração de Intervalo */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
-                    <h3 className="text-lg font-medium text-white mb-4">Configuração de Horários</h3>
-                    <div className="space-y-4">
-                      <div className="flex items-start space-x-3">
-                        <input
-                          type="checkbox"
-                          id="use15MinuteInterval"
-                          checked={use15MinuteInterval}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            setUse15MinuteInterval(newValue);
-                            // Se ativar intervalo de 15 min, desativar horários de 20 em 20
-                            const newUse20MinuteSchedule = newValue ? false : use20MinuteSchedule;
-                            if (newValue) {
-                              setUse20MinuteSchedule(false);
-                            }
-                            if (scheduleConfigAutoSaveTimeoutRef.current) {
-                              clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                            }
-                            scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveScheduleConfig({
-                                use15MinuteInterval: newValue,
-                                use20MinuteSchedule: newUse20MinuteSchedule,
-                                showBestOfBrazilImage: showBestOfBrazilImage
-                              });
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                        />
-                        <div className="flex-1">
-                          <label htmlFor="use15MinuteInterval" className="block text-white font-medium mb-2">
-                            Horários com intervalo 15 min
-                          </label>
-                          <p className="text-sm text-gray-400 leading-relaxed">
-                            Ao selecionar essa opção, para seus clientes irá aparecer horários de 30 em 30 min exemplo, 09:00 \ 09:30 \ 10:00 \ 10:30 por ai vai, essa mudança se um cliente por exemplo escolher serviço seu que tem duração de 45 min e ele selecionar as 9:00 o horário das 9 até as 10:00 ficaram (Reservado) assim você tera 15 min de 'intervalo' entre o serviço e outro.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Configuração de horários de 20 em 20 minutos */}
-                      <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                        <input
-                          type="checkbox"
-                          id="use20MinuteSchedule"
-                          checked={use20MinuteSchedule}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            setUse20MinuteSchedule(newValue);
-                            // Se ativar horários de 20 em 20, desativar intervalo de 15 min
-                            const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
-                            if (newValue) {
-                              setUse15MinuteInterval(false);
-                            }
-                            if (scheduleConfigAutoSaveTimeoutRef.current) {
-                              clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                            }
-                            scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveScheduleConfig({
-                                use15MinuteInterval: newUse15MinuteInterval,
-                                use20MinuteSchedule: newValue,
-                                showBestOfBrazilImage: showBestOfBrazilImage
-                              });
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                        />
-                        <div className="flex-1">
-                          <label htmlFor="use20MinuteSchedule" className="block text-white font-medium mb-2">
-                            Mostrar horários de serviço de 20 em 20 min
-                          </label>
-                          <p className="text-sm text-gray-400 leading-relaxed">
-                            Ao selecionar essa opção, os horários disponíveis no booking serão exibidos de 20 em 20 minutos (exemplo: 09:20 / 09:40 / 10:00 / 10:20, e assim por diante).
-                          </p>
-                          <p className="text-sm text-yellow-400 mt-2 font-medium">
-                            ⚠️ Observação: não é possível ativar simultaneamente as opções de 20 em 20 min e de 30 em 30 min. Ambas têm a mesma função — a diferença é apenas o intervalo de exibição dos horários.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-3">
-                        <input
-                          type="checkbox"
-                          id="showBestOfBrazilImage"
-                          checked={showBestOfBrazilImage}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            setShowBestOfBrazilImage(newValue);
-                            if (scheduleConfigAutoSaveTimeoutRef.current) {
-                              clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                            }
-                            scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveScheduleConfig({
-                                use15MinuteInterval: use15MinuteInterval,
-                                use20MinuteSchedule: use20MinuteSchedule,
-                                showBestOfBrazilImage: newValue
-                              });
-                            }, 1000);
-                          }}
-                          className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded"
-                        />
-                        <label htmlFor="showBestOfBrazilImage" className="text-white font-medium">
-                          Melhor sistema de agendamentos do brasil
+                              amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveAmenities();
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                          />
+                          <span className="text-white">Acessibilidade</span>
                         </label>
-                      </div>
-                    </div>
-                  </div>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={hasAirConditioning}
+                            onChange={(e) => {
+                              setHasAirConditioning(e.target.checked);
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                              }
+                              amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveAmenities();
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                          />
+                          <span className="text-white">Local Climatizado</span>
+                        </label>
 
-                  {/* Horário de Funcionamento */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                    <h3 className="text-lg font-medium text-white mb-4">Horário de Funcionamento</h3>
+                        <div className="ml-7 mt-2 mb-2">
+                          <span className="text-primary font-semibold text-sm">agendamentos dos clientes</span>
+                        </div>
 
-                    {/* Alerta sobre intervalo */}
-                    <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
-                      <p className="text-sm text-yellow-200">
-                        <span className="font-semibold">⚠️ Atenção:</span> Se você não tira intervalo, então coloque seu horário de termino em <strong>"Fecha p/ Intervalo"</strong> que o sistema irá entender que você não tira intervalo.
-                      </p>
-                    </div>
-
-                    <div className="space-y-4">
-                      {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
-                        const hours = businessHours[day];
-                        return (
-                          <div key={day} className="bg-[#242628] p-4 rounded-lg space-y-3 border border-gray-700">
-                            {/* Cabeçalho do dia com checkbox */}
-                            <div className="flex items-center justify-between">
-                              <label className="inline-flex items-center">
-                                <input
-                                  type="checkbox"
-                                  checked={hours.enabled}
-                                  onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
-                                  className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-700 rounded"
-                                />
-                                <span className="ml-2 font-medium text-white">
-                                  {day === 'monday' ? 'Segunda-feira' :
-                                    day === 'tuesday' ? 'Terça-feira' :
-                                      day === 'wednesday' ? 'Quarta-feira' :
-                                        day === 'thursday' ? 'Quinta-feira' :
-                                          day === 'friday' ? 'Sexta-feira' :
-                                            day === 'saturday' ? 'Sábado' : 'Domingo'}
-                                </span>
-                              </label>
-                              {!hours.enabled && (
-                                <span className="text-sm text-gray-400 bg-[#1a1b1c] px-2 py-1 rounded">
-                                  Fechado
-                                </span>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={requireCancellationRequest}
+                            onChange={(e) => {
+                              setRequireCancellationRequest(e.target.checked);
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                              }
+                              amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveAmenities();
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                          />
+                          <div className="flex flex-col flex-1">
+                            <span className="text-white text-sm sm:text-base">Cancelamento</span>
+                            <span className="hidden sm:inline text-xs text-gray-400 mt-1">
+                              Ao ativar essa opção seus clientes não podem agendar e depois cancelar, mas sim terá um botão que o cliente clica e envia uma mensagem no seu WhatsApp com a mensagem "Olá, queria cancelar agendamento... motivo é"
+                            </span>
+                            <button
+                              onClick={() => showInfoModalFunc(
+                                'Cancelamento',
+                                'Ao ativar essa opção seus clientes não podem agendar e depois cancelar, mas sim terá um botão que o cliente clica e envia uma mensagem no seu WhatsApp com a mensagem "Olá, queria cancelar agendamento... motivo é"'
                               )}
-                            </div>
+                              className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                              Ver mais informações
+                            </button>
+                          </div>
+                        </label>
 
-                            {/* Horários - Layout responsivo */}
-                            {hours.enabled && (
-                              <div className="space-y-3">
-                                {/* Período da manhã */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                  <div className="space-y-2">
-                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                      Abertura
-                                    </label>
-                                    <TimeSelector
-                                      value={hours.open1}
-                                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
-                                      disabled={!hours.enabled}
-                                      className="w-full"
-                                      intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                      Fecha p/ Intervalo
-                                    </label>
-                                    <TimeSelector
-                                      value={hours.close1}
-                                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
-                                      disabled={!hours.enabled}
-                                      className="w-full"
-                                      intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                    />
-                                  </div>
-                                </div>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={preventSameDayReschedule}
+                            onChange={(e) => {
+                              setPreventSameDayReschedule(e.target.checked);
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                              }
+                              amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveAmenities();
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                          />
+                          <div className="flex flex-col flex-1">
+                            <span className="text-white text-sm sm:text-base">Clientes assinantes não podem desmarcar e remarcar no mesmo dia</span>
+                            <span className="hidden sm:inline text-xs text-gray-400 mt-1">
+                              Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia. Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
+                            </span>
+                            <button
+                              onClick={() => showInfoModalFunc(
+                                'Clientes assinantes não podem desmarcar e remarcar no mesmo dia',
+                                'Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia. Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.'
+                              )}
+                              className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                              Ver mais informações
+                            </button>
+                          </div>
+                        </label>
 
-                                {/* Período da tarde */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                  <div className="space-y-2">
-                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                      Reabertura
-                                    </label>
-                                    <TimeSelector
-                                      value={hours.open2 || null}
-                                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
-                                      disabled={!hours.enabled}
-                                      className="w-full"
-                                      intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                      Fechamento
-                                    </label>
-                                    <TimeSelector
-                                      value={hours.close2 || null}
-                                      onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
-                                      disabled={!hours.enabled}
-                                      className="w-full"
-                                      intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                    />
-                                  </div>
-                                </div>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={requireCpf}
+                            onChange={(e) => {
+                              setRequireCpf(e.target.checked);
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                              }
+                              amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveAmenities();
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                          />
+                          <div className="flex flex-col flex-1">
+                            <span className="text-white text-sm sm:text-base">Pedir CPF antes do agendamento</span>
+                            <span className="hidden sm:inline text-xs text-gray-400 mt-1">
+                              Se ativada, os clientes serão obrigados a informar o CPF durante o agendamento. Útil para estabelecimentos que emitem nota fiscal.
+                            </span>
+                            <button
+                              onClick={() => showInfoModalFunc(
+                                'Pedir CPF antes do agendamento',
+                                'Se ativada, os clientes serão obrigados a informar o CPF durante o agendamento. Útil para estabelecimentos que emitem nota fiscal.'
+                              )}
+                              className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                              Ver mais informações
+                            </button>
+                          </div>
+                        </label>
 
-                                {/* Resumo visual dos horários */}
-                                <div className="mt-3 p-2 bg-[#1a1b1c] rounded text-sm text-primary">
-                                  <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} {hours.open2 && hours.close2 ? `e ${hours.open2} - ${hours.close2}` : ''}
-                                </div>
-                              </div>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={enableWhatsAppNotifications}
+                            onChange={(e) => {
+                              setEnableWhatsAppNotifications(e.target.checked);
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                              }
+                              amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveAmenities();
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                          />
+                          <div className="flex flex-col flex-1">
+                            <span className="text-white text-sm sm:text-base">Quero receber mensagem no WhatsApp após agendamentos ou cancelamentos de clientes</span>
+                            <span className="hidden sm:inline text-xs text-gray-400 mt-1">
+                              Ao ativar essa opção, quando um cliente finalizar um agendamento, será exibida uma mensagem diferente no modal final, incentivando o cliente a confirmar o agendamento. Isso enviará uma notificação automática para seu WhatsApp com os detalhes do agendamento.
+                            </span>
+                            <button
+                              onClick={() => showInfoModalFunc(
+                                'Notificações WhatsApp',
+                                'Ao ativar essa opção, quando um cliente finalizar um agendamento, será exibida uma mensagem diferente no modal final, incentivando o cliente a confirmar o agendamento. Isso enviará uma notificação automática para seu WhatsApp com os detalhes do agendamento.'
+                              )}
+                              className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                              Ver mais informações
+                            </button>
+                          </div>
+                        </label>
+
+                        <label className="flex items-center space-x-2 bg-[#2a2b2c] p-3 rounded-lg border border-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={requireCancelPassword}
+                            onChange={async (e) => {
+                              const newValue = e.target.checked;
+                              console.log('🔍 Checkbox Senha Cancelamento alterado para:', newValue);
+
+                              // CANCELAR qualquer auto-save pendente para evitar sobrescrever
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                amenitiesAutoSaveTimeoutRef.current = null;
+                              }
+
+                              // Atualizar o estado
+                              setRequireCancelPassword(newValue);
+
+                              // Salvar imediatamente para garantir
+                              if (establishment?.id) {
+                                try {
+                                  const { error } = await supabase
+                                    .from('establishments')
+                                    .update({ require_cancel_password: newValue })
+                                    .eq('id', establishment.id);
+
+                                  if (error) {
+                                    console.error('❌ Erro ao salvar require_cancel_password:', error);
+                                    console.error('❌ Erro completo:', JSON.stringify(error, null, 2));
+                                    toast(`Erro ao salvar: ${error.message}`, 'error');
+                                    // Reverter o estado se der erro
+                                    setRequireCancelPassword(!newValue);
+                                  } else {
+                                    console.log('✅ require_cancel_password salvo com sucesso:', newValue);
+                                    toast('Configuração salva!', 'success');
+                                    // Atualizar o estado do establishment (usando type assertion para evitar erro de tipo)
+                                    setEstablishment({
+                                      ...establishment,
+                                      require_cancel_password: newValue
+                                    } as any);
+                                  }
+                                } catch (err: any) {
+                                  console.error('❌ Erro ao salvar:', err);
+                                  toast('Erro ao salvar configuração', 'error');
+                                  setRequireCancelPassword(!newValue);
+                                }
+                              }
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                          />
+                          <div className="flex flex-col flex-1">
+                            <span className="text-white font-semibold text-sm sm:text-base">🔐 Senha de cancelamento</span>
+                            <span className="hidden sm:inline text-xs text-gray-400 mt-1">
+                              Ao ativar, será necessário digitar a senha ao cancelar um agendamento. A senha usada é a mesma "Senha de 4 dígitos para configurações" (configure acima). Se deixar desmarcado não pede senha ao cancelar.
+                            </span>
+                            <button
+                              onClick={() => showInfoModalFunc(
+                                '🔐 Senha de cancelamento',
+                                'Ao ativar, será necessário digitar a senha ao cancelar um agendamento. A senha usada é a mesma "Senha de 4 dígitos para configurações" (configure acima). Se deixar desmarcado não pede senha ao cancelar.'
+                              )}
+                              className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                              Ver mais informações
+                            </button>
+                            {requireCancelPassword && (!establishment?.pin_password || establishment.pin_password === '0000') && (
+                              <span className="text-xs text-yellow-400 mt-1 font-semibold">
+                                ⚠️ Configure a senha acima primeiro!
+                              </span>
                             )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Fotos Personalizadas */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                    <h3 className="text-lg font-medium text-white mb-4">Fotos do Estabelecimento</h3>
-                    <p className="text-sm text-gray-400 mb-2">
-                      Adicione até 7 fotos do seu estabelecimento que serão exibidas para os clientes
-                    </p>
-
-                    {/* Configuração do Carrossel */}
-                    <div className="mb-6 p-4 bg-[#2a2b2c] rounded-lg border border-gray-700">
-                      <h4 className="text-md font-medium text-white mb-3">Configuração do Carrossel</h4>
-                      <p className="text-sm text-gray-400 mb-4">
-                        Escolha onde o carrossel de fotos deve aparecer na página de agendamentos:
-                      </p>
-                      <div className="space-y-3">
-                        <label className="flex items-center space-x-3 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="carouselPosition"
-                            value="behind"
-                            checked={carouselPosition === 'behind'}
-                            onChange={(e) => setCarouselPosition(e.target.value as 'behind' | 'below')}
-                            className="form-radio h-4 w-4 text-primary bg-[#2a2b2c] border-gray-600"
-                          />
-                          <div>
-                            <span className="text-white font-medium text-sm">Atrás do perfil</span>
-                            <p className="text-xs text-gray-400">O carrossel aparece como fundo atrás da logo e informações do estabelecimento</p>
-                          </div>
-                        </label>
-
-                        <label className="flex items-center space-x-3 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="carouselPosition"
-                            value="below"
-                            checked={carouselPosition === 'below'}
-                            onChange={(e) => setCarouselPosition(e.target.value as 'behind' | 'below')}
-                            className="form-radio h-4 w-4 text-primary bg-[#2a2b2c] border-gray-600"
-                          />
-                          <div>
-                            <span className="text-white font-medium text-sm">Embaixo do perfil</span>
-                            <p className="text-xs text-gray-400">O carrossel aparece como uma seção separada abaixo das informações do estabelecimento</p>
-                          </div>
                         </label>
                       </div>
+                      {/* Botão Próximo - Etapa 1 */}
+                      {isNewUser && quizStep === 1 && (
+                        <div className="mt-6 flex justify-end">
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4 mb-6">
-                      <p className="text-yellow-500 text-sm">
-                        ⚠️ Caso a imagem não aparecer, ou ficar mal otimizada é porque o tamanho da sua imagem está errado. Envie para nós no whatsapp, que iremos ajustar para você ⚠️
-                      </p>
-                    </div>
+                  )}
 
-                    <div className="mb-4 flex justify-end">
-                      <button
-                        onClick={() => {
-                          // Limpar cache do PWA
-                          if ('caches' in window) {
-                            caches.keys().then(names => {
-                              names.forEach(name => {
-                                caches.delete(name);
-                              });
-                            });
-                          }
-                          // Limpar localStorage
-                          localStorage.clear();
-                          // Recarregar página
-                          window.location.reload();
-                        }}
-                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm transition-colors"
-                      >
-                        🔄 Limpar Cache Mobile
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                      {/* Foto 1 */}
-                      <div>
-                        <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
-                          {customPhoto1Preview ? (
-                            <div className="relative h-full" key={`photo1-${forceUpdate}`}>
-                              <img
-                                src={customPhoto1Preview}
-                                alt="Foto 1"
-                                className="w-full h-full object-cover"
-                              />
-                              <button
-                                onClick={async () => {
-                                  setCustomPhoto1(null);
-                                  setCustomPhoto1Preview(null);
-                                  // Salvar a remoção no banco imediatamente
-                                  if (establishment) {
-                                    try {
-                                      await supabase
-                                        .from('establishments')
-                                        .update({ custom_photo_1_url: null })
-                                        .eq('id', establishment.id);
-                                    } catch (error) {
-                                      console.error('Erro ao remover foto 1:', error);
-                                    }
-                                  }
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="flex flex-col items-center justify-center h-full cursor-pointer">
-                              <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
-                              <span className="text-sm text-gray-400">Foto 1</span>
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={(e) => handleCustomPhotoChange(1, e)}
-                                className="hidden"
-                              />
+                  {/* Configuração de Intervalo - Etapa 2 do Quiz */}
+                  {(!isNewUser || quizStep === 2) && (
+                    <div id="quiz-section-horarios" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
+                      <h3 className="text-lg font-medium text-white mb-4">
+                        {isNewUser && quizStep === 2 ? '2. Configuração de Horários' : 'Configuração de Horários'}
+                      </h3>
+                      <div className="space-y-4">
+                        <div className="flex items-start space-x-3">
+                          <input
+                            type="checkbox"
+                            id="use15MinuteInterval"
+                            checked={use15MinuteInterval}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setUse15MinuteInterval(newValue);
+                              // Se ativar intervalo de 15 min, desativar horários de 20 em 20
+                              const newUse20MinuteSchedule = newValue ? false : use20MinuteSchedule;
+                              if (newValue) {
+                                setUse20MinuteSchedule(false);
+                              }
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  use15MinuteInterval: newValue,
+                                  use20MinuteSchedule: newUse20MinuteSchedule,
+                                  showBestOfBrazilImage: showBestOfBrazilImage
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                          />
+                          <div className="flex-1">
+                            <label htmlFor="use15MinuteInterval" className="block text-white font-medium mb-2">
+                              Horários com intervalo 15 min
                             </label>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Foto 2 */}
-                      <div>
-                        <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
-                          {customPhoto2Preview ? (
-                            <div className="relative h-full">
-                              <img
-                                src={customPhoto2Preview}
-                                alt="Foto 2"
-                                className="w-full h-full object-cover"
-                              />
-                              <button
-                                onClick={async () => {
-                                  setCustomPhoto2(null);
-                                  setCustomPhoto2Preview(null);
-                                  // Salvar a remoção no banco imediatamente
-                                  if (establishment) {
-                                    try {
-                                      await supabase
-                                        .from('establishments')
-                                        .update({ custom_photo_2_url: null })
-                                        .eq('id', establishment.id);
-                                    } catch (error) {
-                                      console.error('Erro ao remover foto 2:', error);
-                                    }
-                                  }
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="flex flex-col items-center justify-center h-full cursor-pointer">
-                              <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
-                              <span className="text-sm text-gray-400">Foto 2</span>
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={(e) => handleCustomPhotoChange(2, e)}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Foto 3 */}
-                      <div>
-                        <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
-                          {customPhoto3Preview ? (
-                            <div className="relative h-full">
-                              <img
-                                src={customPhoto3Preview}
-                                alt="Foto 3"
-                                className="w-full h-full object-cover"
-                              />
-                              <button
-                                onClick={async () => {
-                                  setCustomPhoto3(null);
-                                  setCustomPhoto3Preview(null);
-                                  // Salvar a remoção no banco imediatamente
-                                  if (establishment) {
-                                    try {
-                                      await supabase
-                                        .from('establishments')
-                                        .update({ custom_photo_3_url: null })
-                                        .eq('id', establishment.id);
-                                    } catch (error) {
-                                      console.error('Erro ao remover foto 3:', error);
-                                    }
-                                  }
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="flex flex-col items-center justify-center h-full cursor-pointer">
-                              <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
-                              <span className="text-sm text-gray-400">Foto 3</span>
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={(e) => handleCustomPhotoChange(3, e)}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Foto 4 */}
-                      <div>
-                        <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
-                          {customPhoto4Preview ? (
-                            <div className="relative h-full" key={`photo4-${forceUpdate}`}>
-                              <img
-                                src={customPhoto4Preview}
-                                alt="Foto 4"
-                                className="w-full h-full object-cover"
-                              />
-                              <button
-                                onClick={async () => {
-                                  setCustomPhoto4(null);
-                                  setCustomPhoto4Preview(null);
-                                  // Salvar a remoção no banco imediatamente
-                                  if (establishment) {
-                                    try {
-                                      await supabase
-                                        .from('establishments')
-                                        .update({ custom_photo_4_url: null })
-                                        .eq('id', establishment.id);
-                                    } catch (error) {
-                                      console.error('Erro ao remover foto 4:', error);
-                                    }
-                                  }
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="flex flex-col items-center justify-center h-full cursor-pointer">
-                              <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
-                              <span className="text-sm text-gray-400">Foto 4</span>
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={(e) => handleCustomPhotoChange(4, e)}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Foto 5 */}
-                      <div>
-                        <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
-                          {customPhoto5Preview ? (
-                            <div className="relative h-full" key={`photo5-${forceUpdate}`}>
-                              <img
-                                src={customPhoto5Preview}
-                                alt="Foto 5"
-                                className="w-full h-full object-cover"
-                              />
-                              <button
-                                onClick={async () => {
-                                  setCustomPhoto5(null);
-                                  setCustomPhoto5Preview(null);
-                                  // Salvar a remoção no banco imediatamente
-                                  if (establishment) {
-                                    try {
-                                      await supabase
-                                        .from('establishments')
-                                        .update({ custom_photo_5_url: null })
-                                        .eq('id', establishment.id);
-                                    } catch (error) {
-                                      console.error('Erro ao remover foto 5:', error);
-                                    }
-                                  }
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="flex flex-col items-center justify-center h-full cursor-pointer">
-                              <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
-                              <span className="text-sm text-gray-400">Foto 5</span>
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={(e) => handleCustomPhotoChange(5, e)}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Foto 6 */}
-                      <div>
-                        <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
-                          {customPhoto6Preview ? (
-                            <div className="relative h-full" key={`photo6-${forceUpdate}`}>
-                              <img
-                                src={customPhoto6Preview}
-                                alt="Foto 6"
-                                className="w-full h-full object-cover"
-                              />
-                              <button
-                                onClick={async () => {
-                                  setCustomPhoto6(null);
-                                  setCustomPhoto6Preview(null);
-                                  // Salvar a remoção no banco imediatamente
-                                  if (establishment) {
-                                    try {
-                                      await supabase
-                                        .from('establishments')
-                                        .update({ custom_photo_6_url: null })
-                                        .eq('id', establishment.id);
-                                    } catch (error) {
-                                      console.error('Erro ao remover foto 6:', error);
-                                    }
-                                  }
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="flex flex-col items-center justify-center h-full cursor-pointer">
-                              <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
-                              <span className="text-sm text-gray-400">Foto 6</span>
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={(e) => handleCustomPhotoChange(6, e)}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Foto 7 */}
-                      <div>
-                        <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
-                          {customPhoto7Preview ? (
-                            <div className="relative h-full" key={`photo7-${forceUpdate}`}>
-                              <img
-                                src={customPhoto7Preview}
-                                alt="Foto 7"
-                                className="w-full h-full object-cover"
-                              />
-                              <button
-                                onClick={async () => {
-                                  setCustomPhoto7(null);
-                                  setCustomPhoto7Preview(null);
-                                  // Salvar a remoção no banco imediatamente
-                                  if (establishment) {
-                                    try {
-                                      await supabase
-                                        .from('establishments')
-                                        .update({ custom_photo_7_url: null })
-                                        .eq('id', establishment.id);
-                                    } catch (error) {
-                                      console.error('Erro ao remover foto 7:', error);
-                                    }
-                                  }
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="flex flex-col items-center justify-center h-full cursor-pointer">
-                              <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
-                              <span className="text-sm text-gray-400">Foto 7</span>
-                              <input
-                                type="file"
-                                accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                onChange={(e) => handleCustomPhotoChange(7, e)}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-
-                  {/* Serviços - Apenas para estabelecimentos antigos */}
-                  {(() => {
-                    // Data de corte: estabelecimentos criados antes de hoje mantêm a opção
-                    // Estabelecimentos criados a partir de hoje (início do dia) não terão mais esta opção
-                    const cutoffDate = new Date(); // Data atual (hoje)
-                    cutoffDate.setHours(0, 0, 0, 0); // Início do dia de hoje
-
-                    // Verificar se o estabelecimento foi criado antes do início de hoje
-                    const isOldEstablishment = establishment?.created_at
-                      ? parseISO(establishment.created_at) < cutoffDate
-                      : true; // Se não tiver created_at, assume que é antigo (mantém compatibilidade)
-
-                    // Só mostra a seção de Serviços se for um estabelecimento antigo
-                    if (!isOldEstablishment) {
-                      return null;
-                    }
-
-                    return (
-                      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                        <h3 className="text-lg font-medium text-white mb-4">Serviços</h3>
-                        <p className="text-sm text-gray-400 mb-6">
-                          Adicione os serviços oferecidos pelo seu estabelecimento
-                        </p>
-
-                        {/* Lista de Serviços Cadastrados */}
-                        {servicesWithPrices.length > 0 && (
-                          <div className="mb-4 border-b border-gray-800 pb-4">
-                            <h4 className="text-md font-semibold text-gray-300 mb-3">Serviços Cadastrados:</h4>
-                            <p className="text-sm text-gray-400 mb-3">
-                              Arraste os serviços para reordenar a lista
+                            <p className="text-sm text-gray-400 leading-relaxed">
+                              Ao selecionar essa opção, para seus clientes irá aparecer horários de 30 em 30 min exemplo, 09:00 \ 09:30 \ 10:00 \ 10:30 por ai vai, essa mudança se um cliente por exemplo escolher serviço seu que tem duração de 45 min e ele selecionar as 9:00 o horário das 9 até as 10:00 ficaram (Reservado) assim você tera 15 min de 'intervalo' entre o serviço e outro.
                             </p>
-                            <DraggableServiceList
-                              services={servicesWithPrices}
-                              onReorder={(newServices) => {
-                                setServicesWithPrices(newServices);
-                                // Salvar automaticamente a nova ordem
-                                if (establishment) {
-                                  saveServicesOrder(newServices);
-                                }
-                              }}
-                              isSaving={isSavingServicesOrder}
-                            />
                           </div>
-                        )}
+                        </div>
 
-                        <ServiceForm
-                          services={servicesWithPrices}
-                          onChange={setServicesWithPrices}
-                        />
-                      </div>
-                    );
-                  })()}
+                        {/* Configuração de horários de 20 em 20 minutos */}
+                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <input
+                            type="checkbox"
+                            id="use20MinuteSchedule"
+                            checked={use20MinuteSchedule}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setUse20MinuteSchedule(newValue);
+                              // Se ativar horários de 20 em 20, desativar intervalo de 15 min
+                              const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
+                              if (newValue) {
+                                setUse15MinuteInterval(false);
+                              }
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  use15MinuteInterval: newUse15MinuteInterval,
+                                  use20MinuteSchedule: newValue,
+                                  showBestOfBrazilImage: showBestOfBrazilImage
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                          />
+                          <div className="flex-1">
+                            <label htmlFor="use20MinuteSchedule" className="block text-white font-medium mb-2">
+                              Mostrar horários de serviço de 20 em 20 min
+                            </label>
+                            <p className="text-sm text-gray-400 leading-relaxed">
+                              Ao selecionar essa opção, os horários disponíveis no booking serão exibidos de 20 em 20 minutos (exemplo: 09:20 / 09:40 / 10:00 / 10:20, e assim por diante).
+                            </p>
+                            <p className="text-sm text-yellow-400 mt-2 font-medium">
+                              ⚠️ Observação: não é possível ativar simultaneamente as opções de 20 em 20 min e de 30 em 30 min. Ambas têm a mesma função — a diferença é apenas o intervalo de exibição dos horários.
+                            </p>
+                          </div>
+                        </div>
 
-                  {/* Configurações do PIX */}
-                  <EstablishmentPixSettings
-                    establishment={establishment}
-                    onSave={handleSavePixSettings}
-                  />
-
-
-
-                  {/* Links Personalizados */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                    <h3 className="text-lg font-medium text-white mb-4">Links Personalizados</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-1 text-gray-400">Link para Avaliar (Google, etc.)</label>
-                        <input
-                          type="url"
-                          value={reviewLink}
-                          onChange={(e) => {
-                            setReviewLink(e.target.value);
-                            // ✅ Auto-save com debounce (1 segundo após parar de digitar)
-                            if (linksAutoSaveTimeoutRef.current) {
-                              clearTimeout(linksAutoSaveTimeoutRef.current);
-                            }
-                            linksAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveLinks();
-                            }, 1000);
-                          }}
-                          placeholder="Ex: https://g.page/sua-empresa/review"
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                        />
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="checkbox"
+                            id="showBestOfBrazilImage"
+                            checked={showBestOfBrazilImage}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setShowBestOfBrazilImage(newValue);
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  use15MinuteInterval: use15MinuteInterval,
+                                  use20MinuteSchedule: use20MinuteSchedule,
+                                  showBestOfBrazilImage: newValue
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded"
+                          />
+                          <label htmlFor="showBestOfBrazilImage" className="text-white font-medium">
+                            Melhor sistema de agendamentos do brasil
+                          </label>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1 text-gray-400">Link das Redes Sociais</label>
-                        <input
-                          type="url"
-                          value={socialMediaLink}
-                          onChange={(e) => {
-                            setSocialMediaLink(e.target.value);
-                            // ✅ Auto-save com debounce (1 segundo após parar de digitar)
-                            if (linksAutoSaveTimeoutRef.current) {
-                              clearTimeout(linksAutoSaveTimeoutRef.current);
-                            }
-                            linksAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveLinks();
-                            }, 1000);
-                          }}
-                          placeholder="Ex: https://instagram.com/seuperfil"
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1 text-gray-400">Link para Pagamento PIX</label>
-                        <input
-                          type="url"
-                          value={pixPaymentLink}
-                          onChange={(e) => {
-                            setPixPaymentLink(e.target.value);
-                            // ✅ Auto-save com debounce (1 segundo após parar de digitar)
-                            if (linksAutoSaveTimeoutRef.current) {
-                              clearTimeout(linksAutoSaveTimeoutRef.current);
-                            }
-                            linksAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveLinks();
-                            }, 1000);
-                          }}
-                          placeholder="Será preenchido automaticamente com sua chave PIX, ou digite um link personalizado"
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1 text-gray-400">Link para Local</label>
-                        <input
-                          type="url"
-                          value={locationLink}
-                          onChange={(e) => {
-                            setLocationLink(e.target.value);
-                            // ✅ Auto-save com debounce (1 segundo após parar de digitar)
-                            if (linksAutoSaveTimeoutRef.current) {
-                              clearTimeout(linksAutoSaveTimeoutRef.current);
-                            }
-                            linksAutoSaveTimeoutRef.current = setTimeout(() => {
-                              autoSaveLinks();
-                            }, 1000);
-                          }}
-                          placeholder="Ex: https://maps.google.com"
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                        />
-                      </div>
+                      {/* Botões de Navegação - Etapa 2 */}
+                      {isNewUser && quizStep === 2 && (
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={handleQuizPrevious}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                          >
+                            ← Anterior
+                          </button>
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
+
+                  {/* Horário de Funcionamento - Etapa 3 do Quiz */}
+                  {(!isNewUser || quizStep === 3) && (
+                    <div id="quiz-section-funcionamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                      <h3 className="text-lg font-medium text-white mb-4">
+                        {isNewUser && quizStep === 3 ? '3. Horário de Funcionamento' : 'Horário de Funcionamento'}
+                      </h3>
+
+                      {/* Alerta sobre intervalo */}
+                      <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
+                        <p className="text-sm text-yellow-200">
+                          <span className="font-semibold">⚠️ Atenção:</span> Caso não tire intervalo, coloque o horário de fechamento em <strong>"Qual seu fechamento para intervalo?"</strong> e pode prosseguir para outro dia.
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
+                          const hours = businessHours[day];
+                          return (
+                            <div key={day} className="bg-[#242628] p-4 rounded-lg space-y-3 border border-gray-700">
+                              {/* Cabeçalho do dia com checkbox */}
+                              <div className="flex items-center justify-between">
+                                <label className="inline-flex items-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={hours.enabled}
+                                    onChange={(e) => handleBusinessHoursChange(day as keyof typeof businessHours, 'enabled', e.target.checked)}
+                                    className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-700 rounded"
+                                  />
+                                  <span className="ml-2 font-medium text-white">
+                                    {day === 'monday' ? 'Segunda-feira' :
+                                      day === 'tuesday' ? 'Terça-feira' :
+                                        day === 'wednesday' ? 'Quarta-feira' :
+                                          day === 'thursday' ? 'Quinta-feira' :
+                                            day === 'friday' ? 'Sexta-feira' :
+                                              day === 'saturday' ? 'Sábado' : 'Domingo'}
+                                  </span>
+                                </label>
+                                {!hours.enabled && (
+                                  <span className="text-sm text-gray-400 bg-[#1a1b1c] px-2 py-1 rounded">
+                                    Fechado
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Horários - Layout responsivo */}
+                              {hours.enabled && (
+                                <div className="space-y-3">
+                                  {/* Período da manhã */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                        {isNewUser && quizStep === 3 ? 'Qual horário você abre?' : 'Abertura'}
+                                      </label>
+                                      <TimeSelector
+                                        value={hours.open1}
+                                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
+                                        disabled={!hours.enabled}
+                                        className="w-full"
+                                        intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                        {isNewUser && quizStep === 3 ? 'Qual seu fechamento para intervalo?' : 'Fecha p/ Intervalo'}
+                                      </label>
+                                      <TimeSelector
+                                        value={hours.close1}
+                                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
+                                        disabled={!hours.enabled}
+                                        className="w-full"
+                                        intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Período da tarde */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                        Reabertura
+                                      </label>
+                                      <TimeSelector
+                                        value={hours.open2 || null}
+                                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
+                                        disabled={!hours.enabled}
+                                        className="w-full"
+                                        intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                        Fechamento
+                                      </label>
+                                      <TimeSelector
+                                        value={hours.close2 || null}
+                                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
+                                        disabled={!hours.enabled}
+                                        className="w-full"
+                                        intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Resumo visual dos horários */}
+                                  <div className="mt-3 p-2 bg-[#1a1b1c] rounded text-sm text-primary">
+                                    <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} {hours.open2 && hours.close2 ? `e ${hours.open2} - ${hours.close2}` : ''}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* Botões de Navegação - Etapa 3 */}
+                      {isNewUser && quizStep === 3 && (
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={handleQuizPrevious}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                          >
+                            ← Anterior
+                          </button>
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Fotos Personalizadas - Etapa 4 do Quiz */}
+                  {(!isNewUser || quizStep === 4) && (
+                    <div id="quiz-section-fotos" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                      <h3 className="text-lg font-medium text-white mb-4">
+                        {isNewUser && quizStep === 4 ? '4. Fotos do Estabelecimento' : 'Fotos do Estabelecimento'}
+                      </h3>
+                      <p className="text-sm text-gray-400 mb-2">
+                        Adicione até 7 fotos do seu estabelecimento que serão exibidas para os clientes
+                      </p>
+
+                      {/* Configuração do Carrossel */}
+                      <div className="mb-6 p-4 bg-[#2a2b2c] rounded-lg border border-gray-700">
+                        <h4 className="text-md font-medium text-white mb-3">Configuração do Carrossel</h4>
+                        <p className="text-sm text-gray-400 mb-4">
+                          Escolha onde o carrossel de fotos deve aparecer na página de agendamentos:
+                        </p>
+                        <div className="space-y-3">
+                          <label className="flex items-center space-x-3 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="carouselPosition"
+                              value="behind"
+                              checked={carouselPosition === 'behind'}
+                              onChange={(e) => setCarouselPosition(e.target.value as 'behind' | 'below')}
+                              className="form-radio h-4 w-4 text-primary bg-[#2a2b2c] border-gray-600"
+                            />
+                            <div>
+                              <span className="text-white font-medium text-sm">Atrás do perfil</span>
+                              <p className="text-xs text-gray-400">O carrossel aparece como fundo atrás da logo e informações do estabelecimento</p>
+                            </div>
+                          </label>
+
+                          <label className="flex items-center space-x-3 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="carouselPosition"
+                              value="below"
+                              checked={carouselPosition === 'below'}
+                              onChange={(e) => setCarouselPosition(e.target.value as 'behind' | 'below')}
+                              className="form-radio h-4 w-4 text-primary bg-[#2a2b2c] border-gray-600"
+                            />
+                            <div>
+                              <span className="text-white font-medium text-sm">Embaixo do perfil</span>
+                              <p className="text-xs text-gray-400">O carrossel aparece como uma seção separada abaixo das informações do estabelecimento</p>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                      <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4 mb-6">
+                        <p className="text-yellow-500 text-sm">
+                          ⚠️ Caso a imagem não aparecer, ou ficar mal otimizada é porque o tamanho da sua imagem está errado. Envie para nós no whatsapp, que iremos ajustar para você ⚠️
+                        </p>
+                      </div>
+
+                      <div className="mb-4 flex justify-end">
+                        <button
+                          onClick={() => {
+                            // Limpar cache do PWA
+                            if ('caches' in window) {
+                              caches.keys().then(names => {
+                                names.forEach(name => {
+                                  caches.delete(name);
+                                });
+                              });
+                            }
+                            // Limpar localStorage
+                            localStorage.clear();
+                            // Recarregar página
+                            window.location.reload();
+                          }}
+                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm transition-colors"
+                        >
+                          🔄 Limpar Cache Mobile
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {/* Foto 1 */}
+                        <div>
+                          <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                            {customPhoto1Preview ? (
+                              <div className="relative h-full" key={`photo1-${forceUpdate}`}>
+                                <img
+                                  src={customPhoto1Preview}
+                                  alt="Foto 1"
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  onClick={async () => {
+                                    setCustomPhoto1(null);
+                                    setCustomPhoto1Preview(null);
+                                    // Salvar a remoção no banco imediatamente
+                                    if (establishment) {
+                                      try {
+                                        await supabase
+                                          .from('establishments')
+                                          .update({ custom_photo_1_url: null })
+                                          .eq('id', establishment.id);
+                                      } catch (error) {
+                                        console.error('Erro ao remover foto 1:', error);
+                                      }
+                                    }
+                                  }}
+                                  className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                >
+                                  <Trash2 className="h-4 w-4 text-white" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                                <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                                <span className="text-sm text-gray-400">Foto 1</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                  onChange={(e) => handleCustomPhotoChange(1, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Foto 2 */}
+                        <div>
+                          <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                            {customPhoto2Preview ? (
+                              <div className="relative h-full">
+                                <img
+                                  src={customPhoto2Preview}
+                                  alt="Foto 2"
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  onClick={async () => {
+                                    setCustomPhoto2(null);
+                                    setCustomPhoto2Preview(null);
+                                    // Salvar a remoção no banco imediatamente
+                                    if (establishment) {
+                                      try {
+                                        await supabase
+                                          .from('establishments')
+                                          .update({ custom_photo_2_url: null })
+                                          .eq('id', establishment.id);
+                                      } catch (error) {
+                                        console.error('Erro ao remover foto 2:', error);
+                                      }
+                                    }
+                                  }}
+                                  className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                >
+                                  <Trash2 className="h-4 w-4 text-white" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                                <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                                <span className="text-sm text-gray-400">Foto 2</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                  onChange={(e) => handleCustomPhotoChange(2, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Foto 3 */}
+                        <div>
+                          <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                            {customPhoto3Preview ? (
+                              <div className="relative h-full">
+                                <img
+                                  src={customPhoto3Preview}
+                                  alt="Foto 3"
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  onClick={async () => {
+                                    setCustomPhoto3(null);
+                                    setCustomPhoto3Preview(null);
+                                    // Salvar a remoção no banco imediatamente
+                                    if (establishment) {
+                                      try {
+                                        await supabase
+                                          .from('establishments')
+                                          .update({ custom_photo_3_url: null })
+                                          .eq('id', establishment.id);
+                                      } catch (error) {
+                                        console.error('Erro ao remover foto 3:', error);
+                                      }
+                                    }
+                                  }}
+                                  className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                >
+                                  <Trash2 className="h-4 w-4 text-white" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                                <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                                <span className="text-sm text-gray-400">Foto 3</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                  onChange={(e) => handleCustomPhotoChange(3, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Foto 4 */}
+                        <div>
+                          <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                            {customPhoto4Preview ? (
+                              <div className="relative h-full" key={`photo4-${forceUpdate}`}>
+                                <img
+                                  src={customPhoto4Preview}
+                                  alt="Foto 4"
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  onClick={async () => {
+                                    setCustomPhoto4(null);
+                                    setCustomPhoto4Preview(null);
+                                    // Salvar a remoção no banco imediatamente
+                                    if (establishment) {
+                                      try {
+                                        await supabase
+                                          .from('establishments')
+                                          .update({ custom_photo_4_url: null })
+                                          .eq('id', establishment.id);
+                                      } catch (error) {
+                                        console.error('Erro ao remover foto 4:', error);
+                                      }
+                                    }
+                                  }}
+                                  className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                >
+                                  <Trash2 className="h-4 w-4 text-white" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                                <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                                <span className="text-sm text-gray-400">Foto 4</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                  onChange={(e) => handleCustomPhotoChange(4, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Foto 5 */}
+                        <div>
+                          <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                            {customPhoto5Preview ? (
+                              <div className="relative h-full" key={`photo5-${forceUpdate}`}>
+                                <img
+                                  src={customPhoto5Preview}
+                                  alt="Foto 5"
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  onClick={async () => {
+                                    setCustomPhoto5(null);
+                                    setCustomPhoto5Preview(null);
+                                    // Salvar a remoção no banco imediatamente
+                                    if (establishment) {
+                                      try {
+                                        await supabase
+                                          .from('establishments')
+                                          .update({ custom_photo_5_url: null })
+                                          .eq('id', establishment.id);
+                                      } catch (error) {
+                                        console.error('Erro ao remover foto 5:', error);
+                                      }
+                                    }
+                                  }}
+                                  className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                >
+                                  <Trash2 className="h-4 w-4 text-white" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                                <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                                <span className="text-sm text-gray-400">Foto 5</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                  onChange={(e) => handleCustomPhotoChange(5, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Foto 6 */}
+                        <div>
+                          <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                            {customPhoto6Preview ? (
+                              <div className="relative h-full" key={`photo6-${forceUpdate}`}>
+                                <img
+                                  src={customPhoto6Preview}
+                                  alt="Foto 6"
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  onClick={async () => {
+                                    setCustomPhoto6(null);
+                                    setCustomPhoto6Preview(null);
+                                    // Salvar a remoção no banco imediatamente
+                                    if (establishment) {
+                                      try {
+                                        await supabase
+                                          .from('establishments')
+                                          .update({ custom_photo_6_url: null })
+                                          .eq('id', establishment.id);
+                                      } catch (error) {
+                                        console.error('Erro ao remover foto 6:', error);
+                                      }
+                                    }
+                                  }}
+                                  className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                >
+                                  <Trash2 className="h-4 w-4 text-white" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                                <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                                <span className="text-sm text-gray-400">Foto 6</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                  onChange={(e) => handleCustomPhotoChange(6, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Foto 7 */}
+                        <div>
+                          <div className="aspect-video bg-[#242628] rounded-lg border-2 border-dashed border-gray-700 overflow-hidden">
+                            {customPhoto7Preview ? (
+                              <div className="relative h-full" key={`photo7-${forceUpdate}`}>
+                                <img
+                                  src={customPhoto7Preview}
+                                  alt="Foto 7"
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  onClick={async () => {
+                                    setCustomPhoto7(null);
+                                    setCustomPhoto7Preview(null);
+                                    // Salvar a remoção no banco imediatamente
+                                    if (establishment) {
+                                      try {
+                                        await supabase
+                                          .from('establishments')
+                                          .update({ custom_photo_7_url: null })
+                                          .eq('id', establishment.id);
+                                      } catch (error) {
+                                        console.error('Erro ao remover foto 7:', error);
+                                      }
+                                    }
+                                  }}
+                                  className="absolute top-2 right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                >
+                                  <Trash2 className="h-4 w-4 text-white" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex flex-col items-center justify-center h-full cursor-pointer">
+                                <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                                <span className="text-sm text-gray-400">Foto 7</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                  onChange={(e) => handleCustomPhotoChange(7, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {/* Botões de Navegação - Etapa 4 */}
+                      {isNewUser && quizStep === 4 && (
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={handleQuizPrevious}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                          >
+                            ← Anterior
+                          </button>
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Configurações do PIX - Etapa 5 do Quiz */}
+                  {(!isNewUser || quizStep === 5) && (
+                    <div id="quiz-section-pix">
+                      <EstablishmentPixSettings
+                        establishment={establishment}
+                        onSave={handleSavePixSettings}
+                      />
+                      {/* Botões de Navegação - Etapa 5 */}
+                      {isNewUser && quizStep === 5 && (
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={handleQuizPrevious}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                          >
+                            ← Anterior
+                          </button>
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+
+
+                  {/* Links Personalizados - Etapa 6 do Quiz */}
+                  {(!isNewUser || quizStep === 6) && (
+                    <div id="quiz-section-links" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
+                      <h3 className="text-lg font-medium text-white mb-4">
+                        {isNewUser && quizStep === 6 ? '6. Links Personalizados' : 'Links Personalizados'}
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium mb-1 text-gray-400">Link para Avaliar (Google, etc.)</label>
+                          <input
+                            type="url"
+                            value={reviewLink}
+                            onChange={(e) => {
+                              setReviewLink(e.target.value);
+                              // ✅ Auto-save com debounce (1 segundo após parar de digitar)
+                              if (linksAutoSaveTimeoutRef.current) {
+                                clearTimeout(linksAutoSaveTimeoutRef.current);
+                              }
+                              linksAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveLinks();
+                              }, 1000);
+                            }}
+                            placeholder="Ex: https://g.page/sua-empresa/review"
+                            className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1 text-gray-400">Link das Redes Sociais</label>
+                          <input
+                            type="url"
+                            value={socialMediaLink}
+                            onChange={(e) => {
+                              setSocialMediaLink(e.target.value);
+                              // ✅ Auto-save com debounce (1 segundo após parar de digitar)
+                              if (linksAutoSaveTimeoutRef.current) {
+                                clearTimeout(linksAutoSaveTimeoutRef.current);
+                              }
+                              linksAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveLinks();
+                              }, 1000);
+                            }}
+                            placeholder="Ex: https://instagram.com/seuperfil"
+                            className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1 text-gray-400">Link para Pagamento PIX</label>
+                          <input
+                            type="url"
+                            value={pixPaymentLink}
+                            onChange={(e) => {
+                              setPixPaymentLink(e.target.value);
+                              // ✅ Auto-save com debounce (1 segundo após parar de digitar)
+                              if (linksAutoSaveTimeoutRef.current) {
+                                clearTimeout(linksAutoSaveTimeoutRef.current);
+                              }
+                              linksAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveLinks();
+                              }, 1000);
+                            }}
+                            placeholder="Será preenchido automaticamente com sua chave PIX, ou digite um link personalizado"
+                            className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1 text-gray-400">Link para Local</label>
+                          <input
+                            type="url"
+                            value={locationLink}
+                            onChange={(e) => {
+                              setLocationLink(e.target.value);
+                              // ✅ Auto-save com debounce (1 segundo após parar de digitar)
+                              if (linksAutoSaveTimeoutRef.current) {
+                                clearTimeout(linksAutoSaveTimeoutRef.current);
+                              }
+                              linksAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveLinks();
+                              }, 1000);
+                            }}
+                            placeholder="Ex: https://maps.google.com"
+                            className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                          />
+                        </div>
+                      </div>
+                      {/* Botões de Navegação - Etapa 6 */}
+                      {isNewUser && quizStep === 6 && (
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={handleQuizPrevious}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                          >
+                            ← Anterior
+                          </button>
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Configurações de Wi-Fi */}
-                  <div className="mb-6">
-                    <h3 className="text-lg font-medium text-white mb-4">Configurações de Wi-Fi</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          Senha do Wi-Fi
-                        </label>
-                        <input
-                          type="text"
-                          value={wifiPassword}
-                          onChange={(e) => setWifiPassword(e.target.value)}
-                          placeholder="Digite a senha do Wi-Fi"
-                          className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Configurações de WhatsApp */}
-                  <div className="mb-6">
-                    <h3 className="text-lg font-medium text-white mb-4">Configurações de WhatsApp</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          Seu número de WhatsApp
-                        </label>
-                        <input
-                          type="text"
-                          value={establishment?.whatsapp || ''}
-                          onChange={(e) => handleInputChange('whatsapp', e.target.value)}
-                          placeholder="Ex: 5511999999999 (apenas números)"
-                          className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                        />
-                        <p className="text-sm text-gray-500 mt-1">
-                          Digite apenas números, incluindo código do país (55) e DDD
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Configurações de Pagamento */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
-                    <h3 className="text-lg font-medium text-white mb-4">Configurações de Pagamento</h3>
-                    <div className="space-y-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          Taxa do Cartão de Crédito (%)
-                        </label>
-                        <div className="flex items-center gap-2">
+                  {!isNewUser && (
+                    <div className="mb-6">
+                      <h3 className="text-lg font-medium text-white mb-4">Configurações de Wi-Fi</h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Senha do Wi-Fi
+                          </label>
                           <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max="10"
-                            value={creditCardTaxPercentage}
-                            onChange={(e) => {
-                              setCreditCardTaxPercentage(parseFloat(e.target.value) || 0);
-                              if (paymentConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
-                              }
-                              paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSavePaymentConfig();
-                              }, 1000);
-                            }}
-                            placeholder="Ex: 3.5"
+                            type="text"
+                            value={wifiPassword}
+                            onChange={(e) => setWifiPassword(e.target.value)}
+                            placeholder="Digite a senha do Wi-Fi"
                             className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                           />
-                          <span className="text-white text-sm">%</span>
                         </div>
-                        <p className="text-sm text-gray-500 mt-1">
-                          Taxa cobrada pela maquininha para cartão de crédito.
-                        </p>
                       </div>
+                    </div>
+                  )}
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          Taxa do Cartão de Débito (%)
-                        </label>
-                        <div className="flex items-center gap-2">
+                  {/* Configurações de WhatsApp - Etapa 7 do Quiz */}
+                  {(!isNewUser || quizStep === 7) && (
+                    <div id="quiz-section-whatsapp" className="mb-6">
+                      <h3 className="text-lg font-medium text-white mb-4">
+                        {isNewUser && quizStep === 7 ? '7. Número de WhatsApp' : 'Configurações de WhatsApp'}
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Seu número de WhatsApp
+                          </label>
                           <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max="10"
-                            value={debitCardTaxPercentage}
-                            onChange={(e) => {
-                              setDebitCardTaxPercentage(parseFloat(e.target.value) || 0);
-                              if (paymentConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
-                              }
-                              paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSavePaymentConfig();
-                              }, 1000);
-                            }}
-                            placeholder="Ex: 2.5"
+                            type="text"
+                            value={establishment?.whatsapp || ''}
+                            onChange={(e) => handleInputChange('whatsapp', e.target.value)}
+                            placeholder="Ex: 5511999999999 (apenas números)"
                             className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                           />
-                          <span className="text-white text-sm">%</span>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Digite apenas números, incluindo código do país (55) e DDD
+                          </p>
                         </div>
-                        <p className="text-sm text-gray-500 mt-1">
-                          Taxa cobrada pela maquininha para cartão de débito.
-                        </p>
                       </div>
+                      {/* Botões de Navegação - Etapa 7 */}
+                      {isNewUser && quizStep === 7 && (
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={handleQuizPrevious}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                          >
+                            ← Anterior
+                          </button>
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                      {/* Taxas por Bandeira */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-3">
-                          Taxas por Bandeira de Cartão (%)
-                        </label>
-                        <p className="text-sm text-gray-500 mb-4">
-                          Configure taxas específicas para cada bandeira de cartão. Estas taxas serão aplicadas quando o cliente escolher uma bandeira específica.
-                        </p>
+                  {/* Configurações de Pagamento - Etapa 8 do Quiz */}
+                  {(!isNewUser || quizStep === 8) && (
+                    <div id="quiz-section-pagamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
+                      <h3 className="text-lg font-medium text-white mb-4">
+                        {isNewUser && quizStep === 8 ? '8. Configurações de Pagamento' : 'Configurações de Pagamento'}
+                      </h3>
+                      <div className="space-y-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Taxa do Cartão de Crédito (%)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="10"
+                              value={creditCardTaxPercentage}
+                              onChange={(e) => {
+                                setCreditCardTaxPercentage(parseFloat(e.target.value) || 0);
+                                if (paymentConfigAutoSaveTimeoutRef.current) {
+                                  clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                                }
+                                paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                  autoSavePaymentConfig();
+                                }, 1000);
+                              }}
+                              placeholder="Ex: 3.5"
+                              className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <span className="text-white text-sm">%</span>
+                          </div>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Taxa cobrada pela maquininha para cartão de crédito.
+                          </p>
+                        </div>
 
-                        {/* Grid responsivo para mobile */}
-                        <div className="grid grid-cols-1 gap-4">
-                          {Object.entries(cardBrandTaxes).map(([brand, tax]) => (
-                            <div key={brand} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-[#1a1b1c] rounded-lg border border-gray-700">
-                              {/* Logo e nome da bandeira */}
-                              <div className="flex items-center gap-3 min-w-0 flex-1">
-                                {brand === 'outros' ? (
-                                  <div className="w-8 h-6 sm:w-10 sm:h-8 bg-gray-600 rounded flex items-center justify-center flex-shrink-0">
-                                    <span className="text-xs text-gray-300 font-medium">N/A</span>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Taxa do Cartão de Débito (%)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="10"
+                              value={debitCardTaxPercentage}
+                              onChange={(e) => {
+                                setDebitCardTaxPercentage(parseFloat(e.target.value) || 0);
+                                if (paymentConfigAutoSaveTimeoutRef.current) {
+                                  clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                                }
+                                paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                  autoSavePaymentConfig();
+                                }, 1000);
+                              }}
+                              placeholder="Ex: 2.5"
+                              className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <span className="text-white text-sm">%</span>
+                          </div>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Taxa cobrada pela maquininha para cartão de débito.
+                          </p>
+                        </div>
+
+                        {/* Taxas por Bandeira */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-400 mb-3">
+                            Taxas por Bandeira de Cartão (%)
+                          </label>
+                          <p className="text-sm text-gray-500 mb-4">
+                            Configure taxas específicas para cada bandeira de cartão. Estas taxas serão aplicadas quando o cliente escolher uma bandeira específica.
+                          </p>
+
+                          {/* Grid responsivo para mobile */}
+                          <div className="grid grid-cols-1 gap-4">
+                            {Object.entries(cardBrandTaxes).map(([brand, tax]) => (
+                              <div key={brand} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-[#1a1b1c] rounded-lg border border-gray-700">
+                                {/* Logo e nome da bandeira */}
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  {brand === 'outros' ? (
+                                    <div className="w-8 h-6 sm:w-10 sm:h-8 bg-gray-600 rounded flex items-center justify-center flex-shrink-0">
+                                      <span className="text-xs text-gray-300 font-medium">N/A</span>
+                                    </div>
+                                  ) : (
+                                    <img
+                                      src={`/${brand}.png`}
+                                      alt={brand}
+                                      className="w-8 h-6 sm:w-10 sm:h-8 object-contain flex-shrink-0"
+                                      onError={(e) => {
+                                        const target = e.currentTarget as HTMLImageElement;
+                                        target.style.display = 'none';
+                                      }}
+                                    />
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <label className="text-sm sm:text-base font-medium text-gray-300 capitalize block">
+                                      {brand === 'american_express' ? 'American Express' :
+                                        brand === 'outros' ? 'Outros' :
+                                          brand === 'visa' ? 'Visa' :
+                                            brand === 'mastercard' ? 'Mastercard' :
+                                              brand === 'elo' ? 'Elo' :
+                                                brand === 'hipercard' ? 'Hipercard' :
+                                                  brand === 'jcb' ? 'JCB' :
+                                                    brand === 'discover' ? 'Discover' :
+                                                      brand.charAt(0).toUpperCase() + brand.slice(1)}
+                                    </label>
                                   </div>
-                                ) : (
-                                  <img
-                                    src={`/${brand}.png`}
-                                    alt={brand}
-                                    className="w-8 h-6 sm:w-10 sm:h-8 object-contain flex-shrink-0"
-                                    onError={(e) => {
-                                      const target = e.currentTarget as HTMLImageElement;
-                                      target.style.display = 'none';
+                                </div>
+
+                                {/* Input da taxa */}
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max="10"
+                                    value={tax}
+                                    onChange={(e) => {
+                                      const newTaxes = { ...cardBrandTaxes };
+                                      newTaxes[brand] = parseFloat(e.target.value) || 0;
+                                      setCardBrandTaxes(newTaxes);
+                                      if (paymentConfigAutoSaveTimeoutRef.current) {
+                                        clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                                      }
+                                      paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                        autoSavePaymentConfig();
+                                      }, 1000);
                                     }}
+                                    className="w-20 sm:w-24 px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
+                                    placeholder="0.0"
                                   />
-                                )}
-                                <div className="min-w-0 flex-1">
-                                  <label className="text-sm sm:text-base font-medium text-gray-300 capitalize block">
-                                    {brand === 'american_express' ? 'American Express' :
-                                      brand === 'outros' ? 'Outros' :
-                                        brand === 'visa' ? 'Visa' :
-                                          brand === 'mastercard' ? 'Mastercard' :
-                                            brand === 'elo' ? 'Elo' :
-                                              brand === 'hipercard' ? 'Hipercard' :
-                                                brand === 'jcb' ? 'JCB' :
-                                                  brand === 'discover' ? 'Discover' :
-                                                    brand.charAt(0).toUpperCase() + brand.slice(1)}
-                                  </label>
+                                  <span className="text-white text-sm font-medium">%</span>
                                 </div>
                               </div>
-
-                              {/* Input da taxa */}
-                              <div className="flex items-center gap-2 min-w-0">
-                                <input
-                                  type="number"
-                                  step="0.1"
-                                  min="0"
-                                  max="10"
-                                  value={tax}
-                                  onChange={(e) => {
-                                    const newTaxes = { ...cardBrandTaxes };
-                                    newTaxes[brand] = parseFloat(e.target.value) || 0;
-                                    setCardBrandTaxes(newTaxes);
-                                    if (paymentConfigAutoSaveTimeoutRef.current) {
-                                      clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
-                                    }
-                                    paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                      autoSavePaymentConfig();
-                                    }, 1000);
-                                  }}
-                                  className="w-20 sm:w-24 px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
-                                  placeholder="0.0"
-                                />
-                                <span className="text-white text-sm font-medium">%</span>
-                              </div>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
+
+                        <button
+                          onClick={handleSaveCardTax}
+                          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                          Salvar Taxas
+                        </button>
+                      </div>
+                      {/* Botões de Navegação - Etapa 8 */}
+                      {isNewUser && quizStep === 8 && (
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={handleQuizPrevious}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                          >
+                            ← Anterior
+                          </button>
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Formas de Pagamento Disponíveis - Etapa 9 do Quiz */}
+                  {(!isNewUser || quizStep === 9) && (
+                    <div id="quiz-section-formas-pagamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
+                      <h3 className="text-lg font-medium text-white mb-2">
+                        {isNewUser && quizStep === 9 ? '9. Formas de Pagamento Disponíveis' : 'Formas de Pagamento Disponíveis'}
+                      </h3>
+                      <p className="text-sm text-gray-400 mb-4">
+                        Selecione quais formas de pagamento estarão disponíveis para seus clientes no booking.
+                        <span className="text-yellow-400 font-medium"> Pelo menos uma deve estar ativa.</span>
+                      </p>
+
+                      <div className="space-y-3">
+                        {/* PIX */}
+                        <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={paymentMethodsEnabled.includes('pix')}
+                            onChange={() => handleTogglePaymentMethod('pix')}
+                            className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                          />
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="text-2xl">💸</span>
+                            <span className="text-white font-medium">PIX</span>
+                          </div>
+                          {paymentMethodsEnabled.includes('pix') && (
+                            <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                          )}
+                        </label>
+
+                        {/* Cartão de Crédito */}
+                        <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={paymentMethodsEnabled.includes('credito')}
+                            onChange={() => handleTogglePaymentMethod('credito')}
+                            className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                          />
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="text-2xl">💳</span>
+                            <span className="text-white font-medium">Cartão de Crédito</span>
+                          </div>
+                          {paymentMethodsEnabled.includes('credito') && (
+                            <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                          )}
+                        </label>
+
+                        {/* Cartão de Débito */}
+                        <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={paymentMethodsEnabled.includes('debito')}
+                            onChange={() => handleTogglePaymentMethod('debito')}
+                            className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                          />
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="text-2xl">💳</span>
+                            <span className="text-white font-medium">Cartão de Débito</span>
+                          </div>
+                          {paymentMethodsEnabled.includes('debito') && (
+                            <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                          )}
+                        </label>
+
+                        {/* Dinheiro */}
+                        <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={paymentMethodsEnabled.includes('dinheiro')}
+                            onChange={() => handleTogglePaymentMethod('dinheiro')}
+                            className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                          />
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="text-2xl">💵</span>
+                            <span className="text-white font-medium">Dinheiro</span>
+                          </div>
+                          {paymentMethodsEnabled.includes('dinheiro') && (
+                            <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                          )}
+                        </label>
+
+                        {/* Pagar no Local */}
+                        <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={paymentMethodsEnabled.includes('pagar_local')}
+                            onChange={() => handleTogglePaymentMethod('pagar_local')}
+                            className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
+                          />
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="text-2xl">🏪</span>
+                            <span className="text-white font-medium">Pagar no Local</span>
+                          </div>
+                          {paymentMethodsEnabled.includes('pagar_local') && (
+                            <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                          )}
+                        </label>
                       </div>
 
-                      <button
-                        onClick={handleSaveCardTax}
-                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Salvar Taxas
-                      </button>
+                      <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                        <p className="text-sm text-blue-300">
+                          💡 <strong>Dica:</strong> As formas de pagamento desativadas não aparecerão para os clientes durante o agendamento.
+                        </p>
+                      </div>
+                      {/* Botões de Navegação - Etapa 9 */}
+                      {isNewUser && quizStep === 9 && (
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={handleQuizPrevious}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                          >
+                            ← Anterior
+                          </button>
+                          <button
+                            onClick={handleQuizNext}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                          >
+                            Próximo →
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
 
-                  {/* Formas de Pagamento Disponíveis */}
-                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
-                    <h3 className="text-lg font-medium text-white mb-2">Formas de Pagamento Disponíveis</h3>
-                    <p className="text-sm text-gray-400 mb-4">
-                      Selecione quais formas de pagamento estarão disponíveis para seus clientes no booking.
-                      <span className="text-yellow-400 font-medium"> Pelo menos uma deve estar ativa.</span>
-                    </p>
-
-                    <div className="space-y-3">
-                      {/* PIX */}
-                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={paymentMethodsEnabled.includes('pix')}
-                          onChange={() => handleTogglePaymentMethod('pix')}
-                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
-                        />
-                        <div className="flex items-center gap-2 flex-1">
-                          <span className="text-2xl">💸</span>
-                          <span className="text-white font-medium">PIX</span>
+                  {/* Confirmação Final - Etapa 10 do Quiz */}
+                  {isNewUser && quizStep === 10 && (
+                    <div id="quiz-section-confirmacao" className="bg-gradient-to-r from-green-600 to-emerald-600 rounded-lg p-6 border border-green-400 mb-6">
+                      <h3 className="text-2xl font-bold text-white mb-4 text-center">10. Confirmação Final</h3>
+                      <div className="bg-white/10 rounded-lg p-6 mb-6">
+                        <p className="text-white text-lg mb-4 text-center">
+                          Confirme que todas as informações estão corretas antes de finalizar:
+                        </p>
+                        <div className="space-y-3 text-white">
+                          <div className="flex items-center gap-2">
+                            {hasWifi || hasParking || hasAccessibility || hasAirConditioning ? (
+                              <CheckCircle className="h-5 w-5 text-green-300" />
+                            ) : (
+                              <X className="h-5 w-5 text-red-300" />
+                            )}
+                            <span>Comodidades configuradas</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-5 w-5 text-green-300" />
+                            <span>Configuração de horários definida</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-5 w-5 text-green-300" />
+                            <span>Horário de funcionamento configurado</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-5 w-5 text-green-300" />
+                            <span>Fotos do estabelecimento (opcional)</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {pixKeyType && pixKey && pixKey.trim() !== '' ? (
+                              <CheckCircle className="h-5 w-5 text-green-300" />
+                            ) : (
+                              <X className="h-5 w-5 text-red-300" />
+                            )}
+                            <span>PIX configurado</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {(reviewLink && reviewLink.trim() !== '') ||
+                              (socialMediaLink && socialMediaLink.trim() !== '') ||
+                              (pixPaymentLink && pixPaymentLink.trim() !== '') ||
+                              (locationLink && locationLink.trim() !== '') ? (
+                              <CheckCircle className="h-5 w-5 text-green-300" />
+                            ) : (
+                              <X className="h-5 w-5 text-red-300" />
+                            )}
+                            <span>Links personalizados adicionados</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {establishment?.whatsapp ? (
+                              <CheckCircle className="h-5 w-5 text-green-300" />
+                            ) : (
+                              <X className="h-5 w-5 text-red-300" />
+                            )}
+                            <span>WhatsApp confirmado</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-5 w-5 text-green-300" />
+                            <span>Configurações de pagamento definidas</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {paymentMethodsEnabled && paymentMethodsEnabled.length > 0 ? (
+                              <CheckCircle className="h-5 w-5 text-green-300" />
+                            ) : (
+                              <X className="h-5 w-5 text-red-300" />
+                            )}
+                            <span>Formas de pagamento selecionadas</span>
+                          </div>
                         </div>
-                        {paymentMethodsEnabled.includes('pix') && (
-                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
-                        )}
-                      </label>
-
-                      {/* Cartão de Crédito */}
-                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={paymentMethodsEnabled.includes('credito')}
-                          onChange={() => handleTogglePaymentMethod('credito')}
-                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
-                        />
-                        <div className="flex items-center gap-2 flex-1">
-                          <span className="text-2xl">💳</span>
-                          <span className="text-white font-medium">Cartão de Crédito</span>
-                        </div>
-                        {paymentMethodsEnabled.includes('credito') && (
-                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
-                        )}
-                      </label>
-
-                      {/* Cartão de Débito */}
-                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={paymentMethodsEnabled.includes('debito')}
-                          onChange={() => handleTogglePaymentMethod('debito')}
-                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
-                        />
-                        <div className="flex items-center gap-2 flex-1">
-                          <span className="text-2xl">💳</span>
-                          <span className="text-white font-medium">Cartão de Débito</span>
-                        </div>
-                        {paymentMethodsEnabled.includes('debito') && (
-                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
-                        )}
-                      </label>
-
-                      {/* Dinheiro */}
-                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={paymentMethodsEnabled.includes('dinheiro')}
-                          onChange={() => handleTogglePaymentMethod('dinheiro')}
-                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
-                        />
-                        <div className="flex items-center gap-2 flex-1">
-                          <span className="text-2xl">💵</span>
-                          <span className="text-white font-medium">Dinheiro</span>
-                        </div>
-                        {paymentMethodsEnabled.includes('dinheiro') && (
-                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
-                        )}
-                      </label>
-
-                      {/* Pagar no Local */}
-                      <label className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={paymentMethodsEnabled.includes('pagar_local')}
-                          onChange={() => handleTogglePaymentMethod('pagar_local')}
-                          className="w-5 h-5 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-0"
-                        />
-                        <div className="flex items-center gap-2 flex-1">
-                          <span className="text-2xl">🏪</span>
-                          <span className="text-white font-medium">Pagar no Local</span>
-                        </div>
-                        {paymentMethodsEnabled.includes('pagar_local') && (
-                          <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
-                        )}
-                      </label>
+                      </div>
+                      <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-lg p-4 mb-6">
+                        <p className="text-yellow-200 text-center font-semibold">
+                          ⚠️ Confirme que todas as informações acima estão corretas e verdadeiras.
+                        </p>
+                      </div>
+                      <div className="flex justify-between">
+                        <button
+                          onClick={handleQuizPrevious}
+                          className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                        >
+                          ← Anterior
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!termsAccepted) {
+                              setQuizAlertMessage('Você precisa aceitar os termos antes de prosseguir');
+                              return;
+                            }
+                            handleSaveAllSettings();
+                          }}
+                          disabled={!termsAccepted}
+                          className={`px-8 py-3 rounded-lg transition-colors font-bold text-lg ${termsAccepted
+                            ? 'bg-green-600 text-white hover:bg-green-700'
+                            : 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                            }`}
+                        >
+                          ✓ Confirmar e Finalizar
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                      <p className="text-sm text-blue-300">
-                        💡 <strong>Dica:</strong> As formas de pagamento desativadas não aparecerão para os clientes durante o agendamento.
-                      </p>
-                    </div>
-                  </div>
+                  )}
 
                   {/* Seção de Link do Estabelecimento */}
-                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 mb-6 border border-emerald-400/50">
-                    {/* Header */}
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
-                        <LinkIcon className="h-5 w-5 text-white" />
-                      </div>
-                      <h3 className="text-lg font-semibold text-emerald-400">
-                        🌐 Sua Página de Agendamentos
-                      </h3>
-                    </div>
-
-                    {/* Texto explicativo */}
-                    <p className="text-white mb-4 text-sm leading-relaxed font-medium">
-                      Aqui você edita sua página de agendamentos, onde os clientes acessam para agendar com você.
-                      Seu link para seus clientes é:
-                    </p>
-
-                    {/* Link Box - Organizado para mobile */}
-                    <div className="bg-[#1a1b1c] rounded-lg p-4 border border-gray-700 mb-4">
-                      <p className="text-emerald-400 font-medium text-sm mb-3">Link do Estabelecimento:</p>
-
-                      {/* Link principal */}
-                      <div className="bg-gray-800 rounded-lg p-3 mb-3">
-                        <code className="text-green-400 font-mono text-sm block break-all">
-                          agendeifacil.com/booking/{establishment?.code}
-                        </code>
+                  {!isNewUser && (
+                    <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 mb-6 border border-emerald-400/50">
+                      {/* Header */}
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
+                          <LinkIcon className="h-5 w-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-emerald-400">
+                          🌐 Sua Página de Agendamentos
+                        </h3>
                       </div>
 
-                      {/* Botões organizados */}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => copyLinkToClipboard()}
-                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                        >
-                          <Copy className="h-4 w-4 text-white" />
-                          <span className="text-white text-sm font-medium">Copiar</span>
-                        </button>
-                        <a
-                          href={`${window.location.origin}/booking/${establishment?.code}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-                        >
-                          <LinkIcon className="h-4 w-4 text-white" />
-                          <span className="text-white text-sm font-medium">Abrir</span>
-                        </a>
-                      </div>
-                    </div>
-
-                    {/* Dica */}
-                    <div className="flex items-start gap-2">
-                      <span className="text-yellow-400 text-sm">💡</span>
-                      <p className="text-white text-xs font-medium flex-1">
-                        Compartilhe este link com seus clientes para que possam agendar diretamente com você!
+                      {/* Texto explicativo */}
+                      <p className="text-white mb-4 text-sm leading-relaxed font-medium">
+                        Aqui você edita sua página de agendamentos, onde os clientes acessam para agendar com você.
+                        Seu link para seus clientes é:
                       </p>
-                    </div>
-                  </div>
 
-                  {/* Checkbox de Aceite de Termos (visível durante todo o onboarding) */}
-                  {onboardingStep < 4 && (
-                    <div className={`${onboardingStep === 1 ? 'bg-yellow-400 border-yellow-600' : 'bg-green-400 border-green-600'} border-4 rounded-lg p-5 shadow-lg`}>
+                      {/* Link Box - Organizado para mobile */}
+                      <div className="bg-[#1a1b1c] rounded-lg p-4 border border-gray-700 mb-4">
+                        <p className="text-emerald-400 font-medium text-sm mb-3">Link do Estabelecimento:</p>
+
+                        {/* Link principal */}
+                        <div className="bg-gray-800 rounded-lg p-3 mb-3">
+                          <code className="text-green-400 font-mono text-sm block break-all">
+                            agendeifacil.com/booking/{establishment?.code}
+                          </code>
+                        </div>
+
+                        {/* Botões organizados */}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => copyLinkToClipboard()}
+                            className="flex-1 flex items-center justify-center gap-2 p-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                          >
+                            <Copy className="h-4 w-4 text-white" />
+                            <span className="text-white text-sm font-medium">Copiar</span>
+                          </button>
+                          <a
+                            href={`${window.location.origin}/booking/${establishment?.code}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 flex items-center justify-center gap-2 p-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                          >
+                            <LinkIcon className="h-4 w-4 text-white" />
+                            <span className="text-white text-sm font-medium">Abrir</span>
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* Dica */}
+                      <div className="flex items-start gap-2">
+                        <span className="text-yellow-400 text-sm">💡</span>
+                        <p className="text-white text-xs font-medium flex-1">
+                          Compartilhe este link com seus clientes para que possam agendar diretamente com você!
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Checkbox de Aceite de Termos */}
+                  {/* Para novos usuários: só aparece na etapa 10 do quiz */}
+                  {/* Para usuários antigos: aparece durante o onboarding normal */}
+                  {((isNewUser && quizStep === 10) || (!isNewUser && onboardingStep < 4)) && (
+                    <div className={`${(isNewUser && quizStep === 10) || (!isNewUser && onboardingStep === 1) ? 'bg-yellow-400 border-yellow-600' : 'bg-green-400 border-green-600'} border-4 rounded-lg p-5 shadow-lg`}>
                       <label className="flex items-start gap-3 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={termsAccepted || onboardingStep > 1}
-                          onChange={(e) => onboardingStep === 1 && setTermsAccepted(e.target.checked)}
-                          disabled={onboardingStep > 1}
+                          checked={termsAccepted || (!isNewUser && onboardingStep > 1)}
+                          onChange={(e) => {
+                            if (isNewUser && quizStep === 10) {
+                              setTermsAccepted(e.target.checked);
+                            } else if (!isNewUser && onboardingStep === 1) {
+                              setTermsAccepted(e.target.checked);
+                            }
+                          }}
+                          disabled={!isNewUser && onboardingStep > 1}
                           className="mt-1 h-7 w-7 text-green-600 bg-white border-gray-800 rounded focus:ring-4 focus:ring-yellow-600"
                         />
                         <span className="text-lg text-gray-900 font-bold leading-relaxed">
-                          ✅ {onboardingStep === 1 ? 'Aceito os termos desses serviços e confirmo que todas as informações fornecidas estão corretas.' : 'Termos aceitos! Continue seguindo o passo a passo.'}
+                          ✅ Aceito os termos desses serviços e confirmo que todas as informações fornecidas estão corretas.
                         </span>
                       </label>
-                      {onboardingStep === 1 && (
+                      {((isNewUser && quizStep === 10 && !termsAccepted) || (!isNewUser && onboardingStep === 1 && !termsAccepted)) && (
                         <p className="text-base text-red-700 font-bold mt-3 ml-10 bg-red-100 p-2 rounded border-2 border-red-500">
                           ⚠️ Você precisa aceitar os termos antes de prosseguir
                         </p>
                       )}
-                      {onboardingStep > 1 && (
+                      {!isNewUser && onboardingStep > 1 && (
                         <p className="text-base text-green-800 font-bold mt-3 ml-10 bg-green-100 p-2 rounded border-2 border-green-600">
                           ✅ Etapa {onboardingStep - 1} de 3 concluída! Continue o processo.
                         </p>
@@ -11374,10 +12088,46 @@ Estamos te aguardando! 😎✂️`;
                       ) : (
                         <>
                           <Check className="h-5 w-5" />
-                          Salvar Alterações
+                          Salvar e abrir profissionais
                         </>
                       )}
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal de Informações Mobile */}
+              {showInfoModal && infoModalContent && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-md w-full max-h-[90vh] overflow-y-auto">
+                    <div className="p-6">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-semibold text-white">{infoModalContent.title}</h3>
+                        <button
+                          onClick={() => {
+                            setShowInfoModal(false);
+                            setInfoModalContent(null);
+                          }}
+                          className="text-gray-400 hover:text-white transition-colors"
+                        >
+                          <X className="h-6 w-6" />
+                        </button>
+                      </div>
+                      <div className="bg-[#2a2b2c] rounded-lg p-4 border border-gray-600">
+                        <p className="text-gray-300 text-sm leading-relaxed">{infoModalContent.content}</p>
+                      </div>
+                      <div className="mt-6 flex justify-end">
+                        <button
+                          onClick={() => {
+                            setShowInfoModal(false);
+                            setInfoModalContent(null);
+                          }}
+                          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                          Fechar
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -14898,6 +15648,23 @@ Estamos te aguardando! 😎✂️`;
           {activeTab === 'professionals' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Profissionais</h2>
+
+              {/* Alerta para novos estabelecimentos */}
+              {isNewUser && (
+                <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-4 mb-6 border border-blue-400">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 text-2xl">💡</div>
+                    <div className="flex-1">
+                      <p className="text-white font-semibold text-lg mb-1">
+                        Instruções para configurar seus profissionais:
+                      </p>
+                      <p className="text-blue-50 text-base leading-relaxed">
+                        Crie um profissional, configure horário de trabalho dele e pode ir para próximo passo.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Vídeo Tutorial */}
               {showTutorials.professionals && (
