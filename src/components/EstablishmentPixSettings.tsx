@@ -82,6 +82,12 @@ export const EstablishmentPixSettings = ({
           </p>
         </div>
 
+        <div className="flex items-center justify-center p-3 bg-blue-600/20 border border-blue-500 rounded-lg mb-4">
+          <p className="text-sm font-semibold text-blue-400 text-center">
+            Para ir para próximo passo salve o pix
+          </p>
+        </div>
+
         <button
           type="submit"
           disabled={isSaving}

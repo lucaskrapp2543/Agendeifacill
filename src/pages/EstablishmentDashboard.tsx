@@ -2504,8 +2504,10 @@ const EstablishmentDashboard = () => {
     toast.success('Código copiado para a área de transferência!');
   };
 
-  const handleUpdateEstablishment = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleUpdateEstablishment = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
 
     if (!user || !establishment) return;
 
@@ -11956,12 +11958,15 @@ Estamos te aguardando! 😎✂️`;
                           ← Anterior
                         </button>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             if (!termsAccepted) {
                               setQuizAlertMessage('Você precisa aceitar os termos antes de prosseguir');
                               return;
                             }
-                            handleSaveAllSettings();
+                            // Primeiro salvar todas as configurações do quiz
+                            await handleSaveAllSettings();
+                            // Depois executar a mesma ação do botão azul (salvar e abrir profissionais)
+                            await handleUpdateEstablishment();
                           }}
                           disabled={!termsAccepted}
                           className={`px-8 py-3 rounded-lg transition-colors font-bold text-lg ${termsAccepted
@@ -12075,7 +12080,12 @@ Estamos te aguardando! 😎✂️`;
                   {/* Botão de Salvar */}
                   <div className="flex justify-end">
                     <button
-                      onClick={handleUpdateEstablishment}
+                      onClick={async () => {
+                        // Executar a mesma ação do botão verde (salvar todas as configurações do quiz)
+                        await handleSaveAllSettings();
+                        // Depois executar a ação original (salvar e abrir profissionais)
+                        await handleUpdateEstablishment();
+                      }}
                       disabled={isUpdating || (onboardingStep === 1 && !termsAccepted)}
                       className={`px-6 py-3 bg-primary text-white rounded-lg font-medium ${(isUpdating || (onboardingStep === 1 && !termsAccepted)) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary/80'
                         } transition-colors flex items-center gap-2`}
