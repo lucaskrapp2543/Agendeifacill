@@ -107,33 +107,35 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
     }
   };
 
+  // Verifica se está em dia (mais de 7 dias restantes e não está vencido)
+  const isInGoodStanding = validity && daysRemaining > 7 && validity.payment_status !== 'expired' && daysRemaining >= 0;
+
   if (isLoading) {
     return (
-      <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
-        <div className="flex items-center gap-3 mb-3">
-          <Calendar className="h-5 w-5 text-blue-500" />
-          <h3 className="text-lg font-semibold text-white">Validade Agendei Fácil</h3>
-        </div>
-        <div className="animate-pulse">
-          <div className="h-4 bg-gray-700 rounded w-3/4 mb-2"></div>
-          <div className="h-4 bg-gray-700 rounded w-1/2"></div>
-        </div>
+      <div className="flex items-center gap-2 text-xs text-gray-500">
+        <Calendar className="h-3 w-3" />
+        <span>Carregando...</span>
       </div>
     );
   }
 
   if (!validity) {
+    return null;
+  }
+
+  // Modo discreto - quando está em dia
+  if (isInGoodStanding) {
     return (
-      <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
-        <div className="flex items-center gap-3 mb-3">
-          <Calendar className="h-5 w-5 text-blue-500" />
-          <h3 className="text-lg font-semibold text-white">Validade Agendei Fácil</h3>
-        </div>
-        <p className="text-gray-400">Não foi possível carregar as informações de validade.</p>
+      <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-200">
+        <Calendar className="h-3 w-3 text-green-500" />
+        <span className="text-gray-600">
+          Válido até {formatDate(validity.payment_due_date)}
+        </span>
       </div>
     );
   }
 
+  // Modo chamativo - quando está vencido ou próximo do vencimento
   return (
     <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
       <div className="flex items-center gap-3 mb-4">
@@ -162,14 +164,14 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
           </span>
         </div>
 
-        {daysRemaining > 0 && (
-          <div className="mt-4 p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
-            <div className="flex items-center gap-2 text-blue-400">
+        {daysRemaining > 0 && daysRemaining <= 7 && (
+          <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+            <div className="flex items-center gap-2 text-yellow-400">
               <Clock className="h-4 w-4" />
-              <span className="text-sm">
+              <span className="text-sm font-medium">
                 {daysRemaining === 1
-                  ? 'Falta 1 dia para o vencimento'
-                  : `Faltam ${daysRemaining} dias para o vencimento`
+                  ? '⚠️ Falta 1 dia para o vencimento'
+                  : `⚠️ Faltam ${daysRemaining} dias para o vencimento`
                 }
               </span>
             </div>

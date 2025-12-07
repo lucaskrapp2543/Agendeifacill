@@ -8729,6 +8729,46 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
+                  {/* Validade Agendei Fácil */}
+                  {establishment?.id && (
+                    <div className="mb-6">
+                      <ValidityDisplay establishmentId={establishment.id} />
+                    </div>
+                  )}
+
+                  {/* ===== NOVA VISUALIZAÇÃO - TODOS OS PROFISSIONAIS ===== */}
+                  <div className="mb-6">
+                    <AllProfessionalsAppointmentsView
+                      professionals={establishment?.professionals || []}
+                      appointments={appointments}
+                      monthlyAppointments={monthlyAppointments}
+                      selectedDate={selectedDate}
+                      professionalPins={establishment?.professionals_pins || []}
+                      businessHours={establishment?.business_hours || {}}
+                      establishment={establishment}
+                      onDateChange={(newDate) => setSelectedDate(newDate)}
+                      onAppointmentUpdate={() => {
+                        fetchAppointments(selectedDate);
+                        fetchMonthlyAppointments();
+                      }}
+                      onOpenTransferModal={handleOpenTransferModal}
+                      onOpenObservationModal={handleOpenObservationModal}
+                      onOpenAdditionalProductModal={(appointmentId) => {
+                        setSelectedAppointmentForProduct(appointmentId);
+                        setShowAdditionalProductModal(true);
+                      }}
+                      onOpenProductV2Modal={(appointmentId) => {
+                        setSelectedAppointmentForProduct(appointmentId);
+                        setShowAddProductToAppointmentModal(true);
+                      }}
+                      onGenerateNF={handleGenerateNF}
+                      onOpenReminderModal={handleOpenReminderModal}
+                      onGoToProfessionalConfig={handleGoToProfessionalConfig}
+                      onGoToClients={handleGoToClients}
+                      onCancelAppointment={handleCancelClick}
+                    />
+                  </div>
+
                   {/* Vídeo Tutorial de Agendamentos */}
                   {showTutorials.appointments && (
                     <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
@@ -8781,39 +8821,6 @@ Estamos te aguardando! 😎✂️`;
                       src="/melhordobrasilcortado.png"
                       alt="Melhor do Brasil"
                       className="h-20 object-contain"
-                    />
-                  </div>
-
-                  {/* ===== NOVA VISUALIZAÇÃO - TODOS OS PROFISSIONAIS ===== */}
-                  <div className="mb-6">
-                    <AllProfessionalsAppointmentsView
-                      professionals={establishment?.professionals || []}
-                      appointments={appointments}
-                      monthlyAppointments={monthlyAppointments}
-                      selectedDate={selectedDate}
-                      professionalPins={establishment?.professionals_pins || []}
-                      businessHours={establishment?.business_hours || {}}
-                      establishment={establishment}
-                      onDateChange={(newDate) => setSelectedDate(newDate)}
-                      onAppointmentUpdate={() => {
-                        fetchAppointments(selectedDate);
-                        fetchMonthlyAppointments();
-                      }}
-                      onOpenTransferModal={handleOpenTransferModal}
-                      onOpenObservationModal={handleOpenObservationModal}
-                      onOpenAdditionalProductModal={(appointmentId) => {
-                        setSelectedAppointmentForProduct(appointmentId);
-                        setShowAdditionalProductModal(true);
-                      }}
-                      onOpenProductV2Modal={(appointmentId) => {
-                        setSelectedAppointmentForProduct(appointmentId);
-                        setShowAddProductToAppointmentModal(true);
-                      }}
-                      onGenerateNF={handleGenerateNF}
-                      onOpenReminderModal={handleOpenReminderModal}
-                      onGoToProfessionalConfig={handleGoToProfessionalConfig}
-                      onGoToClients={handleGoToClients}
-                      onCancelAppointment={handleCancelClick}
                     />
                   </div>
 
