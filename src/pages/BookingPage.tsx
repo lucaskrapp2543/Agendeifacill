@@ -443,6 +443,18 @@ export default function BookingPage() {
   };
 
   const handleSubscribeClick = (subscriptionName: string) => {
+    // Buscar a assinatura completa para verificar se tem link personalizado
+    const subscription = subscriptions.find(sub => sub.name === subscriptionName);
+    
+    // Se tiver link personalizado, redirecionar para ele
+    if (subscription && subscription.custom_link && subscription.custom_link.trim()) {
+      const customLink = subscription.custom_link.trim();
+      window.open(customLink, '_blank');
+      setShowSubscriptionsDropdown(false);
+      return;
+    }
+
+    // Comportamento padrão: WhatsApp
     if (!establishment?.whatsapp) {
       toast.error('WhatsApp não configurado para este estabelecimento');
       return;
@@ -960,7 +972,7 @@ export default function BookingPage() {
 
               {/* Dropdown SER ASSINANTE */}
               {subscriptions.length > 0 && (
-                <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 10 }}>
+                <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 100 }}>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -986,7 +998,7 @@ export default function BookingPage() {
                   </button>
 
                   {showSubscriptionsDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto" style={{ zIndex: 100 }}>
                       {subscriptions.map((subscription) => (
                         <div
                           key={subscription.id}

@@ -91,17 +91,20 @@ export interface Database {
           name: string;
           value: number;
           duration_months: number;
+          custom_link?: string | null;
         };
         Insert: {
           establishment_id: string;
           name: string;
           value: number;
           duration_months: number;
+          custom_link?: string | null;
         };
         Update: {
           name?: string;
           value?: number;
           duration_months?: number;
+          custom_link?: string | null;
         };
       };
       client_subscriptions: {

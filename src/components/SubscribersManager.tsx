@@ -125,6 +125,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [selectedSubscriptionForEdit, setSelectedSubscriptionForEdit] = useState<Subscription | null>(null);
   const [editDescription, setEditDescription] = useState('');
 
+  // Estados para edição de link personalizado
+  const [showEditLinkModal, setShowEditLinkModal] = useState(false);
+  const [selectedSubscriptionForLinkEdit, setSelectedSubscriptionForLinkEdit] = useState<Subscription | null>(null);
+  const [editLink, setEditLink] = useState('');
+
 
   // Sincronizar estado quando establishment mudar
   useEffect(() => {
@@ -805,6 +810,39 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     } catch (error: any) {
       console.error('Erro ao salvar descrição:', error);
       toast.error(error.message || 'Erro ao salvar descrição.');
+    }
+  };
+
+  // Função para salvar link personalizado
+  const handleSaveLink = async () => {
+    if (!selectedSubscriptionForLinkEdit) return;
+
+    try {
+      const linkValue = editLink.trim() || null;
+      
+      // Validar URL se não estiver vazio
+      if (linkValue && !linkValue.match(/^https?:\/\//)) {
+        toast.error('O link deve começar com http:// ou https://');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('subscriptions')
+        .update({ custom_link: linkValue })
+        .eq('id', selectedSubscriptionForLinkEdit.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success(selectedSubscriptionForLinkEdit.custom_link ? 'Link atualizado com sucesso!' : 'Link adicionado com sucesso!');
+      setShowEditLinkModal(false);
+      setSelectedSubscriptionForLinkEdit(null);
+      setEditLink('');
+      fetchSubscriptions(); // Atualizar lista
+    } catch (error: any) {
+      console.error('Erro ao salvar link:', error);
+      toast.error(error.message || 'Erro ao salvar link.');
     }
   };
 
@@ -1629,6 +1667,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     <Edit className="h-5 w-5" />
                   </button>
                   <button
+                    onClick={() => {
+                      setSelectedSubscriptionForLinkEdit(sub);
+                      setEditLink(sub.custom_link || '');
+                      setShowEditLinkModal(true);
+                    }}
+                    className="text-green-500 hover:text-green-400 transition-colors"
+                    title={sub.custom_link ? "Editar Meu Link" : "Adicionar Meu Link"}
+                  >
+                    🔗
+                  </button>
+                  <button
                     onClick={() => handleToggleHideSubscription(sub.id, sub.is_hidden || false)}
                     className={`${sub.is_hidden ? 'text-yellow-500 hover:text-yellow-400' : 'text-gray-500 hover:text-gray-400'} transition-colors`}
                     title={sub.is_hidden ? "Desocultar Assinatura (voltar a mostrar no Booking)" : "Ocultar Assinatura (não aparece no Booking para novos clientes)"}
@@ -2414,6 +2463,60 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 {selectedSubscriptionForEdit.description ? 'Atualizar' : 'Adicionar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edição de Link Personalizado */}
+      {showEditLinkModal && selectedSubscriptionForLinkEdit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                Meu Link - {selectedSubscriptionForLinkEdit.name}
+              </h3>
+              <button
+                onClick={() => setShowEditLinkModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                Link Personalizado (opcional)
+              </label>
+              <input
+                type="url"
+                value={editLink}
+                onChange={(e) => setEditLink(e.target.value)}
+                placeholder="Ex: https://seusite.com/assinatura ou https://wa.me/5511999999999"
+                className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Se preenchido, ao clicar em "Assinar" na página de booking, o cliente será redirecionado para este link ao invés do WhatsApp. Deixe vazio para usar o WhatsApp padrão.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowEditLinkModal(false);
+                  setSelectedSubscriptionForLinkEdit(null);
+                  setEditLink('');
+                }}
+                className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveLink}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                {selectedSubscriptionForLinkEdit.custom_link ? 'Atualizar' : 'Adicionar'}
               </button>
             </div>
           </div>

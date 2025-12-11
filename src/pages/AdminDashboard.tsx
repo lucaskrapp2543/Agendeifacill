@@ -41,6 +41,7 @@ interface Establishment {
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
   booking_blocked?: boolean; // Indica se o booking está bloqueado
   admin_notes?: string; // Observações privadas do admin
+  whatsapp?: string; // WhatsApp do estabelecimento
 }
 
 const AdminDashboard = () => {
@@ -50,6 +51,7 @@ const AdminDashboard = () => {
   const [deletedEstablishments, setDeletedEstablishments] = useState<Establishment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchTermDeleted, setSearchTermDeleted] = useState(''); // Busca na lixeira
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
   const [filterPlan, setFilterPlan] = useState<'all' | 'monthly' | 'annual'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
@@ -230,7 +232,8 @@ const AdminDashboard = () => {
             is_blocked: establishment.is_blocked || false,
             last_access: lastAppointment?.created_at || null,
             payment_alert_enabled: establishment.payment_alert_enabled || false,
-            promotion_enabled: establishment.promotion_enabled || false
+            promotion_enabled: establishment.promotion_enabled || false,
+            whatsapp: establishment.whatsapp || ''
           };
 
           return processedEstablishment;
@@ -248,7 +251,8 @@ const AdminDashboard = () => {
           payment_due_date: establishment.payment_due_date || establishment.created_at,
           is_blocked: establishment.is_blocked || false,
           payment_alert_enabled: establishment.payment_alert_enabled || false,
-          promotion_enabled: establishment.promotion_enabled || false
+          promotion_enabled: establishment.promotion_enabled || false,
+          whatsapp: establishment.whatsapp || ''
         };
       });
 
@@ -800,6 +804,13 @@ const AdminDashboard = () => {
     return matchesSearch && matchesStatus && matchesPlan;
   });
 
+  // Filtrar estabelecimentos da lixeira
+  const filteredDeletedEstablishments = deletedEstablishments.filter(establishment => {
+    return establishment.name.toLowerCase().includes(searchTermDeleted.toLowerCase()) ||
+      establishment.code.toLowerCase().includes(searchTermDeleted.toLowerCase()) ||
+      (establishment.owner_email || '').toLowerCase().includes(searchTermDeleted.toLowerCase());
+  });
+
   // Mostrar loading enquanto verifica autenticação
   if (!user) {
     return (
@@ -964,7 +975,7 @@ const AdminDashboard = () => {
                   placeholder="Buscar..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
                 />
               </div>
             </div>
@@ -972,7 +983,7 @@ const AdminDashboard = () => {
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
             >
               <option value="all">Todos Status</option>
               <option value="paid">Pagos</option>
@@ -983,7 +994,7 @@ const AdminDashboard = () => {
             <select
               value={filterPlan}
               onChange={(e) => setFilterPlan(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
             >
               <option value="all">Todos Planos</option>
               <option value="monthly">Mensal</option>
@@ -1196,6 +1207,22 @@ const AdminDashboard = () => {
                           >
                             <Trash2 className="h-3 w-3" />
                           </button>
+                          {establishment.whatsapp && (
+                            <button
+                              onClick={() => {
+                                let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
+                                // Adicionar código do país se não tiver
+                                if (!phoneNumber.startsWith('55')) {
+                                  phoneNumber = '55' + phoneNumber;
+                                }
+                                window.open(`https://wa.me/${phoneNumber}`, '_blank');
+                              }}
+                              className="text-green-600 hover:text-green-900 text-xs px-2 py-0.5 border border-green-300 rounded hover:bg-green-50 font-medium"
+                              title="Abrir WhatsApp"
+                            >
+                              WHATSAPP
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1216,7 +1243,7 @@ const AdminDashboard = () => {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                       <Trash2 className="h-5 w-5 text-gray-500 mr-2" />
-                      Lixeira ({deletedEstablishments.length})
+                      Lixeira ({filteredDeletedEstablishments.length}/{deletedEstablishments.length})
                     </h3>
                     <button
                       onClick={() => setShowDeleted(!showDeleted)}
@@ -1228,8 +1255,21 @@ const AdminDashboard = () => {
 
                   {showDeleted && (
                     <div className="bg-gray-50 rounded-lg p-4">
+                      {/* Campo de busca na lixeira */}
+                      <div className="mb-4">
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                          <input
+                            type="text"
+                            placeholder="Buscar na lixeira..."
+                            value={searchTermDeleted}
+                            onChange={(e) => setSearchTermDeleted(e.target.value)}
+                            className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
+                          />
+                        </div>
+                      </div>
                       <div className="space-y-3">
-                        {deletedEstablishments.map(establishment => (
+                        {filteredDeletedEstablishments.map(establishment => (
                           <div key={establishment.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
                             <div className="flex items-center space-x-4">
                               <div>
@@ -1285,7 +1325,7 @@ const AdminDashboard = () => {
                   value={emailToCheck}
                   onChange={(e) => setEmailToCheck(e.target.value)}
                   placeholder="Digite o email do usuário"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
                 />
               </div>
 
@@ -1397,7 +1437,7 @@ const AdminDashboard = () => {
                     value={notesText}
                     onChange={(e) => setNotesText(e.target.value)}
                     placeholder="Digite suas observações sobre este estabelecimento (valores pagos, informações importantes, etc)..."
-                    className="w-full h-64 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-sm text-gray-900 bg-white"
+                    className="w-full h-64 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-sm text-gray-900 bg-white placeholder-gray-400"
                   />
                   <p className="text-xs text-gray-500 mt-2">
                     Estas observações são privadas e visíveis apenas para você no painel admin.
