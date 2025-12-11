@@ -1,7 +1,7 @@
 # Force deploy update - v1
 [build]
   publish = "dist"
-  command = "npm run build"
+  command = "npm install --include=dev && npm run build"
 
 [[redirects]]
   from = "/*"
@@ -21,7 +21,7 @@
 # Variáveis de ambiente serão definidas no painel do Netlify 
 
 [context.deploy-preview]
-  command = "npm run build"
+  command = "npm install --include=dev && npm run build"
 
 [context.branch-deploy]
-  command = "npm run build" 
+  command = "npm install --include=dev && npm run build" 
