@@ -8815,115 +8815,6 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Legenda das Cores */}
-                  <div className="mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                    <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
-
-                    {/* Layout para mobile - 3 colunas */}
-                    <div className="grid grid-cols-3 gap-2 sm:hidden">
-                      <div className="flex flex-col items-center gap-1">
-                        <button
-                          onClick={() => setShowColorLegend('red')}
-                          className="w-full flex items-center justify-center px-2 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
-                        >
-                          <span className="text-xs">Cancelado</span>
-                        </button>
-                        <span className="text-sm font-bold text-white bg-red-700 px-2 py-1 rounded w-full text-center">
-                          {filteredAppointments.filter(apt => apt.status === 'cancelled').length}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-col items-center gap-1">
-                        <button
-                          onClick={() => setShowColorLegend('yellow')}
-                          className="w-full flex items-center justify-center px-2 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition-colors"
-                        >
-                          <span className="text-xs">Pendente</span>
-                        </button>
-                        <span className="text-sm font-bold text-white bg-yellow-700 px-2 py-1 rounded w-full text-center">
-                          {filteredAppointments.filter(apt => apt.status === 'pending').length}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-col items-center gap-1">
-                        <button
-                          onClick={() => setShowColorLegend('green')}
-                          className="w-full flex items-center justify-center px-2 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
-                        >
-                          <span className="text-xs">Concluído</span>
-                        </button>
-                        <span className="text-sm font-bold text-white bg-green-700 px-2 py-1 rounded w-full text-center">
-                          {filteredAppointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Layout para desktop - horizontal */}
-                    <div className="hidden sm:flex justify-center gap-4 sm:gap-6">
-                      <div className="flex flex-col items-center gap-2">
-                        <button
-                          onClick={() => setShowColorLegend('red')}
-                          className="flex items-center justify-center px-3 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
-                        >
-                          <span>Cancelado</span>
-                        </button>
-                        <span className="text-lg font-bold text-white bg-red-700 px-3 py-1 rounded">
-                          {filteredAppointments.filter(apt => apt.status === 'cancelled').length}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-col items-center gap-2">
-                        <button
-                          onClick={() => setShowColorLegend('yellow')}
-                          className="flex items-center justify-center px-3 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
-                        >
-                          <span>Pendente</span>
-                        </button>
-                        <span className="text-lg font-bold text-white bg-yellow-700 px-3 py-1 rounded">
-                          {filteredAppointments.filter(apt => apt.status === 'pending').length}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-col items-center gap-2">
-                        <button
-                          onClick={() => setShowColorLegend('green')}
-                          className="flex items-center justify-center px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-                        >
-                          <span>Concluído</span>
-                        </button>
-                        <span className="text-lg font-bold text-white bg-green-700 px-3 py-1 rounded">
-                          {filteredAppointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Botão de lembrete para clientes */}
-                    <div className="mt-3 flex justify-center">
-                      <button
-                        onClick={() => handleOpenReminderInfoModal()}
-                        className="px-3 py-2 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
-                        title="Dicas sobre envio de lembretes"
-                      >
-                        📬 Enviar lembrete para clientes
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Alerta sobre contabilização de valores */}
-                  <div className="mb-4 p-3 bg-orange-100 border-l-4 border-orange-500 rounded-r-lg">
-                    <div className="text-orange-800 text-sm font-bold flex items-start gap-2">
-                      <span className="text-orange-600 text-lg flex-shrink-0 mt-0.5">⚠️</span>
-                      <div className="flex-1">
-                        <button
-                          onClick={() => setShowReminderPopup(true)}
-                          className="cursor-pointer hover:underline text-left"
-                        >
-                          Agendamento pendente não conta valor no dashboard - clique para entender
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Logo do Sistema - Apenas Desktop */}
                   <div className="hidden md:flex justify-center mb-6">
                     <img
@@ -9192,6 +9083,99 @@ Estamos te aguardando! 😎✂️`;
                     </button>
                   </div>
 
+                  {/* Legenda das Cores */}
+                  <div className="hidden mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
+
+                    {/* Layout para mobile - 3 colunas */}
+                    <div className="grid grid-cols-3 gap-2 sm:hidden">
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          onClick={() => setShowColorLegend('red')}
+                          className="w-full flex items-center justify-center px-2 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                        >
+                          <span className="text-xs">Cancelado</span>
+                        </button>
+                        <span className="text-sm font-bold text-white bg-red-700 px-2 py-1 rounded w-full text-center">
+                          {filteredAppointments.filter(apt => apt.status === 'cancelled').length}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          onClick={() => setShowColorLegend('yellow')}
+                          className="w-full flex items-center justify-center px-2 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition-colors"
+                        >
+                          <span className="text-xs">Pendente</span>
+                        </button>
+                        <span className="text-sm font-bold text-white bg-yellow-700 px-2 py-1 rounded w-full text-center">
+                          {filteredAppointments.filter(apt => apt.status === 'pending').length}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          onClick={() => setShowColorLegend('green')}
+                          className="w-full flex items-center justify-center px-2 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                        >
+                          <span className="text-xs">Concluído</span>
+                        </button>
+                        <span className="text-sm font-bold text-white bg-green-700 px-2 py-1 rounded w-full text-center">
+                          {filteredAppointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Layout para desktop - horizontal */}
+                    <div className="hidden sm:flex justify-center gap-4 sm:gap-6">
+                      <div className="flex flex-col items-center gap-2">
+                        <button
+                          onClick={() => setShowColorLegend('red')}
+                          className="flex items-center justify-center px-3 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+                        >
+                          <span>Cancelado</span>
+                        </button>
+                        <span className="text-lg font-bold text-white bg-red-700 px-3 py-1 rounded">
+                          {filteredAppointments.filter(apt => apt.status === 'cancelled').length}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-2">
+                        <button
+                          onClick={() => setShowColorLegend('yellow')}
+                          className="flex items-center justify-center px-3 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
+                        >
+                          <span>Pendente</span>
+                        </button>
+                        <span className="text-lg font-bold text-white bg-yellow-700 px-3 py-1 rounded">
+                          {filteredAppointments.filter(apt => apt.status === 'pending').length}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-2">
+                        <button
+                          onClick={() => setShowColorLegend('green')}
+                          className="flex items-center justify-center px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                        >
+                          <span>Concluído</span>
+                        </button>
+                        <span className="text-lg font-bold text-white bg-green-700 px-3 py-1 rounded">
+                          {filteredAppointments.filter(apt => apt.status === 'confirmed' || apt.status === 'completed').length}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Botão de lembrete para clientes */}
+                    <div className="mt-3 flex justify-center">
+                      <button
+                        onClick={() => handleOpenReminderInfoModal()}
+                        className="px-3 py-2 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
+                        title="Dicas sobre envio de lembretes"
+                      >
+                        📬 Enviar lembrete para clientes
+                      </button>
+                    </div>
+                  </div>
 
                   {/* Modal da Legenda */}
                   {showColorLegend && (
@@ -9230,6 +9214,20 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
+                  {/* Alerta sobre contabilização de valores */}
+                  <div className="hidden mb-4 p-3 bg-orange-100 border-l-4 border-orange-500 rounded-r-lg">
+                    <div className="text-orange-800 text-sm font-bold flex items-start gap-2">
+                      <span className="text-orange-600 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+                      <div className="flex-1">
+                        <button
+                          onClick={() => setShowReminderPopup(true)}
+                          className="cursor-pointer hover:underline text-left"
+                        >
+                          Agendamento pendente não conta valor no dashboard
+                        </button>
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Lista de Agendamentos - OCULTA (usando AllProfessionalsAppointmentsView agora) */}
                   <div className="hidden">
@@ -9938,134 +9936,30 @@ Estamos te aguardando! 😎✂️`;
 
               {activeTab === 'services' && (
                 <div className="space-y-6">
-                  {/* Funcionalidade de Serviços - Apenas para estabelecimento com código 9798 */}
-                  {establishment?.code === '9798' ? (
-                    <div className="bg-white rounded-lg p-6 border border-gray-200">
-                      <h2 className="text-2xl font-bold text-gray-900 mb-6">Gerenciar Serviços</h2>
-
-                      <div className="space-y-4">
-                        {servicesWithPrices.map((service, index) => (
-                          <div key={service.id} className="flex gap-4 items-start p-4 bg-gray-50 rounded-lg border border-gray-200">
-                            <div className="flex-1 space-y-3">
-                              <input
-                                type="text"
-                                value={service.name}
-                                onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
-                                className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
-                                placeholder={`Nome do Serviço ${index + 1}`}
-                              />
-                              <div className="flex gap-2">
-                                <div className="flex-1">
-                                  <label className="block text-sm font-medium text-gray-700 mb-1">Preço (R$)</label>
-                                  <input
-                                    type="number"
-                                    value={service.price}
-                                    onChange={(e) => handleServiceChange(service.id, 'price', parseFloat(e.target.value) || 0)}
-                                    className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
-                                    placeholder="0.00"
-                                    min="0"
-                                    step="0.01"
-                                  />
-                                </div>
-                                <div className="flex-1">
-                                  <label className="block text-sm font-medium text-gray-700 mb-1">Duração</label>
-                                  <select
-                                    value={service.duration}
-                                    onChange={(e) => handleServiceChange(service.id, 'duration', parseInt(e.target.value))}
-                                    className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
-                                  >
-                                    {durationOptions.map(option => (
-                                      <option key={option.value} value={option.value}>
-                                        {option.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveService(service.id)}
-                              className="px-3 py-2 text-red-500 hover:text-red-400 transition-colors mt-8"
-                              title="Remover serviço"
-                            >
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                          </div>
-                        ))}
-
+                  {/* Informações sobre o link do estabelecimento */}
+                  {establishment && (
+                    <div className="mb-4 space-y-3">
+                      <div className="flex gap-2 items-center">
+                        <a
+                          href={`/booking/${establishment.code}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
+                          title="Abrir página pública de agendamentos"
+                        >
+                          Meu Link
+                        </a>
                         <button
                           type="button"
-                          onClick={handleAddService}
-                          className="w-full px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors font-medium flex items-center justify-center gap-2"
+                          onClick={copyLinkToClipboard}
+                          className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
                         >
-                          <Plus className="h-5 w-5" />
-                          Adicionar Serviço
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (!establishment) return;
-
-                            try {
-                              const validServices = servicesWithPrices
-                                .filter(s => s.name.trim() && s.price > 0)
-                                .map(s => ({
-                                  id: s.id,
-                                  name: s.name.trim(),
-                                  price: Number(s.price),
-                                  duration: Number(s.duration)
-                                }));
-
-                              const { error } = await supabase
-                                .from('establishments')
-                                .update({ services_with_prices: validServices })
-                                .eq('id', establishment.id);
-
-                              if (error) throw error;
-
-                              toast('Serviços salvos com sucesso!', 'success');
-                              fetchEstablishment();
-                            } catch (error) {
-                              console.error('Erro ao salvar serviços:', error);
-                              toast('Erro ao salvar serviços', 'error');
-                            }
-                          }}
-                          className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-                        >
-                          Salvar Serviços
+                          Copiar Link
                         </button>
                       </div>
-                    </div>
-                  ) : (
-                    // Conteúdo padrão para outros estabelecimentos
-                    <div className="space-y-6">
-                      {establishment && (
-                        <div className="mb-4 space-y-3">
-                          <div className="flex gap-2 items-center">
-                            <a
-                              href={`/booking/${establishment.code}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
-                              title="Abrir página pública de agendamentos"
-                            >
-                              Meu Link
-                            </a>
-                            <button
-                              type="button"
-                              onClick={copyLinkToClipboard}
-                              className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
-                            >
-                              Copiar Link
-                            </button>
-                          </div>
-                          <p className="text-sm text-gray-400">
-                            Acesse a página pública de agendamentos ou copie o link para compartilhar com seus clientes.
-                          </p>
-                        </div>
-                      )}
+                      <p className="text-sm text-gray-400">
+                        Acesse a página pública de agendamentos ou copie o link para compartilhar com seus clientes.
+                      </p>
                     </div>
                   )}
                 </div>

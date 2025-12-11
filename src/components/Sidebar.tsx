@@ -372,7 +372,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Lista de itens do menu */}
         <nav className="p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide">
-          {/* Botão COMECE AQUI */}
+          {/* Botão Passo a Passo */}
           <div className="relative">
             <button
               onClick={() => handleItemClick(() => onTabChange('passo-a-passo'))}
@@ -381,12 +381,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
               }`}
-              title={isExpanded ? '' : 'COMECE AQUI'}
+              title={isExpanded ? '' : 'Passo a passo'}
             >
               <Rocket className="h-5 w-5 flex-shrink-0" />
               {isExpanded && (
                 <span className="text-sm font-medium whitespace-nowrap">
-                  COMECE AQUI
+                  Passo a passo
                 </span>
               )}
             </button>
@@ -394,7 +394,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             {/* Tooltip para menu recolhido */}
             {!isExpanded && (
               <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
-                COMECE AQUI
+                Passo a passo
               </div>
             )}
           </div>

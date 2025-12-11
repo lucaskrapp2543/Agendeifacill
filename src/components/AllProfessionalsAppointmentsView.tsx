@@ -576,6 +576,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
     console.log('  - Appointments do profissional:', appointments.filter(apt => apt.professional === professionalId).length);
     console.log('  - Appointments do profissional na data:', appointments.filter(apt => apt.professional === professionalId && apt.appointment_date === selectedDateStr).length);
     
+    // Contar TODOS os agendamentos não cancelados para a contagem
+    const dailyAppointmentsForCount = appointments.filter(
+      (apt) =>
+        apt.professional === professionalId &&
+        apt.appointment_date === selectedDateStr &&
+        apt.status !== 'cancelled'
+    );
+    
+    // Para valores financeiros, usar apenas confirmados/completos (pendentes não geram receita)
     const dailyAppointments = appointments.filter(
       (apt) =>
         apt.professional === professionalId &&
@@ -583,13 +592,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
         (apt.status === 'confirmed' || apt.status === 'completed')
     );
     
-    console.log('  - Appointments confirmados/completos:', dailyAppointments.length);
-    console.log('  - Detalhes:', dailyAppointments.map(apt => ({ id: apt.id, status: apt.status, date: apt.appointment_date })));
+    console.log('  - Appointments não cancelados (contagem):', dailyAppointmentsForCount.length);
+    console.log('  - Appointments confirmados/completos (valores):', dailyAppointments.length);
+    console.log('  - Detalhes:', dailyAppointmentsForCount.map(apt => ({ id: apt.id, status: apt.status, date: apt.appointment_date })));
 
+    // Para valores financeiros mensais, usar apenas confirmados/completos
     const monthlyAppointmentsForPro = monthlyAppointments.filter(
       (apt) =>
         apt.professional === professionalId &&
         (apt.status === 'confirmed' || apt.status === 'completed')
+    );
+    
+    // Para contagem mensal, usar todos não cancelados
+    const monthlyAppointmentsForCount = monthlyAppointments.filter(
+      (apt) =>
+        apt.professional === professionalId &&
+        apt.status !== 'cancelled'
     );
 
     const dailyGross = dailyAppointments.reduce(
@@ -612,8 +630,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
       dailyNet,
       monthlyGross,
       monthlyNet,
-      appointmentsToday: dailyAppointments.length,
-      appointmentsMonth: monthlyAppointmentsForPro.length,
+      appointmentsToday: dailyAppointmentsForCount.length, // Contagem: todos não cancelados
+      appointmentsMonth: monthlyAppointmentsForCount.length, // Contagem: todos não cancelados
     };
   };
 
@@ -631,6 +649,65 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
   return (
     <div className="space-y-4">
+      {/* Card de Legenda de Cores */}
+      <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+        <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
+        
+        {/* Layout para mobile - 3 colunas */}
+        <div className="grid grid-cols-3 gap-2 sm:hidden">
+          <button 
+            onClick={() => setShowColorLegend('red')}
+            className="px-2 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+          >
+            Cancelado
+          </button>
+          <button 
+            onClick={() => setShowColorLegend('yellow')}
+            className="px-2 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition-colors"
+          >
+            Pendente
+          </button>
+          <button 
+            onClick={() => setShowColorLegend('green')}
+            className="px-2 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+          >
+            Concluído
+          </button>
+        </div>
+
+        {/* Layout para desktop - horizontal */}
+        <div className="hidden sm:flex justify-center gap-4">
+          <button 
+            onClick={() => setShowColorLegend('red')}
+            className="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+          >
+            ❌ Cancelado
+          </button>
+          <button 
+            onClick={() => setShowColorLegend('yellow')}
+            className="px-4 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
+          >
+            ⏳ Pendente
+          </button>
+          <button 
+            onClick={() => setShowColorLegend('green')}
+            className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+          >
+            ✅ Concluído
+          </button>
+        </div>
+
+        {/* Botão de lembrete para clientes */}
+        <div className="mt-3 flex justify-center">
+          <button
+            onClick={() => setShowReminderInfo(true)}
+            className="px-3 py-2 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
+            title="Dicas sobre envio de lembretes"
+          >
+            📬 Enviar lembrete para clientes
+          </button>
+        </div>
+      </div>
 
       {/* Modal de Informações sobre Lembretes */}
       {showReminderInfo && (
@@ -716,6 +793,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
         </div>
       )}
 
+      {/* Alerta sobre valores pendentes */}
+      <div className="bg-orange-100 border-l-4 border-orange-500 rounded-r-lg p-3">
+        <div className="flex items-start gap-2">
+          <span className="text-orange-600 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+          <div className="flex-1">
+            <button
+              onClick={() => setShowPendingWarning(true)}
+              className="text-orange-800 text-sm font-bold text-left hover:underline"
+            >
+              Agendamento pendente não conta valor no dashboard - <span className="text-orange-600">clique para entender</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Modal de Aviso sobre Pendentes */}
       {showPendingWarning && (
@@ -752,35 +843,35 @@ export const AllProfessionalsAppointmentsView: React.FC<
       )}
 
       {/* Cabeçalho com navegação de data */}
-      <div className="bg-white rounded-lg p-2 sm:p-4 border border-gray-200">
-        <h2 className="text-base sm:text-xl md:text-2xl font-bold text-gray-900 mb-2 sm:mb-4">
-          <span className="hidden sm:inline">Agendamentos do Dia - Todos os Profissionais</span>
-          <span className="sm:hidden">Agendamentos do Dia</span>
+      <div className="bg-white rounded-lg p-4 border border-gray-200">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">
+          Agendamentos do Dia - Todos os Profissionais
         </h2>
-        <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4">
+        <div className="flex items-center gap-2 md:gap-4">
           <button
             onClick={handlePreviousDay}
-            className="p-1.5 sm:p-2 md:p-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-md flex-shrink-0"
-            aria-label="Dia anterior"
+            className="p-2 md:p-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-md flex-shrink-0"
           >
-            <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
+            <ChevronLeft className="h-5 w-5 md:h-6 md:w-6" />
           </button>
           <input
             type="date"
             value={format(selectedDate, 'yyyy-MM-dd')}
             onChange={handleDateInputChange}
-            className="flex-1 px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 md:py-3 text-xs sm:text-sm md:text-base font-semibold text-gray-900 bg-gray-50 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white"
+            className="flex-1 px-3 md:px-4 py-2 md:py-3 text-sm md:text-base font-semibold text-gray-900 bg-gray-50 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white"
           />
           <button
             onClick={handleNextDay}
-            className="p-1.5 sm:p-2 md:p-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-md flex-shrink-0"
-            aria-label="Próximo dia"
+            className="p-2 md:p-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-md flex-shrink-0"
           >
-            <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
+            <ChevronRight className="h-5 w-5 md:h-6 md:w-6" />
           </button>
         </div>
-        {/* Seletor de Profissional - MOBILE (compacto) */}
-        <div className="md:hidden mt-2">
+        {/* Seletor de Profissional - MOBILE (opcional) */}
+        <div className="md:hidden mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Pular para Profissional (ou arraste abaixo):
+          </label>
           <select
             value={selectedProfessionalId}
             onChange={(e) => {
@@ -790,16 +881,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 const professionalIndex = professionals.findIndex(p => p.id === e.target.value);
                 const scrollContainer = document.querySelector('.mobile-scroll-container');
                 if (scrollContainer && professionalIndex >= 0) {
-                  // Usa largura responsiva: 240px no mobile, 280px no desktop
-                  const cardWidth = window.innerWidth < 640 ? 240 : 280;
                   scrollContainer.scrollTo({
-                    left: professionalIndex * cardWidth,
+                    left: professionalIndex * 280,
                     behavior: 'smooth'
                   });
                 }
               }, 100);
             }}
-            className="w-full px-2 py-1.5 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 font-medium text-sm"
+            className="w-full px-3 py-2 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 font-semibold text-base"
           >
             {professionals.map((prof) => (
               <option key={prof.id} value={prof.id} className="text-gray-900 font-normal">
@@ -809,9 +898,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </select>
         </div>
 
-        {/* Texto de ajuda - apenas mobile */}
-        <p className="text-xs text-gray-500 mt-1.5 text-center md:hidden">
-          👈 Arraste para ver mais 👉
+        {/* Texto de ajuda */}
+        <p className="text-sm text-gray-600 mt-2 text-center">
+          👈 Arraste para o lado para ver mais profissionais 👉
         </p>
       </div>
 
@@ -835,10 +924,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
             {professionals.map((professional, index) => {
               const timeSlots = generateTimeSlotsWithAppointments(professional);
               const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+              // Contar TODOS os agendamentos não cancelados (pending, confirmed, completed)
               const professionalAppointmentsCount = timeSlots.filter(
                 (slot) => slot.appointment && 
                 slot.appointment.appointment_date === selectedDateStr &&
-                (slot.appointment.status === 'confirmed' || slot.appointment.status === 'completed')
+                slot.appointment.status !== 'cancelled'
               ).length;
               
               // Debug para comparar
@@ -853,12 +943,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
               return (
                 <div
                   key={professional.id}
-                  className={`flex-shrink-0 w-[240px] sm:w-[280px] ${
+                  className={`flex-shrink-0 ${
                     index !== 0 ? 'border-l-4 border-purple-400' : ''
                   }`}
+                  style={{ width: '280px' }}
                 >
                   {/* Cabeçalho do Profissional */}
-                  <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-1.5 sm:p-2 sticky top-0 z-10">
+                  <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-2 sticky top-0 z-10">
                     <div className="flex flex-col items-center">
                       <button
                         onClick={() => setSelectedProfessionalForInfo(professional.id)}
@@ -868,10 +959,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           <img
                             src={professional.photo_url}
                             alt={professional.name}
-                            className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full object-cover border-2 border-white shadow-md group-hover:scale-110 transition-transform cursor-pointer"
+                            className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-md group-hover:scale-110 transition-transform cursor-pointer"
                           />
                         ) : (
-                          <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-white flex items-center justify-center text-lg sm:text-xl md:text-2xl border-2 border-white shadow-md group-hover:scale-110 transition-transform cursor-pointer">
+                          <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center text-2xl border-2 border-white shadow-md group-hover:scale-110 transition-transform cursor-pointer">
                             👤
                           </div>
                         )}
@@ -881,24 +972,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           </span>
                         </div>
                       </button>
-                      <h3 className="text-white font-bold text-xs sm:text-sm mt-0.5 sm:mt-1 text-center truncate w-full px-1">
+                      <h3 className="text-white font-bold text-sm mt-1 text-center">
                         {professional.name}
                       </h3>
-                      <p className="text-blue-100 text-[10px] sm:text-xs">
+                      <p className="text-blue-100 text-xs">
                         {professionalAppointmentsCount} agend.
                       </p>
-                      <div className="space-y-1 sm:space-y-1 mt-1 sm:mt-1 w-full">
-                        <div className="flex gap-1 sm:gap-1">
+                      <div className="space-y-1 mt-1">
+                        <div className="flex gap-1">
                           <button
                             onClick={() => setSelectedProfessionalForInfo(professional.id)}
-                            className="flex-1 px-2 sm:px-2 py-1.5 sm:py-1 bg-white/10 hover:bg-white/20 text-white text-xs sm:text-xs rounded transition-colors border border-white/30 font-medium"
+                            className="flex-1 px-2 py-1 bg-white/10 hover:bg-white/20 text-white text-xs rounded transition-colors border border-white/30"
                           >
                             💰 Financeiro
                           </button>
                           {onGoToProfessionalConfig && (
                             <button
                               onClick={() => onGoToProfessionalConfig(professional.id)}
-                              className="flex-1 px-2 sm:px-2 py-1.5 sm:py-1 bg-green-600/80 hover:bg-green-700 text-white text-xs sm:text-xs rounded transition-colors border border-white/30 font-medium"
+                              className="flex-1 px-2 py-1 bg-green-600/80 hover:bg-green-700 text-white text-xs rounded transition-colors border border-white/30"
                               title="Ir para configurações do profissional"
                             >
                               ⚙️ Config
@@ -908,7 +999,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         {onGoToClients && (
                           <button
                             onClick={onGoToClients}
-                            className="w-full px-2 sm:px-2 py-1.5 sm:py-1 bg-purple-600/80 hover:bg-purple-700 text-white text-xs sm:text-xs rounded transition-colors border border-white/30 font-medium"
+                            className="w-full px-2 py-1 bg-purple-600/80 hover:bg-purple-700 text-white text-xs rounded transition-colors border border-white/30"
                             title="Ir para Meus Clientes"
                           >
                             📅 Criar reserva
@@ -917,30 +1008,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       </div>
                       
                       {/* Contadores de Status por Profissional */}
-                      <div className="mt-1 sm:mt-2 flex gap-0.5 sm:gap-1 text-[10px] sm:text-xs">
-                        <span className="px-1 sm:px-2 py-0.5 sm:py-1 bg-red-600/80 text-white rounded">
+                      <div className="mt-2 flex gap-1 text-xs">
+                        <span className="px-2 py-1 bg-red-600/80 text-white rounded">
                           ❌ {timeSlots.filter(s => s.appointment && s.appointment.status === 'cancelled').length}
                         </span>
-                        <span className="px-1 sm:px-2 py-0.5 sm:py-1 bg-yellow-600/80 text-white rounded">
+                        <span className="px-2 py-1 bg-yellow-600/80 text-white rounded">
                           ⏳ {timeSlots.filter(s => s.appointment && (s.appointment.status === 'pending' || s.appointment.status === 'confirmed')).length}
                         </span>
-                        <span className="px-1 sm:px-2 py-0.5 sm:py-1 bg-green-600/80 text-white rounded">
+                        <span className="px-2 py-1 bg-green-600/80 text-white rounded">
                           ✅ {timeSlots.filter(s => s.appointment && s.appointment.status === 'completed').length}
                         </span>
                       </div>
                       
                       {/* Meta do Profissional */}
                       {professional.goal && professional.goal > 0 && (
-                        <div className="mt-1 sm:mt-2 px-1 sm:px-2 py-0.5 sm:py-1 bg-purple-600/90 text-white rounded text-[10px] sm:text-xs text-center">
-                          🎯 {formatCurrency(professional.goal)}
+                        <div className="mt-2 px-2 py-1 bg-purple-600/90 text-white rounded text-xs text-center">
+                          🎯 Meta: {formatCurrency(professional.goal)}
                         </div>
                       )}
                     </div>
                   </div>
 
                   {/* Todos os Horários (Livres e Ocupados) */}
-                  <div className="p-1 sm:p-2 bg-gray-50 min-h-[400px] sm:min-h-[500px]">
-                    <div className="space-y-0.5 sm:space-y-1">
+                  <div className="p-2 bg-gray-50 min-h-[500px]">
+                    <div className="space-y-1">
                       {timeSlots.length > 0 ? (
                         timeSlots.map((slot, slotIndex) => {
                           const slotColor = getSlotColor(slot);
@@ -950,13 +1041,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             return (
                               <div
                                 key={`${slot.time}-${slotIndex}`}
-                                className="bg-gray-400 border-2 border-gray-500 rounded-lg px-2 sm:px-3 py-1 sm:py-2"
+                                className="bg-gray-400 border-2 border-gray-500 rounded-lg px-3 py-2"
                               >
                                 <div className="flex items-center justify-between">
-                                  <span className="text-white font-bold text-xs sm:text-sm">
+                                  <span className="text-white font-bold text-sm">
                                     {slot.time}
                                   </span>
-                                  <span className="text-white text-[10px] sm:text-xs font-semibold">
+                                  <span className="text-white text-xs font-semibold">
                                     🔒 BLOQUEADO
                                   </span>
                                 </div>
@@ -967,13 +1058,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             return (
                               <div
                                 key={`${slot.time}-${slotIndex}`}
-                                className={`${slotColor} border-2 rounded-lg px-2 sm:px-3 py-1 sm:py-2`}
+                                className={`${slotColor} border-2 rounded-lg px-3 py-2`}
                               >
                                 <div className="flex items-center justify-between">
-                                  <span className="text-blue-900 font-bold text-xs sm:text-sm">
+                                  <span className="text-blue-900 font-bold text-sm">
                                     {slot.time}
                                   </span>
-                                  <span className="text-green-600 text-[10px] sm:text-xs font-semibold">
+                                  <span className="text-green-600 text-xs font-semibold">
                                     ✓ DISPONÍVEL
                                   </span>
                                 </div>
@@ -984,10 +1075,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             return (
                               <div
                                 key={`${slot.time}-${slotIndex}`}
-                                className={`${slotColor} border-2 rounded-lg p-1.5 sm:p-3 opacity-75`}
+                                className={`${slotColor} border-2 rounded-lg p-3 opacity-75`}
                               >
                                 <div className="flex items-center justify-between">
-                                  <span className="text-white font-bold text-xs sm:text-sm">
+                                  <span className="text-white font-bold text-sm">
                                     {slot.time}
                                   </span>
                                   <span className="text-white text-xs font-semibold">
@@ -1007,40 +1098,40 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 className={`${slotColor} border rounded-lg overflow-hidden`}
                               >
                                 {/* Versão Compacta - Sempre visível */}
-                                <div className="px-2 sm:px-3 py-1.5 sm:py-2">
+                                <div className="px-3 py-2">
                                   <div
                                     onClick={() => toggleAppointmentExpansion(apt.id)}
                                     className="cursor-pointer"
                                   >
-                                    <div className="flex items-center justify-between mb-0.5 sm:mb-1">
-                                      <span className="text-white font-bold text-xs sm:text-sm">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-white font-bold text-sm">
                                         {slot.time}
                                       </span>
-                                      <span className="text-white text-[10px] sm:text-xs font-bold">
+                                      <span className="text-white text-xs font-bold">
                                         R$ {(apt.total_price || apt.price).toFixed(2)}
                                       </span>
                                     </div>
-                                    <div className="text-white font-semibold text-xs sm:text-sm mb-0.5 sm:mb-1 truncate">
+                                    <div className="text-white font-semibold text-sm mb-1 truncate">
                                       {apt.client_name}
                                       {apt.is_subscriber && ' 👑'}
                                     </div>
-                                    <div className="text-white/90 text-[10px] sm:text-xs truncate">
+                                    <div className="text-white/90 text-xs truncate">
                                       {apt.service}
                                     </div>
-                                    <div className="text-white/70 text-[10px] sm:text-xs mt-0.5 sm:mt-1">
+                                    <div className="text-white/70 text-xs mt-1">
                                       {apt.duration} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
                                     </div>
                                   </div>
 
                                   {/* Botão Enviar Lembrete - Aparece quando NÃO expandido */}
                                   {!isExpanded && apt.status !== 'cancelled' && (
-                                    <div className="mt-1.5 sm:mt-2 pt-1.5 sm:pt-2 border-t border-white/20">
+                                    <div className="mt-2 pt-2 border-t border-white/20">
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           if (onOpenReminderModal) onOpenReminderModal(apt);
                                         }}
-                                        className="w-full px-1.5 sm:px-2 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium rounded transition-colors bg-blue-500 text-white hover:bg-blue-600"
+                                        className="w-full px-2 py-1.5 text-xs font-medium rounded transition-colors bg-blue-500 text-white hover:bg-blue-600"
                                         title="Enviar lembrete via WhatsApp"
                                       >
                                         📱 Enviar lembrete
@@ -1051,7 +1142,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                 {/* Versão Expandida - Só aparece quando clicado */}
                                 {isExpanded && (
-                                  <div className="border-t-2 border-white/20 p-2 sm:p-3 bg-black/10">
+                                  <div className="border-t-2 border-white/20 p-3 bg-black/10">
                                     {/* Cliente Info */}
                                     <div className="mb-3">
                                       <div className="flex items-center gap-2 mb-2">
