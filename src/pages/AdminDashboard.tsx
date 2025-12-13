@@ -793,16 +793,28 @@ const AdminDashboard = () => {
     return <AlertTriangle className="h-5 w-5 text-yellow-600" />;
   };
 
-  const filteredEstablishments = establishments.filter(establishment => {
-    const matchesSearch = establishment.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      establishment.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      establishment.owner_email.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredEstablishments = establishments
+    .filter(establishment => {
+      const matchesSearch = establishment.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        establishment.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        establishment.owner_email.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesStatus = filterStatus === 'all' || establishment.payment_status === filterStatus;
-    const matchesPlan = filterPlan === 'all' || establishment.plan_type === filterPlan;
+      const matchesStatus = filterStatus === 'all' || establishment.payment_status === filterStatus;
+      const matchesPlan = filterPlan === 'all' || establishment.plan_type === filterPlan;
 
-    return matchesSearch && matchesStatus && matchesPlan;
-  });
+      return matchesSearch && matchesStatus && matchesPlan;
+    })
+    .sort((a, b) => {
+      // Estabelecimentos vencidos sempre no topo
+      const aIsExpired = a.payment_status === 'expired' || isExpired(a.payment_due_date);
+      const bIsExpired = b.payment_status === 'expired' || isExpired(b.payment_due_date);
+      
+      if (aIsExpired && !bIsExpired) return -1; // a vem antes (vencido)
+      if (!aIsExpired && bIsExpired) return 1;  // b vem antes (vencido)
+      
+      // Se ambos são vencidos ou ambos não são vencidos, manter ordem original (por created_at)
+      return 0;
+    });
 
   // Filtrar estabelecimentos da lixeira
   const filteredDeletedEstablishments = deletedEstablishments.filter(establishment => {
