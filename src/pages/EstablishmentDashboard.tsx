@@ -122,7 +122,7 @@ interface Establishment {
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page' | 'indication';
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page' | 'indication' | 'support';
 
 interface AdditionalProduct {
   name: string;
@@ -8484,7 +8484,7 @@ Estamos te aguardando! 😎✂️`;
                       <button
                         type="button"
                         onClick={() => handleRemoveProfessional(professional.id)}
-                        className="px-3 py-2 text-red-500 hover:text-red-400 transition-colors"
+                        className="px-3 py-2 text-gray-600 hover:text-gray-800 transition-colors"
                       >
                         <Trash2 className="h-5 w-5" />
                       </button>
@@ -8544,7 +8544,7 @@ Estamos te aguardando! 😎✂️`;
                       <button
                         type="button"
                         onClick={() => handleRemoveService(service.id)}
-                        className="px-3 py-2 text-red-500 hover:text-red-400 transition-colors"
+                        className="px-3 py-2 text-gray-600 hover:text-gray-800 transition-colors"
                       >
                         <Trash2 className="h-5 w-5" />
                       </button>
@@ -8626,20 +8626,24 @@ Estamos te aguardando! 😎✂️`;
             {/* Cabeçalho */}
             <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6 sm:mb-8">
               <div className="flex-1 min-w-0">
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{establishment.name}</h1>
-                <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  <span className="text-gray-700 text-sm sm:text-base">Código:</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-900 font-medium text-sm sm:text-base">{establishment.code}</span>
-                    <button
-                      onClick={copyCodeToClipboard}
-                      className="text-gray-600 hover:text-gray-900 transition-colors p-1"
-                      title="Copiar código"
-                    >
-                      {codeCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
+                {activeTab !== 'appointments' && (
+                  <>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{establishment.name}</h1>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <span className="text-gray-700 text-sm sm:text-base">Código:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-900 font-medium text-sm sm:text-base">{establishment.code}</span>
+                        <button
+                          onClick={copyCodeToClipboard}
+                          className="text-gray-600 hover:text-gray-900 transition-colors p-1"
+                          title="Copiar código"
+                        >
+                          {codeCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
                 {/* Validade do Sistema */}
                 <div className="mt-2">
                   <ValidityHeader establishmentId={establishment.id} />
@@ -8681,8 +8685,8 @@ Estamos te aguardando! 😎✂️`;
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                       <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative">
                         <div className="flex items-center gap-3 mb-4">
-                          <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
-                            <span className="text-yellow-600 text-2xl">⚠️</span>
+                          <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-gray-700 text-2xl">⚠️</span>
                           </div>
                           <h2 className="text-xl font-bold text-gray-900">Atenção!</h2>
                         </div>
@@ -8708,7 +8712,7 @@ Estamos te aguardando! 😎✂️`;
                               const message = encodeURIComponent(`Olá! Quero deixar meu sistema em dia.\n\nNome do meu estabelecimento: ${establishment.name}`);
                               window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
                             }}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
+                            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center gap-2"
                           >
                             Pagar agora
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -8755,7 +8759,7 @@ Estamos te aguardando! 😎✂️`;
                                 const message = encodeURIComponent('Olá quero indicar um barbeiro e ganhar 1 mês gratis');
                                 window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
                               }}
-                              className="w-full px-4 py-3 md:px-6 md:py-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium md:text-lg flex items-center justify-center gap-2"
+                              className="w-full px-4 py-3 md:px-6 md:py-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium md:text-lg flex items-center justify-center gap-2"
                             >
                               Indicar
                             </button>
@@ -8781,13 +8785,6 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-
-                  {/* Validade Agendei Fácil */}
-                  {establishment?.id && (
-                    <div className="mb-6">
-                      <ValidityDisplay establishmentId={establishment.id} />
                     </div>
                   )}
 
@@ -8826,11 +8823,11 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Vídeo Tutorial de Agendamentos */}
                   {showTutorials.appointments && (
-                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center animate-spin">
-                            <span className="text-orange-600 text-xl">⏳</span>
+                          <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center animate-spin">
+                            <span className="text-gray-700 text-xl">⏳</span>
                           </div>
                           <div>
                             <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Agendamentos</h3>
@@ -8839,7 +8836,7 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                         <button
                           onClick={() => toggleTutorial('appointments')}
-                          className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                          className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
                         >
                           Ocultar
                         </button>
@@ -8847,7 +8844,7 @@ Estamos te aguardando! 😎✂️`;
 
                       <div className="relative w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-12 text-center">
                         <div className="flex flex-col items-center justify-center space-y-4">
-                          <div className="w-20 h-20 bg-orange-200 rounded-full flex items-center justify-center animate-pulse">
+                          <div className="w-20 h-20 bg-gray-300 rounded-full flex items-center justify-center animate-pulse">
                             <span className="text-4xl">🎬</span>
                           </div>
                           <h4 className="text-xl font-bold text-gray-800">Vídeo Novo em Breve</h4>
@@ -8862,7 +8859,7 @@ Estamos te aguardando! 😎✂️`;
                     <div className="mb-6 text-center">
                       <button
                         onClick={() => toggleTutorial('appointments')}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
                       >
                         <span>📺</span>
                         <span>Mostrar Tutorial</span>
@@ -8880,8 +8877,8 @@ Estamos te aguardando! 😎✂️`;
                   </div>
 
                   {/* Divisória e Aviso - OCULTADO */}
-                  <div className="hidden my-8 border-t-4 border-purple-300 pt-6">
-                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-purple-300 rounded-lg p-4 mb-6">
+                  <div className="hidden my-8 border-t-4 border-gray-300 pt-6">
+                    <div className="bg-gradient-to-r from-gray-50 to-gray-100 border-2 border-gray-300 rounded-lg p-4 mb-6">
                       <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
                         <span>⚙️</span>
                         Visualização Avançada (com todas as funcionalidades de edição)
@@ -8916,7 +8913,7 @@ Estamos te aguardando! 😎✂️`;
                             showPhotoEditButtons={true}
                             establishment={establishment}
                           />
-                          <div className="mt-2 text-xs text-red-600">
+                          <div className="mt-2 text-xs text-gray-600">
                             {selectedProfessional === '' ? 'Selecione algum profissional' : `filtro ativo: ${getProfessionalName(selectedProfessional).toLowerCase()}`}
                           </div>
 
@@ -8977,7 +8974,7 @@ Estamos te aguardando! 😎✂️`;
                                   setSelectedPaymentMethod('pix');
                                   setIsPaymentDropdownOpen(false);
                                 }}
-                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'pix' ? 'bg-green-500 text-white' : 'text-gray-700'
+                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'pix' ? 'bg-black text-white' : 'text-gray-700'
                                   }`}
                               >
                                 🟢 PIX
@@ -8987,7 +8984,7 @@ Estamos te aguardando! 😎✂️`;
                                   setSelectedPaymentMethod('credito');
                                   setIsPaymentDropdownOpen(false);
                                 }}
-                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'credito' ? 'bg-blue-500 text-white' : 'text-gray-700'
+                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'credito' ? 'bg-black text-white' : 'text-gray-700'
                                   }`}
                               >
                                 🔵 Crédito
@@ -8997,7 +8994,7 @@ Estamos te aguardando! 😎✂️`;
                                   setSelectedPaymentMethod('debito');
                                   setIsPaymentDropdownOpen(false);
                                 }}
-                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'debito' ? 'bg-purple-500 text-white' : 'text-gray-700'
+                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'debito' ? 'bg-black text-white' : 'text-gray-700'
                                   }`}
                               >
                                 🟣 Débito
@@ -9007,7 +9004,7 @@ Estamos te aguardando! 😎✂️`;
                                   setSelectedPaymentMethod('dinheiro');
                                   setIsPaymentDropdownOpen(false);
                                 }}
-                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'dinheiro' ? 'bg-yellow-500 text-white' : 'text-gray-700'
+                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'dinheiro' ? 'bg-black text-white' : 'text-gray-700'
                                   }`}
                               >
                                 🟡 Dinheiro
@@ -9017,7 +9014,7 @@ Estamos te aguardando! 😎✂️`;
                                   setSelectedPaymentMethod('pagar_local');
                                   setIsPaymentDropdownOpen(false);
                                 }}
-                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'pagar_local' ? 'bg-orange-500 text-white' : 'text-gray-700'
+                                className={`w-full p-3 text-left hover:bg-gray-50 flex items-center gap-2 text-sm ${selectedPaymentMethod === 'pagar_local' ? 'bg-black text-white' : 'text-gray-700'
                                   } rounded-b-lg`}
                               >
                                 🏪 Pagar no Local
@@ -9025,14 +9022,14 @@ Estamos te aguardando! 😎✂️`;
                             </div>
                           )}
                         </div>
-                        <div className="mt-2 text-xs text-red-600">
+                        <div className="mt-2 text-xs text-gray-600">
                           filtro de pagamento: {getPaymentMethodInfo(selectedPaymentMethod).name.toLowerCase()}
                         </div>
                       </div>
                     </div>
                     <div className="mt-3 text-center text-sm">
                       {selectedProfessional === '' ? (
-                        <span className="text-blue-600 font-semibold bg-blue-50 px-3 py-1 rounded-lg border border-blue-200">
+                        <span className="text-gray-700 font-semibold bg-gray-100 px-3 py-1 rounded-lg border border-gray-300">
                           Selecione um profissional para ver os agendamentos
                         </span>
                       ) : (
@@ -9057,14 +9054,14 @@ Estamos te aguardando! 😎✂️`;
                         <div className="flex flex-col">
                           <span className="text-gray-700 font-medium text-lg">
                             Hoje: {showFinancialValues ? (
-                              <span className="text-green-500">{formatCurrency(calculateDailyBalance(filteredAppointments))}</span>
+                              <span className="text-gray-800">{formatCurrency(calculateDailyBalance(filteredAppointments))}</span>
                             ) : (
                               <span className="text-gray-400">••••••</span>
                             )}
                           </span>
                           <span className="text-gray-600 text-sm">
                             Líquido: {showFinancialValues ? (
-                              <span className="text-green-400">{formatCurrency(calculateDailyNetBalance(filteredAppointments))}</span>
+                              <span className="text-gray-700">{formatCurrency(calculateDailyNetBalance(filteredAppointments))}</span>
                             ) : (
                               <span className="text-gray-400">••••••</span>
                             )}
@@ -9073,14 +9070,14 @@ Estamos te aguardando! 😎✂️`;
                         <div className="flex flex-col" key={`monthly-${selectedMonth.getTime()}`}>
                           <span className="text-gray-700 font-medium text-lg">
                             Este mês: {showFinancialValues ? (
-                              <span className="text-blue-500">{formatCurrency(calculateMonthlyBalanceForSelectedProfessional(monthlyAppointments))}</span>
+                              <span className="text-gray-700">{formatCurrency(calculateMonthlyBalanceForSelectedProfessional(monthlyAppointments))}</span>
                             ) : (
                               <span className="text-gray-400">••••••</span>
                             )}
                           </span>
                           <span className="text-gray-600 text-sm">
                             Líquido: {showFinancialValues ? (
-                              <span className="text-blue-400">{formatCurrency(calculateMonthlyNetBalance(monthlyAppointments))}</span>
+                              <span className="text-gray-600">{formatCurrency(calculateMonthlyNetBalance(monthlyAppointments))}</span>
                             ) : (
                               <span className="text-gray-400">••••••</span>
                             )}
@@ -9131,7 +9128,7 @@ Estamos te aguardando! 😎✂️`;
                       type="date"
                       value={format(selectedDate, 'yyyy-MM-dd')}
                       onChange={handleDateChange}
-                      className="input-field bg-white border-gray-200 text-gray-900 focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                      className="input-field bg-white border-gray-200 text-gray-900 focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
                     />
                     <button onClick={handleNextDay} className="btn-outline">
                       <ChevronRight className="h-4 w-4" />
@@ -9224,7 +9221,7 @@ Estamos te aguardando! 😎✂️`;
                     <div className="mt-3 flex justify-center">
                       <button
                         onClick={() => handleOpenReminderInfoModal()}
-                        className="px-3 py-2 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
+                        className="px-3 py-2 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
                         title="Dicas sobre envio de lembretes"
                       >
                         📬 Enviar lembrete para clientes
@@ -9260,7 +9257,7 @@ Estamos te aguardando! 😎✂️`;
 
                           <button
                             onClick={() => setShowColorLegend(null)}
-                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                            className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors"
                           >
                             Entendi
                           </button>
@@ -9270,9 +9267,9 @@ Estamos te aguardando! 😎✂️`;
                   )}
 
                   {/* Alerta sobre contabilização de valores */}
-                  <div className="hidden mb-4 p-3 bg-orange-100 border-l-4 border-orange-500 rounded-r-lg">
-                    <div className="text-orange-800 text-sm font-bold flex items-start gap-2">
-                      <span className="text-orange-600 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+                  <div className="hidden mb-4 p-3 bg-gray-100 border-l-4 border-gray-500 rounded-r-lg">
+                    <div className="text-gray-800 text-sm font-bold flex items-start gap-2">
+                      <span className="text-gray-700 text-lg flex-shrink-0 mt-0.5">⚠️</span>
                       <div className="flex-1">
                         <button
                           onClick={() => setShowReminderPopup(true)}
@@ -9290,7 +9287,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="text-center py-8">
                         <Calendar className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
                         <p className={`text-lg font-semibold ${selectedProfessional === ''
-                          ? 'text-blue-600 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200'
+                          ? 'text-gray-700 bg-gray-100 px-4 py-2 rounded-lg border border-gray-300'
                           : 'text-gray-400'
                           }`}>
                           {selectedProfessional === '' ? 'Selecione um profissional para ver os agendamentos' : 'Nenhum agendamento para este dia'}
@@ -9301,10 +9298,10 @@ Estamos te aguardando! 😎✂️`;
                         {timeSlotsWithAppointments.map((item, index) =>
                           item._isEmpty ? (
                             // Horário vazio (lacuna)
-                            <div key={`empty-${index}-${item._time}`} className="bg-blue-50 rounded-lg w-full p-4 border-2 border-dashed border-blue-300">
+                            <div key={`empty-${index}-${item._time}`} className="bg-gray-50 rounded-lg w-full p-4 border-2 border-dashed border-gray-300">
                               <div className="flex justify-between items-center">
-                                <span className="text-blue-900 text-base font-bold">{item._time}</span>
-                                <span className="text-blue-700 text-sm font-semibold uppercase tracking-wide">✓ HORÁRIO DISPONÍVEL</span>
+                                <span className="text-gray-900 text-base font-bold">{item._time}</span>
+                                <span className="text-gray-700 text-sm font-semibold uppercase tracking-wide">✓ HORÁRIO DISPONÍVEL</span>
                               </div>
                             </div>
                           ) : item._isOccupied ? (
@@ -9369,14 +9366,14 @@ Estamos te aguardando! 😎✂️`;
                                             />
                                             <button
                                               onClick={() => handleSaveClientName(appointment.id)}
-                                              className="text-green-400 hover:text-green-300 text-xs"
+                                              className="text-gray-700 hover:text-gray-900 text-xs"
                                               title="Salvar"
                                             >
                                               ✓
                                             </button>
                                             <button
                                               onClick={handleCancelEditClientName}
-                                              className="text-red-400 hover:text-red-300 text-xs"
+                                              className="text-gray-600 hover:text-gray-800 text-xs"
                                               title="Cancelar"
                                             >
                                               ✕
@@ -9402,7 +9399,7 @@ Estamos te aguardando! 😎✂️`;
                                                   appointment.id,
                                                   '' // Sempre começar vazio para digitar o nome
                                                 )}
-                                                className="text-blue-400 hover:text-blue-300 text-xs"
+                                                className="text-gray-600 hover:text-gray-500 text-xs"
                                                 title="Editar nome do cliente"
                                               >
                                                 ✏️
@@ -9411,7 +9408,7 @@ Estamos te aguardando! 😎✂️`;
                                           </>
                                         )}
                                         {appointment.client_id && newClientsInfo[appointment.client_id] && (
-                                          <span className="px-1 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                                          <span className="px-1 py-0.5 text-xs font-medium bg-gray-200 text-gray-800 rounded-full">
                                             Novo
                                           </span>
                                         )}
@@ -9439,7 +9436,7 @@ Estamos te aguardando! 😎✂️`;
                                     <div className="flex items-center justify-between">
                                       <button
                                         onClick={() => handleOpenReminderModal(appointment)}
-                                        className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                                        className="px-2 py-1 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
                                         title="Enviar lembrete via WhatsApp"
                                       >
                                         📱 Enviar lembrete
@@ -9462,7 +9459,7 @@ Estamos te aguardando! 😎✂️`;
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-medium text-white truncate">{appointment.client_name}</span>
                                           {isClientPaidSubscriber(appointment.client_whatsapp) && (
-                                            <Crown className="h-5 w-5 text-yellow-400" />
+                                            <Crown className="h-5 w-5 text-gray-600" />
                                           )}
                                           {appointment.client_id && newClientsInfo[appointment.client_id] && (
                                             <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
@@ -9618,7 +9615,7 @@ Estamos te aguardando! 😎✂️`;
                                                 {!isClientPaidSubscriber(appointment.client_whatsapp || '') && !appointment.is_subscriber && (
                                                   <button
                                                     onClick={() => handleEditAppointmentValue(appointment.id, appointment.price || 0)}
-                                                    className="text-blue-400 hover:text-blue-300 text-xs"
+                                                    className="text-gray-600 hover:text-gray-500 text-xs"
                                                     title="Editar valor"
                                                   >
                                                     ✏️
@@ -9634,7 +9631,7 @@ Estamos te aguardando! 😎✂️`;
                                           <div className="relative">
                                             <button
                                               onClick={() => toggleHistoryDropdown(appointment.id)}
-                                              className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                              className="text-xs text-gray-600 hover:text-gray-500 underline"
                                             >
                                               📊 Histórico
                                             </button>
@@ -9697,10 +9694,10 @@ Estamos te aguardando! 😎✂️`;
                                             <span className="text-sm text-white/80 mb-1">Produtos do Estoque:</span>
                                             <div className="flex flex-wrap gap-2">
                                               {appointment.sold_products.map((product: any, index: number) => (
-                                                <div key={index} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-600/20 text-blue-200 rounded border border-blue-500/30 group">
+                                                <div key={index} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-600/20 text-gray-300 rounded border border-gray-500/30 group">
                                                   <Package className="h-3 w-3" />
                                                   <span>{product.name} - {formatCurrency(product.total)}</span>
-                                                  <span className="text-blue-300">({product.quantity}x)</span>
+                                                  <span className="text-gray-400">({product.quantity}x)</span>
                                                   <button
                                                     onClick={() => handleRemoveProductFromAppointment(appointment.id, product.product_id, product.name)}
                                                     className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 ml-1"
@@ -9729,14 +9726,14 @@ Estamos te aguardando! 😎✂️`;
                                         </div>
 
                                         {/* Seção "Cobrar Cliente" - Mostra valor total incluindo produtos V2 */}
-                                        <div className="flex flex-col gap-3 p-4 bg-gradient-to-r from-blue-600/40 to-purple-600/40 border-2 border-blue-400 rounded-lg shadow-lg">
+                                        <div className="flex flex-col gap-3 p-4 bg-gradient-to-r from-gray-800/40 to-black/40 border-2 border-gray-600 rounded-lg shadow-lg">
                                           <div className="flex items-center gap-2">
                                             <span className="text-xl">💰</span>
                                             <span className="text-base font-bold text-white">Cobrar Cliente:</span>
                                           </div>
                                           <div className="flex flex-col gap-2 bg-white/10 rounded-lg p-2">
                                             <div className="flex items-center justify-between">
-                                              <span className="text-sm font-semibold text-blue-100">Total a cobrar:</span>
+                                              <span className="text-sm font-semibold text-gray-200">Total a cobrar:</span>
                                               <span className="text-lg font-bold text-white bg-blue-500/50 px-3 py-1 rounded">
                                                 {isClientPaidSubscriber(appointment.client_whatsapp)
                                                   ? "GRATUITO"
@@ -9748,7 +9745,7 @@ Estamos te aguardando! 😎✂️`;
                                             </div>
                                             {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
                                               <div className="flex items-center justify-between pt-2 border-t border-white/20">
-                                                <span className="text-sm font-medium text-blue-200">Líquido (após taxas):</span>
+                                                <span className="text-sm font-medium text-gray-300">Líquido (após taxas):</span>
                                                 <span className="text-base font-bold text-yellow-200 bg-yellow-500/30 px-3 py-1 rounded">
                                                   {formatCurrency(calculateClientNetPayment(appointment))}
                                                 </span>
@@ -9797,7 +9794,7 @@ Estamos te aguardando! 😎✂️`;
                                                 Taxa: {getPaymentMethodTax(appointment.payment_method, appointment.card_brand)}%
                                               </span>
                                               {appointment.card_brand && appointment.card_brand !== 'bandeira' && (
-                                                <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded border border-blue-400/20">
+                                                <span className="text-xs text-gray-600 bg-gray-400/10 px-2 py-1 rounded border border-gray-400/20">
                                                   Bandeira: {appointment.card_brand.toUpperCase()}
                                                 </span>
                                               )}
@@ -9826,7 +9823,7 @@ Estamos te aguardando! 😎✂️`;
                                               setSelectedAppointmentForProduct(appointment.id);
                                               setShowAddProductToAppointmentModal(true);
                                             }}
-                                            className="inline-flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors mb-2"
+                                            className="inline-flex items-center px-3 py-1.5 text-sm bg-black text-white rounded hover:bg-gray-800 transition-colors mb-2"
                                           >
                                             <Package className="h-4 w-4 mr-1" />
                                             Adicionar Produto V2
@@ -9861,7 +9858,7 @@ Estamos te aguardando! 😎✂️`;
                                               {appointment.observation && (
                                                 <button
                                                   onClick={() => handleShowClientObservation(appointment.observation || '')}
-                                                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                                                  className="px-2 py-1 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
                                                   title="Ver observação do cliente"
                                                 >
                                                   Ver Observação
@@ -9901,7 +9898,7 @@ Estamos te aguardando! 😎✂️`;
 
                                               <button
                                                 onClick={() => handleOpenTransferModal(appointment)}
-                                                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                                                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
                                                 title="Transferir para outro profissional"
                                               >
                                                 🔄 TRANSFERIR
@@ -9940,10 +9937,10 @@ Estamos te aguardando! 😎✂️`;
                                             {appointment.establishment_observation && (
                                               <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded-lg">
                                                 <div className="flex items-start gap-2">
-                                                  <span className="text-purple-600 text-sm">📝</span>
+                                                  <span className="text-gray-700 text-sm">📝</span>
                                                   <div className="flex-1">
-                                                    <p className="text-xs text-purple-800 font-medium mb-1">Minha Observação:</p>
-                                                    <p className="text-xs text-purple-700 break-words">{appointment.establishment_observation}</p>
+                                                    <p className="text-xs text-gray-800 font-medium mb-1">Minha Observação:</p>
+                                                    <p className="text-xs text-gray-700 break-words">{appointment.establishment_observation}</p>
                                                   </div>
                                                 </div>
                                               </div>
@@ -9999,7 +9996,7 @@ Estamos te aguardando! 😎✂️`;
                           href={`/booking/${establishment.code}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
+                          className="bg-black hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
                           title="Abrir página pública de agendamentos"
                         >
                           Meu Link
@@ -10007,7 +10004,7 @@ Estamos te aguardando! 😎✂️`;
                         <button
                           type="button"
                           onClick={copyLinkToClipboard}
-                          className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
+                          className="bg-black hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors duration-200"
                         >
                           Copiar Link
                         </button>
@@ -10025,7 +10022,7 @@ Estamos te aguardando! 😎✂️`;
                   <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
                     {/* Header */}
                     <div className="flex items-center gap-3 mb-4 sm:mb-6">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-gray-800 to-black rounded-full flex items-center justify-center">
                         <span className="text-white text-xl sm:text-2xl">🚀</span>
                       </div>
                       <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
@@ -10040,7 +10037,7 @@ Estamos te aguardando! 😎✂️`;
                       </p>
 
                       {/* Dica sobre Vídeos */}
-                      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-3 sm:p-4 border border-yellow-200">
+                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-3 sm:p-4 border border-gray-300">
                         <div className="flex items-start gap-2 sm:gap-3">
                           <span className="text-lg sm:text-xl flex-shrink-0">✨</span>
                           <div className="min-w-0 flex-1">
@@ -10059,7 +10056,7 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         </div>
 
-                        <p className="text-gray-600 text-xs sm:text-sm leading-relaxed font-medium bg-yellow-100 rounded-lg p-2">
+                        <p className="text-gray-600 text-xs sm:text-sm leading-relaxed font-medium bg-gray-200 rounded-lg p-2">
                           ⚠ <strong>Dica:</strong> preste bastante atenção em cada vídeo, pois muitas das suas dúvidas já estão respondidas neles.
                         </p>
                       </div>
@@ -10067,8 +10064,8 @@ Estamos te aguardando! 😎✂️`;
                       {/* Passos */}
                       <div className="space-y-3 sm:space-y-4">
                         {/* Passo 1 */}
-                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-blue-50 rounded-lg border border-blue-200">
-                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-gray-100 rounded-lg border border-gray-300">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-black text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
                             1️⃣
                           </div>
                           <div className="flex-1 min-w-0">
@@ -10082,8 +10079,8 @@ Estamos te aguardando! 😎✂️`;
                         </div>
 
                         {/* Passo 2 */}
-                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-green-50 rounded-lg border border-green-200">
-                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-green-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-300">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-gray-800 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
                             2️⃣
                           </div>
                           <div className="flex-1 min-w-0">
@@ -10097,8 +10094,8 @@ Estamos te aguardando! 😎✂️`;
                         </div>
 
                         {/* Passo 3 */}
-                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-purple-50 rounded-lg border border-purple-200">
-                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-300">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-gray-800 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
                             3️⃣
                           </div>
                           <div className="flex-1 min-w-0">
@@ -10112,8 +10109,8 @@ Estamos te aguardando! 😎✂️`;
                         </div>
 
                         {/* Passo 4 */}
-                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-orange-50 rounded-lg border border-orange-200">
-                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-orange-600 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
+                        <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-300">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 bg-gray-800 text-white rounded-full flex items-center justify-center font-bold text-sm sm:text-base">
                             4️⃣
                           </div>
                           <div className="flex-1 min-w-0">
@@ -10128,7 +10125,7 @@ Estamos te aguardando! 😎✂️`;
                       </div>
 
                       {/* Conclusão */}
-                      <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-3 sm:p-4 border border-green-200">
+                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-3 sm:p-4 border border-gray-300">
                         <div className="flex items-start gap-3">
                           <span className="text-xl sm:text-2xl">✅</span>
                           <div className="min-w-0">
@@ -10144,7 +10141,7 @@ Estamos te aguardando! 😎✂️`;
                       </div>
 
                       {/* Dica de Atualização */}
-                      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-3 sm:p-4 border border-yellow-200">
+                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-3 sm:p-4 border border-gray-300">
                         <div className="flex items-start gap-3">
                           <span className="text-xl sm:text-2xl">🔄</span>
                           <div className="min-w-0">
@@ -10162,27 +10159,58 @@ Estamos te aguardando! 😎✂️`;
                 </div>
               )}
 
+              {activeTab === 'support' && (
+                <div className="space-y-6 w-full">
+                  <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 sm:p-8">
+                    <div className="flex flex-col items-center justify-center space-y-6">
+                      <div className="w-20 h-20 bg-black rounded-full flex items-center justify-center">
+                        <MessageSquare className="w-10 h-10 text-white" />
+                      </div>
+                      <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center">
+                        Falar com Suporte
+                      </h2>
+                      <p className="text-gray-600 text-center text-base sm:text-lg max-w-md">
+                        Precisa de ajuda? Entre em contato conosco pelo WhatsApp e nossa equipe te ajudará!
+                      </p>
+                      <button
+                        onClick={() => {
+                          const whatsappNumber = '48991265320';
+                          const establishmentName = establishment?.name || 'Minha Barbearia';
+                          const establishmentCode = establishment?.code || '';
+                          const message = encodeURIComponent(`ola preciso de um suporte | ${establishmentName} e codigo ${establishmentCode}`);
+                          window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                        }}
+                        className="w-full sm:w-auto px-8 py-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold text-lg flex items-center justify-center gap-3 shadow-lg"
+                      >
+                        <MessageSquare className="w-6 h-6" />
+                        Conversar com Suporte
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'client-page' && (
                 <div className="space-y-6 w-full">
                   {/* Seção de Link do Estabelecimento */}
-                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 mb-6 border border-emerald-400/50">
+                  <div className="bg-gradient-to-r from-gray-800 to-black rounded-lg p-4 mb-6 border border-gray-600">
                     {/* Header */}
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
+                      <div className="w-10 h-10 bg-gray-700 rounded-lg flex items-center justify-center">
                         <LinkIcon className="h-5 w-5 text-white" />
                       </div>
-                      <h3 className="text-lg font-semibold text-emerald-400">
+                      <h3 className="text-lg font-semibold text-white">
                         🌐 Sua Página de Agendamentos
                       </h3>
                     </div>
 
                     {/* Link Box - Organizado para mobile */}
                     <div className="bg-[#1a1b1c] rounded-lg p-4 border border-gray-700 mb-4">
-                      <p className="text-emerald-400 font-medium text-sm mb-3">Link do Estabelecimento:</p>
+                      <p className="text-white font-medium text-sm mb-3">Link do Estabelecimento:</p>
 
                       {/* Link principal */}
                       <div className="bg-gray-800 rounded-lg p-3 mb-3">
-                        <code className="text-green-400 font-mono text-sm block break-all">
+                        <code className="text-gray-300 font-mono text-sm block break-all">
                           agendeifacil.com/booking/{establishment?.code}
                         </code>
                       </div>
@@ -10191,7 +10219,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="flex gap-2">
                         <button
                           onClick={() => copyLinkToClipboard()}
-                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-black hover:bg-gray-800 rounded-lg transition-colors"
                         >
                           <Copy className="h-4 w-4 text-white" />
                           <span className="text-white text-sm font-medium">Copiar</span>
@@ -10200,7 +10228,7 @@ Estamos te aguardando! 😎✂️`;
                           href={`${window.location.origin}/booking/${establishment?.code}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-black hover:bg-gray-800 rounded-lg transition-colors"
                         >
                           <LinkIcon className="h-4 w-4 text-white" />
                           <span className="text-white text-sm font-medium">Abrir</span>
@@ -10210,7 +10238,7 @@ Estamos te aguardando! 😎✂️`;
 
                     {/* Dica */}
                     <div className="flex items-start gap-2">
-                      <span className="text-yellow-400 text-sm">💡</span>
+                      <span className="text-gray-400 text-sm">💡</span>
                       <p className="text-white text-xs font-medium flex-1">
                         Compartilhe este link com seus clientes para que possam agendar diretamente com você!
                       </p>
@@ -10225,7 +10253,7 @@ Estamos te aguardando! 😎✂️`;
                   <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
                     {/* Header */}
                     <div className="flex items-center gap-3 mb-4 sm:mb-6">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full flex items-center justify-center">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-gray-800 to-black rounded-full flex items-center justify-center">
                         <span className="text-white text-xl sm:text-2xl">🎁</span>
                       </div>
                       <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
@@ -10237,7 +10265,7 @@ Estamos te aguardando! 😎✂️`;
                     <div className="space-y-6">
                       <div className="text-center">
                         <p className="text-gray-700 text-base sm:text-lg leading-relaxed mb-6">
-                          Indique um colega e ganhe <strong className="text-green-600">1 mês grátis ou mais</strong>! 🎉
+                          Indique um colega e ganhe <strong className="text-gray-800">1 mês grátis ou mais</strong>! 🎉
                         </p>
                       </div>
 
@@ -10259,7 +10287,7 @@ Estamos te aguardando! 😎✂️`;
                             const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
                             window.open(whatsappUrl, '_blank');
                           }}
-                          className="w-full max-w-md bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-4 px-8 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-colors text-lg shadow-lg flex items-center justify-center gap-2"
+                          className="w-full max-w-md bg-gradient-to-r from-gray-800 to-black text-white font-semibold py-4 px-8 rounded-lg hover:from-gray-700 hover:to-gray-900 transition-colors text-lg shadow-lg flex items-center justify-center gap-2"
                         >
                           <span>💬</span>
                           <span>Indicar</span>
@@ -10267,9 +10295,9 @@ Estamos te aguardando! 😎✂️`;
                       </div>
 
                       {/* Informação adicional */}
-                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
+                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-300">
                         <div className="flex items-start gap-3">
-                          <span className="text-green-600 text-xl flex-shrink-0">💡</span>
+                          <span className="text-gray-700 text-xl flex-shrink-0">💡</span>
                           <div>
                             <p className="text-gray-700 text-sm leading-relaxed">
                               <strong>Como funciona:</strong> Clique no botão "Indicar" acima e envie a mensagem para nosso WhatsApp.
@@ -10287,7 +10315,7 @@ Estamos te aguardando! 😎✂️`;
                 <div className="space-y-6 w-full">
                   {/* Quiz Passo-a-Passo para Novos Usuários (só aparece se não foi completado) */}
                   {isNewUser && !quizCompleted && (
-                    <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-4 mb-6 text-white">
+                    <div className="bg-gradient-to-r from-gray-800 to-black rounded-lg p-4 mb-6 text-white">
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-xl font-bold">Configuração Passo-a-Passo</h2>
                         <div className="text-sm">
@@ -10301,7 +10329,7 @@ Estamos te aguardando! 😎✂️`;
                         ></div>
                       </div>
                       {quizAlertMessage && (
-                        <div className="mb-4 p-3 bg-red-500 rounded-lg text-white font-semibold">
+                        <div className="mb-4 p-3 bg-gray-800 rounded-lg text-white font-semibold">
                           ⚠️ {quizAlertMessage}
                         </div>
                       )}
@@ -10327,7 +10355,7 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                         <button
                           onClick={() => toggleTutorial('config')}
-                          className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
+                          className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
                         >
                           Ocultar Tutorial
                         </button>
@@ -10349,7 +10377,7 @@ Estamos te aguardando! 😎✂️`;
                           href="https://youtu.be/pB3QZ1H20xA"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors"
+                          className="inline-flex items-center gap-2 text-gray-400 hover:text-gray-300 text-sm font-medium transition-colors"
                         >
                           <span>📺</span>
                           <span>Assistir no YouTube</span>
@@ -10363,7 +10391,7 @@ Estamos te aguardando! 😎✂️`;
                     <div className="mb-6 text-center">
                       <button
                         onClick={() => toggleTutorial('config')}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
                       >
                         <span>📺</span>
                         <span>Mostrar Tutorial</span>
@@ -12003,7 +12031,7 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Confirmação Final - Etapa 10 do Quiz */}
                   {isNewUser && quizStep === 10 && (
-                    <div id="quiz-section-confirmacao" className="bg-gradient-to-r from-green-600 to-emerald-600 rounded-lg p-6 border border-green-400 mb-6">
+                    <div id="quiz-section-confirmacao" className="bg-gradient-to-r from-gray-800 to-black rounded-lg p-6 border border-gray-600 mb-6">
                       <h3 className="text-2xl font-bold text-white mb-4 text-center">10. Confirmação Final</h3>
                       <div className="bg-white/10 rounded-lg p-6 mb-6">
                         <p className="text-white text-lg mb-4 text-center">
@@ -12274,7 +12302,7 @@ Estamos te aguardando! 😎✂️`;
                 <div className="space-y-6">
                   {/* Vídeo Tutorial do Dashboard Financeiro */}
                   {showTutorials.dashboard && (
-                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
@@ -12287,7 +12315,7 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                         <button
                           onClick={() => toggleTutorial('dashboard')}
-                          className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                          className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
                         >
                           Ocultar Tutorial
                         </button>
@@ -12309,7 +12337,7 @@ Estamos te aguardando! 😎✂️`;
                           href="https://youtu.be/5cIGlklZLr0"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                          className="text-gray-600 hover:text-gray-800 text-sm font-medium"
                         >
                           Assistir no YouTube
                         </a>
@@ -12322,7 +12350,7 @@ Estamos te aguardando! 😎✂️`;
                     <div className="mb-6 text-center">
                       <button
                         onClick={() => toggleTutorial('dashboard')}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
                       >
                         <span>📺</span>
                         <span>Mostrar Tutorial</span>
@@ -12337,7 +12365,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="flex gap-2">
                         <button
                           onClick={() => setShowAddExpenseModal(true)}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                          className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
                         >
                           <Plus className="h-4 w-4" />
                           Adicionar Despesas
@@ -12367,19 +12395,19 @@ Estamos te aguardando! 😎✂️`;
                     {/* Resumo Bruto, Líquido e Líquido Estabelecimento */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                       {/* Resumo Bruto */}
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                      <div className="bg-gray-50 border border-gray-300 rounded-lg p-6">
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-lg font-semibold text-green-800">Resumo Bruto</h3>
+                          <h3 className="text-lg font-semibold text-gray-800">Resumo Bruto</h3>
                           <div className="flex items-center gap-2">
                             {!isEditingGrossValue && (
                               <button
                                 onClick={() => setIsEditingGrossValue(true)}
-                                className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                                className="px-3 py-1 text-xs bg-black text-white rounded hover:bg-gray-800 transition-colors"
                               >
                                 EDITAR
                               </button>
                             )}
-                            <TrendingUp className="h-5 w-5 text-green-600" />
+                            <TrendingUp className="h-5 w-5 text-gray-700" />
                           </div>
                         </div>
                         {isEditingGrossValue ? (
@@ -12389,14 +12417,14 @@ Estamos te aguardando! 😎✂️`;
                               value={editingGrossValue}
                               onChange={(e) => setEditingGrossValue(e.target.value)}
                               placeholder="Digite o valor bruto"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-green-500 text-gray-900 bg-white"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-500 text-gray-900 bg-white"
                               step="0.01"
                               min="0"
                             />
                             <div className="flex gap-2">
                               <button
                                 onClick={handleSaveGrossValue}
-                                className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                                className="px-3 py-1 text-xs bg-black text-white rounded hover:bg-gray-800 transition-colors"
                               >
                                 SALVAR
                               </button>
@@ -12413,52 +12441,52 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         ) : (
                           <>
-                            <p className="text-3xl font-bold text-green-900">
+                            <p className="text-3xl font-bold text-gray-900">
                               {formatCurrency(calculateTotalGrossWithInitial(monthlyAppointments))}
                             </p>
-                            <p className="text-sm text-green-700 mt-1">Total faturado no mês</p>
+                            <p className="text-sm text-gray-700 mt-1">Total faturado no mês</p>
                           </>
                         )}
                       </div>
 
                       {/* Resumo Líquido */}
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                      <div className="bg-gray-50 border border-gray-300 rounded-lg p-6">
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-lg font-semibold text-blue-800">Resumo Líquido</h3>
-                          <DollarSign className="h-5 w-5 text-blue-600" />
+                          <h3 className="text-lg font-semibold text-gray-800">Resumo Líquido</h3>
+                          <DollarSign className="h-5 w-5 text-gray-700" />
                         </div>
-                        <p className="text-3xl font-bold text-blue-900">
+                        <p className="text-3xl font-bold text-gray-900">
                           {formatCurrency(calculateTotalLiquidWithInitial(monthlyAppointments, expensesTotal))}
                         </p>
-                        <p className="text-sm text-blue-700 mt-1">
+                        <p className="text-sm text-gray-700 mt-1">
                           Bruto - Despesas - Taxas de Cartão
                         </p>
                       </div>
 
                       {/* Resumo Líquido Estabelecimento */}
-                      <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
+                      <div className="bg-gray-50 border border-gray-300 rounded-lg p-6">
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-lg font-semibold text-purple-800">Líquido Estabelecimento</h3>
-                          <Building2 className="h-5 w-5 text-purple-600" />
+                          <h3 className="text-lg font-semibold text-gray-800">Líquido Estabelecimento</h3>
+                          <Building2 className="h-5 w-5 text-gray-700" />
                         </div>
-                        <p className="text-3xl font-bold text-purple-900">
+                        <p className="text-3xl font-bold text-gray-900">
                           {formatCurrency(calculateTotalEstablishmentLiquidWithInitial(monthlyAppointments, expensesTotal))}
                         </p>
-                        <p className="text-sm text-purple-700 mt-1">
+                        <p className="text-sm text-gray-700 mt-1">
                           Bruto - Todos os Profissionais - Despesas - Taxas
                         </p>
                       </div>
                     </div>
 
                     {/* Taxas de Cartão */}
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                    <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 mb-4">
                       <div className="flex items-center gap-2">
-                        <CreditCard className="h-5 w-5 text-red-600" />
-                        <span className="font-medium text-red-900">
+                        <CreditCard className="h-5 w-5 text-gray-700" />
+                        <span className="font-medium text-gray-900">
                           Taxas de Cartão: {formatCurrency(calculateTotalCardTaxes(monthlyAppointments))}
                         </span>
                       </div>
-                      <p className="text-sm text-red-700 mt-1">
+                      <p className="text-sm text-gray-700 mt-1">
                         Total das taxas cobradas pelos cartões de crédito/débito
                       </p>
                     </div>
@@ -12515,7 +12543,7 @@ Estamos te aguardando! 😎✂️`;
                   </div>
 
                   {/* Receita por Profissional */}
-                  <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-xl shadow-lg border border-blue-200/50 p-6">
+                  <div className="bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200 rounded-xl shadow-lg border border-gray-300/50 p-6">
                     <h3 className="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
                       <span className="text-2xl">💼</span>
                       <span>Receita por Profissional</span>
@@ -12564,7 +12592,7 @@ Estamos te aguardando! 😎✂️`;
                         console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
 
                         return (
-                          <div key={professional.id} className="p-6 bg-gradient-to-r from-white to-blue-50/30 rounded-xl border border-blue-200/40 shadow-md hover:shadow-xl hover:border-blue-300/60 transition-all duration-300 space-y-4 backdrop-blur-sm">
+                          <div key={professional.id} className="p-6 bg-gradient-to-r from-white to-gray-50/30 rounded-xl border border-gray-300/40 shadow-md hover:shadow-xl hover:border-gray-400/60 transition-all duration-300 space-y-4 backdrop-blur-sm">
                             {/* Header do Profissional */}
                             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                               <div className="flex-1">
@@ -12639,7 +12667,7 @@ Estamos te aguardando! 😎✂️`;
                               </div>
 
                               {/* Valores - Layout Mobile */}
-                              <div className="text-right sm:text-right bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-4 border border-emerald-200/50">
+                              <div className="text-right sm:text-right bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-300/50">
                                 <p className="text-2xl font-bold text-emerald-700 mb-1">
                                   {formatCurrency(professionalRevenue)}
                                 </p>
@@ -12654,7 +12682,7 @@ Estamos te aguardando! 😎✂️`;
                             </div>
 
                             {/* Controle de Pagamentos - Agora em linha separada */}
-                            <div className="border-t border-blue-200/60 pt-4 mt-5 bg-gradient-to-r from-purple-50/30 to-pink-50/30 rounded-lg p-3 -mx-3 -mb-3">
+                            <div className="border-t border-gray-300/60 pt-4 mt-5 bg-gradient-to-r from-gray-50/30 to-gray-100/30 rounded-lg p-3 -mx-3 -mb-3">
                               <ProfessionalPaymentControl
                                 establishmentId={establishment?.id || ''}
                                 professionalId={professional.id}
@@ -13080,11 +13108,11 @@ Estamos te aguardando! 😎✂️`;
                   `}</style>
                   <div className="flex items-center justify-between">
                     <h2 className="text-2xl font-bold text-gray-900">Meus Clientes</h2>
-                    <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+                    <div className="bg-gray-800 text-white px-3 py-1 rounded-full text-sm font-medium">
                       {filteredClients.length} {filteredClients.length === 1 ? 'cliente' : 'clientes'}
                     </div>
                   </div>
-                  <p className="text-gray-700 mb-4">
+                  <p className="text-gray-600 mb-4">
                     Aqui você encontra todos os clientes que já agendaram em seu estabelecimento.
                   </p>
 
@@ -13096,8 +13124,8 @@ Estamos te aguardando! 😎✂️`;
                         setShowReservarClienteModal(true);
                         setHighlightReserveButton(false);
                       }}
-                      className={`flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all text-sm font-medium ${highlightReserveButton
-                        ? 'ring-4 ring-yellow-400 shadow-2xl animate-pulse scale-110'
+                      className={`flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-all text-sm font-medium ${highlightReserveButton
+                        ? 'ring-4 ring-gray-400 shadow-2xl animate-pulse scale-110'
                         : ''
                         }`}
                       style={highlightReserveButton ? {
@@ -13109,28 +13137,28 @@ Estamos te aguardando! 😎✂️`;
                     </button>
                     <button
                       onClick={() => handleTabChange('clients')}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                     >
                       <Users className="h-4 w-4" />
                       Meus Clientes
                     </button>
                     <button
                       onClick={() => handleTabChange('ranking')}
-                      className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                     >
                       <Crown className="h-4 w-4" />
                       Ranking Clientes
                     </button>
                     <button
                       onClick={() => handleTabChange('missing-clients')}
-                      className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                     >
                       <Users className="h-4 w-4" />
                       Clientes Sumidos
                     </button>
                     <button
                       onClick={() => handleTabChange('draw')}
-                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                     >
                       <Shuffle className="h-4 w-4" />
                       Sorteio
@@ -13145,7 +13173,7 @@ Estamos te aguardando! 😎✂️`;
                         placeholder="Buscar cliente por nome..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
+                        className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500"
                       />
                     </div>
 
@@ -13154,7 +13182,7 @@ Estamos te aguardando! 😎✂️`;
                       <button
                         onClick={() => setShowBirthdayFilter(!showBirthdayFilter)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showBirthdayFilter
-                          ? 'bg-purple-600 text-white'
+                          ? 'bg-black text-white'
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                           }`}
                       >
@@ -13162,13 +13190,13 @@ Estamos te aguardando! 😎✂️`;
                       </button>
                       <button
                         onClick={() => setShowAddClientModal(true)}
-                        className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                        className="px-4 py-2 rounded-lg text-sm font-medium bg-black text-white hover:bg-gray-800 transition-colors"
                       >
                         ➕ Adicionar Cliente
                       </button>
 
                       {showBirthdayFilter && (
-                        <span className="px-3 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm">
+                        <span className="px-3 py-2 bg-gray-800 text-white rounded-lg text-sm">
                           {filteredClients.length} encontrado(s)
                         </span>
                       )}
@@ -13177,13 +13205,13 @@ Estamos te aguardando! 😎✂️`;
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredClients.length === 0 ? (
-                      <div className="col-span-full text-center py-8 bg-white rounded-lg border border-gray-200">
+                      <div className="col-span-full text-center py-8 bg-white rounded-lg border border-gray-300">
                         <Users className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
-                        <p className="text-gray-400">Nenhum cliente encontrado.</p>
+                        <p className="text-gray-500">Nenhum cliente encontrado.</p>
                       </div>
                     ) : (
                       filteredClients.map((client, index) => (
-                        <div key={`${client.whatsapp}-${client.id}-${index}`} className={`rounded-lg p-4 border-2 shadow-sm ${client.alert ? 'bg-yellow-50 border-yellow-400' : 'bg-white border-gray-200'}`}>
+                        <div key={`${client.whatsapp}-${client.id}-${index}`} className={`rounded-lg p-4 border-2 shadow-sm ${client.alert ? 'bg-gray-50 border-gray-400' : 'bg-white border-gray-300'}`}>
                           {/* Header com nome e botões de ação */}
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -13205,7 +13233,7 @@ Estamos te aguardando! 😎✂️`;
                                 <>
                                   <button
                                     onClick={saveClientEdit}
-                                    className="text-green-600 hover:text-green-800 p-1"
+                                    className="text-gray-700 hover:text-black p-1"
                                     title="Salvar"
                                   >
                                     ✓
@@ -13216,7 +13244,7 @@ Estamos te aguardando! 😎✂️`;
                                       setEditClientName('');
                                       setEditClientWhatsapp('');
                                     }}
-                                    className="text-red-600 hover:text-red-800 p-1"
+                                    className="text-gray-600 hover:text-gray-900 p-1"
                                     title="Cancelar"
                                   >
                                     ✗
@@ -13226,14 +13254,14 @@ Estamos te aguardando! 😎✂️`;
                                 <>
                                   <button
                                     onClick={() => handleEditClient(client)}
-                                    className="text-blue-600 hover:text-blue-800 p-1"
+                                    className="text-gray-600 hover:text-black p-1"
                                     title="Editar cliente"
                                   >
                                     ✏️
                                   </button>
                                   <button
                                     onClick={() => handleDeleteClient(client.whatsapp)}
-                                    className="text-red-600 hover:text-red-800 p-1"
+                                    className="text-gray-600 hover:text-black p-1"
                                     title="Excluir cliente"
                                   >
                                     🗑️
@@ -13245,21 +13273,21 @@ Estamos te aguardando! 😎✂️`;
 
                           {/* WhatsApp */}
                           <div className="text-gray-700 flex items-center gap-2 mb-1">
-                            <Phone className="h-4 w-4 text-gray-500" />
+                            <Phone className="h-4 w-4 text-gray-600" />
                             {editingClient === client.whatsapp ? (
                               <input
                                 type="text"
                                 value={editClientWhatsapp}
                                 onChange={(e) => setEditClientWhatsapp(e.target.value)}
-                                className="border border-gray-300 rounded px-2 py-1 flex-1"
+                                className="border border-gray-300 rounded px-2 py-1 flex-1 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-500"
                                 placeholder="WhatsApp do cliente"
                               />
                             ) : (
-                              <span>{client.whatsapp}</span>
+                              <span className="text-gray-700">{client.whatsapp}</span>
                             )}
                           </div>
                           <p className="text-gray-700 flex items-center gap-2 mb-1">
-                            <Calendar className="h-4 w-4 text-gray-500" />
+                            <Calendar className="h-4 w-4 text-gray-600" />
                             Agendamentos: {client.appointmentCount}
                           </p>
 
@@ -13276,7 +13304,7 @@ Estamos te aguardando! 😎✂️`;
                                 />
                                 <button
                                   onClick={() => saveBirthday(client.whatsapp, newBirthday)}
-                                  className="text-green-600 hover:text-green-800"
+                                  className="text-gray-700 hover:text-black"
                                   title="Salvar"
                                 >
                                   ✓
@@ -13286,7 +13314,7 @@ Estamos te aguardando! 😎✂️`;
                                     setEditingClientBirthday(null);
                                     setNewBirthday('');
                                   }}
-                                  className="text-red-600 hover:text-red-800"
+                                  className="text-gray-600 hover:text-gray-900"
                                   title="Cancelar"
                                 >
                                   ✗
@@ -13310,7 +13338,7 @@ Estamos te aguardando! 😎✂️`;
                                     setEditingClientBirthday(client.whatsapp);
                                     setNewBirthday(client.birthday || '');
                                   }}
-                                  className="text-blue-600 hover:text-blue-800 text-xs"
+                                  className="text-gray-600 hover:text-black text-xs"
                                   title="Editar aniversário"
                                 >
                                   ✏️
@@ -13318,7 +13346,7 @@ Estamos te aguardando! 😎✂️`;
                               </div>
                             )}
                             {client.birthday && isBirthdayThisMonth(client.birthday) && (
-                              <span className="text-purple-600 text-xs font-medium">• Aniversário este mês!</span>
+                              <span className="text-gray-700 text-xs font-medium">• Aniversário este mês!</span>
                             )}
                           </div>
 
@@ -13343,7 +13371,7 @@ Estamos te aguardando! 😎✂️`;
                                 <span className="text-xs text-gray-500">{newAlert.length}/100</span>
                                 <button
                                   onClick={() => saveAlert(client.whatsapp, newAlert)}
-                                  className="text-green-600 hover:text-green-800"
+                                  className="text-gray-700 hover:text-black"
                                   title="Salvar"
                                 >
                                   ✓
@@ -13353,7 +13381,7 @@ Estamos te aguardando! 😎✂️`;
                                     setEditingClientAlert(null);
                                     setNewAlert('');
                                   }}
-                                  className="text-red-600 hover:text-red-800"
+                                  className="text-gray-600 hover:text-gray-900"
                                   title="Cancelar"
                                 >
                                   ✗
@@ -13361,7 +13389,7 @@ Estamos te aguardando! 😎✂️`;
                               </div>
                             ) : (
                               <div className="flex items-center gap-2 flex-1">
-                                <span className={`text-sm ${client.alert ? 'text-red-700 font-semibold' : 'text-gray-500'}`}>
+                                <span className={`text-sm ${client.alert ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
                                   {client.alert || 'Nenhum alerta'}
                                 </span>
                                 <button
@@ -13369,7 +13397,7 @@ Estamos te aguardando! 😎✂️`;
                                     setEditingClientAlert(client.whatsapp);
                                     setNewAlert(client.alert || '');
                                   }}
-                                  className="text-blue-600 hover:text-blue-800 text-xs"
+                                  className="text-gray-600 hover:text-black text-xs"
                                   title="Editar alerta"
                                 >
                                   ✏️
@@ -13401,7 +13429,7 @@ Estamos te aguardando! 😎✂️`;
                             })()}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                           >
                             <MessageSquare className="h-5 w-5" />
                             Enviar Mensagem
@@ -14515,11 +14543,11 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Vídeo Tutorial */}
               {showTutorials.subscribers && (
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                        <span className="text-red-600 text-xl">📺</span>
+                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                        <span className="text-gray-700 text-xl">📺</span>
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Assinantes</h3>
@@ -14528,7 +14556,7 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                     <button
                       onClick={() => toggleTutorial('subscribers')}
-                      className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                      className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
                     >
                       Ocultar Tutorial
                     </button>
@@ -14550,7 +14578,7 @@ Estamos te aguardando! 😎✂️`;
                       href="https://youtu.be/CeWMXi4MS7g"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+                      className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
                     >
                       <span>📺</span>
                       <span>Assistir no YouTube</span>
@@ -14586,43 +14614,43 @@ Estamos te aguardando! 😎✂️`;
 
           {/* Tab de Ranking */}
           {activeTab === 'ranking' && (
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <div className="bg-white rounded-lg p-6 border border-gray-300">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">🏆 Ranking dos Clientes Mais Fiéis</h2>
 
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
                 <button
                   onClick={() => handleTabChange('clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Users className="h-4 w-4" />
                   Meus Clientes
                 </button>
                 <button
                   onClick={() => handleTabChange('ranking')}
-                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Crown className="h-4 w-4" />
                   Ranking Clientes
                 </button>
                 <button
                   onClick={() => handleTabChange('missing-clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Users className="h-4 w-4" />
                   Clientes Sumidos
                 </button>
                 <button
                   onClick={() => handleTabChange('draw')}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Shuffle className="h-4 w-4" />
                   Sorteio
                 </button>
               </div>
 
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-700">
+              <div className="mb-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
+                <p className="text-sm text-gray-700">
                   <strong>Critério:</strong> Apenas clientes com 9 ou mais agendamentos aparecem no ranking.
                 </p>
               </div>
@@ -14640,10 +14668,10 @@ Estamos te aguardando! 😎✂️`;
                     <div key={`${client.id}-${client.whatsapp}-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
                       <div className="flex items-center gap-4">
                         {/* Posição */}
-                        <div className={`flex items-center justify-center w-10 h-10 rounded-full text-white font-bold text-lg ${client.position === 1 ? 'bg-yellow-500' :
-                          client.position === 2 ? 'bg-gray-400' :
-                            client.position === 3 ? 'bg-orange-600' :
-                              'bg-blue-500'
+                        <div className={`flex items-center justify-center w-10 h-10 rounded-full text-white font-bold text-lg ${client.position === 1 ? 'bg-gray-800' :
+                          client.position === 2 ? 'bg-gray-600' :
+                            client.position === 3 ? 'bg-gray-700' :
+                              'bg-gray-500'
                           }`}>
                           {client.position === 1 ? '🥇' :
                             client.position === 2 ? '🥈' :
@@ -14655,10 +14683,10 @@ Estamos te aguardando! 😎✂️`;
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <h4 className="font-medium text-gray-900">{client.name}</h4>
-                            {client.isSubscriber && <Crown className="h-4 w-4 text-yellow-500" />}
+                            {client.isSubscriber && <Crown className="h-4 w-4 text-gray-700" />}
                           </div>
                           <p className="text-sm text-gray-600">{client.whatsapp}</p>
-                          <p className="text-sm text-blue-600 font-medium">
+                          <p className="text-sm text-gray-700 font-medium">
                             {client.appointmentCount} agendamento{client.appointmentCount !== 1 ? 's' : ''}
                           </p>
                         </div>
@@ -14675,7 +14703,7 @@ Estamos te aguardando! 😎✂️`;
                         })()}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                        className="px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm"
                       >
                         WhatsApp
                       </a>
@@ -14688,43 +14716,43 @@ Estamos te aguardando! 😎✂️`;
 
           {/* Tab de Clientes Sumidos */}
           {activeTab === 'missing-clients' && (
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <div className="bg-white rounded-lg p-6 border border-gray-300">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">👻 Clientes Sumidos</h2>
 
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
                 <button
                   onClick={() => handleTabChange('clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Users className="h-4 w-4" />
                   Meus Clientes
                 </button>
                 <button
                   onClick={() => handleTabChange('ranking')}
-                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Crown className="h-4 w-4" />
                   Ranking Clientes
                 </button>
                 <button
                   onClick={() => handleTabChange('missing-clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Users className="h-4 w-4" />
                   Clientes Sumidos
                 </button>
                 <button
                   onClick={() => handleTabChange('draw')}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Shuffle className="h-4 w-4" />
                   Sorteio
                 </button>
               </div>
 
-              <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                <p className="text-sm text-orange-700">
+              <div className="mb-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
+                <p className="text-sm text-gray-700">
                   <strong>Critério:</strong> Clientes que não agendam há 2+ meses. Se não houver nenhum, mostra os mais inativos.
                 </p>
               </div>
@@ -14742,7 +14770,7 @@ Estamos te aguardando! 😎✂️`;
                     <div key={`${client!.id}-${client!.whatsapp}-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
                       <div className="flex items-center gap-4">
                         {/* Indicador de tempo */}
-                        <div className={`flex items-center justify-center w-12 h-12 rounded-full text-white font-bold text-sm ${client!.isOver2Months ? 'bg-red-500' : 'bg-orange-500'
+                        <div className={`flex items-center justify-center w-12 h-12 rounded-full text-white font-bold text-sm ${client!.isOver2Months ? 'bg-gray-800' : 'bg-gray-600'
                           }`}>
                           {client!.monthsInactive}m
                         </div>
@@ -14751,9 +14779,9 @@ Estamos te aguardando! 😎✂️`;
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <h4 className="font-medium text-gray-900">{client!.name}</h4>
-                            {client!.isSubscriber && <Crown className="h-4 w-4 text-yellow-500" />}
+                            {client!.isSubscriber && <Crown className="h-4 w-4 text-gray-700" />}
                             {client!.isOver2Months && (
-                              <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                              <span className="px-2 py-1 bg-gray-800 text-white text-xs rounded-full">
                                 SUMIDO
                               </span>
                             )}
@@ -14762,7 +14790,7 @@ Estamos te aguardando! 😎✂️`;
                           <p className="text-sm text-gray-500">
                             Último agendamento: {client!.lastAppointmentDate.toLocaleDateString('pt-BR')}
                           </p>
-                          <p className="text-sm text-blue-600 font-medium">
+                          <p className="text-sm text-gray-700 font-medium">
                             Total: {client!.appointmentCount} agendamento{client!.appointmentCount !== 1 ? 's' : ''}
                           </p>
                         </div>
@@ -14774,13 +14802,13 @@ Estamos te aguardando! 😎✂️`;
                           href={`https://wa.me/${client!.whatsapp}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                          className="px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm"
                         >
                           WhatsApp
                         </a>
                         <button
                           onClick={() => removeFromMissingList(client!.whatsapp)}
-                          className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
+                          className="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm"
                           title="Remover da lista de sumidos"
                         >
                           ✕
@@ -14795,35 +14823,35 @@ Estamos te aguardando! 😎✂️`;
 
           {/* Tab de Sorteio */}
           {activeTab === 'draw' && (
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <div className="bg-white rounded-lg p-6 border border-gray-300">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">🎲 Sorteio de Clientes</h2>
 
               {/* Botões de navegação */}
               <div className="flex flex-col sm:flex-row gap-3 mb-6">
                 <button
                   onClick={() => handleTabChange('clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Users className="h-4 w-4" />
                   Meus Clientes
                 </button>
                 <button
                   onClick={() => handleTabChange('ranking')}
-                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Crown className="h-4 w-4" />
                   Ranking Clientes
                 </button>
                 <button
                   onClick={() => handleTabChange('missing-clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Users className="h-4 w-4" />
                   Clientes Sumidos
                 </button>
                 <button
                   onClick={() => handleTabChange('draw')}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                 >
                   <Shuffle className="h-4 w-4" />
                   Sorteio
@@ -14836,7 +14864,7 @@ Estamos te aguardando! 😎✂️`;
                 </p>
                 <button
                   onClick={() => setShowDrawModal(true)}
-                  className="inline-flex items-center px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium text-lg"
+                  className="inline-flex items-center px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-lg"
                 >
                   🎲 ABRIR SORTEIO
                 </button>
@@ -14868,7 +14896,7 @@ Estamos te aguardando! 😎✂️`;
                   <input
                     type="password"
                     placeholder="Senha do Dashboard"
-                    className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-gray-900"
                   />
                   <button
                     onClick={() => setIsDashboardUnlocked(true)}
@@ -14900,13 +14928,13 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Botão para completar onboarding e desbloquear tudo */}
               {onboardingStep === 3 && (
-                <div className="mb-6 p-5 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-lg border-4 border-green-700">
+                <div className="mb-6 p-5 bg-gradient-to-r from-gray-800 to-black rounded-lg shadow-lg border-4 border-gray-700">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex-1">
                       <h3 className="text-xl font-bold text-white mb-2">
                         🎉 Complete seu cadastro!
                       </h3>
-                      <p className="text-green-50 text-sm">
+                      <p className="text-gray-200 text-sm">
                         Clique no botão abaixo para salvar seus serviços e liberar todas as funcionalidades do sistema.
                       </p>
                     </div>
@@ -15013,7 +15041,7 @@ Estamos te aguardando! 😎✂️`;
                           toast.error('Erro ao salvar. Tente novamente.');
                         }
                       }}
-                      className="px-8 py-4 bg-white text-green-600 font-bold text-lg rounded-lg hover:bg-green-50 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 whitespace-nowrap"
+                      className="px-8 py-4 bg-white text-black font-bold text-lg rounded-lg hover:bg-gray-50 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 whitespace-nowrap"
                     >
                       <Check className="h-6 w-6" />
                       Salvar Serviços e Abrir Todas as Funções
@@ -15024,11 +15052,11 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Vídeo Tutorial */}
               {showTutorials.services && (
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                        <span className="text-red-600 text-xl">📺</span>
+                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                        <span className="text-gray-700 text-xl">📺</span>
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Serviços</h3>
@@ -15037,7 +15065,7 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                     <button
                       onClick={() => toggleTutorial('services')}
-                      className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                      className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
                     >
                       Ocultar Tutorial
                     </button>
@@ -15059,7 +15087,7 @@ Estamos te aguardando! 😎✂️`;
                       href="https://youtu.be/ABZLLHyMVq0"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+                      className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
                     >
                       <span>📺</span>
                       <span>Assistir no YouTube</span>
@@ -15085,7 +15113,7 @@ Estamos te aguardando! 😎✂️`;
               <div className="mb-6">
                 <button
                   onClick={() => setShowAddCategoryModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
                 >
                   <Plus className="h-4 w-4" />
                   Adicionar Categoria
@@ -15417,7 +15445,7 @@ Estamos te aguardando! 😎✂️`;
                 <h2 className="text-2xl font-bold text-gray-900">Meus Produtos</h2>
                 <button
                   onClick={() => setShowAddProductModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
                 >
                   <Plus className="h-4 w-4" />
                   Adicionar Produto
@@ -15426,11 +15454,11 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Vídeo Tutorial */}
               {showTutorials.products && (
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                        <span className="text-red-600 text-xl">📺</span>
+                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                        <span className="text-gray-700 text-xl">📺</span>
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Produtos</h3>
@@ -15439,7 +15467,7 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                     <button
                       onClick={() => toggleTutorial('products')}
-                      className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                      className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
                     >
                       Ocultar Tutorial
                     </button>
@@ -15461,7 +15489,7 @@ Estamos te aguardando! 😎✂️`;
                       href="https://youtu.be/vNFGtcEmJ0I"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+                      className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
                     >
                       <span>📺</span>
                       <span>Assistir no YouTube</span>
@@ -15511,7 +15539,7 @@ Estamos te aguardando! 😎✂️`;
                           setSelectedProductsMonth(newDate);
                           fetchProductSalesByPeriod(newDate);
                         }}
-                        className="px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500"
                       />
                       <button
                         onClick={() => {
@@ -15549,9 +15577,9 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Relatório de Faturamento */}
               {products.length > 0 && (
-                <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <DollarSign className="h-5 w-5 text-green-600" />
+                    <DollarSign className="h-5 w-5 text-gray-700" />
                     Faturamento dos Produtos - {selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -15559,7 +15587,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-gray-600">Faturamento Bruto</p>
-                          <p className="text-2xl font-bold text-green-600">
+                          <p className="text-2xl font-bold text-gray-800">
                             {formatCurrency(products.reduce((total, product) => {
                               const periodQuantity = productSalesByPeriod[product.id] || 0;
                               return total + (product.sale_price * periodQuantity);
@@ -15567,8 +15595,8 @@ Estamos te aguardando! 😎✂️`;
                           </p>
                           <p className="text-xs text-gray-500">Total vendido no período</p>
                         </div>
-                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                          <TrendingUp className="h-6 w-6 text-green-600" />
+                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                          <TrendingUp className="h-6 w-6 text-gray-700" />
                         </div>
                       </div>
                     </div>
@@ -15577,7 +15605,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-gray-600">Lucro Líquido</p>
-                          <p className="text-2xl font-bold text-blue-600">
+                          <p className="text-2xl font-bold text-gray-800">
                             {formatCurrency(products.reduce((total, product) => {
                               const periodQuantity = productSalesByPeriod[product.id] || 0;
                               return total + ((product.sale_price - product.cost_price) * periodQuantity);
@@ -15585,8 +15613,8 @@ Estamos te aguardando! 😎✂️`;
                           </p>
                           <p className="text-xs text-gray-500">Lucro real do período</p>
                         </div>
-                        <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                          <Receipt className="h-6 w-6 text-blue-600" />
+                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                          <Receipt className="h-6 w-6 text-gray-700" />
                         </div>
                       </div>
                     </div>
@@ -15605,7 +15633,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="flex items-center gap-2 mb-1">
                         <p className="text-sm text-gray-600">Produtos com Vendas</p>
                         <div className="group relative">
-                          <HelpCircle className="h-4 w-4 text-gray-400 hover:text-blue-600 cursor-help transition-colors" />
+                          <HelpCircle className="h-4 w-4 text-gray-400 hover:text-gray-700 cursor-help transition-colors" />
                           <div className="absolute left-0 bottom-full mb-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
                             <p className="font-semibold mb-1">O que significa?</p>
                             <p>Mostra quantos produtos diferentes tiveram pelo menos 1 venda no período selecionado.</p>
@@ -15787,14 +15815,14 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Alerta para novos estabelecimentos */}
               {isNewUser && (
-                <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-4 mb-6 border border-blue-400">
+                <div className="bg-gradient-to-r from-gray-800 to-black rounded-lg p-4 mb-6 border border-gray-600">
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 text-2xl">💡</div>
                     <div className="flex-1">
                       <p className="text-white font-semibold text-lg mb-1">
                         Instruções para configurar seus profissionais:
                       </p>
-                      <p className="text-blue-50 text-base leading-relaxed">
+                      <p className="text-gray-200 text-base leading-relaxed">
                         Crie um profissional, configure horário de trabalho dele e pode ir para próximo passo.
                       </p>
                     </div>
@@ -15804,11 +15832,11 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Vídeo Tutorial */}
               {showTutorials.professionals && (
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                        <span className="text-red-600 text-xl">📺</span>
+                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                        <span className="text-gray-700 text-xl">📺</span>
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Profissionais</h3>
@@ -15817,7 +15845,7 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                     <button
                       onClick={() => toggleTutorial('professionals')}
-                      className="px-3 py-1 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
+                      className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
                     >
                       Ocultar Tutorial
                     </button>
@@ -15839,7 +15867,7 @@ Estamos te aguardando! 😎✂️`;
                       href="https://youtu.be/1Sm25W596v0"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+                      className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
                     >
                       <span>📺</span>
                       <span>Assistir no YouTube</span>
@@ -15865,36 +15893,36 @@ Estamos te aguardando! 😎✂️`;
                 <h3 className="text-lg font-medium text-white mb-4">Aqui você tem total controle sobre seus profissionais:</h3>
                 <div className="space-y-3 text-sm text-gray-300">
                   <p className="flex items-start gap-2">
-                    <span className="text-blue-400 mt-1">•</span>
+                    <span className="text-gray-400 mt-1">•</span>
                     <span>Adicione quantos quiser</span>
                   </p>
                   <p className="flex items-start gap-2">
-                    <span className="text-blue-400 mt-1">•</span>
+                    <span className="text-gray-400 mt-1">•</span>
                     <span>Configure nome, foto, porcentagem de comissão e WhatsApp individual</span>
                   </p>
                   <p className="flex items-start gap-2">
-                    <span className="text-blue-400 mt-1">•</span>
+                    <span className="text-gray-400 mt-1">•</span>
                     <span>Defina uma senha exclusiva (opcional — se não quiser senha, use 0000)</span>
                   </p>
                   <p className="flex items-start gap-2">
-                    <span className="text-blue-400 mt-1">•</span>
+                    <span className="text-gray-400 mt-1">•</span>
                     <span>Determine metas e serviços específicos para cada profissional</span>
                   </p>
                   <p className="flex items-start gap-2">
-                    <span className="text-blue-400 mt-1">•</span>
+                    <span className="text-gray-400 mt-1">•</span>
                     <span>Marque dias ausentes e bloqueie horários</span>
                   </p>
                   <p className="flex items-start gap-2">
-                    <span className="text-blue-400 mt-1">•</span>
+                    <span className="text-gray-400 mt-1">•</span>
                     <span>Escolha se o profissional realiza ou não serviços infantis</span>
                   </p>
                 </div>
-                <div className="mt-4 p-3 bg-blue-900/20 border border-blue-700/30 rounded-lg">
-                  <p className="text-sm text-blue-300 font-medium mb-2 flex items-start gap-2">
+                <div className="mt-4 p-3 bg-gray-800/20 border border-gray-700/30 rounded-lg">
+                  <p className="text-sm text-gray-300 font-medium mb-2 flex items-start gap-2">
                     <span>💡</span>
                     <span className="flex-1"><strong>Importante:</strong></span>
                   </p>
-                  <div className="space-y-1 text-xs text-blue-200 ml-6">
+                  <div className="space-y-1 text-xs text-gray-200 ml-6">
                     <p>• Cada profissional pode visualizar o total bruto e líquido do dia</p>
                     <p>• As alterações só terão efeito após clicar em Salvar Profissionais</p>
                   </div>
@@ -15912,7 +15940,7 @@ Estamos te aguardando! 😎✂️`;
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleUpdateProfessionalPin(professional.id, '')}
-                            className="text-xs px-2 py-1 bg-green-600/20 text-green-500 rounded"
+                            className="text-xs px-2 py-1 bg-gray-800/20 text-gray-300 rounded"
                           >
                             Alterar Senha
                           </button>
@@ -15938,7 +15966,7 @@ Estamos te aguardando! 😎✂️`;
                   <button
                     type="button"
                     onClick={saveProfessionalsToDatabase}
-                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
                   >
                     <Check className="h-4 w-4" />
                     <span>Salvar Profissionais</span>
@@ -15947,7 +15975,7 @@ Estamos te aguardando! 😎✂️`;
 
                 {/* Indicador de status */}
                 {professionals.length > 0 && (
-                  <div className="text-xs text-yellow-400 text-center">
+                  <div className="text-xs text-gray-600 text-center">
                     ⚠ Clique em "Salvar Profissionais" para salvar
                   </div>
                 )}
@@ -15960,7 +15988,7 @@ Estamos te aguardando! 😎✂️`;
                     key={professional.id}
                     id={`professional-${professional.id}`}
                     className={`p-4 rounded-lg space-y-3 transition-all duration-500 ${highlightedProfessionalId === professional.id
-                      ? 'bg-blue-600/30 ring-4 ring-blue-500 shadow-xl'
+                      ? 'bg-gray-800/30 ring-4 ring-gray-600 shadow-xl'
                       : 'bg-[#242628]'
                       }`}
                   >
@@ -16260,15 +16288,15 @@ Estamos te aguardando! 😎✂️`;
                 <div className="space-y-6">
                   {/* Resumo Geral */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                      <h3 className="text-lg font-semibold text-blue-900 mb-2">Taxas do Mês</h3>
-                      <p className="text-2xl font-bold text-blue-700">
+                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-300">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Taxas do Mês</h3>
+                      <p className="text-2xl font-bold text-gray-800">
                         {formatCurrency(taxesReport.totalMonthlyTax)}
                       </p>
                     </div>
-                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                      <h3 className="text-lg font-semibold text-green-900 mb-2">Taxas do Ano</h3>
-                      <p className="text-2xl font-bold text-green-700">
+                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-300">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Taxas do Ano</h3>
+                      <p className="text-2xl font-bold text-gray-800">
                         {formatCurrency(taxesReport.totalYearlyTax)}
                       </p>
                     </div>
@@ -17700,7 +17728,7 @@ Estamos te aguardando! 😎✂️`;
       {/* Modal de Item Bloqueado */}
       {showBlockedItemModal && (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-xl shadow-2xl max-w-md w-full p-6 border-4 border-red-500">
+          <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl shadow-2xl max-w-md w-full p-6 border-4 border-gray-500">
             <div className="text-center">
               <div className="mb-4 text-7xl animate-bounce">🔒</div>
               <h2 className="text-2xl font-bold text-red-700 mb-4">Função Bloqueada!</h2>

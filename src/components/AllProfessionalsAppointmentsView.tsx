@@ -625,18 +625,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
   const getSlotColor = (slot: TimeSlot): string => {
     if (slot.isEmpty) {
-      return 'bg-blue-50 border-blue-200';
+      return 'bg-white border-gray-300';
     }
     
     const appointment = slot.appointment || slot.parentAppointment;
-    if (!appointment) return 'bg-gray-100 border-gray-200';
+    if (!appointment) return 'bg-gray-100 border-gray-300';
 
-    // Se for encaixe, sempre roxo
+    // Se for encaixe, usar cinza escuro
     if (appointment.is_squeeze) {
       if (slot.isOccupied) {
-        return 'bg-purple-600/60 border-purple-700';
+        return 'bg-gray-700/60 border-gray-600';
       }
-      return 'bg-purple-600 border-purple-700';
+      return 'bg-gray-700 border-gray-600';
     }
 
     if (slot.isOccupied) {
@@ -649,7 +649,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         case 'confirmed':
           return 'bg-yellow-600/60 border-yellow-700';
         default:
-          return 'bg-gray-600/60 border-gray-700';
+          return 'bg-gray-600/60 border-gray-500';
       }
     }
 
@@ -662,7 +662,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       case 'confirmed':
         return 'bg-yellow-600 border-yellow-700';
       default:
-        return 'bg-gray-600 border-gray-700';
+        return 'bg-gray-600 border-gray-500';
     }
   };
 
@@ -916,65 +916,68 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
   return (
     <div className="space-y-4">
-      {/* Card de Legenda de Cores */}
-      <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
-        <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
-        
-        {/* Layout para mobile - 3 colunas */}
-        <div className="grid grid-cols-3 gap-2 sm:hidden">
-          <button 
-            onClick={() => setShowColorLegend('red')}
-            className="px-2 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
-          >
-            Cancelado
-          </button>
-          <button 
-            onClick={() => setShowColorLegend('yellow')}
-            className="px-2 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition-colors"
-          >
-            Pendente
-          </button>
-          <button 
-            onClick={() => setShowColorLegend('green')}
-            className="px-2 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
-          >
-            Concluído
-          </button>
-        </div>
-
-        {/* Layout para desktop - horizontal */}
-        <div className="hidden sm:flex justify-center gap-4">
-          <button 
-            onClick={() => setShowColorLegend('red')}
-            className="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
-          >
-            ❌ Cancelado
-          </button>
-          <button 
-            onClick={() => setShowColorLegend('yellow')}
-            className="px-4 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
-          >
-            ⏳ Pendente
-          </button>
-          <button 
-            onClick={() => setShowColorLegend('green')}
-            className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-          >
-            ✅ Concluído
-          </button>
-        </div>
-
-        {/* Botão de lembrete para clientes */}
-        <div className="mt-3 flex justify-center">
+      {/* Cabeçalho com navegação de data - MOVIDO PARA O TOPO */}
+      <div className="bg-white rounded-lg p-2 sm:p-4 border border-gray-300 shadow-sm">
+        <h2 className="text-lg sm:text-2xl font-bold text-black mb-2 sm:mb-4">
+          Agendamentos do Dia
+        </h2>
+        <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
           <button
-            onClick={() => setShowReminderInfo(true)}
-            className="px-3 py-2 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
-            title="Dicas sobre envio de lembretes"
+            onClick={handlePreviousDay}
+            className="p-1.5 sm:p-2 md:p-3 rounded-lg bg-black hover:bg-gray-800 text-white transition-colors shadow-md flex-shrink-0"
           >
-            📬 Enviar lembrete para clientes
+            <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
+          </button>
+          <input
+            type="date"
+            value={format(selectedDate, 'yyyy-MM-dd')}
+            onChange={handleDateInputChange}
+            className="flex-1 px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 md:py-3 text-xs sm:text-sm md:text-base font-semibold text-black bg-white border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-gray-600 focus:border-gray-600 transition-colors"
+          />
+          <button
+            onClick={handleNextDay}
+            className="p-1.5 sm:p-2 md:p-3 rounded-lg bg-black hover:bg-gray-800 text-white transition-colors shadow-md flex-shrink-0"
+          >
+            <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
           </button>
         </div>
+        {/* Seletor de Profissional - MOBILE (opcional) */}
+        <div className="md:hidden mt-2 sm:mt-4">
+          <label className="block text-xs sm:text-sm font-medium text-gray-800 mb-1 sm:mb-2">
+            Pular para Profissional (ou arraste abaixo):
+          </label>
+          <select
+            value={selectedProfessionalId}
+            onChange={(e) => {
+              setSelectedProfessionalId(e.target.value);
+              // Scroll horizontal para o profissional selecionado
+              setTimeout(() => {
+                const professionalIndex = professionals.findIndex(p => p.id === e.target.value);
+                const scrollContainer = document.querySelector('.mobile-scroll-container');
+                if (scrollContainer && professionalIndex >= 0) {
+                  scrollContainer.scrollTo({
+                    left: professionalIndex * 280,
+                    behavior: 'smooth'
+                  });
+                }
+              }, 100);
+            }}
+            className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-gray-600 focus:border-gray-600 bg-white text-black font-semibold text-sm sm:text-base transition-colors"
+          >
+            {professionals.map((prof) => (
+              <option key={prof.id} value={prof.id} className="text-black font-normal">
+                {prof.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Texto de ajuda */}
+        <p className="text-xs sm:text-sm text-gray-600 mt-1 sm:mt-2 text-center">
+          👈 Arraste para o lado para ver mais profissionais 👉
+        </p>
       </div>
+
 
       {/* Modal de Informações sobre Lembretes */}
       {showReminderInfo && (
@@ -996,15 +999,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
               </p>
               
               <p className="text-gray-700 text-base leading-relaxed">
-                Caso ele não tenha ativado as notificações automáticas, basta clicar em <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold">"Enviar lembrete"</span> dentro do agendamento. 📅
+                Caso ele não tenha ativado as notificações automáticas, basta clicar em <span className="bg-gray-200 text-gray-800 px-2 py-1 rounded font-semibold">"Enviar lembrete"</span> dentro do agendamento. 📅
               </p>
               
               <p className="text-gray-700 text-base leading-relaxed">
                 Assim, o sistema envia uma mensagem completa no WhatsApp do cliente, com todas as informações do agendamento — horário, serviço e profissional — pra ele não esquecer de comparecer. 🕒
               </p>
               
-              <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg">
-                <p className="text-green-800 text-sm leading-relaxed">
+              <div className="bg-gray-100 border-l-4 border-gray-600 p-4 rounded-r-lg">
+                <p className="text-gray-800 text-sm leading-relaxed">
                   <strong>💬💈 Dica profissional:</strong> Muitos barbeiros usam esse recurso no dia dos atendimentos para lembrar todos os clientes de forma rápida e prática!
                 </p>
               </div>
@@ -1013,7 +1016,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             <div className="sticky bottom-0 bg-gray-50 p-4 rounded-b-2xl border-t">
               <button
                 onClick={() => setShowReminderInfo(false)}
-                className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors"
+                className="w-full py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
               >
                 Entendi
               </button>
@@ -1051,7 +1054,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
               <button
                 onClick={() => setShowColorLegend(null)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors font-medium"
               >
                 Entendi
               </button>
@@ -1060,20 +1063,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
         </div>
       )}
 
-      {/* Alerta sobre valores pendentes */}
-      <div className="bg-orange-100 border-l-4 border-orange-500 rounded-r-lg p-3">
-        <div className="flex items-start gap-2">
-          <span className="text-orange-600 text-lg flex-shrink-0 mt-0.5">⚠️</span>
-          <div className="flex-1">
-            <button
-              onClick={() => setShowPendingWarning(true)}
-              className="text-orange-800 text-sm font-bold text-left hover:underline"
-            >
-              Agendamento pendente não conta valor no dashboard - <span className="text-orange-600">clique para entender</span>
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* Modal de Aviso sobre Pendentes */}
       {showPendingWarning && (
@@ -1093,14 +1082,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
             
             <div className="p-6">
               <p className="text-gray-700 text-base leading-relaxed">
-                Coloque seu agendamento como <span className="bg-green-100 text-green-800 px-2 py-1 rounded font-semibold">concluído</span>, para o dashboard reconhecer que você recebeu o valor de fato.
+                Coloque seu agendamento como <span className="bg-gray-200 text-gray-800 px-2 py-1 rounded font-semibold">concluído</span>, para o dashboard reconhecer que você recebeu o valor de fato.
               </p>
             </div>
 
             <div className="bg-gray-50 p-4 rounded-b-2xl border-t">
               <button
                 onClick={() => setShowPendingWarning(false)}
-                className="w-full py-3 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors"
+                className="w-full py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
               >
                 Entendi
               </button>
@@ -1109,67 +1098,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
         </div>
       )}
 
-      {/* Cabeçalho com navegação de data */}
-      <div className="bg-white rounded-lg p-4 border border-gray-200">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">
-          Agendamentos do Dia - Todos os Profissionais
-        </h2>
-        <div className="flex items-center gap-2 md:gap-4">
-          <button
-            onClick={handlePreviousDay}
-            className="p-2 md:p-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-md flex-shrink-0"
-          >
-            <ChevronLeft className="h-5 w-5 md:h-6 md:w-6" />
-          </button>
-          <input
-            type="date"
-            value={format(selectedDate, 'yyyy-MM-dd')}
-            onChange={handleDateInputChange}
-            className="flex-1 px-3 md:px-4 py-2 md:py-3 text-sm md:text-base font-semibold text-gray-900 bg-gray-50 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white"
-          />
-          <button
-            onClick={handleNextDay}
-            className="p-2 md:p-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-md flex-shrink-0"
-          >
-            <ChevronRight className="h-5 w-5 md:h-6 md:w-6" />
-          </button>
-        </div>
-        {/* Seletor de Profissional - MOBILE (opcional) */}
-        <div className="md:hidden mt-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Pular para Profissional (ou arraste abaixo):
-          </label>
-          <select
-            value={selectedProfessionalId}
-            onChange={(e) => {
-              setSelectedProfessionalId(e.target.value);
-              // Scroll horizontal para o profissional selecionado
-              setTimeout(() => {
-                const professionalIndex = professionals.findIndex(p => p.id === e.target.value);
-                const scrollContainer = document.querySelector('.mobile-scroll-container');
-                if (scrollContainer && professionalIndex >= 0) {
-                  scrollContainer.scrollTo({
-                    left: professionalIndex * 280,
-                    behavior: 'smooth'
-                  });
-                }
-              }, 100);
-            }}
-            className="w-full px-3 py-2 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 font-semibold text-base"
-          >
-            {professionals.map((prof) => (
-              <option key={prof.id} value={prof.id} className="text-gray-900 font-normal">
-                {prof.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Texto de ajuda */}
-        <p className="text-sm text-gray-600 mt-2 text-center">
-          👈 Arraste para o lado para ver mais profissionais 👉
-        </p>
-      </div>
 
       {/* Layout Horizontal Scrollável - MOBILE E DESKTOP */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -1211,12 +1139,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 <div
                   key={professional.id}
                   className={`flex-shrink-0 ${
-                    index !== 0 ? 'border-l-4 border-purple-400' : ''
+                    index !== 0 ? 'border-l-4 border-gray-400' : ''
                   }`}
                   style={{ width: '280px' }}
                 >
                   {/* Cabeçalho do Profissional */}
-                  <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-2 sticky top-0 z-10">
+                  <div className="bg-gradient-to-r from-gray-900 to-black p-2 sticky top-0 z-10 border-b-2 border-gray-700">
                     <div className="flex flex-col items-center">
                       <button
                         onClick={() => setSelectedProfessionalForInfo(professional.id)}
@@ -1233,7 +1161,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             👤
                           </div>
                         )}
-                        <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                        <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-white/20 transition-colors flex items-center justify-center">
                           <span className="text-white opacity-0 group-hover:opacity-100 transition-opacity text-xs font-semibold">
                             💰
                           </span>
@@ -1242,7 +1170,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       <h3 className="text-white font-bold text-sm mt-1 text-center">
                         {professional.name}
                       </h3>
-                      <p className="text-blue-100 text-xs">
+                      <p className="text-gray-300 text-xs">
                         {professionalAppointmentsCount} agend.
                       </p>
                       <div className="space-y-1 mt-1">
@@ -1256,7 +1184,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           {onGoToProfessionalConfig && (
                             <button
                               onClick={() => onGoToProfessionalConfig(professional.id)}
-                              className="flex-1 px-2 py-1 bg-green-600/80 hover:bg-green-700 text-white text-xs rounded transition-colors border border-white/30"
+                              className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors border border-white/30"
                               title="Ir para configurações do profissional"
                             >
                               ⚙️ Config
@@ -1266,7 +1194,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         {onGoToClients && (
                           <button
                             onClick={onGoToClients}
-                            className="w-full px-2 py-1 bg-purple-600/80 hover:bg-purple-700 text-white text-xs rounded transition-colors border border-white/30"
+                            className="w-full px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors border border-white/30"
                             title="Ir para Meus Clientes"
                           >
                             📅 Criar reserva
@@ -1277,7 +1205,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             setSelectedProfessionalForSqueeze(professional.id);
                             setShowSqueezeServiceModal(true);
                           }}
-                          className="w-full px-2 py-1 bg-purple-500/80 hover:bg-purple-600 text-white text-xs rounded transition-colors border border-white/30"
+                          className="w-full px-2 py-1 bg-gray-600 hover:bg-gray-500 text-white text-xs rounded transition-colors border border-white/30"
                           title="Criar Encaixe"
                         >
                           🟣 Criar Encaixe
@@ -1286,20 +1214,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       
                       {/* Contadores de Status por Profissional */}
                       <div className="mt-2 flex gap-1 text-xs">
-                        <span className="px-2 py-1 bg-red-600/80 text-white rounded">
+                        <span className="px-2 py-1 bg-red-600/80 text-white rounded border border-red-700">
                           ❌ {timeSlots.filter(s => s.appointment && s.appointment.status === 'cancelled').length}
                         </span>
-                        <span className="px-2 py-1 bg-yellow-600/80 text-white rounded">
+                        <span className="px-2 py-1 bg-yellow-600/80 text-white rounded border border-yellow-700">
                           ⏳ {timeSlots.filter(s => s.appointment && (s.appointment.status === 'pending' || s.appointment.status === 'confirmed')).length}
                         </span>
-                        <span className="px-2 py-1 bg-green-600/80 text-white rounded">
+                        <span className="px-2 py-1 bg-green-600/80 text-white rounded border border-green-700">
                           ✅ {timeSlots.filter(s => s.appointment && s.appointment.status === 'completed').length}
                         </span>
                       </div>
                       
                       {/* Meta do Profissional */}
                       {professional.goal && professional.goal > 0 && (
-                        <div className="mt-2 px-2 py-1 bg-purple-600/90 text-white rounded text-xs text-center">
+                        <div className="mt-2 px-2 py-1 bg-gray-800 text-white rounded text-xs text-center border border-gray-600">
                           🎯 Meta: {formatCurrency(professional.goal)}
                         </div>
                       )}
@@ -1307,7 +1235,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   </div>
 
                   {/* Todos os Horários (Livres e Ocupados) */}
-                  <div className="p-2 bg-gray-50 min-h-[500px]">
+                  <div className="p-2 bg-gray-100 min-h-[500px]">
                     <div className="space-y-1">
                       {timeSlots.length > 0 ? (
                         timeSlots.map((slot, slotIndex) => {
@@ -1339,10 +1267,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   className={`${slotColor} border-2 rounded-lg px-3 py-2`}
                                 >
                                   <div className="flex items-center justify-between">
-                                    <span className="text-blue-900 font-bold text-sm">
+                                    <span className="text-black font-bold text-sm">
                                       {slot.time}
                                     </span>
-                                    <span className="text-green-600 text-xs font-semibold">
+                                    <span className="text-gray-600 text-xs font-semibold">
                                       ✓ DISPONÍVEL
                                     </span>
                                   </div>
@@ -1353,7 +1281,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   return (
                                     <div
                                       key={squeeze.id}
-                                      className="bg-purple-600 border-2 border-purple-700 rounded-lg mt-1 overflow-hidden"
+                                      className="bg-gray-700 border-2 border-gray-600 rounded-lg mt-1 overflow-hidden"
                                     >
                                       <div className="px-3 py-2">
                                         <div
@@ -1408,14 +1336,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                   onCancelAppointment(squeeze.id);
                                                 }
                                               }}
-                                              className="flex-1 px-3 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                                              className="flex-1 px-3 py-2 bg-gray-900 text-white text-xs rounded hover:bg-gray-800 transition-colors"
                                             >
                                               Cancelar
                                             </button>
                                             {onOpenTransferModal && (
                                               <button
                                                 onClick={() => onOpenTransferModal(squeeze)}
-                                                className="flex-1 px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                                className="flex-1 px-3 py-2 bg-black text-white text-xs rounded hover:bg-gray-800 transition-colors"
                                               >
                                                 Transferir
                                               </button>
@@ -1489,7 +1417,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           e.stopPropagation();
                                           if (onOpenReminderModal) onOpenReminderModal(apt);
                                         }}
-                                        className="w-full px-2 py-1.5 text-xs font-medium rounded transition-colors bg-blue-500 text-white hover:bg-blue-600"
+                                        className="w-full px-2 py-1.5 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
                                         title="Enviar lembrete via WhatsApp"
                                       >
                                         📱 Enviar lembrete
@@ -1508,8 +1436,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <span className="text-white font-semibold">
                                           {apt.is_squeeze ? 'ENCAIXE' : apt.client_name}
                                         </span>
-                                        {apt.is_premium && <Crown className="w-4 h-4 text-yellow-300" />}
-                                        {apt.is_squeeze && <span className="text-purple-300 text-xs">🟣</span>}
+                                        {apt.is_premium && <Crown className="w-4 h-4 text-gray-300" />}
+                                        {apt.is_squeeze && <span className="text-gray-300 text-xs">🟣</span>}
                                       </div>
                                       {apt.is_squeeze && (
                                         <div className="mb-2">
@@ -1580,14 +1508,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             />
                                             <button
                                               onClick={() => handleSaveAppointmentValue(apt.id)}
-                                              className="text-green-400 hover:text-green-300 text-xs px-2 py-1 bg-green-600/20 rounded"
+                                              className="text-white hover:text-gray-200 text-xs px-2 py-1 bg-gray-700 rounded"
                                               title="Salvar"
                                             >
                                               ✓
                                             </button>
                                             <button
                                               onClick={handleCancelEditValue}
-                                              className="text-red-400 hover:text-red-300 text-xs px-2 py-1 bg-red-600/20 rounded"
+                                              className="text-white hover:text-gray-200 text-xs px-2 py-1 bg-gray-800 rounded"
                                               title="Cancelar"
                                             >
                                               ✕
@@ -1597,13 +1525,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <>
                                             <div className="text-white font-bold">{formatCurrency(apt.price)}</div>
                                             {!apt.is_subscriber && (
-                                              <button
-                                                onClick={() => handleEditAppointmentValue(apt.id, apt.price || 0)}
-                                                className="text-blue-400 hover:text-blue-300 text-xs"
-                                                title="Editar valor"
-                                              >
-                                                ✏️
-                                              </button>
+                                            <button
+                                              onClick={() => handleEditAppointmentValue(apt.id, apt.price || 0)}
+                                              className="text-gray-300 hover:text-white text-xs"
+                                              title="Editar valor"
+                                            >
+                                              ✏️
+                                            </button>
                                             )}
                                           </>
                                         )}
@@ -1634,12 +1562,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <div className="text-xs text-white/80 mb-1">Produtos:</div>
                                           <div className="flex flex-wrap gap-1">
                                             {apt.sold_products.map((prod) => (
-                                              <div key={prod.id} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-600/20 text-blue-200 rounded border border-blue-500/30 group">
+                                              <div key={prod.id} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-800/50 text-white rounded border border-gray-600 group">
                                                 <Package className="h-3 w-3" />
                                                 <span>{prod.name} ({prod.quantity}x): {formatCurrency(prod.total)}</span>
                                                 <button
                                                   onClick={() => handleRemoveProductFromAppointment(apt.id, prod.product_id, prod.name)}
-                                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300"
+                                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-white"
                                                   title="Remover produto"
                                                 >
                                                   <X className="h-3 w-3" />
@@ -1690,14 +1618,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                     {/* Observações */}
                                     {apt.observation && (
-                                      <div className="bg-blue-500/20 rounded p-2 mb-2 border border-blue-400/30">
+                                      <div className="bg-gray-800/50 rounded p-2 mb-2 border border-gray-600">
                                         <div className="text-xs text-white/80 mb-1">Obs. Cliente:</div>
                                         <div className="text-xs text-white">{apt.observation}</div>
                                       </div>
                                     )}
 
                                     {apt.establishment_observation && (
-                                      <div className="bg-purple-500/20 rounded p-2 mb-2 border border-purple-400/30">
+                                      <div className="bg-gray-700/50 rounded p-2 mb-2 border border-gray-500">
                                         <div className="text-xs text-white/80 mb-1">Minhas Obs.:</div>
                                         <div className="text-xs text-white">{apt.establishment_observation}</div>
                                       </div>
@@ -1713,7 +1641,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               if (onOpenProductV2Modal) onOpenProductV2Modal(apt.id);
                                             }}
-                                            className="px-2 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center justify-center gap-1"
+                                            className="px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
                                           >
                                             <Package className="w-3 h-3" />
                                             Produto V2
@@ -1755,7 +1683,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               if (onOpenTransferModal) onOpenTransferModal(apt);
                                             }}
-                                            className="px-2 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                                            className="px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800"
                                           >
                                             🔄 TRANSFERIR
                                           </button>
@@ -1800,7 +1728,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
                                               window.open(whatsappUrl, '_blank');
                                             }}
-                                            className="px-2 py-1.5 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                                            className="px-2 py-1.5 text-xs bg-gray-800 text-white rounded hover:bg-gray-700"
                                             title="Enviar mensagem de imprevisto"
                                           >
                                             IMPREVISTO
@@ -1813,14 +1741,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             e.stopPropagation();
                                             if (onOpenObservationModal) onOpenObservationModal(apt.id, apt.establishment_observation);
                                           }}
-                                          className="w-full px-2 py-1.5 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
+                                          className="w-full px-2 py-1.5 text-xs bg-gray-700 text-white rounded hover:bg-gray-600"
                                         >
                                           📝 Minhas Observações
                                         </button>
 
                                         {apt.is_child_service !== undefined && (
                                           <div className="text-center">
-                                            <span className={`inline-block px-2 py-1 text-xs rounded ${apt.is_child_service ? 'bg-purple-600' : 'bg-gray-600'} text-white`}>
+                                            <span className={`inline-block px-2 py-1 text-xs rounded ${apt.is_child_service ? 'bg-gray-700' : 'bg-gray-600'} text-white border border-gray-500`}>
                                               {apt.is_child_service ? '👶 Infantil' : '👤 Adulto'}
                                             </span>
                                           </div>
@@ -1836,7 +1764,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             e.stopPropagation();
                                             handleDeleteAppointment(apt.id);
                                           }}
-                                          className="w-full px-2 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 flex items-center justify-center gap-1"
+                                          className="w-full px-2 py-1.5 text-xs bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
                                         >
                                           <Trash2 className="w-3 h-3" />
                                           🗑️ EXCLUIR
@@ -1986,7 +1914,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 </button>
                 <button
                   onClick={handleCreateSqueeze}
-                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                 >
                   Criar Encaixe
                 </button>
@@ -1995,6 +1923,81 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </div>
         </div>
       )}
+
+      {/* Card de Legenda de Cores - MOVIDO PARA BAIXO */}
+      <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+        <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
+        
+        {/* Layout para mobile - 3 colunas */}
+        <div className="grid grid-cols-3 gap-2 sm:hidden">
+          <button 
+            onClick={() => setShowColorLegend('red')}
+            className="px-2 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+          >
+            Cancelado
+          </button>
+          <button 
+            onClick={() => setShowColorLegend('yellow')}
+            className="px-2 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition-colors"
+          >
+            Pendente
+          </button>
+          <button 
+            onClick={() => setShowColorLegend('green')}
+            className="px-2 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+          >
+            Concluído
+          </button>
+        </div>
+
+        {/* Layout para desktop - horizontal */}
+        <div className="hidden sm:flex justify-center gap-4">
+          <button 
+            onClick={() => setShowColorLegend('red')}
+            className="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+          >
+            ❌ Cancelado
+          </button>
+          <button 
+            onClick={() => setShowColorLegend('yellow')}
+            className="px-4 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
+          >
+            ⏳ Pendente
+          </button>
+          <button 
+            onClick={() => setShowColorLegend('green')}
+            className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+          >
+            ✅ Concluído
+          </button>
+        </div>
+
+        {/* Botão de lembrete para clientes */}
+        <div className="mt-3 flex justify-center">
+          <button
+            onClick={() => setShowReminderInfo(true)}
+            className="px-3 py-2 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
+            title="Dicas sobre envio de lembretes"
+          >
+            📬 Enviar lembrete para clientes
+          </button>
+        </div>
+      </div>
+
+      {/* Alerta sobre valores pendentes - MOVIDO PARA BAIXO */}
+      <div className="bg-gray-100 border-l-4 border-gray-600 rounded-r-lg p-3">
+        <div className="flex items-start gap-2">
+          <span className="text-gray-700 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+          <div className="flex-1">
+            <button
+              onClick={() => setShowPendingWarning(true)}
+              className="text-orange-800 text-sm font-bold text-left hover:underline"
+            >
+              Agendamento pendente não conta valor no dashboard - <span className="text-orange-600">clique para entender</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
@@ -2037,7 +2040,7 @@ const SqueezeServiceList: React.FC<{
         <button
           key={service.id}
           onClick={() => onSelectService(service)}
-          className="w-full text-left px-4 py-3 bg-[#2a2b2c] hover:bg-purple-600/20 border border-gray-600 rounded-lg transition-colors"
+          className="w-full text-left px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-lg transition-colors"
         >
           <div className="font-semibold text-white">{service.name}</div>
           <div className="text-sm text-gray-300">

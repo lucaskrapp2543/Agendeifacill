@@ -24,16 +24,16 @@ export const NotificationPermission: React.FC = () => {
   };
 
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 mb-2">
+    <div className="bg-gray-100 border border-gray-300 rounded-lg p-2 mb-2">
       <div className="flex items-center justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-blue-900">
+            <span className="text-sm font-medium text-black">
               {isPWA ? '📱 PWA App' : isMobile ? '📱 Mobile' : '💻 PC'} Notificações
             </span>
             <span className={`text-xs px-2 py-1 rounded ${permission === 'granted'
               ? 'bg-green-100 text-green-800'
-              : 'bg-blue-100 text-blue-800'
+              : 'bg-gray-200 text-gray-800'
               }`}>
               {permission === 'granted' ? '✅ Ativo' : '🔔 Ativar'}
             </span>
@@ -44,7 +44,7 @@ export const NotificationPermission: React.FC = () => {
             </p>
           )}
           {isPWA && permission !== 'granted' && (
-            <p className="text-xs text-orange-600 mt-1">
+            <p className="text-xs text-gray-700 mt-1">
               📱 PWA: Clique para ativar notificações
             </p>
           )}
@@ -52,7 +52,7 @@ export const NotificationPermission: React.FC = () => {
         {permission !== 'granted' && (
           <button
             onClick={handleRequestPermission}
-            className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-2 py-1 text-xs bg-black text-white rounded hover:bg-gray-800"
           >
             {isPWA ? '📱 Ativar PWA' : 'Ativar'}
           </button>

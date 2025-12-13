@@ -71,11 +71,11 @@ self.addEventListener('activate', (event) => {
             }
             // Remover caches antigos também (versões anteriores a 2.3.0)
             if (!cacheName.includes('v2.3.0') && cacheName !== STATIC_CACHE) {
-              console.log('🗑️ Removendo cache antigo:', cacheName);
-              return caches.delete(cacheName);
-            }
-          })
-        );
+            console.log('🗑️ Removendo cache antigo:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
         
         console.log('✅ Todos os caches de HTML limpos');
       } catch (error) {
@@ -92,7 +92,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
-  
+
   // ⚠️ DETECTAR MOBILE PELO USER-AGENT (ANTES DE QUALQUER COISA)
   const userAgent = request.headers.get('user-agent') || '';
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);

@@ -12,3 +12,7 @@ CREATE INDEX IF NOT EXISTS idx_appointments_is_squeeze ON appointments(is_squeez
 
 
 
+
+
+
+

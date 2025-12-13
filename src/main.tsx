@@ -178,10 +178,10 @@ if (!rootElement) {
   try {
     const root = createRoot(rootElement);
     root.render(
-      <StrictMode>
-        <App />
-      </StrictMode>
-    );
+  <StrictMode>
+    <App />
+  </StrictMode>
+);
     
     // Limpar timeout se renderizou com sucesso
     clearTimeout(renderTimeout);

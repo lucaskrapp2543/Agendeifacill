@@ -68,7 +68,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white p-6 rounded-t-2xl flex justify-between items-center">
+          <div className="bg-gradient-to-r from-gray-900 to-black text-white p-6 rounded-t-2xl flex justify-between items-center">
             <h2 className="text-2xl font-bold">🔒 Acesso Protegido</h2>
             <button
               onClick={onClose}
@@ -84,10 +84,10 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               <img
                 src={professional.photo_url}
                 alt={professional.name}
-                className="w-24 h-24 rounded-full object-cover border-4 border-purple-200"
+                className="w-24 h-24 rounded-full object-cover border-4 border-gray-300"
               />
             ) : (
-              <div className="w-24 h-24 rounded-full bg-purple-200 flex items-center justify-center text-4xl">
+              <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center text-4xl">
                 👤
               </div>
             )}
@@ -101,8 +101,8 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               financeiras.
             </p>
             
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-              <p className="text-blue-800 text-xs text-center">
+            <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 mb-4">
+              <p className="text-gray-800 text-xs text-center">
                 💡 <strong>Dica:</strong> Você pode usar a senha do profissional ou a senha mestre do estabelecimento
               </p>
             </div>
@@ -117,7 +117,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                   id="pin"
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
-                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-center text-2xl tracking-widest text-gray-900 bg-white"
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-600 focus:border-gray-600 text-center text-2xl tracking-widest text-gray-900 bg-white"
                   placeholder="••••"
                   maxLength={4}
                   autoFocus
@@ -132,7 +132,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors"
+                className="w-full py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
               >
                 Acessar Informações
               </button>
@@ -153,10 +153,10 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="sticky top-0 bg-gradient-to-r from-purple-600 to-purple-700 text-white p-6 rounded-t-2xl flex justify-between items-center">
+        <div className="sticky top-0 bg-gradient-to-r from-gray-900 to-black text-white p-6 rounded-t-2xl flex justify-between items-center">
           <div>
             <h2 className="text-2xl font-bold mb-1">Informações do Profissional</h2>
-            <p className="text-purple-100 text-sm">{professional.name}</p>
+            <p className="text-gray-300 text-sm">{professional.name}</p>
           </div>
           <button
             onClick={onClose}
@@ -167,21 +167,21 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
         </div>
 
         {/* Foto e Info Básica */}
-        <div className="flex flex-col items-center p-6 bg-gradient-to-b from-purple-50 to-white">
+        <div className="flex flex-col items-center p-6 bg-gradient-to-b from-gray-100 to-white">
           {professional.photo_url ? (
             <img
               src={professional.photo_url}
               alt={professional.name}
-              className="w-32 h-32 rounded-full object-cover border-4 border-purple-200 mb-4"
+              className="w-32 h-32 rounded-full object-cover border-4 border-gray-300 mb-4"
             />
           ) : (
-            <div className="w-32 h-32 rounded-full bg-purple-200 flex items-center justify-center text-6xl mb-4">
+            <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center text-6xl mb-4">
               👤
             </div>
           )}
           <h3 className="text-2xl font-bold text-gray-800 mb-2">{professional.name}</h3>
           {professional.percentage !== undefined && (
-            <span className="px-4 py-2 bg-purple-100 text-purple-800 rounded-full font-semibold">
+            <span className="px-4 py-2 bg-gray-200 text-gray-800 rounded-full font-semibold">
               Percentual: {professional.percentage}%
             </span>
           )}
@@ -237,21 +237,21 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
           </div>
 
           {/* Valores Mensais */}
-          <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-5 rounded-xl border-2 border-blue-200">
-            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-blue-800">
+          <div className="bg-gradient-to-r from-gray-100 to-gray-200 p-5 rounded-xl border-2 border-gray-300">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-800">
               <TrendingUp className="w-5 h-5" />
               Valores do Mês
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white p-4 rounded-lg">
                 <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
-                <p className="text-2xl font-bold text-blue-600">
+                <p className="text-2xl font-bold text-gray-800">
                   {showValues ? formatCurrency(monthlyGross) : '••••••'}
                 </p>
               </div>
               <div className="bg-white p-4 rounded-lg">
                 <p className="text-sm text-gray-600 mb-1">Valor Líquido</p>
-                <p className="text-2xl font-bold text-blue-700">
+                <p className="text-2xl font-bold text-gray-900">
                   {showValues ? formatCurrency(monthlyNet) : '••••••'}
                 </p>
               </div>
@@ -259,7 +259,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             <div className="mt-3 text-center">
               <p className="text-sm text-gray-600">
                 Agendamentos este mês:{' '}
-                <span className="font-bold text-blue-800">{appointmentsMonth}</span>
+                <span className="font-bold text-gray-800">{appointmentsMonth}</span>
               </p>
             </div>
           </div>
@@ -282,7 +282,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
         <div className="sticky bottom-0 bg-gray-50 p-4 rounded-b-2xl border-t">
           <button
             onClick={onClose}
-            className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors"
+            className="w-full py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
           >
             Fechar
           </button>

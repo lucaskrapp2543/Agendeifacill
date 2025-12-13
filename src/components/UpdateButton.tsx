@@ -104,7 +104,7 @@ export const UpdateButton = () => {
       {updateStatus === 'idle' && (
         <button
           onClick={handleCheckUpdates}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-colors text-sm"
+          className="bg-black hover:bg-gray-800 text-white px-3 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-colors text-sm"
           title="Verificar Atualizações"
         >
           <RefreshCw className="w-4 h-4" />

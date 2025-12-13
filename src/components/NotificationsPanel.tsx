@@ -207,7 +207,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       <button
         data-notifications-button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        className="relative inline-flex items-center px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
       >
         <Bell className="h-5 w-5 mr-2" />
         Notificações
@@ -257,7 +257,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                         toast.error('Erro ao ativar notificações');
                       }
                     }}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    className="px-3 py-1 text-sm bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                     title="Ativar notificações no celular"
                   >
                     📱 Ativar
@@ -285,7 +285,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                 onClick={() => setFilter('all')}
                 className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
                   filter === 'all' 
-                    ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' 
+                    ? 'bg-gray-100 text-black border-b-2 border-black' 
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
@@ -330,7 +330,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                      key={notification.id}
                      className={`p-4 border-b border-gray-100 transition-colors cursor-pointer ${
                        !notification.read 
-                         ? 'bg-blue-100 border-l-4 border-l-blue-500 shadow-sm hover:bg-blue-200' 
+                         ? 'bg-gray-100 border-l-4 border-l-black shadow-sm hover:bg-gray-200' 
                          : 'hover:bg-gray-50'
                      }`}
                      onClick={() => markAsRead(notification.id)}
@@ -350,10 +350,10 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                            </h4>
                            {!notification.read && (
                              <div className="flex items-center gap-2">
-                               <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded-full font-medium">
+                               <span className="text-xs bg-black text-white px-2 py-1 rounded-full font-medium">
                                  NÃO LIDA
                                </span>
-                               <span className="inline-block w-3 h-3 bg-blue-600 rounded-full animate-pulse"></span>
+                               <span className="inline-block w-3 h-3 bg-black rounded-full animate-pulse"></span>
                              </div>
                            )}
                          </div>

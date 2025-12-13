@@ -946,13 +946,13 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="bg-blue-600 text-white p-6 rounded-t-lg">
+        <div className="bg-black text-white p-6 rounded-t-lg">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <User className="h-6 w-6" />
               <h2 className="text-xl font-bold">Reservar Cliente</h2>
             </div>
-            <button onClick={onClose} className="text-white hover:text-gray-200 transition-colors">
+            <button onClick={onClose} className="text-white hover:text-gray-300 transition-colors">
               ✕
             </button>
           </div>
@@ -970,11 +970,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <button
                   onClick={() => setStep('client')}
-                  className="p-6 border-2 border-blue-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                  className="p-6 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                      <User className="h-6 w-6 text-blue-600" />
+                    <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                      <User className="h-6 w-6 text-gray-700" />
                     </div>
                     <div>
                       <h4 className="font-semibold text-gray-800">Reservar conhecido</h4>
@@ -984,11 +984,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                 </button>
                 <button
                   onClick={() => setStep('professional')}
-                  className="p-6 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                  className="p-6 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
-                      <User className="h-6 w-6 text-gray-500" />
+                    <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                      <User className="h-6 w-6 text-gray-700" />
                     </div>
                     <div>
                       <h4 className="font-semibold text-gray-800">Reserva avulsa</h4>
@@ -1010,7 +1010,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                 </h3>
                 <button
                   onClick={() => setStep('initial')}
-                  className="text-blue-600 hover:text-blue-800 text-sm"
+                  className="text-gray-700 hover:text-black text-sm"
                 >
                   ← Voltar
                 </button>
@@ -1025,14 +1025,14 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                     placeholder="Buscar cliente por nome ou WhatsApp..."
                     value={clientSearchQuery}
                     onChange={(e) => setClientSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-gray-900 bg-white"
                   />
                 </div>
               </div>
 
               {loadingClients ? (
                 <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black mx-auto"></div>
                   <p className="mt-2 text-gray-700">Carregando clientes...</p>
                 </div>
               ) : filteredClients.length === 0 ? (
@@ -1052,7 +1052,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                     <button
                       key={client.whatsapp || `${client.id}_${index}`}
                       onClick={() => handleClientSelect(client)}
-                      className="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                      className="p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
                     >
                       <div className="flex items-center space-x-3">
                         <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
@@ -1062,7 +1062,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                           <h4 className="font-semibold text-gray-800">{client.name}</h4>
                           <p className="text-sm text-gray-600">{client.whatsapp}</p>
                           {client.appointmentCount !== undefined && (
-                            <p className="text-xs text-blue-600 mt-1">
+                            <p className="text-xs text-gray-700 mt-1">
                               {client.appointmentCount} agendamento{client.appointmentCount !== 1 ? 's' : ''}
                             </p>
                           )}
@@ -1091,7 +1091,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                     </p>
                     <button
                       onClick={() => window.location.reload()}
-                      className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      className="mt-4 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800"
                     >
                       Recarregar
                     </button>
@@ -1101,7 +1101,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                     <button
                       key={professional.id}
                       onClick={() => handleProfessionalSelect(professional)}
-                      className="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                      className="p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
                     >
                       <div className="flex items-center space-x-3">
                         {professional.photo ? (
@@ -1127,8 +1127,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
               
               {/* Mostrar cliente selecionado se houver */}
               {selectedClient && (
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
+                <div className="mt-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
+                  <p className="text-sm text-gray-800">
                     <strong>Cliente selecionado:</strong> {selectedClient.name} ({selectedClient.whatsapp})
                   </p>
                 </div>
@@ -1152,7 +1152,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                       setStep('initial');
                     }
                   }}
-                  className="text-blue-600 hover:text-blue-800 text-sm"
+                  className="text-gray-700 hover:text-black text-sm"
                 >
                   ← Voltar
                 </button>
@@ -1170,14 +1170,14 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                           key={service.id}
                           onClick={() => handleMultipleServiceToggle(service)}
                           className={`p-4 border-2 rounded-lg transition-all text-left ${isSelected
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
+                            ? 'border-black bg-gray-100'
+                            : 'border-gray-300 hover:border-black hover:bg-gray-50'
                             }`}
                         >
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-3">
                               <div className={`w-5 h-5 border-2 rounded flex items-center justify-center ${isSelected
-                                ? 'border-blue-500 bg-blue-500'
+                                ? 'border-black bg-black'
                                 : 'border-gray-300'
                                 }`}>
                                 {isSelected && (
@@ -1199,18 +1199,18 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
                   {/* Resumo dos serviços selecionados */}
                   {selectedServices.length > 0 && (
-                    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                      <h5 className="font-medium text-blue-900 mb-2">Serviços Selecionados:</h5>
+                    <div className="mt-4 p-4 bg-gray-100 border border-gray-300 rounded-lg">
+                      <h5 className="font-medium text-gray-900 mb-2">Serviços Selecionados:</h5>
                       <div className="space-y-1">
                         {selectedServices.map((service) => (
-                          <div key={service.id} className="flex justify-between text-sm text-blue-800">
+                          <div key={service.id} className="flex justify-between text-sm text-gray-800">
                             <span>{service.name}</span>
                             <span>{formatDuration(service.duration)} • {formatPrice(service.price)}</span>
                           </div>
                         ))}
                       </div>
-                      <div className="mt-3 pt-2 border-t border-blue-200">
-                        <div className="flex justify-between font-semibold text-blue-900">
+                      <div className="mt-3 pt-2 border-t border-gray-300">
+                        <div className="flex justify-between font-semibold text-gray-900">
                           <span>Total:</span>
                           <span>
                             {formatDuration(calculateTotalDuration(selectedServices))} • {formatPrice(calculateTotalPrice(selectedServices))}
@@ -1219,7 +1219,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                       </div>
                       <button
                         onClick={handleMultipleServicesConfirm}
-                        className="mt-3 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                        className="mt-3 w-full bg-black hover:bg-gray-800 text-white font-medium py-2 px-4 rounded-lg transition-colors"
                       >
                         Continuar com {selectedServices.length} serviço{selectedServices.length > 1 ? 's' : ''}
                       </button>
@@ -1240,14 +1240,14 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                         <button
                           key={category.id}
                           onClick={() => handleCategorySelect(category)}
-                          className="p-4 border-2 border-green-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition-all text-left"
+                          className="p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
                         >
                           <div className="flex justify-between items-center">
                             <div>
                               <h4 className="font-semibold text-gray-800">{category.name}</h4>
                               <p className="text-sm text-gray-600">Clique para ver opções</p>
                             </div>
-                            <div className="text-green-600">→</div>
+                            <div className="text-gray-700">→</div>
                           </div>
                         </button>
                       ))}
@@ -1265,7 +1265,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                             setSelectedCategory(null);
                             setSelectedSubcategory(null);
                           }}
-                          className="text-blue-600 hover:text-blue-800 text-sm"
+                          className="text-gray-700 hover:text-black text-sm"
                         >
                           ← Voltar às Categorias
                         </button>
@@ -1276,7 +1276,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                           <button
                             key={subcategory.id}
                             onClick={() => handleSubcategorySelect(subcategory)}
-                            className="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                            className="p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
                           >
                             <div className="flex justify-between items-center">
                               <div>
@@ -1315,16 +1315,16 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                       <button
                         key={subscription.id}
                         onClick={() => handleSubscriptionSelect(subscription)}
-                        className="p-4 border-2 border-purple-200 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-all text-left"
+                        className="p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
                       >
                         <div className="flex justify-between items-center">
                           <div>
                             <h4 className="font-semibold text-gray-800">{subscription.name}</h4>
                             <p className="text-sm text-gray-600">
-                              {subscription.service_name} • {formatDuration(subscription.service_duration)} • <span className="text-green-600 font-semibold">GRATUITO</span>
+                              {subscription.service_name} • {formatDuration(subscription.service_duration)} • <span className="text-gray-700 font-semibold">GRATUITO</span>
                             </p>
                           </div>
-                          <div className="text-purple-600">👑</div>
+                          <div className="text-gray-700">👑</div>
                         </div>
                       </button>
                     ))}
@@ -1353,7 +1353,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                 </h3>
                 <button
                   onClick={() => setStep('service')}
-                  className="text-blue-600 hover:text-blue-800 text-sm"
+                  className="text-gray-700 hover:text-black text-sm"
                 >
                   ← Voltar
                 </button>
@@ -1365,13 +1365,13 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-gray-900 bg-white"
                 />
               </div>
 
               {loading ? (
                 <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black mx-auto"></div>
                   <p className="mt-2 text-gray-700">Carregando horários...</p>
                 </div>
               ) : (
@@ -1385,10 +1385,10 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                         onClick={() => slot.available && handleTimeSelect(slot.time)}
                         disabled={!slot.available}
                         className={`w-full p-3 text-sm rounded-lg transition-all relative ${slot.available
-                          ? 'bg-green-100 text-green-800 hover:bg-green-200 border border-green-300'
+                          ? 'bg-gray-100 text-gray-800 hover:bg-gray-200 border border-gray-300'
                           : slot.isAvulso
-                            ? 'bg-orange-100 text-orange-800 border border-orange-300 cursor-not-allowed'
-                            : 'bg-red-100 text-red-800 border border-red-300 cursor-not-allowed'
+                            ? 'bg-gray-200 text-gray-700 border border-gray-400 cursor-not-allowed'
+                            : 'bg-gray-300 text-gray-600 border border-gray-500 cursor-not-allowed'
                           }`}
                       >
                         <div className="text-center">
@@ -1404,7 +1404,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                       {slot.appointmentId && slot.appointmentStartTime === slot.time && (
                         <button
                           onClick={(e) => handleCancelAppointment(slot.appointmentId!, e)}
-                          className="absolute -top-2 -right-2 w-6 h-6 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-lg z-10 transition-colors"
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-black hover:bg-gray-800 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-lg z-10 transition-colors"
                           title="Cancelar agendamento"
                         >
                           ×
@@ -1449,7 +1449,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                     <>
                       <p><strong>Serviço:</strong> {selectedService?.name}</p>
                       <p><strong>Duração:</strong> {formatDuration(selectedService?.duration || 0)}</p>
-                      <p><strong>Preço:</strong> {selectedSubscription ? <span className="text-green-600 font-semibold">GRATUITO</span> : formatPrice(selectedService?.price || 0)}</p>
+                      <p><strong>Preço:</strong> {selectedSubscription ? <span className="text-gray-700 font-semibold">GRATUITO</span> : formatPrice(selectedService?.price || 0)}</p>
                     </>
                   )}
 
@@ -1457,9 +1457,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   <p><strong>Horário:</strong> {selectedTime}</p>
                   <p><strong>Cliente:</strong> {
                     selectedSubscription ? (
-                      <span className="text-purple-600 font-semibold">ASSINANTE 👑</span>
+                      <span className="text-gray-800 font-semibold">ASSINANTE 👑</span>
                     ) : selectedClient ? (
-                      <span className="text-blue-600 font-semibold">{selectedClient.name}</span>
+                      <span className="text-gray-800 font-semibold">{selectedClient.name}</span>
                     ) : (
                       'CLIENTE AVULSO'
                     )
@@ -1477,7 +1477,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                 <button
                   onClick={handleConfirmReservation}
                   disabled={loading}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? 'Criando...' : 'Confirmar Reserva'}
                 </button>
