@@ -1,384 +1,373 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agendei Fácil - Sistema de Agendamentos</title>
-    <meta name="description" content="Sistema de agendamentos para estabelecimentos e clientes" />
-    
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-17711913032"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'AW-17711913032');
-    </script>
 
-    <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#3b82f6">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="Agendei Fácil">
-    
-    <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json?v=20241219">
-    
-    <!-- PWA Icons -->
-    <link rel="icon" type="image/png" sizes="192x192" href="/novo-icone.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="/novo-icone.png">
-    <link rel="apple-touch-icon" href="/novo-icone.png">
-    <link rel="apple-touch-icon" sizes="72x72" href="/novo-icone.png">
-    <link rel="apple-touch-icon" sizes="96x96" href="/novo-icone.png">
-    <link rel="apple-touch-icon" sizes="128x128" href="/novo-icone.png">
-    <link rel="apple-touch-icon" sizes="144x144" href="/novo-icone.png">
-    <link rel="apple-touch-icon" sizes="152x152" href="/novo-icone.png">
-    <link rel="apple-touch-icon" sizes="192x192" href="/novo-icone.png">
-    <link rel="apple-touch-icon" sizes="384x384" href="/novo-icone.png">
-    <link rel="apple-touch-icon" sizes="512x512" href="/novo-icone.png">
-    
-    <!-- Meta tags para evitar cache -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <meta http-equiv="Last-Modified" content="0">
-    
-    <!-- PWA Meta Tags -->
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="Agendei Fácil">
-    <meta name="application-name" content="Agendei Fácil">
-    <meta name="msapplication-TileColor" content="#3b82f6">
-    <meta name="msapplication-tap-highlight" content="no">
-    
-    <!-- Service Worker para controle de cache -->
-    <script>
-      // Sistema de atualização automática mais robusto
-      // DESABILITAR SERVICE WORKER EM DESENVOLVIMENTO PARA EVITAR CONFLITOS
-      if ('serviceWorker' in navigator && 
-          window.location.hostname !== 'localhost' && 
-          window.location.hostname !== '127.0.0.1' &&
-          !window.location.hostname.includes('localhost') &&
-          !window.location.hostname.includes('127.0.0.1')) {
-        const swPath = '/sw.js';
-        
-        navigator.serviceWorker.register(swPath).then(function(registration) {
-          console.log('Service Worker registrado:', registration);
-          
-          // ⚠️ NÃO verificar atualizações imediatamente (evita loops e erros)
-          // O navegador verifica automaticamente a cada 24h
-          // Verificar apenas periodicamente (a cada 30 minutos)
-          let updateCheckInterval = null;
-          
-          // Verificar atualizações periodicamente, não imediatamente
-          updateCheckInterval = window.setInterval(function() {
-            registration.update().catch((error) => {
-              // Ignorar erros silenciosamente se não houver atualização
-              if (error.message && !error.message.includes('not found') && !error.message.includes('limit exceeded')) {
-                console.warn('⚠️ Erro ao verificar atualização do Service Worker:', error);
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agendei Fácil - Sistema de Agendamentos</title>
+  <meta name="description" content="Sistema de agendamentos para estabelecimentos e clientes" />
+
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=AW-17711913032"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'AW-17711913032');
+  </script>
+
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Agendei Fácil">
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json?v=20241219">
+
+  <!-- PWA Icons -->
+  <link rel="icon" type="image/png" sizes="192x192" href="/novo-icone.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/novo-icone.png">
+  <link rel="apple-touch-icon" href="/novo-icone.png">
+  <link rel="apple-touch-icon" sizes="72x72" href="/novo-icone.png">
+  <link rel="apple-touch-icon" sizes="96x96" href="/novo-icone.png">
+  <link rel="apple-touch-icon" sizes="128x128" href="/novo-icone.png">
+  <link rel="apple-touch-icon" sizes="144x144" href="/novo-icone.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/novo-icone.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/novo-icone.png">
+  <link rel="apple-touch-icon" sizes="384x384" href="/novo-icone.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/novo-icone.png">
+
+  <!-- Meta tags para evitar cache -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <meta http-equiv="Last-Modified" content="0">
+
+  <!-- PWA Meta Tags -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Agendei Fácil">
+  <meta name="application-name" content="Agendei Fácil">
+  <meta name="msapplication-TileColor" content="#3b82f6">
+  <meta name="msapplication-tap-highlight" content="no">
+
+  <!-- Service Worker para controle de cache -->
+  <script>
+    // Sistema de atualização automática mais robusto
+    // HABILITAR SERVICE WORKER EM IP LOCAL PARA TESTE NO CELULAR
+    // Desabilitar apenas em localhost (não em IP local)
+    const hostname = window.location.hostname;
+    const isLocalhostOnly = hostname === 'localhost' || hostname === '127.0.0.1';
+    const isLocalIP = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname);
+
+    // Determinar se deve registrar Service Worker
+    const shouldRegisterSW = !isLocalhostOnly || isLocalIP;
+
+    // Log para debug (apenas em desenvolvimento/IP local)
+    if (isLocalhostOnly || isLocalIP) {
+      console.log('🔍 Detecção de ambiente:');
+      console.log('  - Hostname:', hostname);
+      console.log('  - É localhost?', isLocalhostOnly);
+      console.log('  - É IP local?', isLocalIP);
+      console.log('  - Service Worker suportado?', 'serviceWorker' in navigator);
+      console.log('  - Deve registrar?', shouldRegisterSW);
+      console.log('  - Service Worker será:', (shouldRegisterSW && 'serviceWorker' in navigator) ? '✅ HABILITADO' : '🚫 DESABILITADO');
+    }
+
+    if ('serviceWorker' in navigator && shouldRegisterSW) {
+      const swPath = '/sw.js';
+
+      // Log apenas em desenvolvimento
+      if (isLocalhostOnly || isLocalIP) {
+        console.log('🔄 Tentando registrar Service Worker em:', swPath);
+      }
+
+      navigator.serviceWorker.register(swPath).then(function (registration) {
+        if (isLocalhostOnly || isLocalIP) {
+          console.log('✅ Service Worker registrado com sucesso:', registration);
+        }
+
+        // ⚠️ NÃO verificar atualizações imediatamente (evita loops e erros)
+        // O navegador verifica automaticamente a cada 24h
+        // Verificar apenas periodicamente (a cada 30 minutos)
+        let updateCheckInterval = null;
+
+        // Verificar atualizações periodicamente, não imediatamente
+        updateCheckInterval = window.setInterval(function () {
+          registration.update().catch((error) => {
+            // Ignorar erros silenciosamente se não houver atualização
+            if (error.message && !error.message.includes('not found') && !error.message.includes('limit exceeded')) {
+              console.warn('⚠️ Erro ao verificar atualização do Service Worker:', error);
+            }
+          });
+        }, 30 * 60 * 1000); // 30 minutos
+
+        // Listener para mudanças no service worker
+        registration.addEventListener('updatefound', () => {
+          console.log('🔄 Nova versão do Service Worker encontrada');
+
+          const newWorker = registration.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                console.log('🔄 Nova versão instalada, aguardando ativação');
+
+                // Notificar o usuário sobre a atualização
+                if (confirm('Nova versão disponível! Deseja atualizar agora?')) {
+                  newWorker.postMessage({ type: 'SKIP_WAITING' });
+                  window.location.reload();
+                }
               }
             });
-          }, 30 * 60 * 1000); // 30 minutos
-          
-          // Listener para mudanças no service worker
-          registration.addEventListener('updatefound', () => {
-            console.log('🔄 Nova versão do Service Worker encontrada');
-            
-            const newWorker = registration.installing;
-            if (newWorker) {
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.log('🔄 Nova versão instalada, aguardando ativação');
-                  
-                  // Notificar o usuário sobre a atualização
-                  if (confirm('Nova versão disponível! Deseja atualizar agora?')) {
-                    newWorker.postMessage({ type: 'SKIP_WAITING' });
-                    window.location.reload();
-                  }
-                }
-              });
-            }
-          });
-          
-          // Listener para quando o service worker assume controle
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            console.log('🔄 Service Worker assumiu controle, recarregando...');
-            if (updateCheckInterval) {
-              clearInterval(updateCheckInterval);
-            }
-            window.location.reload();
-          });
-          
-        }).catch(function(error) {
-          console.log('Service Worker registration failed:', error);
+          }
         });
+
+        // Listener para quando o service worker assume controle
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          console.log('🔄 Service Worker assumiu controle, recarregando...');
+          if (updateCheckInterval) {
+            clearInterval(updateCheckInterval);
+          }
+          window.location.reload();
+        });
+
+      }).catch(function (error) {
+        console.error('❌ Service Worker registration failed:', error);
+        console.error('   - Erro completo:', error.message, error.stack);
+      });
+    } else {
+      if (!('serviceWorker' in navigator)) {
+        console.log('🚫 Service Worker não suportado neste navegador');
+      } else if (isLocalhostOnly && !isLocalIP) {
+        console.log('🚫 Service Worker desabilitado em localhost');
+        console.log('💡 Para testar no celular, use o IP local (ex: http://192.168.0.2:5173)');
       } else {
-        console.log('🚫 Service Worker desabilitado em desenvolvimento');
-        
-        // Limpar qualquer service worker existente em desenvolvimento
+        console.log('🚫 Service Worker não pode ser registrado');
+        console.log('   - shouldRegisterSW:', shouldRegisterSW);
+        console.log('   - serviceWorker in navigator:', 'serviceWorker' in navigator);
+      }
+
+      // Limpar qualquer service worker existente em desenvolvimento
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          for (let registration of registrations) {
+            console.log('🗑️ Removendo service worker em desenvolvimento:', registration);
+            registration.unregister();
+          }
+        });
+      }
+
+      // Adicionar função global para limpeza manual
+      window.clearAppCache = function () {
+        console.log('🧹 Limpeza manual iniciada...');
+
+        // Limpar service workers
         if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistrations().then(function(registrations) {
-            for(let registration of registrations) {
-              console.log('🗑️ Removendo service worker em desenvolvimento:', registration);
+          navigator.serviceWorker.getRegistrations().then(function (registrations) {
+            registrations.forEach(function (registration) {
               registration.unregister();
-            }
+            });
           });
         }
-        
-        // Adicionar função global para limpeza manual
-        window.clearAppCache = function() {
-          console.log('🧹 Limpeza manual iniciada...');
-          
-          // Limpar service workers
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-              registrations.forEach(function(registration) {
-                registration.unregister();
-              });
+
+        // Limpar caches
+        if ('caches' in window) {
+          caches.keys().then(function (cacheNames) {
+            cacheNames.forEach(function (cacheName) {
+              caches.delete(cacheName);
             });
+          });
+        }
+
+        // Limpar localStorage
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.includes('agendafacil') || key.includes('appointments_') || key.includes('supabase'))) {
+            keysToRemove.push(key);
           }
-          
-          // Limpar caches
-          if ('caches' in window) {
-            caches.keys().then(function(cacheNames) {
-              cacheNames.forEach(function(cacheName) {
-                caches.delete(cacheName);
-              });
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+
+        console.log('✅ Limpeza concluída! Recarregue a página.');
+      };
+
+      console.log('💡 Use window.clearAppCache() no console para limpeza manual');
+    }
+
+    // ⚠️ REMOVIDO: Limpeza automática que recarregava página
+    // Agora Service Worker SEMPRE busca da rede, não precisa limpar antes
+
+    // ⚠️ SISTEMA DE CACHE BUSTING (apenas adiciona parâmetro, SEM recarregar)
+    // Adicionar parâmetro de versão apenas se não existir (evita loops)
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('v')) {
+      const buildTimestamp = Date.now();
+      url.searchParams.set('v', buildTimestamp.toString());
+      // Usar replaceState para não recarregar (evita loop)
+      window.history.replaceState({}, '', url.toString());
+    }
+
+    // 🧪 MODO DE TESTE: Simular comportamento do Instagram (cache agressivo)
+    // Adicione ?test=instagram na URL para simular cache agressivo
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('test') === 'instagram') {
+      console.log('🧪 MODO TESTE INSTAGRAM ATIVADO');
+      console.log('📱 Simulando cache agressivo do navegador in-app do Instagram');
+
+      // Criar cache "antigo" para simular problema
+      if ('caches' in window) {
+        caches.open('test-old-cache').then(function (cache) {
+          // Criar HTML "antigo" corrompido para simular problema
+          const oldHTML = '<!DOCTYPE html><html><head><title>Versão Antiga</title></head><body><div id="root"></div></body></html>';
+          cache.put(window.location.href, new Response(oldHTML, {
+            headers: { 'Content-Type': 'text/html' }
+          }));
+          console.log('⚠️ Cache antigo criado para simular problema');
+        });
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Chart.js CSS removido temporariamente para evitar erro 404 -->
+
+  <!-- Script para forçar atualização de cache -->
+  <script src="/force-update.js"></script>
+  <!-- Script para forçar atualização de todos os usuários PWA - APENAS em produção -->
+  <script>
+    // Só carregar em produção
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      const script = document.createElement('script');
+      script.src = '/force-update-all.js';
+      document.head.appendChild(script);
+    }
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <!-- Script de detecção de página branca - DESABILITADO EM DESENVOLVIMENTO -->
+  <script>
+    // ⚠️ DETECÇÃO AUTOMÁTICA DE PÁGINA BRANCA (APENAS EM PRODUÇÃO)
+    // Desabilitado em desenvolvimento para evitar loops
+    (function () {
+      'use strict';
+
+      // ⚠️ HABILITAR EM IP LOCAL PARA TESTE NO CELULAR
+      // Permite testar no celular via IP (192.168.x.x, 10.x.x.x, etc)
+      const isLocalhost = window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.includes('localhost') ||
+        window.location.hostname.includes('127.0.0.1');
+
+      // Verificar se é IP local (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+      const isLocalIP = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(window.location.hostname);
+
+      // Se for localhost (não IP), desabilitar para evitar loops durante desenvolvimento
+      // Mas habilitar para IP local (para testar no celular)
+      if (isLocalhost && !isLocalIP) {
+        console.log('🚫 Detecção de página branca desabilitada em localhost');
+        console.log('💡 Para testar no celular, use o IP local (ex: http://192.168.0.2:5173)');
+        return; // Sair apenas se for localhost, não IP local
+      }
+
+      if (isLocalIP) {
+        console.log('📱 Modo de teste ativado (IP local detectado)');
+        console.log('🔍 Detecção de página branca habilitada para teste no celular');
+      }
+
+      let whiteScreenDetected = false;
+      let reloadAttempts = 0;
+      const maxReloadAttempts = 1; // Reduzido para 1 tentativa apenas
+
+      // ⚠️ Verificar se já está em loop de reload ANTES de qualquer coisa
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('reload') === '1') {
+        // Se já tentou recarregar, NÃO tentar novamente (evita loop infinito)
+        console.log('⚠️ Já tentou recarregar uma vez, não tentando novamente para evitar loop');
+        return;
+      }
+
+      // Função para detectar página branca (APENAS EM PRODUÇÃO)
+      function detectWhiteScreen() {
+        const root = document.getElementById('root');
+
+        // Se root não existe, é problema crítico
+        if (!root) {
+          console.error('❌ Root não encontrado!');
+          return; // Não forçar reload automático
+        }
+
+        // ⚠️ DETECÇÃO MAIS LENTA: 10 segundos (dar tempo para carregar)
+        setTimeout(function () {
+          // Se root está vazio
+          if (root.children.length === 0 && !whiteScreenDetected) {
+            // Verificar se scripts estão carregando
+            const scripts = document.querySelectorAll('script[type="module"]');
+            let scriptsLoading = false;
+
+            scripts.forEach(function (script) {
+              if (script.src) {
+                // Verificar se script ainda está carregando
+                if (!script.complete && script.readyState !== 'complete') {
+                  scriptsLoading = true;
+                }
+              }
             });
-          }
-          
-          // Limpar localStorage
-          const keysToRemove = [];
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && (key.includes('agendafacil') || key.includes('appointments_') || key.includes('supabase'))) {
-              keysToRemove.push(key);
+
+            // Se scripts já carregaram mas React não renderizou após 10 segundos
+            if (!scriptsLoading) {
+              console.warn('⚠️ Página branca detectada após 10 segundos! React não renderizou.');
+              whiteScreenDetected = true;
+
+              // Apenas 1 tentativa de reload
+              if (reloadAttempts < maxReloadAttempts) {
+                reloadAttempts++;
+                const baseUrl = window.location.href.split('?')[0];
+                window.location.replace(baseUrl + '?v=' + Date.now() + '&reload=1');
+              }
             }
           }
-          keysToRemove.forEach(key => localStorage.removeItem(key));
-          
-          console.log('✅ Limpeza concluída! Recarregue a página.');
-        };
-        
-        console.log('💡 Use window.clearAppCache() no console para limpeza manual');
+        }, 10000); // 10 segundos - tempo suficiente para carregar
       }
-      
-      // ⚠️ SISTEMA DE CACHE BUSTING ULTRA AGRESSIVO (especialmente para mobile)
-      const buildTimestamp = Date.now();
-      const versionParam = `v=${buildTimestamp}`;
-      
-      // ⚠️ CRÍTICO: Adicionar parâmetro de versão SEMPRE (força Service Worker a buscar da rede)
-      // Isso garante que Service Worker sempre busque HTML da rede, não do cache
-      const url = new URL(window.location.href);
-      if (!url.searchParams.has('v')) {
-        url.searchParams.set('v', buildTimestamp.toString());
-        // Usar replaceState para não recarregar (evita loop)
-        window.history.replaceState({}, '', url.toString());
+
+      // Iniciar detecção quando DOM estiver pronto
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', detectWhiteScreen);
+      } else {
+        detectWhiteScreen();
       }
-      
-      // Forçar atualização de recursos estáticos
-      const links = document.querySelectorAll('link[rel="stylesheet"], script[src]');
-      links.forEach(link => {
-        if (link.href && !link.href.includes('v=')) {
-          link.href = link.href + (link.href.includes('?') ? '&' : '?') + versionParam;
+
+      // Detectar apenas erros críticos de chunk (não todos os erros)
+      window.addEventListener('error', function (event) {
+        if (event.target && event.target.tagName === 'SCRIPT') {
+          const src = event.target.src || '';
+          // Apenas reagir a erros de chunk ou 404 em scripts principais
+          if (src.includes('chunk') || src.includes('main') || src.includes('404')) {
+            console.error('❌ Erro crítico ao carregar script:', src);
+            // Não forçar reload automaticamente - deixar usuário decidir
+          }
+        }
+      }, true);
+
+      // Detectar apenas erros críticos de chunk loading
+      window.addEventListener('unhandledrejection', function (event) {
+        const errorMsg = String(event.reason || '');
+        // Apenas reagir a erros de chunk loading
+        if (errorMsg.includes('chunk') && errorMsg.includes('Failed to load')) {
+          console.error('❌ Erro crítico de chunk:', event.reason);
+          // Não forçar reload automaticamente - deixar usuário decidir
         }
       });
-    </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Chart.js CSS removido temporariamente para evitar erro 404 -->
-    
-    <!-- Script para forçar atualização de cache -->
-    <script src="/force-update.js"></script>
-    <!-- Script para forçar atualização de todos os usuários PWA - APENAS em produção -->
-    <script>
-      // Só carregar em produção
-      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        const script = document.createElement('script');
-        script.src = '/force-update-all.js';
-        document.head.appendChild(script);
-      }
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <!-- Script de detecção de página branca - DEVE SER PRIMEIRO -->
-    <script>
-      // ⚠️ DETECÇÃO AUTOMÁTICA DE PÁGINA BRANCA (OTIMIZADO PARA MOBILE)
-      // Este script detecta se a página não carregou corretamente e força reload
-      (function() {
-        'use strict';
-        
-        let whiteScreenDetected = false;
-        let reloadAttempts = 0;
-        const maxReloadAttempts = 2;
-        
-        // ⚠️ DETECÇÃO IMEDIATA: Verificar se já está em loop de reload
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('reload') === '1' && reloadAttempts >= 1) {
-          // Se já tentou recarregar e ainda está com problema, mostrar mensagem
-          document.body.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; font-family: system-ui; background: #f5f5f5;">
-              <div style="max-width: 400px;">
-                <h1 style="font-size: 24px; margin-bottom: 16px; color: #333;">Problema ao carregar</h1>
-                <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">
-                  Por favor, use os 3 pontinhos do navegador e clique em "Atualizar" ou limpe o cache do navegador.
-                </p>
-                <button onclick="window.location.reload(true)" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
-                  Tentar Novamente
-                </button>
-              </div>
-            </div>
-          `;
-          return;
-        }
-        
-        // Função para detectar página branca
-        function detectWhiteScreen() {
-          const root = document.getElementById('root');
-          
-          // Se root não existe, é problema crítico
-          if (!root) {
-            console.error('❌ Root não encontrado!');
-            forceReload();
-            return;
-          }
-          
-          // ⚠️ DETECÇÃO MAIS RÁPIDA PARA MOBILE: 3 segundos
-          setTimeout(function() {
-            // Se root está vazio
-            if (root.children.length === 0 && !whiteScreenDetected) {
-              // Verificar se scripts estão carregando
-              const scripts = document.querySelectorAll('script[type="module"]');
-              let scriptsLoading = false;
-              
-              scripts.forEach(function(script) {
-                if (script.src) {
-                  // Verificar se script ainda está carregando
-                  if (!script.complete && script.readyState !== 'complete') {
-                    scriptsLoading = true;
-                  }
-                }
-              });
-              
-              // Se scripts já carregaram mas React não renderizou
-              if (!scriptsLoading) {
-                console.warn('⚠️ Página branca detectada após 3 segundos! React não renderizou.');
-                whiteScreenDetected = true;
-                forceReload();
-              }
-            }
-          }, 3000); // Reduzido para 3 segundos (mobile é mais rápido)
-          
-          // Verificar novamente após 6 segundos (backup)
-          setTimeout(function() {
-            if (root.children.length === 0 && !whiteScreenDetected) {
-              console.warn('⚠️ Página branca detectada após 6 segundos!');
-              whiteScreenDetected = true;
-              forceReload();
-            }
-          }, 6000); // Reduzido para 6 segundos
-        }
-        
-        // Função para forçar reload com limpeza de cache
-        function forceReload() {
-          if (reloadAttempts >= maxReloadAttempts) {
-            console.error('❌ Muitas tentativas de reload. Mostrando mensagem de erro.');
-            document.body.innerHTML = `
-              <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; font-family: system-ui; background: #f5f5f5;">
-                <div style="max-width: 400px;">
-                  <h1 style="font-size: 24px; margin-bottom: 16px; color: #333;">Erro ao carregar</h1>
-                  <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">
-                    A página não está carregando corretamente. Por favor, atualize manualmente usando os 3 pontinhos do navegador.
-                  </p>
-                  <button onclick="window.location.reload(true)" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
-                    Tentar Novamente
-                  </button>
-                </div>
-              </div>
-            `;
-            return;
-          }
-          
-          reloadAttempts++;
-          console.log('🔄 Forçando reload (tentativa ' + reloadAttempts + '/' + maxReloadAttempts + ')...');
-          
-          // ⚠️ LIMPEZA AGRESSIVA DE CACHE (especialmente para mobile)
-          Promise.all([
-            // Limpar todos os caches
-            'caches' in window ? caches.keys().then(function(cacheNames) {
-              return Promise.all(cacheNames.map(function(cacheName) {
-                return caches.delete(cacheName);
-              }));
-            }) : Promise.resolve(),
-            
-            // Limpar Service Workers
-            'serviceWorker' in navigator ? navigator.serviceWorker.getRegistrations().then(function(registrations) {
-              return Promise.all(registrations.map(function(registration) {
-                return registration.unregister();
-              }));
-            }) : Promise.resolve(),
-            
-            // Limpar localStorage relacionado
-            new Promise(function(resolve) {
-              try {
-                const keys = Object.keys(localStorage);
-                keys.forEach(function(key) {
-                  if (key.includes('agendafacil') || key.includes('cache') || key.includes('version')) {
-                    localStorage.removeItem(key);
-                  }
-                });
-              } catch (e) {
-                console.warn('Erro ao limpar localStorage:', e);
-              }
-              resolve();
-            })
-          ]).then(function() {
-            console.log('✅ Cache limpo, recarregando...');
-            
-            // Recarregar com cache busting agressivo
-            setTimeout(function() {
-              const baseUrl = window.location.href.split('?')[0];
-              window.location.href = baseUrl + '?v=' + Date.now() + '&reload=1&force=1';
-            }, 300); // Reduzido para 300ms (mais rápido)
-          });
-        }
-        
-        // Iniciar detecção quando DOM estiver pronto
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', detectWhiteScreen);
-        } else {
-          detectWhiteScreen();
-        }
-        
-        // Detectar erros de carregamento de scripts
-        window.addEventListener('error', function(event) {
-          if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) {
-            console.error('❌ Erro ao carregar recurso:', event.target.src || event.target.href);
-            if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
-              whiteScreenDetected = true;
-              setTimeout(forceReload, 2000);
-            }
-          }
-        }, true);
-        
-        // Detectar erros não tratados
-        window.addEventListener('unhandledrejection', function(event) {
-          console.error('❌ Erro não tratado:', event.reason);
-          if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
-            const errorMsg = String(event.reason || '');
-            if (errorMsg.includes('chunk') || errorMsg.includes('404') || errorMsg.includes('Failed to load')) {
-              whiteScreenDetected = true;
-              setTimeout(forceReload, 2000);
-            }
-          }
-        });
-      })();
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

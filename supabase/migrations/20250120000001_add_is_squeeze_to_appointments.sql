@@ -11,3 +11,4 @@ COMMENT ON COLUMN appointments.is_squeeze IS 'Indica se o agendamento é um enca
 CREATE INDEX IF NOT EXISTS idx_appointments_is_squeeze ON appointments(is_squeeze) WHERE is_squeeze = TRUE;
 
 
+

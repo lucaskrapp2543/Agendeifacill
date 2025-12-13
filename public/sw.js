@@ -85,60 +85,31 @@ self.addEventListener('fetch', (event) => {
 
   // ⚠️ REQUISIÇÕES DE NAVEGAÇÃO (HTML) - NUNCA USAR CACHE
   // Para mobile, cache é muito agressivo e causa página branca
+  // SOLUÇÃO: SEMPRE buscar da rede, NUNCA usar cache para HTML
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {
-        // ⚠️ CRÍTICO: Verificar se tem parâmetro que força bypass de cache
         const url = new URL(request.url);
-        const forceBypass = url.searchParams.has('v') || url.searchParams.has('reload') || url.searchParams.has('force');
         
-        // Se tiver parâmetro de bypass, NUNCA usar cache
-        if (forceBypass) {
-          console.log('🔄 Navegação inicial detectada, bypass completo de cache');
-          
-          // Limpar qualquer cache existente para esta URL
+        // ⚠️ CRÍTICO: SEMPRE limpar cache antigo para esta URL antes de buscar
+        // Isso garante que mesmo se tiver cache corrompido, será ignorado
+        try {
           await caches.delete(request);
-          
-          try {
-            const networkResponse = await fetch(request, { 
-              cache: 'no-store',
-              headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-              }
-            });
-            
-            if (networkResponse.ok) {
-              const contentType = networkResponse.headers.get('content-type') || '';
-              if (contentType.includes('text/html')) {
-                const text = await networkResponse.clone().text();
-                
-                // Validar HTML
-                if (!text.includes('</html>') && !text.includes('</body>')) {
-                  throw new Error('HTML corrompido');
-                }
-                
-                // NÃO fazer cache na primeira navegação (evita problemas futuros)
-                return networkResponse;
-              }
-              return networkResponse;
-            }
-          } catch (error) {
-            console.error('❌ Erro ao buscar da rede:', error);
-          }
+        } catch (e) {
+          // Ignorar erro se não tiver cache
         }
         
-        // Para navegações subsequentes, tentar rede primeiro
+        // ⚠️ SEMPRE buscar da rede, NUNCA usar cache para HTML
+        // Isso resolve o problema de cache persistente no mobile
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000);
-          
           const networkResponse = await fetch(request, { 
-            signal: controller.signal,
-            cache: 'no-store' // ⚠️ SEMPRE buscar da rede
+            cache: 'no-store', // ⚠️ FORÇAR SEMPRE BUSCAR DA REDE
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
           });
-          
-          clearTimeout(timeoutId);
           
           if (networkResponse.ok && networkResponse.status === 200) {
             const contentType = networkResponse.headers.get('content-type') || '';
@@ -147,23 +118,22 @@ self.addEventListener('fetch', (event) => {
               
               // Validar HTML
               if (!text.includes('</html>') && !text.includes('</body>')) {
+                console.warn('⚠️ HTML corrompido recebido, tentando novamente...');
                 throw new Error('HTML corrompido');
               }
               
-              // Fazer cache APENAS se HTML estiver completo
-              const cache = await caches.open(DYNAMIC_CACHE);
-              cache.put(request, networkResponse.clone());
-              
+              // ⚠️ NÃO fazer cache de HTML - sempre buscar da rede
+              // Isso garante que sempre terá HTML atualizado
               return networkResponse;
             }
             return networkResponse;
           }
           
-          throw new Error('Resposta inválida');
+          throw new Error('Resposta inválida da rede');
         } catch (error) {
-          console.log('⚠️ Erro ao buscar da rede:', error.message);
+          console.error('❌ Erro ao buscar da rede:', error);
           
-          // ⚠️ NUNCA usar cache para HTML - sempre tentar rede novamente
+          // ⚠️ Se rede falhar, tentar novamente SEM cache
           try {
             return await fetch(request, { 
               cache: 'no-store',
@@ -172,14 +142,14 @@ self.addEventListener('fetch', (event) => {
                 'Pragma': 'no-cache'
               }
             });
-          } catch {
-            // Último recurso: HTML de erro que força reload
+          } catch (retryError) {
+            // Se ainda falhar, retornar HTML de erro que força reload
             return new Response(`
               <!DOCTYPE html>
               <html>
               <head>
                 <meta charset="UTF-8">
-                <title>Erro ao carregar</title>
+                <title>Carregando...</title>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
                 <meta http-equiv="Pragma" content="no-cache">
@@ -187,14 +157,12 @@ self.addEventListener('fetch', (event) => {
               </head>
               <body style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui; text-align: center; padding: 20px; background: #f5f5f5;">
                 <div style="max-width: 400px;">
-                  <h1 style="font-size: 24px; margin-bottom: 16px; color: #333;">Erro ao carregar</h1>
-                  <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">A página não está carregando. Recarregando automaticamente...</p>
-                  <div style="margin-top: 20px; padding: 12px; background: #fff; border-radius: 8px; border: 1px solid #ddd;">
-                    <p style="font-size: 14px; color: #888; margin: 0;">Se não recarregar automaticamente, use os 3 pontinhos do navegador e clique em "Atualizar"</p>
-                  </div>
+                  <h1 style="font-size: 24px; margin-bottom: 16px; color: #333;">Carregando...</h1>
+                  <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">Aguarde, estamos carregando a página...</p>
+                  <div style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
                 </div>
                 <script>
-                  // Limpar cache e recarregar
+                  // Limpar cache e recarregar automaticamente
                   if ('caches' in window) {
                     caches.keys().then(function(names) {
                       names.forEach(function(name) { caches.delete(name); });
@@ -206,13 +174,19 @@ self.addEventListener('fetch', (event) => {
                     });
                   }
                   setTimeout(function() {
-                    window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now() + '&reload=1';
-                  }, 2000);
+                    window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now();
+                  }, 1000);
                 </script>
+                <style>
+                  @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                  }
+                </style>
               </body>
               </html>
             `, { 
-              status: 503,
+              status: 200,
               headers: { 
                 'Content-Type': 'text/html',
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
