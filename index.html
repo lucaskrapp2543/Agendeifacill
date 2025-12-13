@@ -166,26 +166,9 @@
       console.log('💡 Use window.clearAppCache() no console para limpeza manual');
     }
 
-    // ⚠️ SISTEMA DE CACHE BUSTING ULTRA AGRESSIVO (especialmente para mobile)
-    const buildTimestamp = Date.now();
-    const versionParam = `v=${buildTimestamp}`;
-
-    // ⚠️ CRÍTICO: Adicionar parâmetro de versão SEMPRE (força Service Worker a buscar da rede)
-    // Isso garante que Service Worker sempre busque HTML da rede, não do cache
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has('v')) {
-      url.searchParams.set('v', buildTimestamp.toString());
-      // Usar replaceState para não recarregar (evita loop)
-      window.history.replaceState({}, '', url.toString());
-    }
-
-    // Forçar atualização de recursos estáticos
-    const links = document.querySelectorAll('link[rel="stylesheet"], script[src]');
-    links.forEach(link => {
-      if (link.href && !link.href.includes('v=')) {
-        link.href = link.href + (link.href.includes('?') ? '&' : '?') + versionParam;
-      }
-    });
+    // ⚠️ REMOVIDO: Parâmetro ?v= não é mais necessário
+    // Service Worker agora NUNCA faz cache de HTML e SEMPRE busca da rede
+    // Não precisa mais de parâmetro na URL para forçar bypass
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -216,41 +199,9 @@
       // Detectar se é mobile
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-      // Se for mobile E não tiver parâmetro de versão, limpar cache imediatamente
-      if (isMobile && !window.location.search.includes('v=')) {
-        console.log('📱 Mobile detectado - Limpando cache antes de carregar...');
-
-        // Limpar cache imediatamente (não esperar)
-        Promise.all([
-          // Limpar todos os caches
-          'caches' in window ? caches.keys().then(function (cacheNames) {
-            return Promise.all(cacheNames.map(function (cacheName) {
-              return caches.delete(cacheName);
-            }));
-          }).catch(function () { }) : Promise.resolve(),
-
-          // Limpar Service Workers
-          'serviceWorker' in navigator ? navigator.serviceWorker.getRegistrations().then(function (registrations) {
-            return Promise.all(registrations.map(function (registration) {
-              return registration.unregister();
-            }));
-          }).catch(function () { }) : Promise.resolve()
-        ]).then(function () {
-          console.log('✅ Cache limpo em mobile');
-          // Adicionar parâmetro de versão e recarregar
-          const baseUrl = window.location.href.split('?')[0];
-          const newUrl = baseUrl + '?v=' + Date.now() + '&mobile=1';
-          if (window.location.href !== newUrl) {
-            window.location.replace(newUrl);
-          }
-        }).catch(function () {
-          // Se falhar, apenas adicionar parâmetro
-          const baseUrl = window.location.href.split('?')[0];
-          window.location.replace(baseUrl + '?v=' + Date.now() + '&mobile=1');
-        });
-
-        return; // Parar execução para recarregar
-      }
+      // ⚠️ REMOVIDO: Limpeza automática de cache em mobile
+      // Service Worker agora já limpa cache ao ativar e NUNCA faz cache de HTML
+      // Não precisa mais limpar aqui (evita recarregamento desnecessário)
     })();
   </script>
   <!-- Script de detecção de página branca - DEVE SER PRIMEIRO -->
@@ -387,10 +338,9 @@
         ]).then(function () {
           console.log('✅ Cache limpo, recarregando...');
 
-          // Recarregar com cache busting agressivo
+          // Recarregar (Service Worker já busca da rede sempre)
           setTimeout(function () {
-            const baseUrl = window.location.href.split('?')[0];
-            window.location.href = baseUrl + '?v=' + Date.now() + '&reload=1&force=1';
+            window.location.reload(true);
           }, 300); // Reduzido para 300ms (mais rápido)
         });
       }

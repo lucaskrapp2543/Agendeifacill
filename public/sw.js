@@ -98,14 +98,6 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {
-        // ⚠️ CRÍTICO: Verificar se tem parâmetro que força bypass de cache
-        const url = new URL(request.url);
-        const forceBypass = url.searchParams.has('v') || url.searchParams.has('reload') || url.searchParams.has('force') || url.searchParams.has('mobile');
-        
-        // ⚠️ CRÍTICO: Se for mobile (User-Agent), NUNCA usar cache
-        const userAgent = request.headers.get('user-agent') || '';
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-        
         // ⚠️ SEMPRE limpar cache de HTML antes de servir (garantia extra)
         try {
           // Limpar cache desta URL específica
@@ -118,48 +110,21 @@ self.addEventListener('fetch', (event) => {
           // Ignorar erros de limpeza
         }
         
-        // Se for mobile OU tiver parâmetro de bypass, NUNCA usar cache
-        if (isMobile || forceBypass) {
-          console.log('🔄 Mobile/Bypass detectado - buscando SEMPRE da rede');
-          
-          try {
-            const networkResponse = await fetch(request, { 
-              cache: 'no-store',
-              headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-              }
-            });
-            
-            if (networkResponse.ok) {
-              const contentType = networkResponse.headers.get('content-type') || '';
-              if (contentType.includes('text/html')) {
-                const text = await networkResponse.clone().text();
-                
-                // Validar HTML
-                if (!text.includes('</html>') && !text.includes('</body>')) {
-                  throw new Error('HTML corrompido');
-                }
-                
-                // NÃO fazer cache (especialmente em mobile)
-                return networkResponse;
-              }
-              return networkResponse;
-            }
-          } catch (error) {
-            console.error('❌ Erro ao buscar da rede:', error);
-          }
-        }
+        // ⚠️ SEMPRE buscar HTML da rede (não importa se mobile ou desktop)
+        // Service Worker NUNCA faz cache de HTML, então sempre busca da rede
+        console.log('🔄 Buscando HTML da rede (nunca usa cache)');
         
-        // ⚠️ SEMPRE: Tentar rede primeiro para HTML (não importa se mobile ou não)
-        // Isso garante que HTML sempre seja atualizado, mesmo se página não carregar
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 8000);
           
           const networkResponse = await fetch(request, { 
             signal: controller.signal,
-            cache: 'no-store' // ⚠️ SEMPRE buscar da rede (nunca usar cache do navegador)
+            cache: 'no-store', // ⚠️ SEMPRE buscar da rede (nunca usar cache do navegador)
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache'
+            }
           });
           
           clearTimeout(timeoutId);
@@ -231,7 +196,8 @@ self.addEventListener('fetch', (event) => {
                     });
                   }
                   setTimeout(function() {
-                    window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now() + '&reload=1';
+                    // Recarregar sem parâmetros (Service Worker já busca da rede sempre)
+                    window.location.reload(true);
                   }, 2000);
                 </script>
               </body>

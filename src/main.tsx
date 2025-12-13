@@ -168,10 +168,10 @@ if (!rootElement) {
         });
       }
       
-      // Recarregar com cache busting
-      setTimeout(() => {
-        window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now() + '&timeout=1';
-      }, 500);
+        // Recarregar (Service Worker já busca da rede sempre)
+        setTimeout(() => {
+          window.location.reload(true);
+        }, 500);
     }
   }, 8000); // Reduzido de 15s para 8s
 
