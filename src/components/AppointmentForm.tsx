@@ -1846,10 +1846,10 @@ export function AppointmentForm({
               1. Escolha o Profissional
             </label>
             <ProfessionalSelector
-              professionals={establishment.professionals}
+              professionals={establishment.professionals.filter((p: any) => !p.hidden_from_booking)}
               selectedProfessional={selectedProfessional?.id || null}
               onSelectProfessional={(professionalId) => {
-                const professional = establishment.professionals.find(p => p.id === professionalId);
+                const professional = establishment.professionals.filter((p: any) => !p.hidden_from_booking).find(p => p.id === professionalId);
 
                 // ✅ LIMPAR APENAS A SELEÇÃO ATUAL (não os modos)
                 // Isso evita que serviços específicos de um profissional apareçam com outro

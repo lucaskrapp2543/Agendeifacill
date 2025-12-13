@@ -5,6 +5,7 @@ import { CacheBuster } from './components/CacheBuster';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import { ConnectivityChecker } from './components/ConnectivityChecker';
 import { EnvironmentError } from './components/EnvironmentError';
+import ErrorBoundary from './components/ErrorBoundary';
 import { UpdateNotification } from './components/UpdateNotification';
 import { AuthProvider } from './context/AuthContext';
 import { SupabaseProvider } from './context/SupabaseContext';
@@ -69,28 +70,29 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <CacheBuster />
-      <ConnectionStatus />
-      <UpdateNotification />
-      <Toaster
-        position="top-center"
-        toastOptions={{
-          style: {
-            background: '#1a1b1c',
-            color: '#ffffff',
-            border: '1px solid #374151',
-            marginTop: '80px', // Adiciona margem para não ficar em cima do header
-            zIndex: 9999,
-          }
-        }}
-      />
-      <SupabaseProvider>
-        <AuthProvider>
-          <ConnectivityChecker>
-            <Router>
-              <PWARedirect />
-              <Routes>
+    <ErrorBoundary>
+      <div className="min-h-screen bg-background text-foreground">
+        <CacheBuster />
+        <ConnectionStatus />
+        <UpdateNotification />
+        <Toaster
+          position="top-center"
+          toastOptions={{
+            style: {
+              background: '#1a1b1c',
+              color: '#ffffff',
+              border: '1px solid #374151',
+              marginTop: '80px', // Adiciona margem para não ficar em cima do header
+              zIndex: 9999,
+            }
+          }}
+        />
+        <SupabaseProvider>
+          <AuthProvider>
+            <ConnectivityChecker>
+              <Router>
+                <PWARedirect />
+                <Routes>
                 <Route path="/" element={<LandingVendas />} />
                 <Route path="/info" element={<LandingInfo />} />
                 <Route path="/landing" element={<LandingPage />} />
@@ -176,12 +178,13 @@ function App() {
                 <Route path="*" element={<NotFound />} />
               </Routes>
 
-            </Router>
-          </ConnectivityChecker>
-        </AuthProvider>
-      </SupabaseProvider>
-    </div>
-  );
-}
+                </Router>
+              </ConnectivityChecker>
+            </AuthProvider>
+          </SupabaseProvider>
+        </div>
+      </ErrorBoundary>
+    );
+  }
 
 export default App;

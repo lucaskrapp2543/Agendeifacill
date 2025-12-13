@@ -48,6 +48,7 @@ interface Professional {
   photo_url?: string; // Campo para foto do profissional
   whatsapp?: string; // Campo para WhatsApp do profissional
   offers_child_service?: boolean; // Campo para indicar se oferece serviço infantil
+  hidden_from_booking?: boolean; // Campo para ocultar profissional do booking público
   work_hours?: {
     [key: string]: {
       enabled: boolean;
@@ -2105,16 +2106,66 @@ const EstablishmentDashboard = () => {
         return;
       }
 
-      console.log('✅ Serviço infantil salvo com sucesso');
-      toast(`Serviço infantil ${offersChildService ? 'ativado' : 'desativado'} com sucesso`, 'success');
-    } catch (error) {
-      console.error('❌ Erro ao salvar serviço infantil:', error);
-      toast('Erro ao salvar configuração de serviço infantil', 'error');
+      // Atualizar o estado do estabelecimento também
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
 
-      // Reverter o estado local em caso de erro
-      setProfessionals(prev => prev.map(p =>
-        p.id === professionalId ? { ...p, offers_child_service: !offersChildService } : p
-      ));
+      toast.success(offersChildService
+        ? 'Serviço infantil ativado'
+        : 'Serviço infantil desativado'
+      );
+    } catch (error) {
+      console.error('❌ Erro ao alternar serviço infantil:', error);
+      toast('Erro ao atualizar configuração', 'error');
+    }
+  };
+
+  const handleToggleHiddenFromBooking = async (professionalId: string, hiddenFromBooking: boolean) => {
+    console.log('🔄 Alternando ocultar profissional do booking:', { professionalId, hiddenFromBooking });
+
+    if (!establishment) return;
+
+    try {
+      // Atualizar o estado local primeiro
+      const updatedProfessionals = professionals.map(p =>
+        p.id === professionalId ? { ...p, hidden_from_booking: hiddenFromBooking } : p
+      );
+
+      setProfessionals(updatedProfessionals);
+      console.log('👁️ Profissionais após atualização ocultar do booking:', updatedProfessionals);
+
+      // Salvar no banco de dados usando o estado atualizado
+      const { error } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar configuração de ocultar profissional:', error);
+        toast('Erro ao salvar configuração de ocultar profissional', 'error');
+
+        // Reverter o estado local em caso de erro
+        setProfessionals(prev => prev.map(p =>
+          p.id === professionalId ? { ...p, hidden_from_booking: !hiddenFromBooking } : p
+        ));
+        return;
+      }
+
+      // Atualizar o estado do estabelecimento também
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
+
+      toast.success(hiddenFromBooking
+        ? 'Profissional ocultado do booking público'
+        : 'Profissional visível no booking público'
+      );
+    } catch (error) {
+      console.error('❌ Erro ao alternar ocultar profissional:', error);
+      toast('Erro ao atualizar configuração', 'error');
     }
   };
 
@@ -2219,6 +2270,9 @@ const EstablishmentDashboard = () => {
           percentage: localProfessional.percentage || 100,
           photo_url: (localProfessional as any).photo_url || dbProfessional.photo_url || null,
           whatsapp: localProfessional.whatsapp || dbProfessional.whatsapp || null,
+          hidden_from_booking: (localProfessional as any).hidden_from_booking !== undefined
+            ? (localProfessional as any).hidden_from_booking
+            : (dbProfessional.hidden_from_booking !== undefined ? dbProfessional.hidden_from_booking : false),
           specific_services: Array.isArray((localProfessional as any).specific_services)
             ? (localProfessional as any).specific_services
             : (Array.isArray(dbProfessional.specific_services) ? dbProfessional.specific_services : []),
@@ -3285,6 +3339,7 @@ Estamos te aguardando! 😎✂️`;
           observation,
           establishment_observation,
           is_child_service,
+          is_squeeze,
           additional_products,
           total_price
         `)
@@ -16154,6 +16209,31 @@ Estamos te aguardando! 😎✂️`;
                           <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
                         </label>
                       </div>
+                    </div>
+
+                    {/* Campo de Ocultar Profissional do Booking */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Ocultar profissional</label>
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>👁️</span>
+                          <span className="text-white">Ocultar Profissional</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={professional.hidden_from_booking || false}
+                            onChange={(e) => handleToggleHiddenFromBooking(professional.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
+                        </label>
+                      </div>
+                      {professional.hidden_from_booking && (
+                        <p className="text-xs text-orange-400 mt-1">
+                          ⚠️ Este profissional não aparecerá no booking público, mas continuará visível no dashboard.
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}

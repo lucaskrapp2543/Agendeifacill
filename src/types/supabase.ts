@@ -20,6 +20,7 @@ export interface Database {
           payment_method?: string;
           is_subscriber?: boolean; // Nova coluna para indicar se é assinante
           is_avulso?: boolean; // Nova coluna para indicar se é reserva avulsa
+          is_squeeze?: boolean; // Indica se é um encaixe (tempo manual)
           price?: number; // Preço do agendamento
           total_price?: number; // Preço total incluindo produtos extras
         }

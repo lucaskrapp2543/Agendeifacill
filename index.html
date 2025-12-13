@@ -67,8 +67,20 @@
         navigator.serviceWorker.register(swPath).then(function(registration) {
           console.log('Service Worker registrado:', registration);
           
-          // Verificar atualizações imediatamente
-          registration.update();
+          // ⚠️ NÃO verificar atualizações imediatamente (evita loops e erros)
+          // O navegador verifica automaticamente a cada 24h
+          // Verificar apenas periodicamente (a cada 30 minutos)
+          let updateCheckInterval = null;
+          
+          // Verificar atualizações periodicamente, não imediatamente
+          updateCheckInterval = window.setInterval(function() {
+            registration.update().catch((error) => {
+              // Ignorar erros silenciosamente se não houver atualização
+              if (error.message && !error.message.includes('not found') && !error.message.includes('limit exceeded')) {
+                console.warn('⚠️ Erro ao verificar atualização do Service Worker:', error);
+              }
+            });
+          }, 30 * 60 * 1000); // 30 minutos
           
           // Listener para mudanças no service worker
           registration.addEventListener('updatefound', () => {
@@ -93,6 +105,9 @@
           // Listener para quando o service worker assume controle
           navigator.serviceWorker.addEventListener('controllerchange', () => {
             console.log('🔄 Service Worker assumiu controle, recarregando...');
+            if (updateCheckInterval) {
+              clearInterval(updateCheckInterval);
+            }
             window.location.reload();
           });
           

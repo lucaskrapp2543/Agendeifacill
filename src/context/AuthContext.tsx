@@ -40,6 +40,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     let isMounted = true; // Flag para evitar atualizações após unmount
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    // Timeout de segurança: se não inicializar em 10 segundos, parar o loading
+    timeoutId = setTimeout(() => {
+      if (isMounted && isLoading) {
+        console.warn('⚠️ Timeout na inicialização de autenticação, parando loading...');
+        setIsLoading(false);
+        setIsInitialized(true);
+      }
+    }, 10000); // 10 segundos
 
     // Função para recuperar sessão com múltiplas estratégias
     const initializeAuth = async () => {
@@ -175,6 +185,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.error('❌ Erro na inicialização da autenticação:', error);
       } finally {
         if (isMounted) {
+          // Limpar timeout se inicialização completou
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
           setIsLoading(false);
           setIsInitialized(true);
         }
@@ -182,6 +196,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
 
     initializeAuth();
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
 
     // Inscreve para mudanças na sessão com melhor tratamento para PWA
     const {
@@ -236,6 +257,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return () => {
       isMounted = false; // Evitar atualizações após unmount
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       subscription.unsubscribe();
     };
   }, []);

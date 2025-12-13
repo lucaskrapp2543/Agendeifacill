@@ -231,7 +231,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         console.log('✅ Configuração de horários 20min:', data?.use_20_minute_schedule);
 
         // Converter profissionais do formato JSON para o formato esperado
-        const establishmentProfessionals = data?.professionals || [];
+        // Filtrar profissionais ocultos do booking
+        const establishmentProfessionals = (data?.professionals || []).filter((prof: any) => !prof.hidden_from_booking);
         const formattedProfessionals = establishmentProfessionals.map((prof: any) => ({
           id: prof.id,
           name: prof.name,

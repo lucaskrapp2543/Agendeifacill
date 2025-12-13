@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Download, RefreshCw, X, AlertTriangle, CheckCircle } from 'lucide-react';
 import { UpdateInfo, checkForUpdates, applyUpdate } from '../utils/versionManager';
 
@@ -10,44 +10,141 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  
+  // Refs para evitar loops (não causam re-renders)
+  const lastNotifiedVersionRef = useRef<string | null>(null);
+  const isUpdatingRef = useRef(false);
 
   useEffect(() => {
+    // Sincronizar ref com state
+    isUpdatingRef.current = isUpdating;
+    
     // Verificar atualizações ao carregar
     const checkUpdates = () => {
       const info = checkForUpdates();
+      
+      // ⚠️ PROTEÇÃO: Só mostrar se realmente há atualização E não foi notificado recentemente
       if (info.hasUpdate) {
+        // Se já notificamos esta versão, não mostrar novamente (evita loop)
+        if (lastNotifiedVersionRef.current === info.newVersion) {
+          console.log('🔇 Atualização já foi notificada, ignorando...');
+          return;
+        }
+        
+        // Verificar se versões são realmente diferentes (proteção extra)
+        if (info.currentVersion === info.newVersion) {
+          console.warn('⚠️ Versões iguais detectadas como atualização, ignorando...');
+          return;
+        }
+        
+        lastNotifiedVersionRef.current = info.newVersion;
         setUpdateInfo(info);
+        setIsVisible(true);
+        
+        // Se for atualização obrigatória, mostrar IMEDIATAMENTE
+        if (info.forceUpdate) {
+          setIsVisible(true);
+        }
+      } else {
+        // Se não há atualização, limpar flag e ocultar
+        if (lastNotifiedVersionRef.current) {
+          console.log('✅ Sem atualizações, limpando notificação...');
+          lastNotifiedVersionRef.current = null;
+          setIsVisible(false);
+        }
+      }
+    };
+
+    // Verificar imediatamente (múltiplas vezes para garantir)
+    checkUpdates();
+    setTimeout(checkUpdates, 500);
+    setTimeout(checkUpdates, 2000);
+
+    // Escutar eventos de atualização
+    const handleUpdateAvailable = (event: CustomEvent) => {
+      const info = event.detail as UpdateInfo;
+      
+      // Proteção: verificar se realmente há atualização
+      if (!info.hasUpdate) {
+        return;
+      }
+      
+      // Proteção: evitar notificar a mesma versão novamente
+      if (lastNotifiedVersionRef.current === info.newVersion) {
+        console.log('🔇 Atualização já foi notificada via evento, ignorando...');
+        return;
+      }
+      
+      // Verificar se versões são realmente diferentes
+      if (info.currentVersion === info.newVersion) {
+        console.warn('⚠️ Versões iguais detectadas como atualização, ignorando...');
+        return;
+      }
+      
+      lastNotifiedVersionRef.current = info.newVersion;
+      setUpdateInfo(info);
+      setIsVisible(true);
+      
+      // Se for obrigatória, não permitir fechar
+      if (info.forceUpdate) {
         setIsVisible(true);
       }
     };
 
-    // Verificar imediatamente
-    checkUpdates();
-
-    // Escutar eventos de atualização
-    const handleUpdateAvailable = (event: CustomEvent) => {
-      setUpdateInfo(event.detail);
-      setIsVisible(true);
-    };
-
     window.addEventListener('app-update-available', handleUpdateAvailable as EventListener);
+    
+    // Verificar periodicamente (a cada 10 segundos) - mas com proteção
+    const interval = setInterval(() => {
+      // Só verificar se não está atualizando
+      if (!isUpdatingRef.current) {
+        checkUpdates();
+      }
+    }, 10000);
 
     return () => {
       window.removeEventListener('app-update-available', handleUpdateAvailable as EventListener);
+      clearInterval(interval);
     };
-  }, []);
+  }, [isUpdating]); // Apenas isUpdating como dependência (sincroniza ref)
 
   const handleUpdate = async () => {
+    // Prevenir múltiplos cliques
+    if (isUpdating || isUpdatingRef.current) {
+      return;
+    }
+    
     setIsUpdating(true);
+    isUpdatingRef.current = true;
+    
+    // Limpar flag de notificação para permitir nova verificação após atualizar
+    lastNotifiedVersionRef.current = null;
     
     try {
-      // Mostrar mensagem de atualização
+      console.log('🔄 Iniciando processo de atualização...');
+      
+      // Mostrar feedback visual
+      const button = document.querySelector('button[disabled]');
+      if (button) {
+        button.textContent = 'Atualizando... Aguarde';
+      }
+      
+      // Aplicar atualização (já faz limpeza internamente com delays adequados)
+      await applyUpdate();
+      
+      // Se applyUpdate não recarregou (não deveria acontecer), forçar reload
       setTimeout(() => {
-        applyUpdate();
-      }, 1000);
+        if (document.readyState === 'loading') {
+          window.location.reload();
+        }
+      }, 2000);
     } catch (error) {
-      console.error('Erro ao aplicar atualização:', error);
-      setIsUpdating(false);
+      console.error('❌ Erro ao aplicar atualização:', error);
+      
+      // Em caso de erro, tentar reload simples
+      alert('Atualizando... A página será recarregada.');
+      setTimeout(() => {
+        window.location.href = window.location.href.split('?')[0];
+      }, 1000);
     }
   };
 

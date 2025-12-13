@@ -1,6 +1,6 @@
 import { format, parse, parseISO } from 'date-fns';
 import { Calendar, Check, ChevronLeft, ChevronRight, Clock, CreditCard, Crown, DollarSign, Edit, Image as ImageIcon, Package, Phone, Plus, Trash2, User, X } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
 import { useToast } from './ui/Toaster';
@@ -58,6 +58,7 @@ interface Appointment {
   is_subscriber?: boolean;
   is_child_service?: boolean;
   is_avulso?: boolean;
+  is_squeeze?: boolean; // Indica se é um encaixe
 }
 
 interface TimeSlot {
@@ -67,6 +68,7 @@ interface TimeSlot {
   isOccupied: boolean;
   isBlocked: boolean;
   parentAppointment?: Appointment;
+  squeezes?: Appointment[]; // Encaixes para este slot
 }
 
 interface AllProfessionalsAppointmentsViewProps {
@@ -135,6 +137,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
   const [showPendingWarning, setShowPendingWarning] = useState(false);
   const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
+  
+  // Estados para criar encaixe
+  const [showSqueezeModal, setShowSqueezeModal] = useState(false);
+  const [selectedProfessionalForSqueeze, setSelectedProfessionalForSqueeze] = useState<string | null>(null);
+  const [showSqueezeServiceModal, setShowSqueezeServiceModal] = useState(false);
+  const [showSqueezeTimeModal, setShowSqueezeTimeModal] = useState(false);
+  const [selectedSqueezeService, setSelectedSqueezeService] = useState<any>(null);
+  const [squeezeStartTime, setSqueezeStartTime] = useState('');
+  const [squeezeEndTime, setSqueezeEndTime] = useState('');
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -222,20 +233,31 @@ export const AllProfessionalsAppointmentsView: React.FC<
     }
 
     const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
-    const professionalAppointments = appointments
-      .filter((apt) => 
-        apt.professional === professional.id &&
-        apt.appointment_date === selectedDateStr
-      )
-      .sort(
-        (a, b) =>
-          parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
-          parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
-      );
+    
+    // Separar encaixes dos agendamentos normais
+    const normalAppointments = appointments.filter((apt) => 
+      apt.professional === professional.id &&
+      apt.appointment_date === selectedDateStr &&
+      !apt.is_squeeze
+    );
+    
+    const squeezeAppointments = appointments.filter((apt) => 
+      apt.professional === professional.id &&
+      apt.appointment_date === selectedDateStr &&
+      apt.is_squeeze
+    );
 
-    const occupiedSlots = new Map<string, { appointment?: Appointment; isOccupied: boolean; parentAppointment?: Appointment }>();
+    const professionalAppointments = [...normalAppointments, ...squeezeAppointments].sort(
+      (a, b) =>
+        parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
+        parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+    );
 
-    professionalAppointments.forEach((apt) => {
+    const occupiedSlots = new Map<string, { appointment?: Appointment; isOccupied: boolean; parentAppointment?: Appointment; isSqueeze?: boolean }>();
+    const squeezeSlotsMap = new Map<string, Appointment[]>(); // Mapa de slot -> encaixes
+
+    // Processar agendamentos normais
+    normalAppointments.forEach((apt) => {
       const startTime = apt.appointment_time;
       const duration = apt.duration || interval;
       
@@ -248,6 +270,63 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     });
 
+    // Processar encaixes - adicionar como appointment no slot mais próximo e bloquear horários
+    squeezeAppointments.forEach((squeeze) => {
+      const squeezeStartTime = squeeze.appointment_time;
+      const [startHours, startMins] = squeezeStartTime.split(':').map(Number);
+      const squeezeStartTotal = startHours * 60 + startMins;
+      
+      // Encontrar o slot mais próximo
+      let nearestSlot = allSlots[0];
+      let minDiff = Math.abs(squeezeStartTotal - allSlots[0].split(':').map(Number).reduce((h, m) => h * 60 + m));
+      
+      allSlots.forEach(slot => {
+        const [slotHours, slotMins] = slot.split(':').map(Number);
+        const slotTotal = slotHours * 60 + slotMins;
+        const diff = Math.abs(squeezeStartTotal - slotTotal);
+        if (diff < minDiff) {
+          minDiff = diff;
+          nearestSlot = slot;
+        }
+      });
+      
+      // Adicionar encaixe como appointment no slot mais próximo (para aparecer como agendamento normal)
+      if (!occupiedSlots.has(nearestSlot)) {
+        occupiedSlots.set(nearestSlot, { appointment: squeeze, isOccupied: false });
+      } else {
+        // Se o slot já tem algo, adicionar encaixe abaixo (em squeezes)
+        if (!squeezeSlotsMap.has(nearestSlot)) {
+          squeezeSlotsMap.set(nearestSlot, []);
+        }
+        squeezeSlotsMap.get(nearestSlot)!.push(squeeze);
+      }
+      
+      // Bloquear todos os horários dentro do intervalo do encaixe
+      const squeezeDuration = squeeze.duration || interval;
+      const squeezeStartDate = parse(squeezeStartTime, 'HH:mm', selectedDate);
+      
+      allSlots.forEach(slot => {
+        if (slot === nearestSlot) return; // Não bloquear o slot principal onde o encaixe aparece
+        
+        const [slotHours, slotMins] = slot.split(':').map(Number);
+        const slotTotal = slotHours * 60 + slotMins;
+        const squeezeEndTotal = squeezeStartTotal + squeezeDuration;
+        
+        // Se o slot está dentro do intervalo do encaixe, marcar como ocupado pelo encaixe
+        if (slotTotal >= squeezeStartTotal && slotTotal < squeezeEndTotal) {
+          if (!occupiedSlots.has(slot)) {
+            occupiedSlots.set(slot, { isOccupied: true, parentAppointment: squeeze, isSqueeze: true });
+          } else {
+            // Se já tem algo, adicionar como ocupado pelo encaixe
+            const existing = occupiedSlots.get(slot)!;
+            if (!existing.appointment) {
+              occupiedSlots.set(slot, { ...existing, isOccupied: true, parentAppointment: squeeze, isSqueeze: true });
+            }
+          }
+        }
+      });
+    });
+
     // Verificar horários bloqueados para este profissional na data selecionada
     const dateKey = format(selectedDate, 'yyyy-MM-dd');
     const blockedHours = (professional as any).blocked_hours?.[dateKey] || [];
@@ -255,6 +334,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const result: TimeSlot[] = allSlots.map((slot) => {
       const occupied = occupiedSlots.get(slot);
       const isBlocked = blockedHours.includes(slot);
+      const squeezesForSlot = squeezeSlotsMap.get(slot) || [];
       
       if (occupied?.appointment) {
         return {
@@ -263,6 +343,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
           isEmpty: false,
           isOccupied: false,
           isBlocked: false,
+        };
+      } else if (occupied?.isOccupied && occupied.isSqueeze) {
+        // Slot ocupado por encaixe
+        return {
+          time: slot,
+          isEmpty: false,
+          isOccupied: true,
+          isBlocked: false,
+          parentAppointment: occupied.parentAppointment,
         };
       } else if (occupied?.isOccupied) {
         return {
@@ -286,6 +375,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
           isOccupied: false,
           isBlocked: false,
         };
+      }
+    });
+
+    // Adicionar encaixes aos slots (para exibição abaixo do horário)
+    result.forEach(slot => {
+      const squeezes = squeezeSlotsMap.get(slot.time);
+      if (squeezes && squeezes.length > 0) {
+        // Adicionar encaixes ao slot
+        (slot as any).squeezes = squeezes;
       }
     });
 
@@ -533,6 +631,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const appointment = slot.appointment || slot.parentAppointment;
     if (!appointment) return 'bg-gray-100 border-gray-200';
 
+    // Se for encaixe, sempre roxo
+    if (appointment.is_squeeze) {
+      if (slot.isOccupied) {
+        return 'bg-purple-600/60 border-purple-700';
+      }
+      return 'bg-purple-600 border-purple-700';
+    }
+
     if (slot.isOccupied) {
       switch (appointment.status) {
         case 'cancelled':
@@ -633,6 +739,167 @@ export const AllProfessionalsAppointmentsView: React.FC<
       appointmentsToday: dailyAppointmentsForCount.length, // Contagem: todos não cancelados
       appointmentsMonth: monthlyAppointmentsForCount.length, // Contagem: todos não cancelados
     };
+  };
+
+  // Função para buscar serviços do estabelecimento
+  const fetchEstablishmentServices = async () => {
+    if (!establishment?.id) return [];
+    
+    try {
+      const allServices: any[] = [];
+      
+      // Buscar serviços de service_subcategories (sistema de categorias)
+      const { data: subcategoriesData } = await supabase
+        .from('service_subcategories')
+        .select(`
+          *,
+          service_categories!inner (
+            establishment_id
+          )
+        `)
+        .eq('service_categories.establishment_id', establishment.id)
+        .eq('is_active', true);
+
+      if (subcategoriesData) {
+        subcategoriesData.forEach((sub: any) => {
+          allServices.push({
+            id: sub.id,
+            name: sub.name,
+            price: Number(sub.price),
+            duration: Number(sub.duration || 30)
+          });
+        });
+      }
+
+      // Buscar serviços salvos em services_with_prices (sistema antigo)
+      const { data: establishmentData } = await supabase
+        .from('establishments')
+        .select('services_with_prices')
+        .eq('id', establishment.id)
+        .single();
+
+      if (establishmentData?.services_with_prices) {
+        establishmentData.services_with_prices.forEach((service: any) => {
+          allServices.push({
+            id: service.id,
+            name: service.name,
+            price: Number(service.price),
+            duration: Number(service.duration || 30)
+          });
+        });
+      }
+
+      // Remover duplicatas por ID
+      const uniqueServices = allServices.reduce((acc: any[], service: any) => {
+        if (!acc.find(s => s.id === service.id)) {
+          acc.push(service);
+        }
+        return acc;
+      }, []);
+
+      return uniqueServices;
+    } catch (error) {
+      console.error('Erro ao buscar serviços:', error);
+      return [];
+    }
+  };
+
+  // Função para calcular duração em minutos entre dois horários
+  const calculateDuration = (startTime: string, endTime: string): number => {
+    const [startHours, startMins] = startTime.split(':').map(Number);
+    const [endHours, endMins] = endTime.split(':').map(Number);
+    
+    const startTotal = startHours * 60 + startMins;
+    const endTotal = endHours * 60 + endMins;
+    
+    return endTotal - startTotal;
+  };
+
+  // Função para encontrar o horário mais próximo no grid
+  const findNearestSlot = (time: string, slots: string[]): string => {
+    const [hours, mins] = time.split(':').map(Number);
+    const timeTotal = hours * 60 + mins;
+    
+    let nearest = slots[0];
+    let minDiff = Math.abs(
+      timeTotal - slots[0].split(':').map(Number).reduce((h, m) => h * 60 + m)
+    );
+    
+    slots.forEach(slot => {
+      const [slotHours, slotMins] = slot.split(':').map(Number);
+      const slotTotal = slotHours * 60 + slotMins;
+      const diff = Math.abs(timeTotal - slotTotal);
+      
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = slot;
+      }
+    });
+    
+    return nearest;
+  };
+
+  // Função para criar encaixe
+  const handleCreateSqueeze = async () => {
+    if (!selectedSqueezeService || !squeezeStartTime || !squeezeEndTime || !selectedProfessionalForSqueeze || !establishment) {
+      toast.error('Preencha todos os campos');
+      return;
+    }
+
+    // Validar que o horário de término é depois do início
+    const duration = calculateDuration(squeezeStartTime, squeezeEndTime);
+    if (duration <= 0) {
+      toast.error('O horário de término deve ser depois do horário de início');
+      return;
+    }
+
+    try {
+      const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+      
+      // Buscar user_id do estabelecimento para usar como client_id
+      const { data: establishmentData } = await supabase
+        .from('establishments')
+        .select('owner_id')
+        .eq('id', establishment.id)
+        .single();
+
+      const { error } = await supabase
+        .from('appointments')
+        .insert({
+          client_id: establishmentData?.owner_id || '',
+          establishment_id: establishment.id,
+          professional: selectedProfessionalForSqueeze,
+          service: selectedSqueezeService.name,
+          client_name: 'ENCAIXE',
+          appointment_date: selectedDateStr,
+          appointment_time: squeezeStartTime,
+          status: 'confirmed',
+          price: selectedSqueezeService.price,
+          total_price: selectedSqueezeService.price,
+          duration: duration,
+          is_squeeze: true // Marcar como encaixe
+        });
+
+      if (error) throw error;
+
+      toast.success('Encaixe criado com sucesso!');
+      
+      // Fechar modais e limpar estados
+      setShowSqueezeServiceModal(false);
+      setShowSqueezeTimeModal(false);
+      setSelectedSqueezeService(null);
+      setSqueezeStartTime('');
+      setSqueezeEndTime('');
+      setSelectedProfessionalForSqueeze(null);
+      
+      // Atualizar agendamentos
+      if (onAppointmentUpdate) {
+        onAppointmentUpdate();
+      }
+    } catch (error: any) {
+      console.error('Erro ao criar encaixe:', error);
+      toast.error(error.message || 'Erro ao criar encaixe');
+    }
   };
 
   if (professionals.length === 0) {
@@ -1005,6 +1272,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             📅 Criar reserva
                           </button>
                         )}
+                        <button
+                          onClick={() => {
+                            setSelectedProfessionalForSqueeze(professional.id);
+                            setShowSqueezeServiceModal(true);
+                          }}
+                          className="w-full px-2 py-1 bg-purple-500/80 hover:bg-purple-600 text-white text-xs rounded transition-colors border border-white/30"
+                          title="Criar Encaixe"
+                        >
+                          🟣 Criar Encaixe
+                        </button>
                       </div>
                       
                       {/* Contadores de Status por Profissional */}
@@ -1054,20 +1331,101 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               </div>
                             );
                           } else if (slot.isEmpty) {
-                            // Horário disponível
+                            // Horário disponível - pode ter encaixes abaixo
+                            const squeezes = (slot as any).squeezes || [];
                             return (
-                              <div
-                                key={`${slot.time}-${slotIndex}`}
-                                className={`${slotColor} border-2 rounded-lg px-3 py-2`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="text-blue-900 font-bold text-sm">
-                                    {slot.time}
-                                  </span>
-                                  <span className="text-green-600 text-xs font-semibold">
-                                    ✓ DISPONÍVEL
-                                  </span>
+                              <div key={`${slot.time}-${slotIndex}`}>
+                                <div
+                                  className={`${slotColor} border-2 rounded-lg px-3 py-2`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-blue-900 font-bold text-sm">
+                                      {slot.time}
+                                    </span>
+                                    <span className="text-green-600 text-xs font-semibold">
+                                      ✓ DISPONÍVEL
+                                    </span>
+                                  </div>
                                 </div>
+                                {/* Exibir encaixes abaixo do horário */}
+                                {squeezes.map((squeeze: Appointment) => {
+                                  const isExpanded = expandedAppointments[squeeze.id];
+                                  return (
+                                    <div
+                                      key={squeeze.id}
+                                      className="bg-purple-600 border-2 border-purple-700 rounded-lg mt-1 overflow-hidden"
+                                    >
+                                      <div className="px-3 py-2">
+                                        <div
+                                          onClick={() => toggleAppointmentExpansion(squeeze.id)}
+                                          className="cursor-pointer"
+                                        >
+                                          <div className="flex items-center justify-between mb-1">
+                                            <span className="text-white font-bold text-sm">
+                                              {squeeze.appointment_time} 🟣 ENCAIXE
+                                            </span>
+                                            <span className="text-white text-xs font-bold">
+                                              R$ {(squeeze.total_price || squeeze.price).toFixed(2)}
+                                            </span>
+                                          </div>
+                                          <div className="text-white font-semibold text-sm mb-1 truncate">
+                                            {squeeze.service}
+                                          </div>
+                                          <div className="text-white/70 text-xs mt-1">
+                                            {squeeze.duration} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      {/* Versão expandida do encaixe */}
+                                      {isExpanded && (
+                                        <div className="border-t-2 border-white/20 p-3 bg-black/10">
+                                          <div className="mb-3">
+                                            <div className="flex items-center gap-2 mb-2">
+                                              <span className="text-white font-semibold">ENCAIXE</span>
+                                            </div>
+                                          </div>
+                                          <div className="mb-3 text-xs text-white/90 space-y-1">
+                                            <div className="flex items-center gap-1">
+                                              <Calendar className="w-3 h-3" />
+                                              {format(parseISO(squeeze.appointment_date), 'dd/MM/yyyy')}
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                              <Clock className="w-3 h-3" />
+                                              {squeeze.appointment_time} • {formatDuration(squeeze.duration)}
+                                            </div>
+                                          </div>
+                                          <div className="bg-white/10 rounded p-2 mb-3">
+                                            <div className="text-xs text-white/80 mb-1">Valor:</div>
+                                            <div className="text-sm font-bold text-white">
+                                              {formatCurrency(squeeze.price)}
+                                            </div>
+                                          </div>
+                                          {/* Botões de ação para encaixe */}
+                                          <div className="flex gap-2 mt-3">
+                                            <button
+                                              onClick={() => {
+                                                if (onCancelAppointment) {
+                                                  onCancelAppointment(squeeze.id);
+                                                }
+                                              }}
+                                              className="flex-1 px-3 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                                            >
+                                              Cancelar
+                                            </button>
+                                            {onOpenTransferModal && (
+                                              <button
+                                                onClick={() => onOpenTransferModal(squeeze)}
+                                                className="flex-1 px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                              >
+                                                Transferir
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             );
                           } else if (slot.isOccupied && slot.parentAppointment) {
@@ -1105,14 +1463,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   >
                                     <div className="flex items-center justify-between mb-1">
                                       <span className="text-white font-bold text-sm">
-                                        {slot.time}
+                                        {apt.is_squeeze ? apt.appointment_time : slot.time} {apt.is_squeeze && '🟣'}
                                       </span>
                                       <span className="text-white text-xs font-bold">
                                         R$ {(apt.total_price || apt.price).toFixed(2)}
                                       </span>
                                     </div>
                                     <div className="text-white font-semibold text-sm mb-1 truncate">
-                                      {apt.client_name}
+                                      {apt.is_squeeze ? 'ENCAIXE' : apt.client_name}
                                       {apt.is_subscriber && ' 👑'}
                                     </div>
                                     <div className="text-white/90 text-xs truncate">
@@ -1147,9 +1505,36 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     <div className="mb-3">
                                       <div className="flex items-center gap-2 mb-2">
                                         <User className="w-4 h-4 text-white" />
-                                        <span className="text-white font-semibold">{apt.client_name}</span>
+                                        <span className="text-white font-semibold">
+                                          {apt.is_squeeze ? 'ENCAIXE' : apt.client_name}
+                                        </span>
                                         {apt.is_premium && <Crown className="w-4 h-4 text-yellow-300" />}
+                                        {apt.is_squeeze && <span className="text-purple-300 text-xs">🟣</span>}
                                       </div>
+                                      {apt.is_squeeze && (
+                                        <div className="mb-2">
+                                          <input
+                                            type="text"
+                                            value={apt.client_name === 'ENCAIXE' ? '' : apt.client_name}
+                                            onChange={async (e) => {
+                                              const newName = e.target.value || 'ENCAIXE';
+                                              try {
+                                                const { error } = await supabase
+                                                  .from('appointments')
+                                                  .update({ client_name: newName })
+                                                  .eq('id', apt.id);
+                                                if (error) throw error;
+                                                if (onAppointmentUpdate) onAppointmentUpdate();
+                                              } catch (error) {
+                                                console.error('Erro ao atualizar nome:', error);
+                                                toast.error('Erro ao atualizar nome');
+                                              }
+                                            }}
+                                            placeholder="Nome do cliente (opcional)"
+                                            className="w-full px-2 py-1 text-sm bg-white/20 border border-white/30 rounded text-white placeholder-gray-400"
+                                          />
+                                        </div>
+                                      )}
                                       {apt.client_whatsapp && (
                                         <a
                                           href={`https://wa.me/55${apt.client_whatsapp.replace(/\D/g, '')}`}
@@ -1498,6 +1883,171 @@ export const AllProfessionalsAppointmentsView: React.FC<
           onClose={() => setSelectedProfessionalForInfo(null)}
         />
       )}
+
+      {/* Modal de Seleção de Serviço para Encaixe */}
+      {showSqueezeServiceModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                Qual serviço deseja adicionar como encaixe?
+              </h3>
+              <button
+                onClick={() => {
+                  setShowSqueezeServiceModal(false);
+                  setSelectedProfessionalForSqueeze(null);
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="max-h-96 overflow-y-auto">
+              <SqueezeServiceList
+                establishment={establishment}
+                onSelectService={async (service) => {
+                  setSelectedSqueezeService(service);
+                  setShowSqueezeServiceModal(false);
+                  setShowSqueezeTimeModal(true);
+                }}
+                onClose={() => {
+                  setShowSqueezeServiceModal(false);
+                  setSelectedProfessionalForSqueeze(null);
+                }}
+                fetchServices={fetchEstablishmentServices}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Horário para Encaixe */}
+      {showSqueezeTimeModal && selectedSqueezeService && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                Definir Horário do Encaixe
+              </h3>
+              <button
+                onClick={() => {
+                  setShowSqueezeTimeModal(false);
+                  setSelectedSqueezeService(null);
+                  setSqueezeStartTime('');
+                  setSqueezeEndTime('');
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Serviço: <span className="text-white">{selectedSqueezeService.name}</span>
+                </label>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Valor: <span className="text-white">{formatCurrency(selectedSqueezeService.price)}</span>
+                </label>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Horário de Início
+                </label>
+                <input
+                  type="time"
+                  value={squeezeStartTime}
+                  onChange={(e) => setSqueezeStartTime(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Horário de Término
+                </label>
+                <input
+                  type="time"
+                  value={squeezeEndTime}
+                  onChange={(e) => setSqueezeEndTime(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-white"
+                />
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowSqueezeTimeModal(false);
+                    setSelectedSqueezeService(null);
+                    setSqueezeStartTime('');
+                    setSqueezeEndTime('');
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCreateSqueeze}
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                >
+                  Criar Encaixe
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Componente para lista de serviços no modal de encaixe
+const SqueezeServiceList: React.FC<{
+  establishment: any;
+  onSelectService: (service: any) => void;
+  onClose: () => void;
+  fetchServices: () => Promise<any[]>;
+}> = ({ onSelectService, onClose, fetchServices }) => {
+  const [services, setServices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadServices = async () => {
+      setLoading(true);
+      const fetchedServices = await fetchServices();
+      setServices(fetchedServices);
+      setLoading(false);
+    };
+    loadServices();
+  }, [fetchServices]);
+
+  if (loading) {
+    return <div className="text-center py-4 text-gray-400">Carregando serviços...</div>;
+  }
+
+  if (services.length === 0) {
+    return (
+      <div className="text-center py-4 text-gray-400">
+        Nenhum serviço cadastrado. Adicione serviços em "Meus Serviços".
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {services.map((service) => (
+        <button
+          key={service.id}
+          onClick={() => onSelectService(service)}
+          className="w-full text-left px-4 py-3 bg-[#2a2b2c] hover:bg-purple-600/20 border border-gray-600 rounded-lg transition-colors"
+        >
+          <div className="font-semibold text-white">{service.name}</div>
+          <div className="text-sm text-gray-300">
+            {new Intl.NumberFormat('pt-BR', {
+              style: 'currency',
+              currency: 'BRL',
+            }).format(service.price)}
+          </div>
+        </button>
+      ))}
     </div>
   );
 };

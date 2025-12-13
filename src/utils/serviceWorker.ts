@@ -1,6 +1,21 @@
 // Utilitário para gerenciar Service Worker
 
+// Verificar se está em produção
+const isProduction = (): boolean => {
+  const hostname = window.location.hostname;
+  return hostname !== 'localhost' && 
+         hostname !== '127.0.0.1' && 
+         !hostname.includes('localhost') &&
+         !hostname.includes('127.0.0.1');
+};
+
 export const registerServiceWorker = async (): Promise<void> => {
+  // ⚠️ NÃO registrar em desenvolvimento
+  if (!isProduction()) {
+    console.log('🚫 Service Worker desabilitado em desenvolvimento');
+    return;
+  }
+
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
@@ -9,7 +24,11 @@ export const registerServiceWorker = async (): Promise<void> => {
       
       console.log('✅ Service Worker registrado:', registration);
       
-      // Escutar atualizações
+      // ⚠️ NÃO tentar atualizar imediatamente (evita loops)
+      // O navegador verifica atualizações automaticamente a cada 24h
+      // Só verificar atualizações periodicamente, não imediatamente
+      
+      // Escutar atualizações (mas não forçar)
       registration.addEventListener('updatefound', () => {
         const newWorker = registration.installing;
         
@@ -34,6 +53,16 @@ export const registerServiceWorker = async (): Promise<void> => {
           console.log('📦 Cache atualizado pelo Service Worker');
         }
       });
+      
+      // Verificar atualizações periodicamente (a cada 30 minutos), não imediatamente
+      setInterval(() => {
+        registration.update().catch((error) => {
+          // Ignorar erros silenciosamente (pode ser que não haja atualização)
+          if (error.message && !error.message.includes('not found')) {
+            console.warn('⚠️ Erro ao verificar atualização do Service Worker:', error);
+          }
+        });
+      }, 30 * 60 * 1000); // 30 minutos
       
     } catch (error) {
       console.error('❌ Erro ao registrar Service Worker:', error);

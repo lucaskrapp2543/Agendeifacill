@@ -6,6 +6,9 @@ export const PWARedirect: React.FC = () => {
   const location = useLocation();
 
   useEffect(() => {
+    let hasRedirected = false; // Flag para evitar múltiplos redirecionamentos
+    let redirectTimeout: NodeJS.Timeout | null = null;
+
     // Detectar se é PWA (app instalado)
     const isPWA = () => {
       // Verificar se está em modo standalone (PWA) - MAIS CONFIÁVEL
@@ -23,16 +26,12 @@ export const PWARedirect: React.FC = () => {
       // Verificar se tem manifest instalado
       const hasManifest = document.querySelector('link[rel="manifest"]') !== null;
       
-      // Verificar se está em modo app (sem barra de endereço) - APENAS se for standalone
-      const isAppMode = window.innerHeight === window.screen.height && (isStandalone || isFullscreen);
-      
       console.log('🔍 Detecção PWA:', {
         isStandalone,
         isFullscreen,
         hasPWAViewport,
         hasServiceWorker,
         hasManifest,
-        isAppMode,
         userAgent: navigator.userAgent
       });
       
@@ -50,47 +49,36 @@ export const PWARedirect: React.FC = () => {
       return isStandalone || (indicators.length >= 2) || isMobilePWA;
     };
 
-    // Função para verificar e redirecionar
+    // Função para verificar e redirecionar (com proteção contra loops)
     const checkAndRedirect = () => {
-      if (isPWA() && location.pathname === '/') {
-        console.log('📱 PWA detectado, redirecionando para login...');
-        console.log('✅ Confirmação: É realmente o app instalado!');
-        navigate('/login', { replace: true });
-      } else if (location.pathname === '/') {
-        console.log('🌐 Navegador normal detectado, mantendo na home');
+      // Evitar múltiplos redirecionamentos
+      if (hasRedirected) {
+        console.log('⚠️ Redirecionamento já realizado, ignorando...');
+        return;
+      }
+
+      // Só redirecionar se estiver na rota raiz
+      if (location.pathname === '/') {
+        if (isPWA()) {
+          console.log('📱 PWA detectado, redirecionando para login...');
+          console.log('✅ Confirmação: É realmente o app instalado!');
+          hasRedirected = true;
+          navigate('/login', { replace: true });
+        } else {
+          console.log('🌐 Navegador normal detectado, mantendo na home');
+        }
       }
     };
 
-    // Verificar imediatamente
-    checkAndRedirect();
-
-    // Verificar novamente após um pequeno delay (para casos onde a detecção demora)
-    const timeoutId = setTimeout(checkAndRedirect, 500);
-
-    // Verificar quando a janela ganha foco (para casos de PWA que abrem em segundo plano)
-    const handleFocus = () => {
-      setTimeout(checkAndRedirect, 100);
-    };
-
-    // Verificar quando o DOM está pronto
-    const handleDOMReady = () => {
-      setTimeout(checkAndRedirect, 200);
-    };
-
-    // Verificar quando a página carrega completamente
-    const handleLoad = () => {
-      setTimeout(checkAndRedirect, 300);
-    };
-
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('DOMContentLoaded', handleDOMReady);
-    window.addEventListener('load', handleLoad);
+    // Verificar apenas uma vez após um pequeno delay (evitar múltiplas verificações)
+    redirectTimeout = setTimeout(() => {
+      checkAndRedirect();
+    }, 300);
 
     return () => {
-      clearTimeout(timeoutId);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('DOMContentLoaded', handleDOMReady);
-      window.removeEventListener('load', handleLoad);
+      if (redirectTimeout) {
+        clearTimeout(redirectTimeout);
+      }
     };
   }, [navigate, location.pathname]);
 
