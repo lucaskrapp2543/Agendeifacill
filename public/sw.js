@@ -83,35 +83,146 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Ignorar requisições de navegação que podem causar problemas
+  // ⚠️ REQUISIÇÕES DE NAVEGAÇÃO (HTML) - NUNCA USAR CACHE
+  // Para mobile, cache é muito agressivo e causa página branca
   if (request.mode === 'navigate') {
-    // Para requisições de navegação, sempre tentar rede primeiro
     event.respondWith(
-      fetch(request)
-        .then(response => {
-          // Verificar se a resposta é válida
-          if (response.ok && response.status === 200) {
-            return response;
+      (async () => {
+        // ⚠️ CRÍTICO: Verificar se tem parâmetro que força bypass de cache
+        const url = new URL(request.url);
+        const forceBypass = url.searchParams.has('v') || url.searchParams.has('reload') || url.searchParams.has('force');
+        
+        // Se tiver parâmetro de bypass, NUNCA usar cache
+        if (forceBypass) {
+          console.log('🔄 Navegação inicial detectada, bypass completo de cache');
+          
+          // Limpar qualquer cache existente para esta URL
+          await caches.delete(request);
+          
+          try {
+            const networkResponse = await fetch(request, { 
+              cache: 'no-store',
+              headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+              }
+            });
+            
+            if (networkResponse.ok) {
+              const contentType = networkResponse.headers.get('content-type') || '';
+              if (contentType.includes('text/html')) {
+                const text = await networkResponse.clone().text();
+                
+                // Validar HTML
+                if (!text.includes('</html>') && !text.includes('</body>')) {
+                  throw new Error('HTML corrompido');
+                }
+                
+                // NÃO fazer cache na primeira navegação (evita problemas futuros)
+                return networkResponse;
+              }
+              return networkResponse;
+            }
+          } catch (error) {
+            console.error('❌ Erro ao buscar da rede:', error);
           }
-          throw new Error('Resposta inválida');
-        })
-        .catch(async () => {
-          // Se falhar, tentar cache
-          const cached = await caches.match(request);
-          if (cached) {
-            return cached;
-          }
-          // Fallback para index.html
-          const indexFallback = await caches.match('/index.html');
-          if (indexFallback) {
-            return indexFallback;
-          }
-          // Último recurso: retornar resposta válida
-          return new Response('Erro ao carregar página', { 
-            status: 503,
-            headers: { 'Content-Type': 'text/html' }
+        }
+        
+        // Para navegações subsequentes, tentar rede primeiro
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          
+          const networkResponse = await fetch(request, { 
+            signal: controller.signal,
+            cache: 'no-store' // ⚠️ SEMPRE buscar da rede
           });
-        })
+          
+          clearTimeout(timeoutId);
+          
+          if (networkResponse.ok && networkResponse.status === 200) {
+            const contentType = networkResponse.headers.get('content-type') || '';
+            if (contentType.includes('text/html')) {
+              const text = await networkResponse.clone().text();
+              
+              // Validar HTML
+              if (!text.includes('</html>') && !text.includes('</body>')) {
+                throw new Error('HTML corrompido');
+              }
+              
+              // Fazer cache APENAS se HTML estiver completo
+              const cache = await caches.open(DYNAMIC_CACHE);
+              cache.put(request, networkResponse.clone());
+              
+              return networkResponse;
+            }
+            return networkResponse;
+          }
+          
+          throw new Error('Resposta inválida');
+        } catch (error) {
+          console.log('⚠️ Erro ao buscar da rede:', error.message);
+          
+          // ⚠️ NUNCA usar cache para HTML - sempre tentar rede novamente
+          try {
+            return await fetch(request, { 
+              cache: 'no-store',
+              headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+              }
+            });
+          } catch {
+            // Último recurso: HTML de erro que força reload
+            return new Response(`
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <meta charset="UTF-8">
+                <title>Erro ao carregar</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+                <meta http-equiv="Pragma" content="no-cache">
+                <meta http-equiv="Expires" content="0">
+              </head>
+              <body style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui; text-align: center; padding: 20px; background: #f5f5f5;">
+                <div style="max-width: 400px;">
+                  <h1 style="font-size: 24px; margin-bottom: 16px; color: #333;">Erro ao carregar</h1>
+                  <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">A página não está carregando. Recarregando automaticamente...</p>
+                  <div style="margin-top: 20px; padding: 12px; background: #fff; border-radius: 8px; border: 1px solid #ddd;">
+                    <p style="font-size: 14px; color: #888; margin: 0;">Se não recarregar automaticamente, use os 3 pontinhos do navegador e clique em "Atualizar"</p>
+                  </div>
+                </div>
+                <script>
+                  // Limpar cache e recarregar
+                  if ('caches' in window) {
+                    caches.keys().then(function(names) {
+                      names.forEach(function(name) { caches.delete(name); });
+                    });
+                  }
+                  if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.getRegistrations().then(function(regs) {
+                      regs.forEach(function(reg) { reg.unregister(); });
+                    });
+                  }
+                  setTimeout(function() {
+                    window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now() + '&reload=1';
+                  }, 2000);
+                </script>
+              </body>
+              </html>
+            `, { 
+              status: 503,
+              headers: { 
+                'Content-Type': 'text/html',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+              }
+            });
+          }
+        }
+      })()
     );
     return;
   }

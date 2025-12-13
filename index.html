@@ -165,14 +165,16 @@
         console.log('💡 Use window.clearAppCache() no console para limpeza manual');
       }
       
-      // Sistema de cache busting mais agressivo
+      // ⚠️ SISTEMA DE CACHE BUSTING ULTRA AGRESSIVO (especialmente para mobile)
       const buildTimestamp = Date.now();
       const versionParam = `v=${buildTimestamp}`;
       
-      // Adicionar parâmetro de versão em todos os recursos
-      if (!window.location.search.includes('v=')) {
-        const url = new URL(window.location.href);
+      // ⚠️ CRÍTICO: Adicionar parâmetro de versão SEMPRE (força Service Worker a buscar da rede)
+      // Isso garante que Service Worker sempre busque HTML da rede, não do cache
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has('v')) {
         url.searchParams.set('v', buildTimestamp.toString());
+        // Usar replaceState para não recarregar (evita loop)
         window.history.replaceState({}, '', url.toString());
       }
       
@@ -203,6 +205,179 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Script de detecção de página branca - DEVE SER PRIMEIRO -->
+    <script>
+      // ⚠️ DETECÇÃO AUTOMÁTICA DE PÁGINA BRANCA (OTIMIZADO PARA MOBILE)
+      // Este script detecta se a página não carregou corretamente e força reload
+      (function() {
+        'use strict';
+        
+        let whiteScreenDetected = false;
+        let reloadAttempts = 0;
+        const maxReloadAttempts = 2;
+        
+        // ⚠️ DETECÇÃO IMEDIATA: Verificar se já está em loop de reload
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('reload') === '1' && reloadAttempts >= 1) {
+          // Se já tentou recarregar e ainda está com problema, mostrar mensagem
+          document.body.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; font-family: system-ui; background: #f5f5f5;">
+              <div style="max-width: 400px;">
+                <h1 style="font-size: 24px; margin-bottom: 16px; color: #333;">Problema ao carregar</h1>
+                <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">
+                  Por favor, use os 3 pontinhos do navegador e clique em "Atualizar" ou limpe o cache do navegador.
+                </p>
+                <button onclick="window.location.reload(true)" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
+                  Tentar Novamente
+                </button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+        
+        // Função para detectar página branca
+        function detectWhiteScreen() {
+          const root = document.getElementById('root');
+          
+          // Se root não existe, é problema crítico
+          if (!root) {
+            console.error('❌ Root não encontrado!');
+            forceReload();
+            return;
+          }
+          
+          // ⚠️ DETECÇÃO MAIS RÁPIDA PARA MOBILE: 3 segundos
+          setTimeout(function() {
+            // Se root está vazio
+            if (root.children.length === 0 && !whiteScreenDetected) {
+              // Verificar se scripts estão carregando
+              const scripts = document.querySelectorAll('script[type="module"]');
+              let scriptsLoading = false;
+              
+              scripts.forEach(function(script) {
+                if (script.src) {
+                  // Verificar se script ainda está carregando
+                  if (!script.complete && script.readyState !== 'complete') {
+                    scriptsLoading = true;
+                  }
+                }
+              });
+              
+              // Se scripts já carregaram mas React não renderizou
+              if (!scriptsLoading) {
+                console.warn('⚠️ Página branca detectada após 3 segundos! React não renderizou.');
+                whiteScreenDetected = true;
+                forceReload();
+              }
+            }
+          }, 3000); // Reduzido para 3 segundos (mobile é mais rápido)
+          
+          // Verificar novamente após 6 segundos (backup)
+          setTimeout(function() {
+            if (root.children.length === 0 && !whiteScreenDetected) {
+              console.warn('⚠️ Página branca detectada após 6 segundos!');
+              whiteScreenDetected = true;
+              forceReload();
+            }
+          }, 6000); // Reduzido para 6 segundos
+        }
+        
+        // Função para forçar reload com limpeza de cache
+        function forceReload() {
+          if (reloadAttempts >= maxReloadAttempts) {
+            console.error('❌ Muitas tentativas de reload. Mostrando mensagem de erro.');
+            document.body.innerHTML = `
+              <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; font-family: system-ui; background: #f5f5f5;">
+                <div style="max-width: 400px;">
+                  <h1 style="font-size: 24px; margin-bottom: 16px; color: #333;">Erro ao carregar</h1>
+                  <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">
+                    A página não está carregando corretamente. Por favor, atualize manualmente usando os 3 pontinhos do navegador.
+                  </p>
+                  <button onclick="window.location.reload(true)" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
+                    Tentar Novamente
+                  </button>
+                </div>
+              </div>
+            `;
+            return;
+          }
+          
+          reloadAttempts++;
+          console.log('🔄 Forçando reload (tentativa ' + reloadAttempts + '/' + maxReloadAttempts + ')...');
+          
+          // ⚠️ LIMPEZA AGRESSIVA DE CACHE (especialmente para mobile)
+          Promise.all([
+            // Limpar todos os caches
+            'caches' in window ? caches.keys().then(function(cacheNames) {
+              return Promise.all(cacheNames.map(function(cacheName) {
+                return caches.delete(cacheName);
+              }));
+            }) : Promise.resolve(),
+            
+            // Limpar Service Workers
+            'serviceWorker' in navigator ? navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              return Promise.all(registrations.map(function(registration) {
+                return registration.unregister();
+              }));
+            }) : Promise.resolve(),
+            
+            // Limpar localStorage relacionado
+            new Promise(function(resolve) {
+              try {
+                const keys = Object.keys(localStorage);
+                keys.forEach(function(key) {
+                  if (key.includes('agendafacil') || key.includes('cache') || key.includes('version')) {
+                    localStorage.removeItem(key);
+                  }
+                });
+              } catch (e) {
+                console.warn('Erro ao limpar localStorage:', e);
+              }
+              resolve();
+            })
+          ]).then(function() {
+            console.log('✅ Cache limpo, recarregando...');
+            
+            // Recarregar com cache busting agressivo
+            setTimeout(function() {
+              const baseUrl = window.location.href.split('?')[0];
+              window.location.href = baseUrl + '?v=' + Date.now() + '&reload=1&force=1';
+            }, 300); // Reduzido para 300ms (mais rápido)
+          });
+        }
+        
+        // Iniciar detecção quando DOM estiver pronto
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', detectWhiteScreen);
+        } else {
+          detectWhiteScreen();
+        }
+        
+        // Detectar erros de carregamento de scripts
+        window.addEventListener('error', function(event) {
+          if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) {
+            console.error('❌ Erro ao carregar recurso:', event.target.src || event.target.href);
+            if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
+              whiteScreenDetected = true;
+              setTimeout(forceReload, 2000);
+            }
+          }
+        }, true);
+        
+        // Detectar erros não tratados
+        window.addEventListener('unhandledrejection', function(event) {
+          console.error('❌ Erro não tratado:', event.reason);
+          if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
+            const errorMsg = String(event.reason || '');
+            if (errorMsg.includes('chunk') || errorMsg.includes('404') || errorMsg.includes('Failed to load')) {
+              whiteScreenDetected = true;
+              setTimeout(forceReload, 2000);
+            }
+          }
+        });
+      })();
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

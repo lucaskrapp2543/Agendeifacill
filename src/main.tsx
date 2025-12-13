@@ -150,23 +150,30 @@ if (!rootElement) {
     </div>
   `;
 } else {
-  // Timeout de segurança: se não renderizar em 15 segundos, mostrar erro
+  // Timeout de segurança: se não renderizar em 8 segundos, forçar reload automático
   const renderTimeout = setTimeout(() => {
     if (!rootElement.hasChildNodes()) {
-      console.error('❌ Timeout na renderização!');
-      rootElement.innerHTML = `
-        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; font-family: system-ui;">
-          <div>
-            <h1 style="font-size: 24px; margin-bottom: 16px;">Carregamento demorado</h1>
-            <p style="margin-bottom: 24px; color: #666;">A aplicação está demorando para carregar. Tente recarregar a página.</p>
-            <button onclick="window.location.reload()" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px;">
-              Recarregar Página
-            </button>
-          </div>
-        </div>
-      `;
+      console.error('❌ Timeout na renderização após 8 segundos! Forçando reload...');
+      
+      // Limpar cache e recarregar
+      if ('caches' in window) {
+        caches.keys().then(cacheNames => {
+          cacheNames.forEach(name => caches.delete(name));
+        });
+      }
+      
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(reg => reg.unregister());
+        });
+      }
+      
+      // Recarregar com cache busting
+      setTimeout(() => {
+        window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now() + '&timeout=1';
+      }, 500);
     }
-  }, 15000);
+  }, 8000); // Reduzido de 15s para 8s
 
   try {
     const root = createRoot(rootElement);
