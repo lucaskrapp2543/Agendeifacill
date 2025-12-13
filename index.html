@@ -56,17 +56,23 @@
 
   <!-- Service Worker para controle de cache -->
   <script>
-    // Sistema de atualização automática mais robusto
-    // DESABILITAR SERVICE WORKER EM DESENVOLVIMENTO PARA EVITAR CONFLITOS
+    // ⚠️ DESABILITAR SERVICE WORKER EM MOBILE (causa página branca)
+    // Em mobile, Service Worker interfere e causa problemas
+    // Desktop: Service Worker ativo (funciona bem)
+    // Mobile: Service Worker desabilitado (evita página branca)
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
     if ('serviceWorker' in navigator &&
       window.location.hostname !== 'localhost' &&
       window.location.hostname !== '127.0.0.1' &&
       !window.location.hostname.includes('localhost') &&
-      !window.location.hostname.includes('127.0.0.1')) {
+      !window.location.hostname.includes('127.0.0.1') &&
+      !isMobile) { // ⚠️ NÃO registrar em mobile
+
       const swPath = '/sw.js';
 
       navigator.serviceWorker.register(swPath).then(function (registration) {
-        console.log('Service Worker registrado:', registration);
+        console.log('✅ Service Worker registrado (desktop):', registration);
 
         // ⚠️ NÃO verificar atualizações imediatamente (evita loops e erros)
         // O navegador verifica automaticamente a cada 24h
@@ -116,7 +122,21 @@
         console.log('Service Worker registration failed:', error);
       });
     } else {
-      console.log('🚫 Service Worker desabilitado em desenvolvimento');
+      if (isMobile) {
+        console.log('📱 Service Worker desabilitado em mobile (evita página branca)');
+
+        // ⚠️ REMOVER Service Workers existentes em mobile
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (registrations) {
+            registrations.forEach(function (registration) {
+              console.log('🗑️ Removendo Service Worker em mobile:', registration);
+              registration.unregister();
+            });
+          });
+        }
+      } else {
+        console.log('🚫 Service Worker desabilitado em desenvolvimento');
+      }
 
       // Limpar qualquer service worker existente em desenvolvimento
       if ('serviceWorker' in navigator) {
@@ -190,18 +210,66 @@
 
 <body>
   <div id="root"></div>
-  <!-- Script de limpeza de cache para mobile - DEVE SER PRIMEIRO -->
+  <!-- Script ULTRA AGRESSIVO para mobile - DEVE SER PRIMEIRO E EXECUTAR IMEDIATAMENTE -->
   <script>
-    // ⚠️ LIMPEZA AUTOMÁTICA DE CACHE EM MOBILE (ANTES DE QUALQUER COISA)
+    // ⚠️ SOLUÇÃO ULTRA AGRESSIVA PARA MOBILE - EXECUTA ANTES DE QUALQUER COISA
     (function () {
       'use strict';
 
       // Detectar se é mobile
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-      // ⚠️ REMOVIDO: Limpeza automática de cache em mobile
-      // Service Worker agora já limpa cache ao ativar e NUNCA faz cache de HTML
-      // Não precisa mais limpar aqui (evita recarregamento desnecessário)
+      // Se for mobile, fazer limpeza AGRESSIVA e forçar reload se necessário
+      if (isMobile) {
+        console.log('📱 Mobile detectado - Aplicando limpeza agressiva...');
+
+        // ⚠️ LIMPAR TUDO IMEDIATAMENTE (não esperar)
+        (async function () {
+          try {
+            // Limpar TODOS os caches
+            if ('caches' in window) {
+              const cacheNames = await caches.keys();
+              await Promise.all(cacheNames.map(name => caches.delete(name)));
+              console.log('✅ Caches limpos');
+            }
+
+            // Remover TODOS os Service Workers
+            if ('serviceWorker' in navigator) {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(registrations.map(reg => reg.unregister()));
+              console.log('✅ Service Workers removidos');
+            }
+          } catch (e) {
+            console.warn('⚠️ Erro ao limpar:', e);
+          }
+        })();
+
+        // ⚠️ DETECÇÃO IMEDIATA DE PÁGINA BRANCA (2 segundos)
+        setTimeout(function () {
+          const root = document.getElementById('root');
+          if (root && root.children.length === 0) {
+            console.warn('⚠️ Página branca detectada após 2 segundos! Forçando reload...');
+
+            // Limpar novamente e recarregar
+            if ('caches' in window) {
+              caches.keys().then(names => {
+                names.forEach(name => caches.delete(name));
+              });
+            }
+
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(regs => {
+                regs.forEach(reg => reg.unregister());
+              });
+            }
+
+            // Recarregar com bypass de cache
+            setTimeout(() => {
+              window.location.reload(true);
+            }, 500);
+          }
+        }, 2000); // 2 segundos (muito rápido para mobile)
+      }
     })();
   </script>
   <!-- Script de detecção de página branca - DEVE SER PRIMEIRO -->
@@ -246,7 +314,7 @@
           return;
         }
 
-        // ⚠️ DETECÇÃO MAIS RÁPIDA PARA MOBILE: 3 segundos
+        // ⚠️ DETECÇÃO ULTRA RÁPIDA PARA MOBILE: 2 segundos (primeira verificação)
         setTimeout(function () {
           // Se root está vazio
           if (root.children.length === 0 && !whiteScreenDetected) {
@@ -265,21 +333,21 @@
 
             // Se scripts já carregaram mas React não renderizou
             if (!scriptsLoading) {
-              console.warn('⚠️ Página branca detectada após 3 segundos! React não renderizou.');
+              console.warn('⚠️ Página branca detectada após 2 segundos! React não renderizou.');
               whiteScreenDetected = true;
               forceReload();
             }
           }
-        }, 3000); // Reduzido para 3 segundos (mobile é mais rápido)
+        }, 2000); // Reduzido para 2 segundos (ultra rápido para mobile)
 
-        // Verificar novamente após 6 segundos (backup)
+        // Verificar novamente após 4 segundos (backup)
         setTimeout(function () {
           if (root.children.length === 0 && !whiteScreenDetected) {
-            console.warn('⚠️ Página branca detectada após 6 segundos!');
+            console.warn('⚠️ Página branca detectada após 4 segundos!');
             whiteScreenDetected = true;
             forceReload();
           }
-        }, 6000); // Reduzido para 6 segundos
+        }, 4000); // Reduzido para 4 segundos
       }
 
       // Função para forçar reload com limpeza de cache

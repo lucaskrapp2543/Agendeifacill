@@ -92,12 +92,20 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+  
+  // ⚠️ DETECTAR MOBILE PELO USER-AGENT (ANTES DE QUALQUER COISA)
+  const userAgent = request.headers.get('user-agent') || '';
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 
   // ⚠️ REQUISIÇÕES DE NAVEGAÇÃO (HTML) - NUNCA USAR CACHE
   // Para mobile, cache é muito agressivo e causa página branca
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {
+        // ⚠️ DETECTAR MOBILE PELO USER-AGENT
+        const userAgent = request.headers.get('user-agent') || '';
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+        
         // ⚠️ SEMPRE limpar cache de HTML antes de servir (garantia extra)
         try {
           // Limpar cache desta URL específica
@@ -106,6 +114,19 @@ self.addEventListener('fetch', (event) => {
           // Limpar cache de index.html também (pode estar em cache)
           await caches.delete(new Request(url.origin + '/index.html'));
           await caches.delete(new Request(url.origin + '/'));
+          
+          // ⚠️ SE FOR MOBILE: Limpar TODOS os caches (mais agressivo)
+          if (isMobile) {
+            const allCaches = await caches.keys();
+            await Promise.all(allCaches.map(cacheName => {
+              // Limpar TODOS os caches que podem ter HTML (incluindo static)
+              if (cacheName.includes('agendafacil') || cacheName.includes('dynamic') || cacheName.includes('static')) {
+                console.log('📱 Removendo cache em mobile:', cacheName);
+                return caches.delete(cacheName);
+              }
+            }));
+            console.log('📱 Mobile detectado - TODOS os caches de HTML limpos');
+          }
         } catch (e) {
           // Ignorar erros de limpeza
         }
@@ -116,14 +137,17 @@ self.addEventListener('fetch', (event) => {
         
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          // ⚠️ Timeout menor para mobile (5s em vez de 8s)
+          const timeout = isMobile ? 5000 : 8000;
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
           
           const networkResponse = await fetch(request, { 
             signal: controller.signal,
             cache: 'no-store', // ⚠️ SEMPRE buscar da rede (nunca usar cache do navegador)
             headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache'
+              'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+              'Pragma': 'no-cache',
+              'Expires': '0'
             }
           });
           
@@ -158,8 +182,9 @@ self.addEventListener('fetch', (event) => {
             return await fetch(request, { 
               cache: 'no-store',
               headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
+                'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+                'Pragma': 'no-cache',
+                'Expires': '0'
               }
             });
           } catch {

@@ -16,6 +16,20 @@ export const registerServiceWorker = async (): Promise<void> => {
     return;
   }
 
+  // ⚠️ NÃO registrar em mobile (causa página branca)
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (isMobile) {
+    console.log('📱 Service Worker desabilitado em mobile (evita página branca)');
+    
+    // Remover Service Workers existentes
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(reg => reg.unregister()));
+      console.log('🗑️ Service Workers removidos em mobile');
+    }
+    return;
+  }
+
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
