@@ -1,7 +1,8 @@
 // Service Worker para cache inteligente e atualizações forçadas
-const CACHE_NAME = 'agendafacil-v2.2.0';
-const STATIC_CACHE = 'agendafacil-static-v2.2.0';
-const DYNAMIC_CACHE = 'agendafacil-dynamic-v2.2.0';
+// ⚠️ VERSÃO 2.3.0: NUNCA faz cache de HTML (sempre versão nova, sem precisar atualizar)
+const CACHE_NAME = 'agendafacil-v2.3.0';
+const STATIC_CACHE = 'agendafacil-static-v2.3.0';
+const DYNAMIC_CACHE = 'agendafacil-dynamic-v2.3.0';
 
 // Arquivos que devem ser sempre atualizados
 const ALWAYS_UPDATE = [
@@ -53,28 +54,37 @@ self.addEventListener('activate', (event) => {
   console.log('🚀 Service Worker ativando...');
 
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          // Remover TODOS os caches antigos (versões anteriores a 2.2.0)
-          if (cacheName.includes('agendafacil') && 
-              !cacheName.includes('v2.2.0') && 
-              cacheName !== STATIC_CACHE && 
-              cacheName !== DYNAMIC_CACHE) {
-            console.log('🗑️ Removendo cache antigo:', cacheName);
-            return caches.delete(cacheName);
-          }
-          // Remover outros caches antigos também
-          if (cacheName !== STATIC_CACHE && cacheName !== DYNAMIC_CACHE && !cacheName.includes('v2.2.0')) {
-            console.log('🗑️ Removendo cache antigo:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => {
-      console.log('✅ Service Worker ativado - caches antigos removidos');
+    (async () => {
+      // ⚠️ CRÍTICO: Limpar TODOS os caches de HTML ao ativar (especialmente para mobile)
+      // Isso garante que HTML antigo não seja servido mesmo se Service Worker estiver antigo
+      try {
+        const cacheNames = await caches.keys();
+        console.log('🗑️ Limpando TODOS os caches de HTML ao ativar...');
+        
+        // Remover TODOS os caches que podem conter HTML antigo
+        await Promise.all(
+          cacheNames.map(async (cacheName) => {
+            // Se for cache dinâmico (pode ter HTML), limpar
+            if (cacheName.includes('dynamic') || cacheName.includes('agendafacil')) {
+              console.log('🗑️ Removendo cache que pode conter HTML:', cacheName);
+              return caches.delete(cacheName);
+            }
+            // Remover caches antigos também (versões anteriores a 2.3.0)
+            if (!cacheName.includes('v2.3.0') && cacheName !== STATIC_CACHE) {
+              console.log('🗑️ Removendo cache antigo:', cacheName);
+              return caches.delete(cacheName);
+            }
+          })
+        );
+        
+        console.log('✅ Todos os caches de HTML limpos');
+      } catch (error) {
+        console.error('❌ Erro ao limpar caches:', error);
+      }
+      
+      // Continuar com ativação normal
       return self.clients.claim();
-    })
+    })()
   );
 });
 
@@ -90,14 +100,27 @@ self.addEventListener('fetch', (event) => {
       (async () => {
         // ⚠️ CRÍTICO: Verificar se tem parâmetro que força bypass de cache
         const url = new URL(request.url);
-        const forceBypass = url.searchParams.has('v') || url.searchParams.has('reload') || url.searchParams.has('force');
+        const forceBypass = url.searchParams.has('v') || url.searchParams.has('reload') || url.searchParams.has('force') || url.searchParams.has('mobile');
         
-        // Se tiver parâmetro de bypass, NUNCA usar cache
-        if (forceBypass) {
-          console.log('🔄 Navegação inicial detectada, bypass completo de cache');
-          
-          // Limpar qualquer cache existente para esta URL
+        // ⚠️ CRÍTICO: Se for mobile (User-Agent), NUNCA usar cache
+        const userAgent = request.headers.get('user-agent') || '';
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+        
+        // ⚠️ SEMPRE limpar cache de HTML antes de servir (garantia extra)
+        try {
+          // Limpar cache desta URL específica
           await caches.delete(request);
+          
+          // Limpar cache de index.html também (pode estar em cache)
+          await caches.delete(new Request(url.origin + '/index.html'));
+          await caches.delete(new Request(url.origin + '/'));
+        } catch (e) {
+          // Ignorar erros de limpeza
+        }
+        
+        // Se for mobile OU tiver parâmetro de bypass, NUNCA usar cache
+        if (isMobile || forceBypass) {
+          console.log('🔄 Mobile/Bypass detectado - buscando SEMPRE da rede');
           
           try {
             const networkResponse = await fetch(request, { 
@@ -118,7 +141,7 @@ self.addEventListener('fetch', (event) => {
                   throw new Error('HTML corrompido');
                 }
                 
-                // NÃO fazer cache na primeira navegação (evita problemas futuros)
+                // NÃO fazer cache (especialmente em mobile)
                 return networkResponse;
               }
               return networkResponse;
@@ -128,14 +151,15 @@ self.addEventListener('fetch', (event) => {
           }
         }
         
-        // Para navegações subsequentes, tentar rede primeiro
+        // ⚠️ SEMPRE: Tentar rede primeiro para HTML (não importa se mobile ou não)
+        // Isso garante que HTML sempre seja atualizado, mesmo se página não carregar
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 8000);
           
           const networkResponse = await fetch(request, { 
             signal: controller.signal,
-            cache: 'no-store' // ⚠️ SEMPRE buscar da rede
+            cache: 'no-store' // ⚠️ SEMPRE buscar da rede (nunca usar cache do navegador)
           });
           
           clearTimeout(timeoutId);
@@ -150,9 +174,10 @@ self.addEventListener('fetch', (event) => {
                 throw new Error('HTML corrompido');
               }
               
-              // Fazer cache APENAS se HTML estiver completo
-              const cache = await caches.open(DYNAMIC_CACHE);
-              cache.put(request, networkResponse.clone());
+              // ⚠️ CRÍTICO: NUNCA fazer cache de HTML (nem mobile, nem desktop)
+              // Isso garante que sempre terá versão mais nova
+              // Lado positivo: Cliente sempre vê atualizações sem precisar atualizar!
+              console.log('✅ HTML válido recebido da rede - NÃO fazendo cache (sempre versão nova)');
               
               return networkResponse;
             }
