@@ -1325,7 +1325,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <>
                           <button
                             onClick={() => handlePayProfessional(professional, pendingValue)}
-                            className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded transition-colors"
+                            className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white text-sm font-medium rounded transition-colors"
                           >
                             Pagar
                           </button>
@@ -1338,13 +1338,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           setProfessionalPaymentHistory(history);
                           setShowHistoryModal(true);
                         }}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors"
+                        className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white text-sm font-medium rounded transition-colors"
                       >
                         Histórico
                       </button>
                       <button
                         onClick={() => handleDeleteProfessionalFromControl(professional)}
-                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded transition-colors flex items-center gap-1"
+                        className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white text-sm font-medium rounded transition-colors flex items-center gap-1"
                         title="Apagar todos os registros deste profissional do mês atual"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1375,7 +1375,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
                     Se ativada, os assinantes só poderão agendar dentro da mesma semana.
                   </p>
-                  <p className="text-xs sm:text-sm text-yellow-400 mt-1 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1 leading-relaxed">
                     Exemplo: Se hoje é sexta-feira, o assinante só poderá agendar até domingo.
                   </p>
                 </div>
@@ -1388,7 +1388,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       disabled={isUpdatingLimit}
                       className="sr-only peer"
                     />
-                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-black"></div>
                   </label>
                 </div>
               </div>
@@ -1396,8 +1396,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
             {isUpdatingLimit && (
               <div className="px-3 sm:px-4 pb-3 sm:pb-4">
-                <div className="flex items-center gap-2 text-blue-400">
-                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                <div className="flex items-center gap-2 text-gray-400">
+                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-gray-400 border-t-transparent rounded-full"></div>
                   <span className="text-xs sm:text-sm">Atualizando configuração...</span>
                 </div>
               </div>
@@ -1415,7 +1415,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
                     Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia.
                   </p>
-                  <p className="text-xs sm:text-sm text-yellow-400 mt-1 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1 leading-relaxed">
                     Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
                   </p>
                 </div>
@@ -1428,7 +1428,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       disabled={isUpdatingSameDayLimit}
                       className="sr-only peer"
                     />
-                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-black"></div>
                   </label>
                 </div>
               </div>
@@ -1436,8 +1436,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
             {isUpdatingSameDayLimit && (
               <div className="px-3 sm:px-4 pb-3 sm:pb-4">
-                <div className="flex items-center gap-2 text-blue-400">
-                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                <div className="flex items-center gap-2 text-gray-400">
+                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-gray-400 border-t-transparent rounded-full"></div>
                   <span className="text-xs sm:text-sm">Atualizando configuração...</span>
                 </div>
               </div>
@@ -1455,7 +1455,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
                     Ao ativar essa opção seu cliente assinante só poderá fazer um agendamento na mesma semana. Ele ainda pode cancelar agendamento, só assim ele consegue agendar novamente na mesma semana nos respectivos dias do serviço.
                   </p>
-                  <p className="text-xs sm:text-sm text-yellow-400 mt-1 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1 leading-relaxed">
                     Exemplo: Se o assinante já tem agendamento na semana, não pode fazer outro até cancelar o atual.
                   </p>
                 </div>
@@ -1468,7 +1468,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       disabled={isUpdatingOneWeekLimit}
                       className="sr-only peer"
                     />
-                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-black"></div>
                   </label>
                 </div>
               </div>
@@ -1476,8 +1476,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
             {isUpdatingOneWeekLimit && (
               <div className="px-3 sm:px-4 pb-3 sm:pb-4">
-                <div className="flex items-center gap-2 text-blue-400">
-                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                <div className="flex items-center gap-2 text-gray-400">
+                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-gray-400 border-t-transparent rounded-full"></div>
                   <span className="text-xs sm:text-sm">Atualizando configuração...</span>
                 </div>
               </div>
@@ -1499,7 +1499,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="subscriptionName"
               value={newSubscriptionName}
               onChange={(e) => setNewSubscriptionName(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               placeholder="Ex: Plano Mensal, Assinatura VIP"
               required
             />
@@ -1511,7 +1511,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="subscriptionValue"
               value={newSubscriptionValue}
               onChange={(e) => setNewSubscriptionValue(Number(e.target.value))}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               step="0.01"
               min="0"
               required
@@ -1526,7 +1526,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="fixedCommissionValue"
               value={newFixedCommissionValue}
               onChange={(e) => setNewFixedCommissionValue(Number(e.target.value))}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               step="0.01"
               min="0"
               placeholder="Ex: 20, 30, 50 (deixe 0 se quiser preencher manualmente)"
@@ -1541,7 +1541,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="subscriptionDuration"
               value={newSubscriptionDuration}
               onChange={(e) => setNewSubscriptionDuration(Number(e.target.value))}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               required
             >
               <option value={15}>15 minutos</option>
@@ -1583,7 +1583,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         setNewSubscriptionWeekdays(newSubscriptionWeekdays.filter(d => d !== day.value));
                       }
                     }}
-                    className="w-4 h-4 text-blue-600 bg-[#2a2b2c] border-gray-600 rounded focus:ring-blue-500"
+                    className="w-4 h-4 text-gray-700 bg-[#2a2b2c] border-gray-600 rounded focus:ring-gray-500"
                   />
                   <span className="text-sm text-gray-300">{day.label}</span>
                 </label>
@@ -1633,7 +1633,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   </div>
                   <p className="text-gray-400 text-sm">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sub.value)}</p>
                   {sub.weekdays && sub.weekdays.length > 0 && (
-                    <p className="text-blue-400 text-xs mt-1">
+                    <p className="text-gray-400 text-xs mt-1">
                       📅 {sub.weekdays.map(day => {
                         const dayNames = {
                           'monday': 'Seg',
@@ -1649,7 +1649,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </p>
                   )}
                   {sub.is_hidden && (
-                    <p className="text-yellow-500 text-xs mt-1">
+                    <p className="text-gray-500 text-xs mt-1">
                       ⚠️ Não aparece no Booking para novos clientes
                     </p>
                   )}
@@ -1661,7 +1661,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       setEditDescription(sub.description || '');
                       setShowEditDescriptionModal(true);
                     }}
-                    className="text-blue-500 hover:text-blue-400 transition-colors"
+                    className="text-gray-600 hover:text-gray-800 transition-colors"
                     title={sub.description ? "Editar Informações" : "Adicionar Informações"}
                   >
                     <Edit className="h-5 w-5" />
@@ -1672,21 +1672,21 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       setEditLink(sub.custom_link || '');
                       setShowEditLinkModal(true);
                     }}
-                    className="text-green-500 hover:text-green-400 transition-colors"
+                    className="text-gray-600 hover:text-gray-800 transition-colors"
                     title={sub.custom_link ? "Editar Meu Link" : "Adicionar Meu Link"}
                   >
                     🔗
                   </button>
                   <button
                     onClick={() => handleToggleHideSubscription(sub.id, sub.is_hidden || false)}
-                    className={`${sub.is_hidden ? 'text-yellow-500 hover:text-yellow-400' : 'text-gray-500 hover:text-gray-400'} transition-colors`}
+                    className={`${sub.is_hidden ? 'text-gray-600 hover:text-gray-800' : 'text-gray-500 hover:text-gray-700'} transition-colors`}
                     title={sub.is_hidden ? "Desocultar Assinatura (voltar a mostrar no Booking)" : "Ocultar Assinatura (não aparece no Booking para novos clientes)"}
                   >
                     {sub.is_hidden ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
                   </button>
                   <button
                     onClick={() => handleDeleteSubscription(sub.id)}
-                    className="text-red-500 hover:text-red-400 transition-colors"
+                    className="text-gray-600 hover:text-gray-800 transition-colors"
                     title="Deletar Assinatura"
                   >
                     <Trash2 className="h-5 w-5" />
@@ -1704,7 +1704,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           <h2 className="text-xl font-semibold">Adicionar Assinante</h2>
           <button
             onClick={() => setShowRecoveryModal(true)}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center gap-2 text-sm"
+            className="px-4 py-2 bg-black hover:bg-gray-800 text-white rounded-lg transition-colors flex items-center gap-2 text-sm"
             title="Recuperar clientes dos agendamentos"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1720,7 +1720,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="selectSubscription"
               value={selectedSubscriptionToAdd}
               onChange={(e) => setSelectedSubscriptionToAdd(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-gray-500"
               required
             >
               <option value="">Selecione uma assinatura</option>
@@ -1736,7 +1736,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="newClientName"
               value={newClientName}
               onChange={(e) => setNewClientName(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               placeholder="Digite o nome do cliente"
               required
             />
@@ -1748,7 +1748,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="newClientPhone"
               value={newClientPhone}
               onChange={(e) => setNewClientPhone(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               placeholder="Digite o número de telefone"
               required
             />
@@ -1760,7 +1760,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="newClientEmail"
               value={newClientEmail}
               onChange={(e) => setNewClientEmail(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               placeholder="Digite o e-mail do cliente"
               required
             />
@@ -1772,7 +1772,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="startDate"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               required
             />
           </div>
@@ -1783,7 +1783,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               id="endDate"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               required
             />
           </div>
@@ -1927,7 +1927,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                             href={`https://wa.me/${whatsappNumber}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-green-400 hover:text-green-300 transition-colors flex-shrink-0"
+                            className="text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
                             title={`Abrir WhatsApp: ${displayNumber}`}
                           >
                             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -1943,7 +1943,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <span className="flex-1 truncate">Email: {cs.profiles.email}</span>
                         <a
                           href={`mailto:${cs.profiles.email}`}
-                          className="text-blue-400 hover:text-blue-300 transition-colors flex-shrink-0"
+                          className="text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
                           title="Enviar email"
                         >
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -1983,7 +1983,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           setSelectedClientForView(cs);
                           setShowViewAttendancesModal(true);
                         }}
-                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-green-600 text-white hover:bg-green-700 border border-green-600 shadow-md"
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
                       >
                         <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
                         <span className="hidden sm:inline">Atendimentos</span>
@@ -1998,7 +1998,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           setAttendanceValue(fixedCommission && fixedCommission > 0 ? fixedCommission : 0);
                           setShowAddAttendanceModal(true);
                         }}
-                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-blue-600 text-white hover:bg-blue-700 border border-blue-600 shadow-md"
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
                       >
                         <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
                         <span className="hidden sm:inline">Atendimento</span>
@@ -2006,7 +2006,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </button>
                       <button
                         onClick={() => openEditEndDateModal(cs)}
-                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-purple-600 text-white hover:bg-purple-700 border border-purple-600 shadow-md"
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
                         title="Editar data de término"
                       >
                         <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
@@ -2015,7 +2015,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </button>
                       <button
                         onClick={() => openLimitModal(cs)}
-                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-blue-600 text-white hover:bg-blue-700 border border-blue-600 shadow-md"
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
                         title="Definir limite de agendamentos por mês"
                       >
                         <span className="text-xs sm:text-sm">🔢</span>
@@ -2027,7 +2027,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     {/* Botão remover em linha separada */}
                     <button
                       onClick={() => handleDeleteClientSubscription(cs.id, cs.profiles?.full_name || 'Cliente')}
-                      className="w-full inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-red-500/20 text-red-500 hover:bg-red-500/30 border border-red-500/30"
+                      className="w-full inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700"
                     >
                       <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1" /> Remover
                     </button>
@@ -2109,12 +2109,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   ))}
                 </select>
                 {professionals.length === 0 && (
-                  <p className="text-xs text-yellow-400 mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
                     ⚠️ Nenhum profissional encontrado. Execute o SQL primeiro ou adicione profissionais.
                   </p>
                 )}
                 {professionals.length > 0 && (
-                  <p className="text-xs text-green-400 mt-1">
+                  <p className="text-xs text-gray-600 mt-1">
                     ✅ {professionals.length} profissional(is) encontrado(s)
                   </p>
                 )}
@@ -2144,8 +2144,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           required
                           disabled
                         />
-                        <div className="mt-2 p-2 bg-green-900/20 border border-green-600/30 rounded-lg">
-                          <p className="text-xs text-green-400">
+                        <div className="mt-2 p-2 bg-gray-100 border border-gray-300 rounded-lg">
+                          <p className="text-xs text-gray-700">
                             ✅ Valor fixo configurado: R$ {fixedCommission.toFixed(2).replace('.', ',')} (não editável)
                           </p>
                         </div>
@@ -2160,13 +2160,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           id="attendanceValue"
                           value={attendanceValue}
                           onChange={(e) => setAttendanceValue(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500 text-white"
                           step="0.01"
                           min="0"
                           required
                         />
-                        <div className="mt-2 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded-lg">
-                          <p className="text-xs text-yellow-400">
+                        <div className="mt-2 p-2 bg-gray-100 border border-gray-300 rounded-lg">
+                          <p className="text-xs text-gray-700">
                             ⚠️ Nenhum valor fixo configurado para esta assinatura. Preencha manualmente.
                           </p>
                         </div>
@@ -2193,7 +2193,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 <button
                   type="submit"
                   disabled={isSavingAttendance}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-black hover:bg-gray-800 text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {isSavingAttendance ? 'Salvando...' : 'Salvar Atendimento'}
                 </button>
@@ -2311,7 +2311,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 <button
                   type="submit"
                   disabled={isSavingEndDate}
-                  className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-black hover:bg-gray-800 text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {isSavingEndDate ? 'Salvando...' : 'Salvar Datas'}
                 </button>
@@ -2401,7 +2401,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                                 attendance.attendance_date,
                                 attendance.repass_value
                               )}
-                              className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
+                              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors"
                               title="Remover atendimento"
                             >
                               <Trash2 className="h-4 w-4" />

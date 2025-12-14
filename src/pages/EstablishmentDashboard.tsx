@@ -8586,7 +8586,7 @@ Estamos te aguardando! 😎✂️`;
   // Renderização do dashboard quando há estabelecimento
   return (
     <div className="min-h-screen bg-white overflow-x-hidden">
-      <div className="flex">
+      <div className="flex" style={{ minHeight: '100vh' }}>
         {/* Sidebar */}
         <Sidebar
           activeTab={activeTab}
@@ -13890,7 +13890,7 @@ Estamos te aguardando! 😎✂️`;
                               onChange={() => handleToggleWorkDay(day)}
                               className="sr-only peer"
                             />
-                            <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                            <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
                           </label>
                         </div>
 
@@ -15101,7 +15101,7 @@ Estamos te aguardando! 😎✂️`;
                 <div className="mb-6 text-center">
                   <button
                     onClick={() => toggleTutorial('services')}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                    className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
                   >
                     <span>📺</span>
                     <span>Mostrar Tutorial</span>
@@ -15121,14 +15121,14 @@ Estamos te aguardando! 😎✂️`;
               </div>
 
               {/* Lembrete/Explicação sobre como usar categorias */}
-              <div className="bg-blue-50 border-l-4 border-blue-500 rounded-lg p-4 mb-6">
+              <div className="bg-gray-100 border-l-4 border-gray-400 rounded-lg p-4 mb-6">
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0">
-                    <span className="text-blue-600 text-2xl">💡</span>
+                    <span className="text-gray-700 text-2xl">💡</span>
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-blue-900 mb-2">Como usar as categorias:</h3>
-                    <p className="text-sm text-blue-800">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">Como usar as categorias:</h3>
+                    <p className="text-sm text-gray-700">
                       Crie a sua categoria, exemplo: <strong>Cabelo</strong>. Dentro da categoria <strong>Cabelo</strong>, você adiciona os serviços de cabelo (Corte, Escova, Hidratação, etc). Assim por diante para outras categorias como <strong>Barba</strong>, <strong>Estética</strong>, etc.
                     </p>
                   </div>
@@ -15136,8 +15136,8 @@ Estamos te aguardando! 😎✂️`;
               </div>
 
               {/* Mensagem destacada sobre flexibilidade */}
-              <div className="mb-6 p-4 bg-yellow-100 border border-yellow-400 rounded-lg">
-                <p className="text-sm text-yellow-900 font-semibold">
+              <div className="mb-6 p-4 bg-gray-100 border border-gray-300 rounded-lg">
+                <p className="text-sm text-gray-800 font-semibold">
                   ⚠️ Você também pode criar apenas uma categoria escrita <strong>"Meus serviços"</strong> e dentro dela colocar todos os seus serviços. A liberdade é sua, se quer ter categoria para cada serviço ou se quer uma apenas para todos.
                 </p>
               </div>
@@ -15233,7 +15233,7 @@ Estamos te aguardando! 😎✂️`;
                       toast.error('Erro ao salvar. Tente novamente.');
                     }
                   }}
-                  className="px-8 py-4 bg-green-600 text-white font-bold text-lg rounded-lg hover:bg-green-700 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 mx-auto"
+                  className="px-8 py-4 bg-black text-white font-bold text-lg rounded-lg hover:bg-gray-800 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 mx-auto"
                 >
                   <Check className="h-6 w-6" />
                   Salvar Serviços e Abrir Todas as Funções
@@ -15246,7 +15246,7 @@ Estamos te aguardando! 😎✂️`;
                   <p className="text-black mb-4">Nenhuma categoria de serviço cadastrada ainda</p>
                   <button
                     onClick={() => setShowAddCategoryModal(true)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                   >
                     Adicionar Primeira Categoria
                   </button>
@@ -15266,7 +15266,7 @@ Estamos te aguardando! 😎✂️`;
                                 setSelectedCategoryForSubcategory(category.id);
                                 setShowAddSubcategoryModal(true);
                               }}
-                              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                              className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
                             >
                               <Plus className="h-4 w-4" />
                               Adicionar Serviço
@@ -15276,7 +15276,7 @@ Estamos te aguardando! 😎✂️`;
                                 setEditingCategory(category);
                                 setShowEditCategoryModal(true);
                               }}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                              className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
                             >
                               <Edit className="h-4 w-4" />
                               Editar
@@ -15287,7 +15287,7 @@ Estamos te aguardando! 😎✂️`;
                                   handleDeleteCategory(category.id);
                                 }
                               }}
-                              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                              className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
                             >
                               <Trash2 className="h-4 w-4" />
                               Excluir
@@ -15301,11 +15301,11 @@ Estamos te aguardando! 😎✂️`;
                         </p>
 
                         {categorySubcategories.length > 0 && (
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                            <p className="text-blue-800 text-xs sm:text-sm flex items-center gap-2">
+                          <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 mb-4">
+                            <p className="text-gray-700 text-xs sm:text-sm flex items-center gap-2">
                               <span className="text-lg">💡</span>
                               <span>
-                                <strong>Dica:</strong> Use as setas <span className="text-green-600 font-semibold">↑↓</span> ao lado de cada serviço para alterar a ordem de exibição. A ordem que você definir aqui será a mesma que seus clientes verão ao agendar.
+                                <strong>Dica:</strong> Use as setas <span className="text-gray-800 font-semibold">↑↓</span> ao lado de cada serviço para alterar a ordem de exibição. A ordem que você definir aqui será a mesma que seus clientes verão ao agendar.
                               </span>
                             </p>
                           </div>
@@ -15316,7 +15316,7 @@ Estamos te aguardando! 😎✂️`;
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {categorySubcategories.map((subcategory, index) => (
-                              <div key={subcategory.id} className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-blue-100 transition-all">
+                              <div key={subcategory.id} className="bg-gray-50 border-2 border-gray-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-gray-100 transition-all">
                                 <div className="flex items-center justify-between mb-2">
                                   <h4 className="font-medium text-gray-900">{subcategory.name}</h4>
                                   <div className="flex items-center gap-1">
@@ -15349,7 +15349,7 @@ Estamos te aguardando! 😎✂️`;
                                       disabled={index === 0}
                                       className={`p-2 rounded transition-colors ${index === 0
                                         ? 'text-gray-400 cursor-not-allowed'
-                                        : 'text-green-600 hover:bg-green-100'
+                                        : 'text-gray-700 hover:bg-gray-200'
                                         }`}
                                       title="Mover para cima"
                                     >
@@ -15398,7 +15398,7 @@ Estamos te aguardando! 😎✂️`;
                                         setEditingSubcategory(subcategory);
                                         setShowEditSubcategoryModal(true);
                                       }}
-                                      className="p-1 text-blue-600 hover:bg-blue-100 rounded transition-colors"
+                                      className="p-1 text-gray-700 hover:bg-gray-200 rounded transition-colors"
                                       title="Editar serviço"
                                     >
                                       <Edit className="h-3 w-3" />
@@ -15409,7 +15409,7 @@ Estamos te aguardando! 😎✂️`;
                                           handleDeleteSubcategory(subcategory.id);
                                         }
                                       }}
-                                      className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                                      className="p-1 text-gray-700 hover:bg-gray-200 rounded transition-colors"
                                       title="Excluir serviço"
                                     >
                                       <Trash2 className="h-3 w-3" />
@@ -15881,7 +15881,7 @@ Estamos te aguardando! 😎✂️`;
                 <div className="mb-6 text-center">
                   <button
                     onClick={() => toggleTutorial('professionals')}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
+                    className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
                   >
                     <span>📺</span>
                     <span>Mostrar Tutorial</span>
@@ -15966,7 +15966,7 @@ Estamos te aguardando! 😎✂️`;
                   <button
                     type="button"
                     onClick={saveProfessionalsToDatabase}
-                    className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 font-medium"
                   >
                     <Check className="h-4 w-4" />
                     <span>Salvar Profissionais</span>
@@ -15998,14 +15998,14 @@ Estamos te aguardando! 😎✂️`;
                           type="text"
                           value={professional.name}
                           onChange={(e) => handleProfessionalChange(professional.id, 'name', e.target.value)}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-gray-500"
                           placeholder="Nome do profissional"
                         />
                       </div>
                       <button
                         type="button"
                         onClick={() => handleRemoveProfessional(professional.id)}
-                        className="ml-2 text-red-500 hover:text-red-400"
+                        className="ml-2 text-gray-600 hover:text-gray-800 transition-colors"
                       >
                         <Trash2 className="h-5 w-5" />
                       </button>
@@ -16035,7 +16035,7 @@ Estamos te aguardando! 😎✂️`;
                         />
                         <label
                           htmlFor={`photo-${professional.id}`}
-                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 cursor-pointer transition-colors"
+                          className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 cursor-pointer transition-colors"
                         >
                           Alterar Foto
                         </label>
@@ -16054,7 +16054,7 @@ Estamos te aguardando! 😎✂️`;
                           onChange={(e) => {
                             handleProfessionalChange(professional.id, 'percentage', parseFloat(e.target.value) || 0);
                           }}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-gray-500"
                           placeholder="Percentual (%)"
                         />
                       ) : (
@@ -16069,7 +16069,7 @@ Estamos te aguardando! 😎✂️`;
                           <button
                             type="button"
                             onClick={() => handleRequestPercentageEdit(professional.id)}
-                            className="w-full sm:w-auto px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                            className="w-full sm:w-auto px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm"
                           >
                             Ver %
                           </button>
@@ -16092,7 +16092,7 @@ Estamos te aguardando! 😎✂️`;
                               handleUpdateProfessionalPin(professional.id, value);
                             }
                           }}
-                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                          className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-gray-500"
                           placeholder="Senha de 4 dígitos"
                         />
                       ) : (
@@ -16107,7 +16107,7 @@ Estamos te aguardando! 😎✂️`;
                           <button
                             type="button"
                             onClick={() => handleRequestPasswordVisibility(professional.id)}
-                            className="w-full sm:w-auto px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                            className="w-full sm:w-auto px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm"
                           >
                             Ver
                           </button>
@@ -16234,7 +16234,7 @@ Estamos te aguardando! 😎✂️`;
                             onChange={(e) => handleToggleChildService(professional.id, e.target.checked)}
                             className="sr-only peer"
                           />
-                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
                         </label>
                       </div>
                     </div>
@@ -16254,11 +16254,11 @@ Estamos te aguardando! 😎✂️`;
                             onChange={(e) => handleToggleHiddenFromBooking(professional.id, e.target.checked)}
                             className="sr-only peer"
                           />
-                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
                         </label>
                       </div>
                       {professional.hidden_from_booking && (
-                        <p className="text-xs text-orange-400 mt-1">
+                        <p className="text-xs text-gray-500 mt-1">
                           ⚠️ Este profissional não aparecerá no booking público, mas continuará visível no dashboard.
                         </p>
                       )}

@@ -341,10 +341,15 @@ const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
-      <div className={`fixed left-0 top-0 h-full bg-black border-r border-gray-800 transition-all duration-300 z-40 flex flex-col ${isExpanded ? 'w-64' : 'w-16'
-        } md:relative md:z-auto md:flex-shrink-0`}>
+      <div 
+        className={`fixed left-0 top-0 bottom-0 bg-black border-r border-gray-800 transition-all duration-300 z-40 flex flex-col ${isExpanded ? 'w-64' : 'w-16'
+        } md:relative md:h-auto md:z-auto md:flex-shrink-0`} 
+        style={{ 
+          backgroundColor: '#000000'
+        }}
+      >
         {/* Botão de toggle */}
-        <div className="flex justify-between items-center p-2 border-b border-gray-800">
+        <div className="flex justify-between items-center p-2 border-b border-gray-800 bg-black flex-shrink-0">
           {isExpanded && (
             <button
               onClick={() => setIsExpanded(false)}
@@ -386,7 +391,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Lista de itens do menu */}
-        <nav className="p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide">
+        <nav className="p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide bg-black" style={{ backgroundColor: '#000000', flex: '1 1 auto' }}>
           {/* Botão Passo a Passo */}
           <div className="relative">
             <button
@@ -433,7 +438,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                         : item.isActive
                           ? 'bg-white text-black shadow-md'
                           : item.disabled
-                            ? 'bg-black text-gray-500 cursor-not-allowed opacity-50'
+                            ? item.id === 'hours'
+                              ? 'bg-black text-black cursor-not-allowed'
+                              : 'bg-black text-gray-500 cursor-not-allowed opacity-50'
                             : 'bg-black text-white hover:bg-gray-800'
                     }`}
                     title={item.tooltip || (isExpanded ? '' : item.label)}
@@ -441,7 +448,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <div className="relative">
                       <Icon className={`h-5 w-5 flex-shrink-0 ${
                         item.disabled 
-                          ? 'text-gray-500' 
+                          ? item.id === 'hours' 
+                            ? 'text-black' 
+                            : 'text-gray-500'
                           : item.isActive 
                             ? 'text-black' 
                             : 'text-white'
@@ -455,11 +464,23 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                     {isExpanded && (
                       <>
-                        <span className="text-sm font-medium whitespace-nowrap">
+                        <span className={`text-sm font-medium whitespace-nowrap ${
+                          item.disabled && item.id === 'hours'
+                            ? 'text-black'
+                            : item.isActive
+                              ? 'text-black'
+                              : 'text-white'
+                        }`}>
                           {item.label}
                         </span>
                         {item.id !== 'config' && (
-                          <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-50 ml-auto ${item.isActive ? 'text-black' : 'text-white'}`} />
+                          <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-50 ml-auto ${
+                            item.disabled && item.id === 'hours'
+                              ? 'text-black'
+                              : item.isActive 
+                                ? 'text-black' 
+                                : 'text-white'
+                          }`} />
                         )}
                       </>
                     )}
@@ -485,6 +506,9 @@ const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </nav>
+        
+        {/* Garantir fundo preto até o final */}
+        <div className="bg-black flex-shrink-0" style={{ backgroundColor: '#000000' }}></div>
       </div>
     </>
   );

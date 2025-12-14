@@ -278,10 +278,10 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Receipt className="h-8 w-8 text-blue-600" />
+          <Receipt className="h-8 w-8 text-gray-300" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Despesas</h1>
-            <p className="text-sm text-gray-500">
+            <h1 className="text-2xl font-bold text-white">Despesas</h1>
+            <p className="text-sm text-gray-400">
               {expenses.length > 0
                 ? `${expenses.length} despesa${expenses.length > 1 ? 's' : ''} em ${format(selectedMonth, 'MMMM yyyy', { locale: ptBR })}`
                 : `Nenhuma despesa em ${format(selectedMonth, 'MMMM yyyy', { locale: ptBR })}`
@@ -291,7 +291,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
         >
           <Plus className="h-4 w-4" />
           Adicionar Despesa
@@ -299,28 +299,28 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       </div>
 
       {/* Texto Explicativo */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+      <div className="bg-[#1a1b1c] border border-gray-700 rounded-lg p-6 mb-6">
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-            <span className="text-blue-600 text-lg">ℹ️</span>
+          <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center flex-shrink-0">
+            <span className="text-gray-300 text-lg">ℹ️</span>
           </div>
-          <div className="text-sm text-blue-800">
-            <p className="font-medium mb-2">Aqui, qualquer profissional pode registrar despesas — por exemplo:</p>
-            <ul className="space-y-1 mb-3">
+          <div className="text-sm text-gray-300">
+            <p className="font-medium mb-2 text-white">Aqui, qualquer profissional pode registrar despesas — por exemplo:</p>
+            <ul className="space-y-1 mb-3 text-gray-400">
               <li>💰 "Peguei R$50"</li>
               <li>🔧 "Quebrou algo, tirei X do caixa"</li>
               <li>💵 "Recebi um adiantamento de tanto"</li>
               <li>Entre outros.</li>
             </ul>
-            <div className="bg-yellow-100 border border-yellow-300 rounded-lg p-3">
-              <p className="font-medium text-yellow-800">⚠️ Lembre-se: toda retirada deve ser feita com autorização do seu superior.</p>
+            <div className="bg-black border border-gray-700 rounded-lg p-3">
+              <p className="font-medium text-gray-300">⚠️ Lembre-se: toda retirada deve ser feita com autorização do seu superior.</p>
             </div>
-            <p className="mt-3 text-blue-700">
+            <p className="mt-3 text-gray-400">
               Todas as alterações realizadas aqui ficam registradas com histórico no financeiro, garantindo transparência e controle.
             </p>
-            <div className="mt-3 bg-green-100 border border-green-300 rounded-lg p-3">
-              <p className="font-medium text-green-800">📅 Importante:</p>
-              <p className="text-sm text-green-700 mt-1">
+            <div className="mt-3 bg-black border border-gray-700 rounded-lg p-3">
+              <p className="font-medium text-gray-300">📅 Importante:</p>
+              <p className="text-sm text-gray-400 mt-1">
                 Cada mês possui suas próprias despesas. Ao trocar de mês, você verá apenas as despesas daquele período específico.
               </p>
             </div>
@@ -329,52 +329,52 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       </div>
 
       {/* Seletor de Mês */}
-      <div className="flex items-center justify-between mb-6 bg-gray-50 rounded-lg p-4">
+      <div className="flex items-center justify-between mb-6 bg-[#1a1b1c] border border-gray-700 rounded-lg p-4">
         <button
           onClick={handlePreviousMonth}
-          className="p-4 hover:bg-gray-200 rounded-lg transition-colors border border-gray-300 bg-white shadow-sm"
+          className="p-4 hover:bg-black rounded-lg transition-colors border border-gray-700 bg-black shadow-sm"
         >
-          <ChevronLeft className="h-6 w-6 text-gray-700" />
+          <ChevronLeft className="h-6 w-6 text-gray-300" />
         </button>
-        <span className="text-xl font-bold text-gray-900 px-6">
+        <span className="text-xl font-bold text-white px-6">
           {format(selectedMonth, 'MMMM yyyy', { locale: ptBR })}
         </span>
         <button
           onClick={handleNextMonth}
-          className="p-4 hover:bg-gray-200 rounded-lg transition-colors border border-gray-300 bg-white shadow-sm"
+          className="p-4 hover:bg-black rounded-lg transition-colors border border-gray-700 bg-black shadow-sm"
         >
-          <ChevronRight className="h-6 w-6 text-gray-700" />
+          <ChevronRight className="h-6 w-6 text-gray-300" />
         </button>
       </div>
 
       {/* Resumo */}
-      <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
+      <div className="bg-black border border-gray-700 rounded-lg shadow-sm p-6 mb-6">
         <div className="flex items-center gap-2 mb-2">
-          <DollarSign className="h-5 w-5 text-red-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Total de Despesas</h2>
+          <DollarSign className="h-5 w-5 text-red-500" />
+          <h2 className="text-lg font-semibold text-white">Total de Despesas</h2>
         </div>
-        <p className="text-2xl font-bold text-red-600">{formatCurrency(totalExpenses)}</p>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-2xl font-bold text-red-500">{formatCurrency(totalExpenses)}</p>
+        <p className="text-sm text-gray-400 mt-1">
           {expenses.length} {expenses.length === 1 ? 'despesa registrada' : 'despesas registradas'}
         </p>
       </div>
 
       {/* Lista de despesas */}
-      <div className="bg-white rounded-lg shadow-sm border">
+      <div className="bg-black border border-gray-700 rounded-lg shadow-sm">
         <div className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Histórico de Despesas</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Histórico de Despesas</h2>
 
           {expenses.length === 0 ? (
             <div className="text-center py-8">
-              <Receipt className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
+              <Receipt className="h-12 w-12 text-gray-600 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-white mb-2">
                 Nenhuma despesa em {format(selectedMonth, 'MMMM yyyy', { locale: ptBR })}
               </h3>
-              <p className="text-gray-500 mb-4">
+              <p className="text-gray-400 mb-4">
                 Este mês ainda não possui despesas registradas.
               </p>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
-                <p className="text-sm text-blue-800">
+              <div className="bg-[#1a1b1c] border border-gray-700 rounded-lg p-4 max-w-md mx-auto">
+                <p className="text-sm text-gray-300">
                   💡 <strong>Dica:</strong> Cada mês tem suas próprias despesas.
                   Para registrar despesas neste mês, clique em "Adicionar Despesa".
                 </p>
@@ -383,33 +383,33 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
           ) : (
             <div className="space-y-4">
               {expenses.map((expense) => (
-                <div key={expense.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                <div key={expense.id} className="flex items-center justify-between p-4 border border-gray-700 rounded-lg hover:bg-[#1a1b1c] bg-[#1a1b1c]">
                   <div className="flex-1">
-                    <h3 className="font-medium text-gray-900">{expense.name}</h3>
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
+                    <h3 className="font-medium text-white">{expense.name}</h3>
+                    <div className="flex items-center gap-4 text-sm text-gray-400">
                       <span>{formatDate(expense.created_at)}</span>
                       {expense.professional && (
-                        <span className="text-blue-600 font-medium">
+                        <span className="text-gray-300 font-medium">
                           👤 {expense.professional}
                         </span>
                       )}
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="text-lg font-semibold text-red-600">
+                    <span className="text-lg font-semibold text-red-500">
                       {formatCurrency(expense.amount)}
                     </span>
                     <div className="flex gap-2">
                       <button
                         onClick={() => openEditModal(expense)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        className="p-2 text-gray-400 hover:bg-black hover:text-gray-300 rounded-lg transition-colors"
                         title="Editar despesa"
                       >
                         <Edit className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteExpense(expense.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-2 text-gray-400 hover:bg-black hover:text-red-500 rounded-lg transition-colors"
                         title="Excluir despesa"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -426,13 +426,13 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       {/* Modal de Adicionar Despesa */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Adicionar Despesa</h2>
+          <div className="bg-black border border-gray-700 rounded-lg p-6 w-full max-w-md mx-4">
+            <h2 className="text-xl font-semibold text-white mb-4">Adicionar Despesa</h2>
 
             <div className="space-y-4">
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Nome da Despesa
                 </label>
                 <input
@@ -440,12 +440,12 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                   value={newExpense.name}
                   onChange={(e) => setNewExpense(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Ex: Água, Luz, Manutenção..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c] placeholder-gray-500"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Profissional
                 </label>
                 <select
@@ -458,22 +458,22 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                       professional: selectedProfessional?.name || ''
                     }));
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c]"
                 >
                   <option value="">Selecione um profissional</option>
                   {professionals.map((professional) => (
-                    <option key={professional.id} value={professional.id}>
+                    <option key={professional.id} value={professional.id} className="bg-[#1a1b1c]">
                       {professional.name}
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-400 mt-1">
                   Selecione o profissional que registrou a despesa (será descontado do salário dele)
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Valor (R$)
                 </label>
                 <input
@@ -481,7 +481,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                   value={newExpense.amount}
                   onChange={(e) => setNewExpense(prev => ({ ...prev, amount: e.target.value }))}
                   placeholder="0,00"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c] placeholder-gray-500"
                 />
               </div>
             </div>
@@ -492,13 +492,13 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                   setShowAddModal(false);
                   setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '' });
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-[#1a1b1c] transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleAddExpense}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
                 Adicionar
               </button>
@@ -510,13 +510,13 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       {/* Modal de Editar Despesa */}
       {showEditModal && editingExpense && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Editar Despesa</h2>
+          <div className="bg-black border border-gray-700 rounded-lg p-6 w-full max-w-md mx-4">
+            <h2 className="text-xl font-semibold text-white mb-4">Editar Despesa</h2>
 
             <div className="space-y-4">
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Nome da Despesa
                 </label>
                 <input
@@ -524,12 +524,12 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                   value={newExpense.name}
                   onChange={(e) => setNewExpense(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Ex: Água, Luz, Manutenção..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c] placeholder-gray-500"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Profissional
                 </label>
                 <select
@@ -542,22 +542,22 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                       professional: selectedProfessional?.name || ''
                     }));
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c]"
                 >
                   <option value="">Selecione um profissional</option>
                   {professionals.map((professional) => (
-                    <option key={professional.id} value={professional.id}>
+                    <option key={professional.id} value={professional.id} className="bg-[#1a1b1c]">
                       {professional.name}
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-400 mt-1">
                   Selecione o profissional que registrou a despesa (será descontado do salário dele)
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Valor (R$)
                 </label>
                 <input
@@ -565,7 +565,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                   value={newExpense.amount}
                   onChange={(e) => setNewExpense(prev => ({ ...prev, amount: e.target.value }))}
                   placeholder="0,00"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c] placeholder-gray-500"
                 />
               </div>
             </div>
@@ -577,13 +577,13 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                   setEditingExpense(null);
                   setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '' });
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-[#1a1b1c] transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleEditExpense}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
                 Salvar
               </button>
