@@ -234,39 +234,58 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     // Calcular o valor que ficaria após deletar este pagamento
     const newTotalPaid = currentTotalPaid - paymentAmount;
 
-    // Validar: não pode deixar o valor acumulado negativo
-    // O valor acumulado é o currentLiquidValue menos o total pago
-    // Se deletar este pagamento, o novo total pago seria newTotalPaid
-    // O valor acumulado seria: currentLiquidValue - newTotalPaid
-    // Isso não pode ser negativo, então: currentLiquidValue - newTotalPaid >= 0
-    // Ou seja: newTotalPaid <= currentLiquidValue
-    // Ou: currentTotalPaid - paymentAmount <= currentLiquidValue
-    // Ou: paymentAmount >= currentTotalPaid - currentLiquidValue
+    // Verificar se há pagamentos duplicados (mesmo valor)
+    const duplicatePayments = professionalPayments.filter(
+      p => Math.abs(p.amount - paymentAmount) < 0.01 && p.id !== paymentId
+    );
+    const hasDuplicate = duplicatePayments.length > 0;
 
-    // Se o total pago já é maior que o valor líquido (bug de duplicação),
-    // só pode deletar o excesso para não deixar negativo
+    // Validar: não pode deixar o valor acumulado negativo
+    // EXCETO se houver pagamento duplicado (para corrigir erro)
     if (currentTotalPaid > currentLiquidValue) {
       const maxAllowedToDelete = currentTotalPaid - currentLiquidValue;
 
       if (paymentAmount > maxAllowedToDelete) {
-        const excessAmount = paymentAmount - maxAllowedToDelete;
-        toast.error(
-          `Não é possível deletar este pagamento de ${formatCurrency(paymentAmount)}. ` +
-          `Isso deixaria o valor acumulado negativo em ${formatCurrency(excessAmount)}. ` +
-          `Você só pode deletar até ${formatCurrency(maxAllowedToDelete)} para manter o valor correto. ` +
-          `(Valor líquido: ${formatCurrency(currentLiquidValue)}, Total pago: ${formatCurrency(currentTotalPaid)})`
-        );
-        return;
+        // Se há pagamento duplicado, permitir deletar com confirmação especial
+        if (hasDuplicate) {
+          const excessAmount = paymentAmount - maxAllowedToDelete;
+          const confirmMessage =
+            `⚠️ ATENÇÃO: Este pagamento parece ser uma duplicação!\n\n` +
+            `Você está tentando deletar um pagamento de ${formatCurrency(paymentAmount)}.\n` +
+            `Isso deixaria o valor acumulado negativo em ${formatCurrency(excessAmount)}.\n\n` +
+            `Valor líquido: ${formatCurrency(currentLiquidValue)}\n` +
+            `Total pago atual: ${formatCurrency(currentTotalPaid)}\n` +
+            `Total pago após deletar: ${formatCurrency(newTotalPaid)}\n\n` +
+            `Há ${duplicatePayments.length} outro(s) pagamento(s) com o mesmo valor.\n\n` +
+            `Deseja mesmo deletar este pagamento duplicado?`;
+
+          if (!window.confirm(confirmMessage)) {
+            return;
+          }
+          // Continuar com a deleção mesmo deixando negativo (é para corrigir erro)
+        } else {
+          // Não há duplicação, bloquear normalmente
+          const excessAmount = paymentAmount - maxAllowedToDelete;
+          toast.error(
+            `Não é possível deletar este pagamento de ${formatCurrency(paymentAmount)}. ` +
+            `Isso deixaria o valor acumulado negativo em ${formatCurrency(excessAmount)}. ` +
+            `Você só pode deletar até ${formatCurrency(maxAllowedToDelete)} para manter o valor correto. ` +
+            `(Valor líquido: ${formatCurrency(currentLiquidValue)}, Total pago: ${formatCurrency(currentTotalPaid)})`
+          );
+          return;
+        }
       }
     }
 
-    // Confirmar antes de deletar
-    if (!window.confirm(
-      `Tem certeza que deseja deletar este pagamento de ${formatCurrency(paymentAmount)}?\n\n` +
-      `Valor total pago atual: ${formatCurrency(currentTotalPaid)}\n` +
-      `Valor total pago após deletar: ${formatCurrency(newTotalPaid)}`
-    )) {
-      return;
+    // Confirmar antes de deletar (caso normal)
+    if (!hasDuplicate) {
+      if (!window.confirm(
+        `Tem certeza que deseja deletar este pagamento de ${formatCurrency(paymentAmount)}?\n\n` +
+        `Valor total pago atual: ${formatCurrency(currentTotalPaid)}\n` +
+        `Valor total pago após deletar: ${formatCurrency(newTotalPaid)}`
+      )) {
+        return;
+      }
     }
 
     if (isProcessing) {

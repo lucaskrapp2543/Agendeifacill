@@ -112,20 +112,41 @@ const handleChunkErrors = () => {
 // Inicializar detecção de erros
 handleChunkErrors();
 
-// Verificar atualização IMEDIATAMENTE ao carregar (apenas em produção)
+// ⚠️ DETECÇÃO DE LOOP DE RELOAD: Verificar primeiro se há loop antes de qualquer coisa
 if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-  // Importar e verificar atualizações
-  import('./utils/versionManager').then(({ checkForUpdates }) => {
-    const updateInfo = checkForUpdates();
-    if (updateInfo.hasUpdate) {
-      console.log('🔄 Atualização detectada na inicialização:', updateInfo);
-      // Disparar evento imediatamente (UpdateNotification vai mostrar)
-      window.dispatchEvent(new CustomEvent('app-update-available', {
-        detail: updateInfo
-      }));
+  import('./utils/cacheCleaner').then(({ detectAndCleanReloadLoop, checkAndCleanCorruptedData }) => {
+    // Verificar e limpar dados corrompidos preventivamente
+    checkAndCleanCorruptedData();
 
-      // NÃO forçar atualização automática aqui - deixa o usuário clicar
-      // Isso evita loops e problemas de recarregamento
+    // Detectar se há loop de reload
+    const hasLoop = detectAndCleanReloadLoop();
+
+    if (hasLoop) {
+      console.warn('🚨 Loop de reload detectado! Limpeza realizada. Aguardando antes de continuar...');
+      // Aguardar um pouco antes de continuar para evitar reload imediato
+      setTimeout(() => {
+        // Continuar com verificação de atualizações normalmente
+        import('./utils/versionManager').then(({ checkForUpdates }) => {
+          const updateInfo = checkForUpdates();
+          if (updateInfo.hasUpdate) {
+            console.log('🔄 Atualização detectada na inicialização:', updateInfo);
+            window.dispatchEvent(new CustomEvent('app-update-available', {
+              detail: updateInfo
+            }));
+          }
+        });
+      }, 2000);
+    } else {
+      // Sem loop, verificar atualizações normalmente
+      import('./utils/versionManager').then(({ checkForUpdates }) => {
+        const updateInfo = checkForUpdates();
+        if (updateInfo.hasUpdate) {
+          console.log('🔄 Atualização detectada na inicialização:', updateInfo);
+          window.dispatchEvent(new CustomEvent('app-update-available', {
+            detail: updateInfo
+          }));
+        }
+      });
     }
   });
 }

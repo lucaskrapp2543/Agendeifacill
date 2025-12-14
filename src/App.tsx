@@ -59,6 +59,14 @@ function App() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+  // Verificar e limpar dados corrompidos na inicialização
+  React.useEffect(() => {
+    // Importar e executar limpeza preventiva
+    import('./utils/cacheCleaner').then(({ checkAndCleanCorruptedData }) => {
+      checkAndCleanCorruptedData();
+    });
+  }, []);
+
   // Registrar Service Worker
   React.useEffect(() => {
     registerServiceWorker();
@@ -71,119 +79,119 @@ function App() {
 
   return (
     <ErrorBoundary>
-    <div className="min-h-screen bg-background text-foreground">
-      <CacheBuster />
-      <ConnectionStatus />
-      <UpdateNotification />
-      <Toaster
-        position="top-center"
-        toastOptions={{
-          style: {
-            background: '#1a1b1c',
-            color: '#ffffff',
-            border: '1px solid #374151',
-            marginTop: '80px', // Adiciona margem para não ficar em cima do header
-            zIndex: 9999,
-          }
-        }}
-      />
-      <SupabaseProvider>
-        <AuthProvider>
-          <ConnectivityChecker>
-            <Router>
-              <PWARedirect />
-              <Routes>
-                <Route path="/" element={<LandingVendas />} />
-                <Route path="/info" element={<LandingInfo />} />
-                <Route path="/landing" element={<LandingPage />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/recovery-password" element={<RecoveryPassword />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="/view-appointments" element={<ViewAppointmentsPage />} />
-                <Route path="/conhecer" element={<Conhecer />} />
-                <Route path="/conhecerv2" element={<ConhecerV2 />} />
-                <Route path="/conhecerv3" element={<ConhecerV3 />} />
-                <Route path="/conhecerv4" element={<ConhecerV4 />} />
-                <Route path="/conhecerv5" element={<ConhecerV5 />} />
-                <Route path="/cadastroag" element={<CadastroAg />} />
-                <Route path="/testefree" element={<TesteFree />} />
-                <Route path="/suporte060622" element={<Suporte060622 />} />
+      <div className="min-h-screen bg-background text-foreground">
+        <CacheBuster />
+        <ConnectionStatus />
+        <UpdateNotification />
+        <Toaster
+          position="top-center"
+          toastOptions={{
+            style: {
+              background: '#1a1b1c',
+              color: '#ffffff',
+              border: '1px solid #374151',
+              marginTop: '80px', // Adiciona margem para não ficar em cima do header
+              zIndex: 9999,
+            }
+          }}
+        />
+        <SupabaseProvider>
+          <AuthProvider>
+            <ConnectivityChecker>
+              <Router>
+                <PWARedirect />
+                <Routes>
+                  <Route path="/" element={<LandingVendas />} />
+                  <Route path="/info" element={<LandingInfo />} />
+                  <Route path="/landing" element={<LandingPage />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+                  <Route path="/recovery-password" element={<RecoveryPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/view-appointments" element={<ViewAppointmentsPage />} />
+                  <Route path="/conhecer" element={<Conhecer />} />
+                  <Route path="/conhecerv2" element={<ConhecerV2 />} />
+                  <Route path="/conhecerv3" element={<ConhecerV3 />} />
+                  <Route path="/conhecerv4" element={<ConhecerV4 />} />
+                  <Route path="/conhecerv5" element={<ConhecerV5 />} />
+                  <Route path="/cadastroag" element={<CadastroAg />} />
+                  <Route path="/testefree" element={<TesteFree />} />
+                  <Route path="/suporte060622" element={<Suporte060622 />} />
 
-                <Route path="/verusuariosgratis060622" element={<VerUsuariosGratis060622 />} />
-                <Route
-                  path="/ver-testes-free"
-                  element={
-                    <ProtectedRoute allowedRoles={['support']}>
-                      <VerTestesFree />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="/cadastropremium060622" element={<CadastroPremium060622 />} />
-                <Route path="/cadastroestabelecimento060622" element={<CadastroEstabelecimento060622 />} />
-                <Route path="/app" element={<AppInstallPage />} />
+                  <Route path="/verusuariosgratis060622" element={<VerUsuariosGratis060622 />} />
+                  <Route
+                    path="/ver-testes-free"
+                    element={
+                      <ProtectedRoute allowedRoles={['support']}>
+                        <VerTestesFree />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="/cadastropremium060622" element={<CadastroPremium060622 />} />
+                  <Route path="/cadastroestabelecimento060622" element={<CadastroEstabelecimento060622 />} />
+                  <Route path="/app" element={<AppInstallPage />} />
 
-                {/* Protected Routes */}
-                <Route
-                  path="/dashboard/client"
-                  element={
-                    <ProtectedRoute allowedRoles={['client']}>
-                      <ClientDashboard />
-                    </ProtectedRoute>
-                  }
-                />
+                  {/* Protected Routes */}
+                  <Route
+                    path="/dashboard/client"
+                    element={
+                      <ProtectedRoute allowedRoles={['client']}>
+                        <ClientDashboard />
+                      </ProtectedRoute>
+                    }
+                  />
 
-                <Route
-                  path="/dashboard/premium"
-                  element={
-                    <ProtectedRoute allowedRoles={['premium']}>
-                      <PremiumDashboard />
-                    </ProtectedRoute>
-                  }
-                />
+                  <Route
+                    path="/dashboard/premium"
+                    element={
+                      <ProtectedRoute allowedRoles={['premium']}>
+                        <PremiumDashboard />
+                      </ProtectedRoute>
+                    }
+                  />
 
-                <Route
-                  path="/dashboard/establishment"
-                  element={
-                    <ProtectedRoute allowedRoles={['establishment']}>
-                      <BlockedCheck>
-                        <EstablishmentDashboard />
-                      </BlockedCheck>
-                    </ProtectedRoute>
-                  }
-                />
+                  <Route
+                    path="/dashboard/establishment"
+                    element={
+                      <ProtectedRoute allowedRoles={['establishment']}>
+                        <BlockedCheck>
+                          <EstablishmentDashboard />
+                        </BlockedCheck>
+                      </ProtectedRoute>
+                    }
+                  />
 
-                <Route
-                  path="/dashboard/admin"
-                  element={<AdminDashboard />}
-                />
+                  <Route
+                    path="/dashboard/admin"
+                    element={<AdminDashboard />}
+                  />
 
-                <Route
-                  path="/blocked"
-                  element={<BlockedPage />}
-                />
+                  <Route
+                    path="/blocked"
+                    element={<BlockedPage />}
+                  />
 
-                <Route
-                  path="/booking/:id"
-                  element={<BookingPage />}
-                />
+                  <Route
+                    path="/booking/:id"
+                    element={<BookingPage />}
+                  />
 
-                <Route path="/success" element={<Success />} />
-                <Route path="/registration-success" element={<RegistrationSuccess />} />
-                <Route path="/registrationfree-success" element={<RegistrationFreeSuccess />} />
+                  <Route path="/success" element={<Success />} />
+                  <Route path="/registration-success" element={<RegistrationSuccess />} />
+                  <Route path="/registrationfree-success" element={<RegistrationFreeSuccess />} />
 
-                {/* Rota dinâmica para agendamento direto */}
-                <Route path="/:slug" element={<EstablishmentDirectBooking />} />
+                  {/* Rota dinâmica para agendamento direto */}
+                  <Route path="/:slug" element={<EstablishmentDirectBooking />} />
 
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
 
-            </Router>
-          </ConnectivityChecker>
-        </AuthProvider>
-      </SupabaseProvider>
-    </div>
-      </ErrorBoundary>
+              </Router>
+            </ConnectivityChecker>
+          </AuthProvider>
+        </SupabaseProvider>
+      </div>
+    </ErrorBoundary>
   );
 }
 

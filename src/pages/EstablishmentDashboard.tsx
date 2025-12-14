@@ -8680,46 +8680,91 @@ Estamos te aguardando! 😎✂️`;
               {/* Tab de Agendamentos */}
               {activeTab === 'appointments' && (
                 <>
-                  {/* Popup de Alerta de Pagamento */}
+                  {/* Popup de Alerta de Pagamento - URGENTE */}
                   {showPaymentAlert && establishment && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative">
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
-                            <span className="text-gray-700 text-2xl">⚠️</span>
+                    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[9999] p-3 sm:p-4">
+                      <div className="bg-gradient-to-br from-red-600 via-red-700 to-red-800 rounded-lg shadow-2xl max-w-sm w-full p-4 sm:p-5 relative border-2 border-red-400 z-10">
+                        {/* Efeito de brilho sutil (sem piscar rápido) - não bloqueia cliques */}
+                        <div className="absolute inset-0 bg-red-500 rounded-lg opacity-10 pointer-events-none"></div>
+
+                        {/* Ícone de alerta */}
+                        <div className="flex items-center justify-center mb-3">
+                          <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 rounded-full flex items-center justify-center border-2 border-white/50">
+                            <span className="text-2xl sm:text-3xl">🚨</span>
                           </div>
-                          <h2 className="text-xl font-bold text-gray-900">Atenção!</h2>
                         </div>
-                        <p className="text-gray-700 mb-6 leading-relaxed">
-                          Seu sistema <strong>Agendei Fácil</strong> está com o pagamento em atraso.
+
+                        {/* Título principal - chamativo mas legível */}
+                        <h2 className="text-lg sm:text-xl font-black text-white text-center mb-3 drop-shadow-lg">
+                          ⚠️ ATENÇÃO URGENTE! ⚠️
+                        </h2>
+
+                        {/* Mensagem principal com destaque */}
+                        <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3 mb-3 border-2 border-white/30">
+                          <p className="text-white text-xs sm:text-sm font-bold mb-2 text-center leading-relaxed">
+                            Seu sistema <span className="text-yellow-300">Agendei Fácil</span> está com o pagamento em <span className="text-red-200 underline">ATRASO</span>!
+                          </p>
+
+                          {/* Alerta de bloqueio iminente - sem piscar */}
+                          <div className="bg-red-900/80 border-2 border-yellow-400 rounded-lg p-2.5 mt-2.5">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className="text-lg">🔒</span>
+                              <p className="text-yellow-300 font-black text-sm sm:text-base">
+                                BLOQUEIO IMINENTE!
+                              </p>
+                            </div>
+                            <p className="text-white font-bold text-xs sm:text-sm leading-relaxed">
+                              Seu acesso será <span className="text-red-200 underline font-extrabold">BLOQUEADO EM POUCOS DIAS</span> se o pagamento não for regularizado!
+                            </p>
+                            <p className="text-yellow-200 text-xs mt-1.5 font-semibold">
+                              ⏰ Não perca acesso ao seu sistema! Regularize agora!
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Mensagem de ação */}
+                        <p className="text-white text-center mb-3 font-semibold text-xs sm:text-sm">
+                          Evite o bloqueio e mantenha tudo funcionando normalmente.
                         </p>
-                        <p className="text-gray-700 mb-6 leading-relaxed">
-                          Evite o bloqueio do acesso e mantenha tudo funcionando normalmente.
-                        </p>
-                        <p className="text-gray-700 mb-6 leading-relaxed">
-                          Clique em "Pagar agora" para regularizar sua assinatura.
-                        </p>
-                        <div className="flex gap-3 justify-end">
+
+                        {/* Botões de ação */}
+                        <div className="flex flex-col gap-2">
                           <button
-                            onClick={() => setShowPaymentAlert(false)}
-                            className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-                          >
-                            Fechar
-                          </button>
-                          <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
                               const whatsappNumber = '5548991265320';
                               const message = encodeURIComponent(`Olá! Quero deixar meu sistema em dia.\n\nNome do meu estabelecimento: ${establishment.name}`);
                               window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                              setShowPaymentAlert(false);
                             }}
-                            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center gap-2"
+                            className="w-full py-2.5 px-3 bg-gradient-to-r from-yellow-400 to-yellow-500 text-red-900 rounded-lg hover:from-yellow-300 hover:to-yellow-400 transition-all font-black text-sm sm:text-base shadow-xl transform hover:scale-105 flex items-center justify-center gap-2 border-2 border-yellow-300 cursor-pointer relative z-20"
+                            type="button"
                           >
-                            Pagar agora
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            <span className="text-lg">💳</span>
+                            <span>PAGAR AGORA - REGULARIZAR</span>
+                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
                             </svg>
                           </button>
+
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setShowPaymentAlert(false);
+                            }}
+                            className="w-full px-3 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 active:bg-white/40 transition-colors font-semibold text-xs sm:text-sm border border-white/30 cursor-pointer relative z-20"
+                            type="button"
+                          >
+                            Fechar (não recomendado)
+                          </button>
                         </div>
+
+                        {/* Aviso final */}
+                        <p className="text-center text-red-200 text-xs mt-2.5 font-semibold">
+                          ⚠️ Este alerta aparecerá toda vez que você acessar "Meus Agendamentos" até o pagamento ser regularizado
+                        </p>
                       </div>
                     </div>
                   )}
