@@ -1,6 +1,6 @@
 // Sistema de gerenciamento de versão e atualização forçada
 
-const APP_VERSION = '2.2.0'; // Versão com correções críticas de tela branca - ATUALIZAÇÃO OBRIGATÓRIA
+const APP_VERSION = '2.3.0'; // Versão com correções críticas de login e cache - ATUALIZAÇÃO OBRIGATÓRIA
 const VERSION_KEY = 'agendafacil_app_version';
 const LAST_UPDATE_CHECK_KEY = 'agendafacil_last_update_check';
 
@@ -78,15 +78,16 @@ const shouldForceUpdate = (oldVersion: string, newVersion: string): boolean => {
   const forceUpdateVersions = [
     '2.0.0', // Versão com melhorias de 4G
     '2.1.0', // Versão com correções de RLS
-    '2.2.0'  // ⚠️ CORREÇÃO CRÍTICA: Tela branca e erros de cache - OBRIGATÓRIA
+    '2.2.0', // ⚠️ CORREÇÃO CRÍTICA: Tela branca e erros de cache - OBRIGATÓRIA
+    '2.3.0'  // ⚠️ CORREÇÃO CRÍTICA: Bugs de login e cache - OBRIGATÓRIA
   ];
   
-  // Se a versão antiga for menor que 2.2.0, FORÇAR atualização
+  // Se a versão antiga for menor que 2.3.0, FORÇAR atualização
   const oldVersionNum = parseFloat(oldVersion);
   const newVersionNum = parseFloat(newVersion);
   
-  if (oldVersionNum < 2.2 && newVersionNum >= 2.2) {
-    return true; // Forçar atualização para versão 2.2.0+
+  if (oldVersionNum < 2.3 && newVersionNum >= 2.3) {
+    return true; // Forçar atualização para versão 2.3.0+
   }
   
   return forceUpdateVersions.includes(newVersion);
@@ -161,6 +162,104 @@ export const applyUpdate = async (): Promise<void> => {
     setTimeout(() => {
       window.location.reload();
     }, 1000);
+  }
+};
+
+// Função de LIMPEZA COMPLETA FORÇADA - limpa TUDO
+export const forceCompleteCleanup = async (): Promise<void> => {
+  try {
+    console.log('🧹 Iniciando limpeza completa forçada...');
+    
+    // 1. Limpar Service Workers PRIMEIRO
+    if ('serviceWorker' in navigator) {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(registration => registration.unregister()));
+        console.log('✅ Service Workers removidos');
+      } catch (error) {
+        console.warn('⚠️ Erro ao remover Service Workers:', error);
+      }
+    }
+    
+    // 2. Limpar TODOS os caches
+    if ('caches' in window) {
+      try {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)));
+        console.log('✅ Todos os caches removidos');
+      } catch (error) {
+        console.warn('⚠️ Erro ao limpar cache:', error);
+      }
+    }
+    
+    // 3. Limpar IndexedDB COMPLETAMENTE
+    if ('indexedDB' in window) {
+      try {
+        const databases = await indexedDB.databases();
+        await Promise.all(
+          databases.map(db => {
+            if (db.name) {
+              return new Promise<void>((resolve, reject) => {
+                const deleteReq = indexedDB.deleteDatabase(db.name!);
+                deleteReq.onsuccess = () => resolve();
+                deleteReq.onerror = () => reject(deleteReq.error);
+              });
+            }
+          })
+        );
+        console.log('✅ IndexedDB limpo');
+      } catch (error) {
+        console.warn('⚠️ Erro ao limpar IndexedDB:', error);
+      }
+    }
+    
+    // 4. Limpar TODOS os cookies
+    document.cookie.split(";").forEach((c) => {
+      const cookieName = c.split("=")[0].trim();
+      // Limpar cookie para todos os paths e domains possíveis
+      document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+      document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
+      document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.${window.location.hostname};`;
+    });
+    console.log('✅ Todos os cookies removidos');
+    
+    // 5. Limpar sessionStorage
+    try {
+      sessionStorage.clear();
+      console.log('✅ sessionStorage limpo');
+    } catch (error) {
+      console.warn('⚠️ Erro ao limpar sessionStorage:', error);
+    }
+    
+    // 6. Limpar localStorage (EXCETO a versão que será salva depois)
+    try {
+      const currentVersion = getCurrentVersion();
+      const keysToKeep = [VERSION_KEY]; // Manter apenas a versão
+      
+      // Salvar versão atual antes de limpar
+      setStoredVersion(currentVersion);
+      
+      // Limpar tudo exceto a versão
+      const allKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && !keysToKeep.includes(key)) {
+          allKeys.push(key);
+        }
+      }
+      
+      allKeys.forEach(key => localStorage.removeItem(key));
+      console.log('✅ localStorage limpo (versão preservada)');
+    } catch (error) {
+      console.warn('⚠️ Erro ao limpar localStorage:', error);
+    }
+    
+    // 7. Limpar cache do navegador (forçar reload sem cache)
+    console.log('✅ Limpeza completa finalizada');
+    
+  } catch (error) {
+    console.error('❌ Erro na limpeza completa:', error);
+    throw error;
   }
 };
 

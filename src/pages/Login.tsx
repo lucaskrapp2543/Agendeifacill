@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { checkForUpdates, forceCompleteCleanup, getCurrentVersion, setStoredVersion } from '../utils/versionManager';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -15,7 +16,8 @@ const Login = () => {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn } = useAuth();
+  const { signIn, user, isLoading: authLoading } = useAuth();
+  const [hasNavigated, setHasNavigated] = useState(false);
 
   // Função para ler cookies
   const getCookie = (name: string) => {
@@ -25,8 +27,69 @@ const Login = () => {
     return null;
   };
 
+  // Verificar se usuário já está logado e redirecionar
+  useEffect(() => {
+    if (!authLoading && user && !hasNavigated) {
+      const returnUrl = location.state?.returnUrl;
+      if (returnUrl) {
+        setHasNavigated(true);
+        navigate(returnUrl, { replace: true });
+        return;
+      } else if (user?.email === 'suporteagendeifacil@gmail.com') {
+        setHasNavigated(true);
+        navigate('/dashboard/admin', { replace: true });
+        return;
+      } else if (user?.user_metadata?.role) {
+        setHasNavigated(true);
+        navigate(`/dashboard/${user.user_metadata.role}`, { replace: true });
+        return;
+      }
+    }
+  }, [user, authLoading, navigate, location.state, hasNavigated]);
+
+  // Verificar versão e forçar limpeza se necessário
+  useEffect(() => {
+    const checkVersionAndCleanup = async () => {
+      try {
+        const updateInfo = checkForUpdates();
+        
+        // Se há atualização obrigatória, forçar limpeza completa
+        if (updateInfo.hasUpdate && updateInfo.forceUpdate) {
+          console.log('⚠️ Versão antiga detectada, forçando limpeza completa...');
+          toast.loading('Atualizando sistema...', { id: 'update' });
+          
+          // Salvar versão atual ANTES de limpar
+          const currentVersion = getCurrentVersion();
+          setStoredVersion(currentVersion);
+          
+          // Aguardar um pouco para garantir que versão foi salva
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Forçar limpeza completa
+          await forceCompleteCleanup();
+          
+          toast.success('Sistema atualizado! Recarregando...', { id: 'update' });
+          
+          // Recarregar página após limpeza
+          setTimeout(() => {
+            window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now();
+          }, 1000);
+          
+          return;
+        }
+      } catch (error) {
+        console.error('Erro ao verificar versão:', error);
+      }
+    };
+    
+    checkVersionAndCleanup();
+  }, []);
+
   // Carregar credenciais salvas do localStorage
   useEffect(() => {
+    // Só carregar se não estiver logado
+    if (authLoading || user) return;
+
     const savedEmail = localStorage.getItem('saved_email');
     const savedPassword = localStorage.getItem('saved_password');
     const savedCredentialsFlag = localStorage.getItem('save_credentials') === 'true';
@@ -42,74 +105,58 @@ const Login = () => {
     if (!systemUpdated) {
       setShowUpdateButton(true);
     }
-  }, []);
+  }, [authLoading, user]);
 
   const handleUpdateSystem = async () => {
     try {
-      // Limpar localStorage completamente
-      localStorage.clear();
-
-      // Limpar sessionStorage
-      sessionStorage.clear();
-
-      // Limpar todos os cookies
-      document.cookie.split(";").forEach((c) => {
-        document.cookie = c
-          .replace(/^ +/, "")
-          .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-      });
-
+      setIsLoading(true);
+      toast.loading('Limpando cache e atualizando sistema...', { id: 'cleanup' });
+      
+      // Salvar versão atual ANTES de limpar
+      const currentVersion = getCurrentVersion();
+      setStoredVersion(currentVersion);
+      
+      // Aguardar para garantir que versão foi salva
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Usar função de limpeza completa
+      await forceCompleteCleanup();
+      
       // Marcar que o sistema foi atualizado (usando cookie que persiste)
       const expiryDate = new Date();
       expiryDate.setFullYear(expiryDate.getFullYear() + 10); // Cookie válido por 10 anos
       document.cookie = `system_updated=true; expires=${expiryDate.toUTCString()}; path=/`;
 
-      // Limpar cache do navegador (via Cache API)
-      if ('caches' in window) {
-        const cacheNames = await caches.keys();
-        await Promise.all(
-          cacheNames.map(cacheName => caches.delete(cacheName))
-        );
-      }
-
-      // Limpar IndexedDB
-      if ('indexedDB' in window) {
-        try {
-          const databases = await indexedDB.databases();
-          await Promise.all(
-            databases.map(db => {
-              if (db.name) {
-                return new Promise<void>((resolve, reject) => {
-                  const deleteReq = indexedDB.deleteDatabase(db.name!);
-                  deleteReq.onsuccess = () => resolve();
-                  deleteReq.onerror = () => reject(deleteReq.error);
-                });
-              }
-            })
-          );
-        } catch (error) {
-          console.error('Erro ao limpar IndexedDB:', error);
-        }
-      }
-
-      toast.success('Sistema atualizado! Recarregando...');
+      toast.success('Sistema atualizado! Recarregando...', { id: 'cleanup' });
 
       // Recarregar a página após um pequeno delay
       setTimeout(() => {
-        window.location.reload();
+        window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now();
       }, 1000);
     } catch (error) {
       console.error('Erro ao atualizar sistema:', error);
-      toast.error('Erro ao atualizar sistema');
+      toast.error('Erro ao atualizar sistema', { id: 'cleanup' });
+      setIsLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+
+    // Prevenir múltiplos submits
+    if (isLoading || hasNavigated) {
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const { user } = await signIn(email, password);
+      const { user: loggedUser } = await signIn(email, password);
+
+      if (!loggedUser) {
+        throw new Error('Falha ao fazer login');
+      }
 
       // Salvar credenciais se o checkbox estiver marcado
       if (saveCredentials) {
@@ -123,24 +170,28 @@ const Login = () => {
         localStorage.removeItem('save_credentials');
       }
 
+      // Marcar que já navegou para evitar navegação duplicada
+      setHasNavigated(true);
+
       // Se houver uma returnUrl no state, redireciona para ela. Caso contrário, para o dashboard do usuário.
       const returnUrl = location.state?.returnUrl;
       if (returnUrl) {
-        navigate(returnUrl);
-      } else if (user?.email === 'suporteagendeifacil@gmail.com') {
-        navigate('/dashboard/admin');
-      } else if (user?.user_metadata?.role) {
-        navigate(`/dashboard/${user.user_metadata.role}`);
+        navigate(returnUrl, { replace: true });
+      } else if (loggedUser?.email === 'suporteagendeifacil@gmail.com') {
+        navigate('/dashboard/admin', { replace: true });
+      } else if (loggedUser?.user_metadata?.role) {
+        navigate(`/dashboard/${loggedUser.user_metadata.role}`, { replace: true });
       } else {
-        navigate('/'); // Redireciona para a home page como fallback
+        navigate('/', { replace: true }); // Redireciona para a home page como fallback
       }
+      
       toast.success('Login realizado com sucesso!');
 
     } catch (error: any) {
       console.error('Erro ao fazer login:', error);
       toast.error(error.message || 'Email ou senha incorretos');
-    } finally {
       setIsLoading(false);
+      setHasNavigated(false); // Permitir tentar novamente em caso de erro
     }
   };
 
@@ -214,7 +265,7 @@ const Login = () => {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" onClick={(e) => e.stopPropagation()}>
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-400 mb-1">
               Email
@@ -223,9 +274,15 @@ const Login = () => {
               id="email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                e.stopPropagation();
+                setEmail(e.target.value);
+              }}
+              onFocus={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
               required
-              className="w-full px-4 py-2 bg-black border border-gray-800 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500"
+              disabled={isLoading}
+              className="w-full px-4 py-2 bg-black border border-gray-800 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500 disabled:opacity-50"
               placeholder="seu@email.com"
             />
           </div>
@@ -239,9 +296,15 @@ const Login = () => {
                 id="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  setPassword(e.target.value);
+                }}
+                onFocus={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
                 required
-                className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500 pr-10"
+                disabled={isLoading}
+                className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500 pr-10 disabled:opacity-50"
                 placeholder="********"
               />
               <button
@@ -301,7 +364,7 @@ const Login = () => {
           </button>
         </form>
 
-        <div className="text-center mt-4">
+        <div className="text-center mt-4 space-y-3">
           <Link
             to="/recovery-password"
             className="text-blue-400 hover:text-blue-300 text-sm block transition-colors"
@@ -309,6 +372,21 @@ const Login = () => {
           >
             Esqueci minha senha
           </Link>
+
+          {/* Botão de Emergência - Limpeza Completa */}
+          <div className="p-3 bg-red-900/30 border border-red-500/50 rounded-lg">
+            <button
+              type="button"
+              onClick={handleUpdateSystem}
+              disabled={isLoading}
+              className="w-full px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium text-sm flex justify-center items-center gap-2 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {isLoading ? 'Limpando...' : 'Limpar Cache e Atualizar'}
+            </button>
+          </div>
         </div>
 
         {/* Botão de Atualizar Sistema - Aparece apenas uma vez */}
