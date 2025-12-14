@@ -110,12 +110,26 @@
         });
 
         // Listener para quando o service worker assume controle
+        // ⚠️ PROTEÇÃO: Adicionar flag para evitar múltiplos reloads
+        let isReloading = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
+          // ⚠️ PROTEÇÃO: Evitar reload se já está recarregando
+          if (isReloading) {
+            console.log('🔄 Já está recarregando, ignorando controllerchange...');
+            return;
+          }
+
           console.log('🔄 Service Worker assumiu controle, recarregando...');
+          isReloading = true;
+
           if (updateCheckInterval) {
             clearInterval(updateCheckInterval);
           }
-          window.location.reload();
+
+          // Aguardar um pouco antes de recarregar para evitar loops
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
         });
 
       }).catch(function (error) {
@@ -125,13 +139,36 @@
       if (isMobile) {
         console.log('📱 Service Worker desabilitado em mobile (evita página branca)');
 
-        // ⚠️ REMOVER Service Workers existentes em mobile
+        // ⚠️ REMOVER Service Workers existentes em mobile E remover listeners
         if ('serviceWorker' in navigator) {
+          // ⚠️ IMPORTANTE: Remover TODOS os listeners de controllerchange antes de remover SW
+          // Isso evita que o listener cause reload após remover o SW
+          const controllerChangeHandler = () => {
+            console.log('⚠️ Controller change em mobile ignorado (SW deve ser removido)');
+          };
+
+          // Remover listener antigo se existir
+          navigator.serviceWorker.removeEventListener('controllerchange', controllerChangeHandler);
+
           navigator.serviceWorker.getRegistrations().then(function (registrations) {
             registrations.forEach(function (registration) {
               console.log('🗑️ Removendo Service Worker em mobile:', registration);
-              registration.unregister();
+              registration.unregister().catch(err => {
+                console.warn('⚠️ Erro ao remover SW em mobile:', err);
+              });
             });
+
+            // Aguardar um pouco e verificar se ainda há SWs ativos
+            setTimeout(() => {
+              navigator.serviceWorker.getRegistrations().then(function (remainingRegs) {
+                if (remainingRegs.length > 0) {
+                  console.warn('⚠️ Ainda há Service Workers ativos em mobile, forçando remoção...');
+                  remainingRegs.forEach(function (reg) {
+                    reg.unregister().catch(() => { });
+                  });
+                }
+              });
+            }, 500);
           });
         }
       } else {

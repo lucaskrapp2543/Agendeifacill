@@ -343,7 +343,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <div 
         className={`fixed left-0 top-0 bottom-0 bg-black border-r border-gray-800 transition-all duration-300 z-40 flex flex-col ${isExpanded ? 'w-64' : 'w-16'
-        } md:relative md:h-auto md:z-auto md:flex-shrink-0`} 
+        } md:sticky md:top-0 md:h-screen md:z-auto md:flex-shrink-0`} 
         style={{ 
           backgroundColor: '#000000'
         }}

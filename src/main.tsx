@@ -2,10 +2,6 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { checkForUpdates } from './utils/cacheBuster';
-
-// Configura verificação automática de atualizações
-checkForUpdates();
 
 // Adiciona meta tags anti-cache dinamicamente
 const addAntiCacheMetaTags = () => {
@@ -35,21 +31,21 @@ const handleChunkErrors = () => {
 
   window.addEventListener('error', (event) => {
     const target = event.target as HTMLElement;
-    
+
     // Verificar se é um erro de script ou link
     if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')) {
       const src = (target as HTMLScriptElement).src || (target as HTMLLinkElement).href || '';
-      
+
       // Verificar se é um chunk JavaScript que falhou
-      if ((src.includes('chunk-') || (src.includes('.js') && src.includes('assets/'))) && 
-          (event.message?.includes('404') || event.message?.includes('Failed to load'))) {
+      if ((src.includes('chunk-') || (src.includes('.js') && src.includes('assets/'))) &&
+        (event.message?.includes('404') || event.message?.includes('Failed to load'))) {
         console.error('❌ Erro 404 detectado em chunk:', src);
         console.log('🔄 Tentando recuperar...');
-        
+
         // Evitar loops infinitos
         if (reloadAttempts < maxReloadAttempts) {
           reloadAttempts++;
-          
+
           // Limpar cache e recarregar
           setTimeout(async () => {
             try {
@@ -60,13 +56,13 @@ const handleChunkErrors = () => {
                   await registration.unregister();
                 }
               }
-              
+
               // Limpar caches
               if ('caches' in window) {
                 const cacheNames = await caches.keys();
                 await Promise.all(cacheNames.map(name => caches.delete(name)));
               }
-              
+
               console.log('✅ Cache limpo, recarregando...');
               window.location.reload();
             } catch (error) {
@@ -99,11 +95,11 @@ const handleChunkErrors = () => {
   // Detectar erros não capturados
   window.addEventListener('unhandledrejection', (event) => {
     console.error('❌ Erro não tratado:', event.reason);
-    
+
     // Se for erro de chunk, tentar recuperar
-    if (event.reason?.message?.includes('chunk') || 
-        event.reason?.message?.includes('404') ||
-        event.reason?.message?.includes('Failed to load')) {
+    if (event.reason?.message?.includes('chunk') ||
+      event.reason?.message?.includes('404') ||
+      event.reason?.message?.includes('Failed to load')) {
       console.log('🔄 Erro de chunk detectado, tentando recuperar...');
       if (reloadAttempts < maxReloadAttempts) {
         reloadAttempts++;
@@ -127,7 +123,7 @@ if (window.location.hostname !== 'localhost' && window.location.hostname !== '12
       window.dispatchEvent(new CustomEvent('app-update-available', {
         detail: updateInfo
       }));
-      
+
       // NÃO forçar atualização automática aqui - deixa o usuário clicar
       // Isso evita loops e problemas de recarregamento
     }
@@ -154,35 +150,35 @@ if (!rootElement) {
   const renderTimeout = setTimeout(() => {
     if (!rootElement.hasChildNodes()) {
       console.error('❌ Timeout na renderização após 8 segundos! Forçando reload...');
-      
+
       // Limpar cache e recarregar
       if ('caches' in window) {
         caches.keys().then(cacheNames => {
           cacheNames.forEach(name => caches.delete(name));
         });
       }
-      
+
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(registrations => {
           registrations.forEach(reg => reg.unregister());
         });
       }
-      
-        // Recarregar (Service Worker já busca da rede sempre)
-        setTimeout(() => {
-          window.location.reload(true);
-        }, 500);
+
+      // Recarregar (Service Worker já busca da rede sempre)
+      setTimeout(() => {
+        window.location.reload(true);
+      }, 500);
     }
   }, 8000); // Reduzido de 15s para 8s
 
   try {
     const root = createRoot(rootElement);
     root.render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
-    
+      <StrictMode>
+        <App />
+      </StrictMode>
+    );
+
     // Limpar timeout se renderizou com sucesso
     clearTimeout(renderTimeout);
   } catch (error) {

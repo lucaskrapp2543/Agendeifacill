@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
@@ -37,7 +37,7 @@ class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('🚨 Erro capturado pelo Error Boundary:', error);
     console.error('📋 Detalhes do erro:', errorInfo);
-    
+
     this.setState({
       error,
       errorInfo,
@@ -56,9 +56,11 @@ class ErrorBoundary extends Component<Props, State> {
     }
 
     // 🔄 RECUPERAÇÃO AUTOMÁTICA: Detectar se é erro relacionado a cache/module loading
+    // ⚠️ PROTEÇÃO: Desabilitar recuperação automática para evitar loops de reload
+    // O usuário deve clicar manualmente para evitar reloads constantes
     const errorMessage = error.message?.toLowerCase() || '';
     const errorStack = error.stack?.toLowerCase() || '';
-    const isCacheRelated = 
+    const isCacheRelated =
       errorMessage.includes('chunk') ||
       errorMessage.includes('loading') ||
       errorMessage.includes('failed to fetch') ||
@@ -69,31 +71,11 @@ class ErrorBoundary extends Component<Props, State> {
       errorStack.includes('chunk') ||
       errorStack.includes('loading');
 
-    // Se for erro relacionado a cache e ainda não tentou recuperar automaticamente
-    if (isCacheRelated && this.state.retryCount === 0) {
-      console.log('🔄 Erro relacionado a cache detectado, tentando recuperar automaticamente...');
-      
-      // Mostrar feedback visual de recuperação
-      this.setState({ isRecovering: true });
-      
-      // Tentar recuperar automaticamente após 1 segundo
-      setTimeout(async () => {
-        try {
-          // Limpar cache primeiro
-          await this.clearCache();
-          
-          // Aguardar um pouco antes de recarregar
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          console.log('✅ Cache limpo, recarregando automaticamente...');
-          window.location.reload();
-        } catch (recoveryError) {
-          console.error('❌ Erro ao tentar recuperar automaticamente:', recoveryError);
-          // Se falhar, parar recuperação automática e deixar o usuário tentar manualmente
-          this.setState({ isRecovering: false });
-        }
-      }, 1000);
-    }
+    // ⚠️ DESABILITADO: Recuperação automática pode causar loops de reload
+    // Deixar o usuário clicar manualmente no botão
+    // if (isCacheRelated && this.state.retryCount === 0) {
+    //   console.log('🔄 Erro relacionado a cache detectado, mas recuperação automática desabilitada para evitar loops...');
+    // }
   }
 
   handleRetry = () => {

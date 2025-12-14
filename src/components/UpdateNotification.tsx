@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Download, RefreshCw, X, AlertTriangle, CheckCircle } from 'lucide-react';
-import { UpdateInfo, checkForUpdates, applyUpdate } from '../utils/versionManager';
+import { AlertTriangle, CheckCircle, Download, RefreshCw } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { UpdateInfo, applyUpdate, checkForUpdates, getCurrentVersion, setStoredVersion } from '../utils/versionManager';
 
 interface UpdateNotificationProps {
   className?: string;
@@ -10,7 +10,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
-  
+
   // Refs para evitar loops (não causam re-renders)
   const lastNotifiedVersionRef = useRef<string | null>(null);
   const isUpdatingRef = useRef(false);
@@ -18,11 +18,11 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
   useEffect(() => {
     // Sincronizar ref com state
     isUpdatingRef.current = isUpdating;
-    
+
     // Verificar atualizações ao carregar
     const checkUpdates = () => {
       const info = checkForUpdates();
-      
+
       // ⚠️ PROTEÇÃO: Só mostrar se realmente há atualização E não foi notificado recentemente
       if (info.hasUpdate) {
         // Se já notificamos esta versão, não mostrar novamente (evita loop)
@@ -30,17 +30,17 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
           console.log('🔇 Atualização já foi notificada, ignorando...');
           return;
         }
-        
+
         // Verificar se versões são realmente diferentes (proteção extra)
         if (info.currentVersion === info.newVersion) {
           console.warn('⚠️ Versões iguais detectadas como atualização, ignorando...');
           return;
         }
-        
+
         lastNotifiedVersionRef.current = info.newVersion;
         setUpdateInfo(info);
         setIsVisible(true);
-        
+
         // Se for atualização obrigatória, mostrar IMEDIATAMENTE
         if (info.forceUpdate) {
           setIsVisible(true);
@@ -55,36 +55,34 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
       }
     };
 
-    // Verificar imediatamente (múltiplas vezes para garantir)
+    // Verificar imediatamente apenas UMA vez
     checkUpdates();
-    setTimeout(checkUpdates, 500);
-    setTimeout(checkUpdates, 2000);
 
     // Escutar eventos de atualização
     const handleUpdateAvailable = (event: CustomEvent) => {
       const info = event.detail as UpdateInfo;
-      
+
       // Proteção: verificar se realmente há atualização
       if (!info.hasUpdate) {
         return;
       }
-      
+
       // Proteção: evitar notificar a mesma versão novamente
       if (lastNotifiedVersionRef.current === info.newVersion) {
         console.log('🔇 Atualização já foi notificada via evento, ignorando...');
         return;
       }
-      
+
       // Verificar se versões são realmente diferentes
       if (info.currentVersion === info.newVersion) {
         console.warn('⚠️ Versões iguais detectadas como atualização, ignorando...');
         return;
       }
-      
+
       lastNotifiedVersionRef.current = info.newVersion;
       setUpdateInfo(info);
       setIsVisible(true);
-      
+
       // Se for obrigatória, não permitir fechar
       if (info.forceUpdate) {
         setIsVisible(true);
@@ -92,14 +90,14 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
     };
 
     window.addEventListener('app-update-available', handleUpdateAvailable as EventListener);
-    
-    // Verificar periodicamente (a cada 10 segundos) - mas com proteção
+
+    // Verificar periodicamente (a cada 5 MINUTOS) - reduzido de 10 segundos para evitar reloads constantes
     const interval = setInterval(() => {
       // Só verificar se não está atualizando
       if (!isUpdatingRef.current) {
         checkUpdates();
       }
-    }, 10000);
+    }, 5 * 60 * 1000); // 5 minutos em vez de 10 segundos
 
     return () => {
       window.removeEventListener('app-update-available', handleUpdateAvailable as EventListener);
@@ -112,45 +110,52 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
     if (isUpdating || isUpdatingRef.current) {
       return;
     }
-    
+
     setIsUpdating(true);
     isUpdatingRef.current = true;
-    
+
     // Limpar flag de notificação para permitir nova verificação após atualizar
     lastNotifiedVersionRef.current = null;
-    
+
     try {
       console.log('🔄 Iniciando processo de atualização...');
-      
+
       // Mostrar feedback visual
       const button = document.querySelector('button[disabled]');
       if (button) {
         button.textContent = 'Atualizando... Aguarde';
       }
-      
+
+      // ⚠️ IMPORTANTE: Salvar versão ANTES de aplicar atualização para evitar loop
+      const currentVersion = getCurrentVersion();
+      setStoredVersion(currentVersion);
+
+      // Aguardar um pouco para garantir que foi salvo
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       // Aplicar atualização (já faz limpeza internamente com delays adequados)
       await applyUpdate();
-      
-      // Se applyUpdate não recarregou (não deveria acontecer), forçar reload
-      setTimeout(() => {
-        if (document.readyState === 'loading') {
-          window.location.reload();
-        }
-      }, 2000);
+
+      // ⚠️ PROTEÇÃO: Não fazer reload automático aqui - deixar applyUpdate fazer isso
+      // Removido o setTimeout que poderia causar reload duplo
     } catch (error) {
       console.error('❌ Erro ao aplicar atualização:', error);
-      
-      // Em caso de erro, tentar reload simples
-      alert('Atualizando... A página será recarregada.');
-      setTimeout(() => {
-        window.location.href = window.location.href.split('?')[0];
-      }, 1000);
+
+      // Em caso de erro, garantir que versão está salva antes de recarregar
+      const currentVersion = getCurrentVersion();
+      setStoredVersion(currentVersion);
+
+      // Aguardar antes de recarregar
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Recarregar apenas uma vez
+      window.location.href = window.location.href.split('?')[0];
     }
   };
 
   const handleDismiss = () => {
     setIsVisible(false);
-    
+
     // Se for atualização forçada, não permitir fechar
     if (updateInfo?.forceUpdate) {
       setTimeout(() => {
@@ -173,18 +178,18 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
             <CheckCircle className="text-green-500" size={48} />
           )}
         </div>
-        
+
         <h3 className="text-lg font-semibold text-gray-900 mb-2">
           {updateInfo.forceUpdate ? 'Atualização Obrigatória' : 'Nova Versão Disponível'}
         </h3>
-        
+
         <p className="text-gray-600 mb-4">
-          {updateInfo.forceUpdate 
+          {updateInfo.forceUpdate
             ? 'Uma atualização importante está disponível e é necessária para o funcionamento correto da aplicação.'
             : 'Uma nova versão da aplicação está disponível com melhorias e correções.'
           }
         </p>
-        
+
         <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm">
           <div className="flex justify-between items-center">
             <span className="text-gray-600">Versão atual:</span>
@@ -195,16 +200,15 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
             <span className="font-mono text-green-600 font-semibold">{updateInfo.newVersion}</span>
           </div>
         </div>
-        
+
         <div className="space-y-2">
           <button
             onClick={handleUpdate}
             disabled={isUpdating}
-            className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
-              updateInfo.forceUpdate
-                ? 'bg-orange-500 text-white hover:bg-orange-600'
-                : 'bg-primary text-white hover:bg-primary/90'
-            } disabled:opacity-50`}
+            className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${updateInfo.forceUpdate
+              ? 'bg-orange-500 text-white hover:bg-orange-600'
+              : 'bg-primary text-white hover:bg-primary/90'
+              } disabled:opacity-50`}
           >
             {isUpdating ? (
               <>
@@ -218,7 +222,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
               </>
             )}
           </button>
-          
+
           {!updateInfo.forceUpdate && (
             <button
               onClick={handleDismiss}
@@ -228,7 +232,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
             </button>
           )}
         </div>
-        
+
         {updateInfo.forceUpdate && (
           <p className="text-xs text-orange-600 mt-3">
             Esta atualização é obrigatória para continuar usando a aplicação.

@@ -3,6 +3,7 @@
 const APP_VERSION = '2.3.0'; // Versão com correções críticas de login e cache - ATUALIZAÇÃO OBRIGATÓRIA
 const VERSION_KEY = 'agendafacil_app_version';
 const LAST_UPDATE_CHECK_KEY = 'agendafacil_last_update_check';
+const UPDATING_FLAG_KEY = 'agendafacil_is_updating'; // Flag para evitar reloads múltiplos
 
 export interface UpdateInfo {
   hasUpdate: boolean;
@@ -34,9 +35,55 @@ export const setStoredVersion = (version: string): void => {
 };
 
 export const checkForUpdates = (): UpdateInfo => {
+  // ⚠️ PROTEÇÃO: Se está atualizando, não verificar novamente (evita loop)
+  try {
+    const isUpdating = localStorage.getItem(UPDATING_FLAG_KEY);
+    if (isUpdating === 'true') {
+      // Se a flag está ativa há mais de 10 segundos, limpar (pode ter travado)
+      const updateStartTime = localStorage.getItem(UPDATING_FLAG_KEY + '_time');
+      if (updateStartTime) {
+        const elapsed = Date.now() - parseInt(updateStartTime);
+        if (elapsed > 10000) {
+          // Limpar flag se passou muito tempo (evita travamento)
+          console.warn('⚠️ Flag de atualização travada, limpando...');
+          localStorage.removeItem(UPDATING_FLAG_KEY);
+          localStorage.removeItem(UPDATING_FLAG_KEY + '_time');
+        } else {
+          // Ainda está atualizando, não verificar (evita loop)
+          return {
+            hasUpdate: false,
+            currentVersion: getCurrentVersion(),
+            newVersion: getCurrentVersion(),
+            forceUpdate: false,
+            updateMessage: 'Atualização em andamento'
+          };
+        }
+      }
+    }
+
+    // ⚠️ PROTEÇÃO EXTRA: Verificar se houve reload recente (últimos 5 segundos)
+    // Isso evita que após um reload, o sistema detecte falsamente uma atualização
+    const lastReloadTime = sessionStorage.getItem('last_reload_time');
+    if (lastReloadTime) {
+      const elapsed = Date.now() - parseInt(lastReloadTime);
+      if (elapsed < 5000) {
+        // Reload muito recente, não verificar atualizações ainda
+        return {
+          hasUpdate: false,
+          currentVersion: getCurrentVersion(),
+          newVersion: getCurrentVersion(),
+          forceUpdate: false,
+          updateMessage: 'Aplicação recém carregada'
+        };
+      }
+    }
+  } catch (error) {
+    console.warn('Erro ao verificar flag de atualização:', error);
+  }
+
   const currentVersion = getCurrentVersion();
   const storedVersion = getStoredVersion();
-  
+
   // Se não há versão armazenada, é a primeira vez
   if (!storedVersion) {
     setStoredVersion(currentVersion);
@@ -48,28 +95,29 @@ export const checkForUpdates = (): UpdateInfo => {
       updateMessage: 'Aplicação inicializada'
     };
   }
-  
-  // Se as versões são diferentes, há uma atualização
-  if (storedVersion !== currentVersion) {
-    const forceUpdate = shouldForceUpdate(storedVersion, currentVersion);
-    
+
+  // ⚠️ PROTEÇÃO: Se as versões são iguais, não há atualização (evita falsos positivos)
+  if (storedVersion === currentVersion) {
     return {
-      hasUpdate: true,
-      currentVersion: storedVersion,
+      hasUpdate: false,
+      currentVersion,
       newVersion: currentVersion,
-      forceUpdate,
-      updateMessage: forceUpdate 
-        ? 'Atualização obrigatória disponível'
-        : 'Nova versão disponível'
+      forceUpdate: false,
+      updateMessage: 'Aplicação atualizada'
     };
   }
-  
+
+  // Se as versões são diferentes, há uma atualização
+  const forceUpdate = shouldForceUpdate(storedVersion, currentVersion);
+
   return {
-    hasUpdate: false,
-    currentVersion,
+    hasUpdate: true,
+    currentVersion: storedVersion,
     newVersion: currentVersion,
-    forceUpdate: false,
-    updateMessage: 'Aplicação atualizada'
+    forceUpdate,
+    updateMessage: forceUpdate
+      ? 'Atualização obrigatória disponível'
+      : 'Nova versão disponível'
   };
 };
 
@@ -81,27 +129,31 @@ const shouldForceUpdate = (oldVersion: string, newVersion: string): boolean => {
     '2.2.0', // ⚠️ CORREÇÃO CRÍTICA: Tela branca e erros de cache - OBRIGATÓRIA
     '2.3.0'  // ⚠️ CORREÇÃO CRÍTICA: Bugs de login e cache - OBRIGATÓRIA
   ];
-  
+
   // Se a versão antiga for menor que 2.3.0, FORÇAR atualização
   const oldVersionNum = parseFloat(oldVersion);
   const newVersionNum = parseFloat(newVersion);
-  
+
   if (oldVersionNum < 2.3 && newVersionNum >= 2.3) {
     return true; // Forçar atualização para versão 2.3.0+
   }
-  
+
   return forceUpdateVersions.includes(newVersion);
 };
 
 export const applyUpdate = async (): Promise<void> => {
   try {
     console.log('🔄 Iniciando atualização...');
-    
+
+    // ⚠️ PROTEÇÃO: Marcar flag de atualização para evitar verificações durante o processo
+    localStorage.setItem(UPDATING_FLAG_KEY, 'true');
+    localStorage.setItem(UPDATING_FLAG_KEY + '_time', Date.now().toString());
+
     // ⚠️ IMPORTANTE: Marcar versão ANTES de limpar (para evitar loop infinito)
     const currentVersion = getCurrentVersion();
     setStoredVersion(currentVersion);
     console.log('✅ Versão atualizada no localStorage:', currentVersion);
-    
+
     // Verificar se foi salvo corretamente (garantia extra)
     const savedVersion = getStoredVersion();
     if (savedVersion !== currentVersion) {
@@ -109,10 +161,10 @@ export const applyUpdate = async (): Promise<void> => {
       setStoredVersion(currentVersion);
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    
+
     // Aguardar um pouco para garantir que localStorage foi salvo no disco
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     // Limpar Service Workers PRIMEIRO
     if ('serviceWorker' in navigator) {
       try {
@@ -123,10 +175,10 @@ export const applyUpdate = async (): Promise<void> => {
         console.warn('⚠️ Erro ao remover Service Workers:', error);
       }
     }
-    
+
     // Aguardar um pouco antes de limpar cache
     await new Promise(resolve => setTimeout(resolve, 300));
-    
+
     // Limpar cache do navegador (MAS NÃO localStorage - versão deve ser preservada)
     if ('caches' in window) {
       try {
@@ -137,21 +189,29 @@ export const applyUpdate = async (): Promise<void> => {
         console.warn('⚠️ Erro ao limpar cache:', error);
       }
     }
-    
-    // Verificar novamente se versão ainda está salva (garantia final)
+
+    // Verificar novamente se versão ainda está salva (garantia final antes de reload)
     const finalCheck = getStoredVersion();
     if (finalCheck !== currentVersion) {
-      console.warn('⚠️ Versão foi perdida durante limpeza, restaurando...');
+      console.warn('⚠️ Versão não está salva, salvando novamente...');
       setStoredVersion(currentVersion);
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
-    
+
     // Aguardar um pouco mais antes de recarregar (evitar conflito)
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     console.log('🔄 Recarregando página...');
     console.log('✅ Versão final salva:', getStoredVersion());
-    
+
+    // ⚠️ IMPORTANTE: Limpar flag de atualização ANTES de recarregar
+    // Mas adicionar um timestamp na URL para forçar reload sem cache
+    localStorage.removeItem(UPDATING_FLAG_KEY);
+    localStorage.removeItem(UPDATING_FLAG_KEY + '_time');
+
+    // ⚠️ PROTEÇÃO: Marcar tempo do reload para evitar verificação imediata após reload
+    sessionStorage.setItem('last_reload_time', Date.now().toString());
+
     // Usar replace em vez de reload para evitar problemas
     window.location.replace(window.location.href.split('?')[0] + '?v=' + Date.now());
   } catch (error) {
@@ -169,7 +229,7 @@ export const applyUpdate = async (): Promise<void> => {
 export const forceCompleteCleanup = async (): Promise<void> => {
   try {
     console.log('🧹 Iniciando limpeza completa forçada...');
-    
+
     // 1. Limpar Service Workers PRIMEIRO
     if ('serviceWorker' in navigator) {
       try {
@@ -180,7 +240,7 @@ export const forceCompleteCleanup = async (): Promise<void> => {
         console.warn('⚠️ Erro ao remover Service Workers:', error);
       }
     }
-    
+
     // 2. Limpar TODOS os caches
     if ('caches' in window) {
       try {
@@ -191,7 +251,7 @@ export const forceCompleteCleanup = async (): Promise<void> => {
         console.warn('⚠️ Erro ao limpar cache:', error);
       }
     }
-    
+
     // 3. Limpar IndexedDB COMPLETAMENTE
     if ('indexedDB' in window) {
       try {
@@ -212,7 +272,7 @@ export const forceCompleteCleanup = async (): Promise<void> => {
         console.warn('⚠️ Erro ao limpar IndexedDB:', error);
       }
     }
-    
+
     // 4. Limpar TODOS os cookies
     document.cookie.split(";").forEach((c) => {
       const cookieName = c.split("=")[0].trim();
@@ -222,7 +282,7 @@ export const forceCompleteCleanup = async (): Promise<void> => {
       document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.${window.location.hostname};`;
     });
     console.log('✅ Todos os cookies removidos');
-    
+
     // 5. Limpar sessionStorage
     try {
       sessionStorage.clear();
@@ -230,15 +290,15 @@ export const forceCompleteCleanup = async (): Promise<void> => {
     } catch (error) {
       console.warn('⚠️ Erro ao limpar sessionStorage:', error);
     }
-    
+
     // 6. Limpar localStorage (EXCETO a versão que será salva depois)
     try {
       const currentVersion = getCurrentVersion();
       const keysToKeep = [VERSION_KEY]; // Manter apenas a versão
-      
+
       // Salvar versão atual antes de limpar
       setStoredVersion(currentVersion);
-      
+
       // Limpar tudo exceto a versão
       const allKeys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -247,28 +307,44 @@ export const forceCompleteCleanup = async (): Promise<void> => {
           allKeys.push(key);
         }
       }
-      
+
       allKeys.forEach(key => localStorage.removeItem(key));
       console.log('✅ localStorage limpo (versão preservada)');
     } catch (error) {
       console.warn('⚠️ Erro ao limpar localStorage:', error);
     }
-    
+
     // 7. Limpar cache do navegador (forçar reload sem cache)
     console.log('✅ Limpeza completa finalizada');
-    
+
   } catch (error) {
     console.error('❌ Erro na limpeza completa:', error);
     throw error;
   }
 };
 
+// Variável global para armazenar o intervalo e evitar múltiplos intervalos
+let updateCheckInterval: NodeJS.Timeout | null = null;
+let isUpdateCheckScheduled = false;
+
 export const scheduleUpdateCheck = (): void => {
+  // ⚠️ PROTEÇÃO: Evitar criar múltiplos intervalos
+  if (isUpdateCheckScheduled) {
+    return;
+  }
+
+  // Apenas em produção
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return;
+  }
+
+  isUpdateCheckScheduled = true;
+
   const now = Date.now();
   const lastCheck = localStorage.getItem(LAST_UPDATE_CHECK_KEY);
-  const checkInterval = 30 * 1000; // 30 SEGUNDOS (muito mais frequente para detectar rápido)
-  
-  // Verificar atualizações IMEDIATAMENTE na primeira vez
+  const checkInterval = 5 * 60 * 1000; // 5 MINUTOS (reduzido de 30 segundos para evitar reloads constantes)
+
+  // Verificar atualizações IMEDIATAMENTE na primeira vez (apenas uma vez)
   const updateInfo = checkForUpdates();
   if (updateInfo.hasUpdate) {
     // Notificar sobre atualização disponível IMEDIATAMENTE
@@ -276,32 +352,39 @@ export const scheduleUpdateCheck = (): void => {
       detail: updateInfo
     }));
   }
-  
+
+  // Verificar se já passou o intervalo desde a última verificação
   if (!lastCheck || (now - parseInt(lastCheck)) > checkInterval) {
     localStorage.setItem(LAST_UPDATE_CHECK_KEY, now.toString());
-    
-    // Verificar atualizações em background
-    setTimeout(() => {
-      const updateInfo = checkForUpdates();
-      if (updateInfo.hasUpdate) {
-        // Notificar sobre atualização disponível
-        window.dispatchEvent(new CustomEvent('app-update-available', {
-          detail: updateInfo
-        }));
-      }
-    }, 1000);
   }
-  
-  // Verificar a cada 30 segundos (muito mais frequente)
-  // Mas apenas se não estiver em desenvolvimento
-  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    setInterval(() => {
+
+  // Limpar intervalo anterior se existir (proteção extra)
+  if (updateCheckInterval) {
+    clearInterval(updateCheckInterval);
+  }
+
+  // Criar UM ÚNICO intervalo para verificar a cada 5 minutos
+  updateCheckInterval = setInterval(() => {
+    try {
       const updateInfo = checkForUpdates();
       if (updateInfo.hasUpdate) {
         window.dispatchEvent(new CustomEvent('app-update-available', {
           detail: updateInfo
         }));
       }
-    }, 30000); // 30 segundos
+      // Atualizar timestamp da última verificação
+      localStorage.setItem(LAST_UPDATE_CHECK_KEY, Date.now().toString());
+    } catch (error) {
+      console.warn('Erro ao verificar atualizações:', error);
+    }
+  }, checkInterval); // 5 minutos
+};
+
+// Função para limpar o intervalo (útil para cleanup)
+export const clearUpdateCheckInterval = (): void => {
+  if (updateCheckInterval) {
+    clearInterval(updateCheckInterval);
+    updateCheckInterval = null;
+    isUpdateCheckScheduled = false;
   }
 };
