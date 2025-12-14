@@ -165,17 +165,56 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
         </div>
 
         {daysRemaining > 0 && daysRemaining <= 7 && (
-          <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
-            <div className="flex items-center gap-2 text-yellow-400">
-              <Clock className="h-4 w-4" />
-              <span className="text-sm font-medium">
-                {daysRemaining === 1
-                  ? '⚠️ Falta 1 dia para o vencimento'
-                  : `⚠️ Faltam ${daysRemaining} dias para o vencimento`
-                }
-              </span>
-            </div>
-          </div>
+          <>
+            {/* Aviso chamativo em vermelho piscando para 1-4 dias */}
+            {daysRemaining >= 1 && daysRemaining <= 4 && (
+              <div className="mt-4 p-4 bg-gradient-to-r from-red-600 to-red-700 border-4 border-red-400 rounded-xl shadow-2xl animate-red-blink">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 text-white">
+                    <AlertTriangle className="h-6 w-6 animate-bounce" />
+                    <div className="flex-1">
+                      <p className="text-lg font-bold">
+                        {daysRemaining === 1
+                          ? '⚠️ FALTA 1 DIA PARA O VENCIMENTO!'
+                          : `⚠️ FALTAM ${daysRemaining} DIAS PARA O VENCIMENTO!`
+                        }
+                      </p>
+                      <p className="text-sm text-red-100 font-semibold mt-2">
+                        💰 Pague antes do vencimento e ganhe 3 dias GRÁTIS!
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      const establishmentName = validity?.name || 'Meu Estabelecimento';
+                      const message = `Olá! Quero pagar antes do vencimento e ganhar 3 dias GRÁTIS. Estabelecimento: ${establishmentName}`;
+                      const whatsappUrl = `https://wa.me/5548991265320?text=${encodeURIComponent(message)}`;
+                      window.open(whatsappUrl, '_blank');
+                    }}
+                    className="w-full bg-white text-red-600 font-bold py-3 px-4 rounded-lg hover:bg-red-50 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-base"
+                  >
+                    💳 PAGAR AGORA E GANHAR 3 DIAS GRÁTIS
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Aviso amarelo para 5-7 dias */}
+            {daysRemaining > 4 && daysRemaining <= 7 && (
+              <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+                <div className="flex items-center gap-2 text-yellow-400">
+                  <Clock className="h-4 w-4" />
+                  <span className="text-sm font-medium">
+                    {daysRemaining === 1
+                      ? '⚠️ Falta 1 dia para o vencimento'
+                      : `⚠️ Faltam ${daysRemaining} dias para o vencimento`
+                    }
+                  </span>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {(validity.payment_status === 'expired' || daysRemaining < 0) && (
@@ -195,7 +234,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
                   </p>
                 </div>
               </div>
-              
+
               <button
                 onClick={() => {
                   const establishmentName = validity?.name || 'Meu Estabelecimento';

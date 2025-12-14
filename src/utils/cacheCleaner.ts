@@ -227,3 +227,4 @@ export const checkAndCleanCorruptedData = async (): Promise<void> => {
     console.warn('Erro ao verificar dados corrompidos:', error);
   }
 };
+
