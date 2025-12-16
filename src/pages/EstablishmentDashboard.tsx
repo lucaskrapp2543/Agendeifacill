@@ -394,6 +394,30 @@ const EstablishmentDashboard = () => {
     }
   }, [pixKey]);
 
+  // Carregar preferência de layout claro/escuro do localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('dashboard:useLightLayout');
+      if (saved === 'true') {
+        setUseLightLayout(true);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar preferência de layout:', error);
+    }
+  }, []);
+
+  const toggleLayoutTheme = () => {
+    setUseLightLayout(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('dashboard:useLightLayout', next ? 'true' : 'false');
+      } catch (error) {
+        console.error('Erro ao salvar preferência de layout:', error);
+      }
+      return next;
+    });
+  };
+
   // Estados de imagens
   const [profileImage, setProfileImage] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
@@ -504,6 +528,9 @@ const EstablishmentDashboard = () => {
 
   // Estado para modal informativo de lembrete
   const [showReminderInfoModal, setShowReminderInfoModal] = useState(false);
+
+  // Layout claro/escuro do dashboard (apenas para este dashboard)
+  const [useLightLayout, setUseLightLayout] = useState<boolean>(false);
 
   // Estados para edição de valor do agendamento
   const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
@@ -8585,7 +8612,8 @@ Estamos te aguardando! 😎✂️`;
 
   // Renderização do dashboard quando há estabelecimento
   return (
-    <div className="min-h-screen bg-white overflow-x-hidden">
+    // Fundo principal sempre claro; o toggle só controla sidebar/elementos, não o fundo geral
+    <div className="min-h-screen overflow-x-hidden bg-white">
       <div className="flex" style={{ minHeight: '100vh' }}>
         {/* Sidebar */}
         <Sidebar
@@ -8609,6 +8637,8 @@ Estamos te aguardando! 😎✂️`;
           onBlockedItemClick={() => {
             setShowBlockedItemModal(true);
           }}
+          useLightLayout={useLightLayout}
+          onToggleLayoutTheme={toggleLayoutTheme}
         />
 
         {/* Conteúdo principal */}
@@ -8644,6 +8674,16 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   </>
                 )}
+
+                {/* Imagem Melhor do Brasil - Desktop, acima da validade (menor) */}
+                <div className="hidden md:flex mt-3 mb-1 justify-start">
+                  <img
+                    src="/melhordobrasilcortado.png"
+                    alt="Melhor do Brasil"
+                    className="w-64 h-auto rounded-lg shadow-lg"
+                  />
+                </div>
+
                 {/* Validade do Sistema */}
                 <div className="mt-2">
                   <ValidityHeader establishmentId={establishment.id} />
@@ -8863,6 +8903,7 @@ Estamos te aguardando! 😎✂️`;
                       onGoToProfessionalConfig={handleGoToProfessionalConfig}
                       onGoToClients={handleGoToClients}
                       onCancelAppointment={handleCancelClick}
+                      useLightLayout={useLightLayout}
                     />
                   </div>
 
@@ -9346,7 +9387,7 @@ Estamos te aguardando! 😎✂️`;
                             <div key={`empty-${index}-${item._time}`} className="bg-gray-50 rounded-lg w-full p-4 border-2 border-dashed border-gray-300">
                               <div className="flex justify-between items-center">
                                 <span className="text-gray-900 text-base font-bold">{item._time}</span>
-                                <span className="text-gray-700 text-sm font-semibold uppercase tracking-wide">✓ HORÁRIO DISPONÍVEL</span>
+                                <span className="text-green-600 text-sm font-semibold uppercase tracking-wide">✓ HORÁRIO DISPONÍVEL</span>
                               </div>
                             </div>
                           ) : item._isOccupied ? (

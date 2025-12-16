@@ -14,12 +14,10 @@ import {
   MessageSquare,
   Package,
   Receipt,
+  Rocket,
   Settings,
-  Shuffle,
   UserCheck,
-  Users,
-  TrendingUp,
-  Rocket
+  Users
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
@@ -39,6 +37,8 @@ interface SidebarProps {
   establishment?: any;
   onboardingStep?: number; // Controla o progresso do onboarding
   onBlockedItemClick?: () => void; // Callback quando clicar em item bloqueado
+  useLightLayout?: boolean; // controla se o layout claro está ativo
+  onToggleLayoutTheme?: () => void; // alterna layout claro/escuro
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -54,9 +54,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSettingsPinModal,
   establishment,
   onboardingStep = 4,
-  onBlockedItemClick
+  onBlockedItemClick,
+  useLightLayout = false,
+  onToggleLayoutTheme
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const isLight = useLightLayout;
 
   // Função para verificar se um item deve estar bloqueado
   const isItemLocked = (itemId: string): boolean => {
@@ -93,6 +96,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
 
   // Recolher o sidebar quando clicar em um item
   const handleItemClick = (onClick: () => void) => {
@@ -341,19 +345,22 @@ const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
-      <div 
-        className={`fixed left-0 top-0 bottom-0 bg-black border-r border-gray-800 transition-all duration-300 z-40 flex flex-col ${isExpanded ? 'w-64' : 'w-16'
-        } md:sticky md:top-0 md:h-screen md:z-auto md:flex-shrink-0`} 
-        style={{ 
-          backgroundColor: '#000000'
-        }}
+      <div
+        className={`fixed left-0 top-0 bottom-0 border-r transition-all duration-300 z-40 flex flex-col ${isExpanded ? 'w-64' : 'w-16'
+          } md:relative md:z-auto md:flex-shrink-0 ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-b from-gray-900 via-black to-black border-gray-800'
+          }`}
+        style={{ minHeight: '100vh' }}
       >
         {/* Botão de toggle */}
-        <div className="flex justify-between items-center p-2 border-b border-gray-800 bg-black flex-shrink-0">
+        <div
+          className={`flex justify-between items-center p-2 border-b flex-shrink-0 ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-r from-gray-900 to-black border-gray-800'
+            }`}
+        >
           {isExpanded && (
             <button
               onClick={() => setIsExpanded(false)}
-              className="text-white text-sm font-medium hover:text-gray-300 transition-colors cursor-pointer"
+              className={`text-sm font-medium transition-colors cursor-pointer ${isLight ? 'text-gray-700 hover:text-black' : 'text-white hover:text-gray-300'
+                }`}
               title="Recolher menu"
             >
               CLIQUE PARA RECOLHER
@@ -363,26 +370,30 @@ const Sidebar: React.FC<SidebarProps> = ({
             <button
               data-sidebar-toggle
               onClick={() => setIsExpanded(!isExpanded)}
-              className={`p-2.5 rounded-lg hover:bg-gray-800 transition-all relative border-2 ${
-                !isExpanded 
-                  ? 'border-white bg-gray-900 shadow-md hover:shadow-lg hover:scale-105' 
-                  : 'border-transparent'
-              }`}
+              className={`p-2.5 rounded-lg hover:bg-gray-800 transition-all relative border-2 ${!isExpanded
+                ? isLight
+                  ? 'border-gray-400 bg-white shadow-md hover:shadow-lg hover:scale-105 hover:bg-gray-50'
+                  : 'border-white bg-gray-900 shadow-md hover:shadow-lg hover:scale-105'
+                : 'border-transparent hover:bg-transparent'
+                }`}
               title={isExpanded ? 'Recolher menu' : 'Clique para abrir o menu'}
             >
               {isExpanded ? (
-                <ChevronLeft className="h-5 w-5 text-white" />
+                <ChevronLeft className={`h-5 w-5 ${isLight ? 'text-gray-800' : 'text-white'}`} />
               ) : (
                 <div className="relative">
-                  <ChevronRight className="h-5 w-5 text-white" />
+                  <ChevronRight className={`h-5 w-5 ${isLight ? 'text-gray-800' : 'text-white'}`} />
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
+                    <div className={`w-2 h-2 rounded-full animate-ping ${isLight ? 'bg-gray-800' : 'bg-white'}`}></div>
                   </div>
                 </div>
               )}
             </button>
             {!isExpanded && (
-              <div className="bg-black text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap flex items-center gap-1.5">
+              <div
+                className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap flex items-center gap-1.5 ${isLight ? 'bg-white text-gray-900 border border-gray-200' : 'bg-black text-white'
+                  }`}
+              >
                 <span>☰</span>
                 <span>MENU</span>
               </div>
@@ -391,19 +402,70 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Lista de itens do menu */}
-        <nav className="p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide bg-black" style={{ backgroundColor: '#000000', flex: '1 1 auto' }}>
+        <nav
+          className={`p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide ${isLight ? 'bg-white' : 'bg-gradient-to-b from-gray-900 via-black to-black'
+            }`}
+          style={{ minHeight: 0 }}
+        >
+          {/* Controle simples de cor do sistema (acima do Passo a passo) */}
+          {onToggleLayoutTheme && (
+            <div className="mb-3">
+              {isExpanded ? (
+                <div
+                  className={`rounded-lg border px-3 py-2 text-xs flex items-center justify-between gap-2 ${isLight
+                    ? 'bg-gray-100 border-gray-300 text-gray-900'
+                    : 'bg-black/80 border-gray-700 text-gray-100'
+                    }`}
+                >
+                  <span className="font-semibold">Cor do Sistema</span>
+                  <button
+                    type="button"
+                    onClick={onToggleLayoutTheme}
+                    className="inline-flex items-center justify-center px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all shadow-sm bg-white text-gray-900 hover:bg-gray-100"
+                  >
+                    {useLightLayout ? 'Preto' : 'Claro'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onToggleLayoutTheme}
+                  className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-[10px] font-medium transition-all ${isLight
+                    ? 'text-gray-900 hover:bg-gray-100'
+                    : 'text-white hover:bg-gray-800'
+                    }`}
+                  title="Cor do Sistema"
+                >
+                  Cor
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Botão Passo a Passo */}
           <div className="relative">
             <button
               onClick={() => handleItemClick(() => onTabChange('passo-a-passo'))}
-              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
-                activeTab === 'passo-a-passo'
-                  ? 'bg-white text-black shadow-md'
-                  : 'bg-black text-white hover:bg-gray-800'
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'passo-a-passo'
+                ? isLight
+                  ? 'bg-gray-900 text-white shadow-md'
+                  : 'bg-white text-black shadow-md'
+                : isLight
+                  ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
+                  : 'bg-transparent text-white'
+                }`}
               title={isExpanded ? '' : 'Passo a passo'}
             >
-              <Rocket className={`h-5 w-5 flex-shrink-0 ${activeTab === 'passo-a-passo' ? 'text-black' : 'text-white'}`} />
+              <Rocket
+                className={`h-5 w-5 flex-shrink-0 ${activeTab === 'passo-a-passo'
+                  ? isLight
+                    ? 'text-white'
+                    : 'text-black'
+                  : isLight
+                    ? 'text-gray-700'
+                    : 'text-white'
+                  }`}
+              />
               {isExpanded && (
                 <span className="text-sm font-medium whitespace-nowrap">
                   Passo a passo
@@ -423,38 +485,54 @@ const Sidebar: React.FC<SidebarProps> = ({
             const Icon = item.icon;
             const isIndicationItem = item.id === 'indication';
             const isLastItem = index === menuItems.length - 1;
-            
+
             return (
               <React.Fragment key={item.id}>
                 <div className="relative">
                   <button
                     onClick={item.onClick}
                     disabled={item.disabled}
-                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
-                      isIndicationItem
-                        ? item.isActive
-                          ? 'bg-white text-black shadow-md'
-                          : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
-                        : item.isActive
-                          ? 'bg-white text-black shadow-md'
-                          : item.disabled
-                            ? item.id === 'hours'
-                              ? 'bg-black text-black cursor-not-allowed'
-                              : 'bg-black text-gray-500 cursor-not-allowed opacity-50'
-                            : 'bg-black text-white hover:bg-gray-800'
-                    }`}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${isIndicationItem
+                      ? item.isActive
+                        ? 'bg-white text-black shadow-md'
+                        : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
+                      : item.isActive
+                        ? isLight
+                          ? 'bg-gray-900 text-white shadow-md'
+                          : 'bg-white text-black shadow-md'
+                        : item.disabled
+                          ? item.id === 'hours'
+                            ? isLight
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
+                            : isLight
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                              : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
+                          : isLight
+                            ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
+                            : 'bg-transparent text-white'
+                      }`}
                     title={item.tooltip || (isExpanded ? '' : item.label)}
                   >
                     <div className="relative">
-                      <Icon className={`h-5 w-5 flex-shrink-0 ${
-                        item.disabled 
-                          ? item.id === 'hours' 
-                            ? 'text-black' 
-                            : 'text-gray-500'
-                          : item.isActive 
-                            ? 'text-black' 
+                      <Icon
+                        className={`h-5 w-5 flex-shrink-0 ${isIndicationItem
+                          ? item.isActive
+                            ? 'text-black'
                             : 'text-white'
-                      }`} />
+                          : item.disabled
+                            ? item.id === 'hours'
+                              ? isLight ? 'text-gray-400' : 'text-black'
+                              : 'text-gray-500'
+                            : item.isActive
+                              ? isLight
+                                ? 'text-white'
+                                : 'text-black'
+                              : isLight
+                                ? 'text-gray-700'
+                                : 'text-white'
+                          }`}
+                      />
                       {item.showBadge && (
                         <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                           {item.badgeCount}
@@ -464,23 +542,45 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                     {isExpanded && (
                       <>
-                        <span className={`text-sm font-medium whitespace-nowrap ${
-                          item.disabled && item.id === 'hours'
-                            ? 'text-black'
-                            : item.isActive
+                        <span
+                          className={`text-sm font-medium whitespace-nowrap ${isIndicationItem
+                            ? item.isActive
                               ? 'text-black'
                               : 'text-white'
-                        }`}>
+                            : item.disabled && item.id === 'hours'
+                              ? isLight
+                                ? 'text-gray-500'
+                                : 'text-black'
+                              : item.isActive
+                                ? isLight
+                                  ? 'text-white'
+                                  : 'text-black'
+                                : isLight
+                                  ? 'text-gray-800'
+                                  : 'text-white'
+                            }`}
+                        >
                           {item.label}
                         </span>
                         {item.id !== 'config' && (
-                          <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-50 ml-auto ${
-                            item.disabled && item.id === 'hours'
-                              ? 'text-black'
-                              : item.isActive 
-                                ? 'text-black' 
+                          <ChevronRight
+                            className={`h-4 w-4 flex-shrink-0 opacity-50 ml-auto ${isIndicationItem
+                              ? item.isActive
+                                ? 'text-black'
                                 : 'text-white'
-                          }`} />
+                              : item.disabled && item.id === 'hours'
+                                ? isLight
+                                  ? 'text-gray-500'
+                                  : 'text-black'
+                                : item.isActive
+                                  ? isLight
+                                    ? 'text-white'
+                                    : 'text-black'
+                                  : isLight
+                                    ? 'text-gray-700'
+                                    : 'text-white'
+                              }`}
+                          />
                         )}
                       </>
                     )}
@@ -506,9 +606,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </nav>
-        
-        {/* Garantir fundo preto até o final */}
-        <div className="bg-black flex-shrink-0" style={{ backgroundColor: '#000000' }}></div>
+
       </div>
     </>
   );
