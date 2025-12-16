@@ -10,7 +10,6 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [showRoleModal, setShowRoleModal] = useState(false);
   const [saveCredentials, setSaveCredentials] = useState(false);
   const [showUpdateButton, setShowUpdateButton] = useState(false);
 
@@ -52,36 +51,36 @@ const Login = () => {
     const checkVersionAndCleanup = async () => {
       try {
         const updateInfo = checkForUpdates();
-        
+
         // Se há atualização obrigatória, forçar limpeza completa
         if (updateInfo.hasUpdate && updateInfo.forceUpdate) {
           console.log('⚠️ Versão antiga detectada, forçando limpeza completa...');
           toast.loading('Atualizando sistema...', { id: 'update' });
-          
+
           // Salvar versão atual ANTES de limpar
           const currentVersion = getCurrentVersion();
           setStoredVersion(currentVersion);
-          
+
           // Aguardar um pouco para garantir que versão foi salva
           await new Promise(resolve => setTimeout(resolve, 500));
-          
+
           // Forçar limpeza completa
           await forceCompleteCleanup();
-          
+
           toast.success('Sistema atualizado! Recarregando...', { id: 'update' });
-          
+
           // Recarregar página após limpeza
           setTimeout(() => {
             window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now();
           }, 1000);
-          
+
           return;
         }
       } catch (error) {
         console.error('Erro ao verificar versão:', error);
       }
     };
-    
+
     checkVersionAndCleanup();
   }, []);
 
@@ -111,17 +110,17 @@ const Login = () => {
     try {
       setIsLoading(true);
       toast.loading('Limpando cache e atualizando sistema...', { id: 'cleanup' });
-      
+
       // Salvar versão atual ANTES de limpar
       const currentVersion = getCurrentVersion();
       setStoredVersion(currentVersion);
-      
+
       // Aguardar para garantir que versão foi salva
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       // Usar função de limpeza completa
       await forceCompleteCleanup();
-      
+
       // Marcar que o sistema foi atualizado (usando cookie que persiste)
       const expiryDate = new Date();
       expiryDate.setFullYear(expiryDate.getFullYear() + 10); // Cookie válido por 10 anos
@@ -184,7 +183,7 @@ const Login = () => {
       } else {
         navigate('/', { replace: true }); // Redireciona para a home page como fallback
       }
-      
+
       toast.success('Login realizado com sucesso!');
 
     } catch (error: any) {
@@ -197,55 +196,9 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-black px-4 relative">
-      {showRoleModal && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowRoleModal(false);
-            }
-          }}
-          onTouchStart={(e) => {
-            if (e.target === e.currentTarget) {
-              e.stopPropagation();
-            }
-          }}
-        >
-          <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 text-center relative z-10"
-            onClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Como deseja acessar?</h2>
-            <p className="text-gray-600 mb-6">Selecione uma opção para continuar</p>
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowRoleModal(false);
-                }}
-                className="w-full px-4 py-3 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors"
-              >
-                Sou profissional (estabelecimento)
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate('/view-appointments');
-                }}
-                className="w-full px-4 py-3 rounded-lg bg-gray-100 text-gray-800 font-medium hover:bg-gray-200 transition-colors"
-              >
-                Sou cliente (ver meus agendamentos)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       <div className="bg-black rounded-lg shadow-lg border border-gray-700 max-w-md w-full relative z-0 p-6">
-        <Link 
-          to="/" 
+        <Link
+          to="/"
           className="inline-flex items-center text-gray-400 hover:text-white mb-6 transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
@@ -340,8 +293,8 @@ const Login = () => {
                   onClick={(e) => e.stopPropagation()}
                   className="h-5 w-5 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-600 rounded cursor-pointer"
                 />
-                <label 
-                  htmlFor="saveCredentials" 
+                <label
+                  htmlFor="saveCredentials"
                   className="text-sm sm:text-base text-blue-200 font-medium cursor-pointer"
                 >
                   ✅ Salvar login para acesso rápido
@@ -359,20 +312,33 @@ const Login = () => {
             {isLoading ? (
               <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
             ) : (
-              'Entrar'
+              'Logar como Estabelecimento'
             )}
           </button>
+
+          <div className="text-center mt-3">
+            <Link
+              to="/recovery-password"
+              className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Esqueci minha senha
+            </Link>
+          </div>
         </form>
 
-        <div className="text-center mt-4 space-y-3">
-          <Link
-            to="/recovery-password"
-            className="text-blue-400 hover:text-blue-300 text-sm block transition-colors"
-            onClick={(e) => e.stopPropagation()}
+        {/* Botão Sou Cliente */}
+        <div className="mt-6 pt-6 border-t border-gray-800">
+          <button
+            type="button"
+            onClick={() => navigate('/view-appointments')}
+            className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium flex justify-center items-center"
           >
-            Esqueci minha senha
-          </Link>
+            Sou Cliente
+          </button>
+        </div>
 
+        <div className="text-center mt-4 space-y-3">
           {/* Botão de Emergência - Limpeza Completa */}
           <div className="p-3 bg-red-900/30 border border-red-500/50 rounded-lg">
             <button
