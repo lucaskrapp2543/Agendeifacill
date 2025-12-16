@@ -101,11 +101,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   // Função para carregar clientes do estabelecimento
   const loadClients = async () => {
     if (!establishmentId) return;
-    
+
     setLoadingClients(true);
     try {
       console.log('🔍 Carregando clientes para establishment:', establishmentId);
-      
+
       // Buscar todos os agendamentos do estabelecimento que não são avulsos
       // Incluir clientes que têm client_id e client_whatsapp, excluindo apenas os explicitamente avulsos
       const { data: appointments, error } = await supabase
@@ -124,24 +124,24 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       // Agrupar por client_whatsapp (chave única para identificar cliente)
       // Filtrar apenas clientes que não são avulsos (is_avulso !== true)
       const clientsMap = new Map<string, Client>();
-      
+
       if (appointments && appointments.length > 0) {
         appointments.forEach((appointment) => {
           // Pular agendamentos explicitamente avulsos
           if (appointment.is_avulso === true) {
             return;
           }
-          
+
           // Usar WhatsApp como chave única para identificar o cliente
           // Isso evita problemas quando múltiplos clientes manuais usam o mesmo user?.id como fallback
           const clientWhatsapp = appointment.client_whatsapp?.replace(/\D/g, '') || '';
           if (!clientWhatsapp) return; // Pular se não tiver WhatsApp
-          
+
           // Usar client_id se existir e for UUID válido, senão usar manual_whatsapp
-          const clientId = appointment.client_id && !appointment.client_id.startsWith('manual_') 
-            ? appointment.client_id 
+          const clientId = appointment.client_id && !appointment.client_id.startsWith('manual_')
+            ? appointment.client_id
             : `manual_${clientWhatsapp}`;
-          
+
           // Usar WhatsApp como chave do Map para garantir agrupamento correto
           if (!clientsMap.has(clientWhatsapp)) {
             clientsMap.set(clientWhatsapp, {
@@ -151,7 +151,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
               appointmentCount: 0
             });
           }
-          
+
           // Incrementar contagem de agendamentos
           const client = clientsMap.get(clientWhatsapp)!;
           client.appointmentCount = (client.appointmentCount || 0) + 1;
@@ -172,9 +172,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       Object.values(manualClients).forEach((manualClient: any) => {
         const cleanWhatsapp = manualClient.whatsapp?.replace(/\D/g, '') || '';
         if (!cleanWhatsapp || !manualClient.name || !manualClient.whatsapp) return;
-        
+
         const clientId = `manual_${cleanWhatsapp}`;
-        
+
         // Verificar se já existe um cliente com esse WhatsApp (usando WhatsApp como chave)
         if (!clientsMap.has(cleanWhatsapp)) {
           clientsMap.set(cleanWhatsapp, {
@@ -187,10 +187,10 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       });
 
       const clientsArray = Array.from(clientsMap.values());
-      
+
       // Ordenar por nome
       clientsArray.sort((a, b) => a.name.localeCompare(b.name));
-      
+
       console.log('✅ Clientes carregados:', clientsArray.length);
       setClients(clientsArray);
     } catch (error) {
@@ -590,7 +590,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   available = false;
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
-                  
+
                   // Se este slot é exatamente o horário de início do agendamento, marcar para mostrar o X
                   if (time === appointment.appointment_time) {
                     appointmentId = appointment.id;
@@ -643,7 +643,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   available = false;
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
-                  
+
                   // Se este slot é exatamente o horário de início do agendamento, marcar para mostrar o X
                   if (time === appointment.appointment_time) {
                     appointmentId = appointment.id;
@@ -692,7 +692,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   };
 
   // Filtrar clientes por busca
-  const filteredClients = clients.filter(client => 
+  const filteredClients = clients.filter(client =>
     client.name.toLowerCase().includes(clientSearchQuery.toLowerCase()) ||
     client.whatsapp.includes(clientSearchQuery)
   );
@@ -779,7 +779,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
   const handleCancelAppointment = async (appointmentId: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevenir que o clique no botão selecione o horário
-    
+
     if (!confirm('Quer mesmo cancelar esse agendamento?')) {
       return;
     }
@@ -795,7 +795,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
       // Disparar evento para recarregar agendamentos no dashboard
       window.dispatchEvent(new CustomEvent('clientAppointmentCreated'));
-      
+
       // Forçar recarregamento dos slots alterando temporariamente a data e voltando
       // Isso vai disparar o useEffect que recarrega os slots
       const currentDate = selectedDate;
@@ -803,7 +803,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       setTimeout(() => {
         setSelectedDate(currentDate);
       }, 100);
-      
+
       alert('Agendamento cancelado com sucesso!');
     } catch (error) {
       console.error('Erro ao cancelar agendamento:', error);
@@ -848,20 +848,20 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           hash = ((hash << 5) - hash) + char;
           hash = hash & hash; // Convert to 32bit integer
         }
-        
+
         // Gerar UUID v4-like format (mas determinístico baseado no hash)
         // Formato: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
         const hex = Math.abs(hash).toString(16).padStart(8, '0');
         const hash2 = Math.abs((hash * 31) + str.length).toString(16).padStart(8, '0');
         const hash3 = Math.abs((hash * 17) + str.charCodeAt(0)).toString(16).padStart(8, '0');
-        
+
         // Construir UUID no formato correto: 8-4-4-4-12
         const part1 = hex.slice(0, 8).padEnd(8, '0');
         const part2 = hex.slice(0, 4).padEnd(4, '0');
         const part3 = `4${hex.slice(4, 7)}`.padEnd(4, '0');
         const part4 = `${((hash & 0x3) | 0x8).toString(16)}${hash2.slice(0, 3)}`.padEnd(4, '0');
         const part5 = `${hash2}${hash3}`.slice(0, 12).padEnd(12, '0');
-        
+
         return `${part1}-${part2}-${part3}-${part4}-${part5}`;
       };
 
@@ -923,7 +923,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       // (Independente de ser cliente conhecido, avulso ou assinante)
       console.log('✅ Agendamento criado com sucesso, disparando evento para recarregar agendamentos');
       window.dispatchEvent(new CustomEvent('clientAppointmentCreated', {
-        detail: { 
+        detail: {
           clientId: isKnownClient && selectedClient ? selectedClient.id : clientId,
           clientWhatsapp: clientWhatsapp || '',
           isKnownClient,
@@ -1124,7 +1124,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   ))
                 )}
               </div>
-              
+
               {/* Mostrar cliente selecionado se houver */}
               {selectedClient && (
                 <div className="mt-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
@@ -1385,17 +1385,22 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                         onClick={() => slot.available && handleTimeSelect(slot.time)}
                         disabled={!slot.available}
                         className={`w-full p-3 text-sm rounded-lg transition-all relative ${slot.available
-                          ? 'bg-gray-100 text-gray-800 hover:bg-gray-200 border border-gray-300'
-                          : slot.isAvulso
-                            ? 'bg-gray-200 text-gray-700 border border-gray-400 cursor-not-allowed'
-                            : 'bg-gray-300 text-gray-600 border border-gray-500 cursor-not-allowed'
+                            ? 'bg-green-100 hover:bg-green-200 text-green-900 border border-green-400 font-semibold'
+                            : slot.isAvulso
+                              ? 'bg-blue-100 text-blue-900 border border-blue-400 cursor-not-allowed'
+                              : 'bg-red-100 text-red-900 border border-red-400 cursor-not-allowed'
                           }`}
                       >
                         <div className="text-center">
                           <div className="font-semibold">{slot.time}</div>
                           {slot.isAvulso && (
-                            <div className="text-xs text-orange-600 mt-1">
+                            <div className="text-xs text-blue-700 mt-1 font-medium">
                               RESERVA AVULSA
+                            </div>
+                          )}
+                          {!slot.available && !slot.isAvulso && (
+                            <div className="text-xs text-red-700 mt-1 font-medium">
+                              BLOQUEADO
                             </div>
                           )}
                         </div>
