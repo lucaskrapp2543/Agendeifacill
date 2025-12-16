@@ -25,7 +25,7 @@ import { SubscribersManager } from '../components/SubscribersManager'; // Import
 import { TimeSelector } from '../components/TimeSelector';
 import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
 import { useToast } from '../components/ui/Toaster';
-import { UpdateButton } from '../components/UpdateButton';
+// UpdateButton removido - sistema automático já cuida de tudo
 import { ValidityDisplay } from '../components/ValidityDisplay';
 import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
@@ -14651,7 +14651,7 @@ Estamos te aguardando! 😎✂️`;
                   <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
                     <iframe
                       className="absolute top-0 left-0 w-full h-full"
-                      src="https://www.youtube.com/embed/CeWMXi4MS7g"
+                      src="https://www.youtube.com/embed/4diswxWV_f0"
                       title="Tutorial: Como Gerenciar Assinantes"
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -14661,7 +14661,7 @@ Estamos te aguardando! 😎✂️`;
 
                   <div className="mt-3 text-center">
                     <a
-                      href="https://youtu.be/CeWMXi4MS7g"
+                      href="https://youtu.be/4diswxWV_f0"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
@@ -17247,8 +17247,7 @@ Estamos te aguardando! 😎✂️`;
         )
       }
 
-      {/* Botão de Atualização */}
-      <UpdateButton />
+      {/* Botão de Atualização removido - sistema automático já cuida de tudo */}
 
       {/* Popup bonito para explicação */}
       {
@@ -17643,7 +17642,7 @@ Estamos te aguardando! 😎✂️`;
               <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
                 <iframe
                   className="absolute top-0 left-0 w-full h-full"
-                  src="https://www.youtube.com/embed/CeWMXi4MS7g"
+                  src="https://www.youtube.com/embed/4diswxWV_f0"
                   title="Tutorial: Como Gerenciar Assinantes"
                   frameBorder="0"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

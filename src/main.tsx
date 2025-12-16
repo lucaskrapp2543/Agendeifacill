@@ -112,6 +112,13 @@ const handleChunkErrors = () => {
 // Inicializar detecção de erros
 handleChunkErrors();
 
+// Inicializar sistema automático de limpeza de cache
+if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+  import('./utils/autoCacheCleaner').then(({ initializeAutoCleanup }) => {
+    initializeAutoCleanup();
+  });
+}
+
 // ⚠️ DETECÇÃO DE LOOP DE RELOAD: Verificar primeiro se há loop antes de qualquer coisa
 if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
   import('./utils/cacheCleaner').then(({ detectAndCleanReloadLoop, checkAndCleanCorruptedData }) => {

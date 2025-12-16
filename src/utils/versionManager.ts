@@ -1,6 +1,6 @@
 // Sistema de gerenciamento de versão e atualização forçada
 
-const APP_VERSION = '2.3.0'; // Versão com correções críticas de login e cache - ATUALIZAÇÃO OBRIGATÓRIA
+const APP_VERSION = '2.4.0'; // Versão com sistema automático de limpeza de cache - ATUALIZAÇÃO OBRIGATÓRIA
 const VERSION_KEY = 'agendafacil_app_version';
 const LAST_UPDATE_CHECK_KEY = 'agendafacil_last_update_check';
 const UPDATING_FLAG_KEY = 'agendafacil_is_updating'; // Flag para evitar reloads múltiplos
@@ -127,15 +127,16 @@ const shouldForceUpdate = (oldVersion: string, newVersion: string): boolean => {
     '2.0.0', // Versão com melhorias de 4G
     '2.1.0', // Versão com correções de RLS
     '2.2.0', // ⚠️ CORREÇÃO CRÍTICA: Tela branca e erros de cache - OBRIGATÓRIA
-    '2.3.0'  // ⚠️ CORREÇÃO CRÍTICA: Bugs de login e cache - OBRIGATÓRIA
+    '2.3.0', // ⚠️ CORREÇÃO CRÍTICA: Bugs de login e cache - OBRIGATÓRIA
+    '2.4.0'  // ⚠️ CORREÇÃO CRÍTICA: Sistema automático de limpeza de cache - OBRIGATÓRIA
   ];
 
-  // Se a versão antiga for menor que 2.3.0, FORÇAR atualização
+  // Se a versão antiga for menor que 2.4.0, FORÇAR atualização
   const oldVersionNum = parseFloat(oldVersion);
   const newVersionNum = parseFloat(newVersion);
 
-  if (oldVersionNum < 2.3 && newVersionNum >= 2.3) {
-    return true; // Forçar atualização para versão 2.3.0+
+  if (oldVersionNum < 2.4 && newVersionNum >= 2.4) {
+    return true; // Forçar atualização para versão 2.4.0+
   }
 
   return forceUpdateVersions.includes(newVersion);
@@ -291,15 +292,23 @@ export const forceCompleteCleanup = async (): Promise<void> => {
       console.warn('⚠️ Erro ao limpar sessionStorage:', error);
     }
 
-    // 6. Limpar localStorage (EXCETO a versão que será salva depois)
+    // 6. Limpar localStorage (EXCETO versão e dados de autenticação/login)
     try {
       const currentVersion = getCurrentVersion();
-      const keysToKeep = [VERSION_KEY]; // Manter apenas a versão
+      // Chaves importantes que NUNCA devem ser limpas
+      const keysToKeep = [
+        VERSION_KEY,                    // Versão do app
+        'agendafacil_auth_token',       // Token de autenticação principal
+        'saved_email',                  // Email salvo do login
+        'saved_password',               // Senha salva do login
+        'save_credentials',             // Flag de salvar credenciais
+        'supabase.auth.token',          // Token antigo do Supabase (se existir)
+      ];
 
       // Salvar versão atual antes de limpar
       setStoredVersion(currentVersion);
 
-      // Limpar tudo exceto a versão
+      // Limpar tudo exceto as chaves importantes
       const allKeys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -309,7 +318,8 @@ export const forceCompleteCleanup = async (): Promise<void> => {
       }
 
       allKeys.forEach(key => localStorage.removeItem(key));
-      console.log('✅ localStorage limpo (versão preservada)');
+      console.log('✅ localStorage limpo (versão e autenticação preservadas)');
+      console.log('🔒 Chaves preservadas:', keysToKeep.filter(key => localStorage.getItem(key)));
     } catch (error) {
       console.warn('⚠️ Erro ao limpar localStorage:', error);
     }

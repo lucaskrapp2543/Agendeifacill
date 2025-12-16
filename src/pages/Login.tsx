@@ -11,7 +11,6 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [saveCredentials, setSaveCredentials] = useState(false);
-  const [showUpdateButton, setShowUpdateButton] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -99,13 +98,10 @@ const Login = () => {
       setSaveCredentials(true);
     }
 
-    // Verificar se o botão de atualizar sistema já foi usado (verifica cookie)
-    const systemUpdated = getCookie('system_updated') || localStorage.getItem('system_updated');
-    if (!systemUpdated) {
-      setShowUpdateButton(true);
-    }
+    // Sistema automático de limpeza já cuida de tudo
   }, [authLoading, user]);
 
+  // Função de limpeza manual (fallback para casos extremos)
   const handleUpdateSystem = async () => {
     try {
       setIsLoading(true);
@@ -303,18 +299,28 @@ const Login = () => {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex justify-center items-center disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {isLoading ? (
-              <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-            ) : (
-              'Logar como Estabelecimento'
-            )}
-          </button>
+          {/* Botões lado a lado */}
+          <div className="flex flex-row gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => navigate('/view-appointments')}
+              className="flex-1 px-2 py-2 sm:px-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex justify-center items-center text-[10px] sm:text-sm whitespace-nowrap"
+            >
+              Sou Cliente
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="flex-1 px-2 py-2 sm:px-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex justify-center items-center disabled:opacity-50 disabled:cursor-not-allowed text-[10px] sm:text-sm whitespace-nowrap"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isLoading ? (
+                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+              ) : (
+                'Sou Profissional'
+              )}
+            </button>
+          </div>
 
           <div className="text-center mt-3">
             <Link
@@ -326,17 +332,6 @@ const Login = () => {
             </Link>
           </div>
         </form>
-
-        {/* Botão Sou Cliente */}
-        <div className="mt-6 pt-6 border-t border-gray-800">
-          <button
-            type="button"
-            onClick={() => navigate('/view-appointments')}
-            className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium flex justify-center items-center"
-          >
-            Sou Cliente
-          </button>
-        </div>
 
         <div className="text-center mt-4 space-y-3">
           {/* Botão de Emergência - Limpeza Completa */}
@@ -355,21 +350,6 @@ const Login = () => {
           </div>
         </div>
 
-        {/* Botão de Atualizar Sistema - Aparece apenas uma vez */}
-        {showUpdateButton && (
-          <div className="mt-6 pt-6 border-t border-gray-800">
-            <button
-              type="button"
-              onClick={handleUpdateSystem}
-              className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex justify-center items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Atualizar Sistema
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -378,7 +378,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }
 
       toast.success(`Pagamento de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount)} registrado para ${professionalName}!`);
-      
+
       // Recarregar pagamentos e atendimentos para atualizar o cálculo
       await fetchProfessionalPayments();
       await fetchSubscriberAttendances();
@@ -762,14 +762,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Handler para ocultar/desocultar assinatura
   const handleToggleHideSubscription = async (subscriptionId: string, currentHiddenState: boolean) => {
     const action = currentHiddenState ? 'desocultar' : 'ocultar';
-    const confirmMessage = currentHiddenState 
-      ? 'Deseja desocultar esta assinatura? Ela voltará a aparecer no Booking para novos clientes.' 
+    const confirmMessage = currentHiddenState
+      ? 'Deseja desocultar esta assinatura? Ela voltará a aparecer no Booking para novos clientes.'
       : 'Deseja ocultar esta assinatura? Ela não aparecerá mais no Booking para novos clientes (assinantes existentes não serão afetados).';
 
     if (window.confirm(confirmMessage)) {
       try {
         console.log(`🔐 ${action === 'ocultar' ? 'Ocultando' : 'Desocultando'} assinatura:`, subscriptionId);
-        
+
         const { error } = await supabase
           .from('subscriptions')
           .update({ is_hidden: !currentHiddenState })
@@ -819,7 +819,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     try {
       const linkValue = editLink.trim() || null;
-      
+
       // Validar URL se não estiver vazio
       if (linkValue && !linkValue.match(/^https?:\/\//)) {
         toast.error('O link deve começar com http:// ou https://');
@@ -856,11 +856,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         const now = new Date();
         const currentYear = now.getFullYear();
         const currentMonth = now.getMonth(); // 0-11
-        
+
         // Primeiro dia do mês atual
         const firstDay = new Date(currentYear, currentMonth, 1);
         const firstDayStr = firstDay.toISOString().split('T')[0]; // YYYY-MM-DD
-        
+
         // Último dia do mês atual
         const lastDay = new Date(currentYear, currentMonth + 1, 0);
         const lastDayStr = lastDay.toISOString().split('T')[0]; // YYYY-MM-DD
@@ -882,7 +882,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
         console.log('✅ Atendimentos deletados com sucesso');
         toast.success(`Profissional "${professionalName}" removido do controle com sucesso!`);
-        
+
         // Recarregar dados
         fetchSubscriberAttendances();
       } catch (error: any) {
@@ -1295,8 +1295,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 // IMPORTANTE: Considerar apenas pagamentos feitos via assinatura (payment_source = 'subscription')
                 // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem entrar aqui
                 const totalPaid = professionalPayments
-                  .filter(p => 
-                    p.professional_name === professional && 
+                  .filter(p =>
+                    p.professional_name === professional &&
                     p.payment_source === 'subscription' // Só pagamentos via assinatura
                   )
                   .reduce((sum, p) => sum + (p.amount || 0), 0);
@@ -1490,7 +1490,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       {/* Criação de Assinatura */}
       <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
-        <h2 className="text-xl font-semibold mb-4">Criar Novo Tipo de Assinatura</h2>
         <form onSubmit={handleCreateSubscription} className="space-y-4">
           <div>
             <label htmlFor="subscriptionName" className="block text-sm font-medium text-gray-400 mb-1">Nome da Assinatura</label>
@@ -1616,6 +1615,31 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       {/* Lista de Tipos de Assinatura */}
       <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
         <h2 className="text-xl font-semibold mb-4">Tipos de Assinatura Criados</h2>
+
+        {/* Título, Botão Cakto e Mensagem de Atenção */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold mb-4 text-gray-200">Criar Novo Tipo de Assinatura</h3>
+
+          {/* Botão Cakto */}
+          <a
+            href="https://www.cakto.com.br/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center w-full mb-4 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
+          >
+            <span className="mr-2">💳</span>
+            Criar conta recorrência cakto
+          </a>
+
+          {/* Mensagem de Atenção */}
+          <div className="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4 mb-4">
+            <p className="text-yellow-200 font-medium text-sm leading-relaxed">
+              ⚠️ <span className="font-bold">Atenção:</span><br />
+              Se você não utilizar a Cakto para receber as recorrências das suas assinaturas, quando o cliente clicar em "Assinar", ele será direcionado diretamente para o seu WhatsApp para finalizar o pagamento manualmente.
+            </p>
+          </div>
+        </div>
+
         {subscriptions.length === 0 ? (
           <p className="text-gray-400 text-center">Nenhum tipo de assinatura criado ainda.</p>
         ) : (
