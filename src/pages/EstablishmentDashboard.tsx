@@ -4830,12 +4830,14 @@ Estamos te aguardando! 😎✂️`;
       const cleanNewWhatsapp = editClientWhatsapp.trim().replace(/\D/g, '');
 
       // Verificar se é cliente manual no Supabase
-      const { data: existingManualClient } = await supabase
+      const { data: existingManualClientData, error: checkError } = await supabase
         .from('manual_clients')
         .select('*')
         .eq('establishment_id', establishment?.id)
         .eq('whatsapp', cleanOldWhatsapp)
-        .single();
+        .maybeSingle(); // Usar maybeSingle() em vez de single() para evitar erro se não existir
+
+      const existingManualClient = checkError ? null : existingManualClientData;
 
       if (existingManualClient) {
         // Se o WhatsApp mudou, fazer upsert (remove o antigo e cria o novo)
@@ -5209,22 +5211,27 @@ Estamos te aguardando! 😎✂️`;
         return JSON.parse(localStorage.getItem(storageKey) || '{}');
       }
 
-      // Converter array do Supabase para objeto indexado por WhatsApp
+      // Converter array do Supabase para objeto indexado por WhatsApp (garantir que está limpo)
       const clientsMap: Record<string, any> = {};
-      if (supabaseClients) {
+      if (supabaseClients && supabaseClients.length > 0) {
         supabaseClients.forEach(client => {
-          clientsMap[client.whatsapp] = {
+          // Garantir que o WhatsApp está limpo (só números)
+          const cleanWhatsapp = String(client.whatsapp).replace(/\D/g, '');
+          clientsMap[cleanWhatsapp] = {
             name: client.name,
-            whatsapp: client.whatsapp,
+            whatsapp: cleanWhatsapp,
             birthday: client.birthday,
             alert: client.alert,
             addedAt: client.created_at,
             appointmentCount: 0
           };
         });
+        console.log('✅ Clientes manuais carregados do Supabase:', supabaseClients.length, 'clientes');
+        console.log('📋 Detalhes dos clientes:', supabaseClients.map(c => ({ name: c.name, whatsapp: c.whatsapp })));
+      } else {
+        console.log('📋 Nenhum cliente manual encontrado no Supabase');
       }
 
-      console.log('✅ Clientes manuais carregados do Supabase:', Object.keys(clientsMap).length);
       return clientsMap;
 
     } catch (error) {
@@ -5376,26 +5383,55 @@ Estamos te aguardando! 😎✂️`;
 
     try {
       // Salvar cliente manual no Supabase (banco de dados)
-      const { data, error } = await supabase
+      // Primeiro verificar se já existe
+      const { data: existingClient } = await supabase
         .from('manual_clients')
-        .upsert({
-          establishment_id: establishment.id,
-          name: newClientName.trim(),
-          whatsapp: cleanWhatsapp,
-          birthday: newClientBirthday || null,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'establishment_id,whatsapp'
-        })
-        .select()
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .eq('whatsapp', cleanWhatsapp)
         .single();
 
-      if (error) {
-        console.error('❌ Erro ao salvar no Supabase:', error);
-        throw error;
-      }
+      let savedData;
+      if (existingClient) {
+        // Atualizar cliente existente
+        const { data, error } = await supabase
+          .from('manual_clients')
+          .update({
+            name: newClientName.trim(),
+            birthday: newClientBirthday || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingClient.id)
+          .select()
+          .single();
 
-      console.log('✅ Cliente manual salvo no banco de dados:', data);
+        if (error) {
+          console.error('❌ Erro ao atualizar no Supabase:', error);
+          throw error;
+        }
+        savedData = data;
+        console.log('✅ Cliente manual atualizado no banco de dados:', savedData);
+      } else {
+        // Criar novo cliente
+        const { data, error } = await supabase
+          .from('manual_clients')
+          .insert({
+            establishment_id: establishment.id,
+            name: newClientName.trim(),
+            whatsapp: cleanWhatsapp,
+            birthday: newClientBirthday || null
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error('❌ Erro ao salvar no Supabase:', error);
+          console.error('❌ Detalhes do erro:', JSON.stringify(error, null, 2));
+          throw error;
+        }
+        savedData = data;
+        console.log('✅ Cliente manual salvo no banco de dados:', savedData);
+      }
 
       // Também salvar no localStorage como backup/cache
       const storageKey = `manual_clients_${establishment.id}`;
@@ -6057,26 +6093,31 @@ Estamos te aguardando! 😎✂️`;
 
       // Adicionar clientes manuais que ainda não existem na lista
       Object.values(manualClients).forEach((manualClient: any) => {
-        const existingClient = uniqueClients.find(c => c.whatsapp === manualClient.whatsapp);
+        // Garantir que o WhatsApp está limpo para comparação
+        const cleanManualWhatsapp = String(manualClient.whatsapp).replace(/\D/g, '');
+        const existingClient = uniqueClients.find(c => {
+          const cleanClientWhatsapp = String(c.whatsapp).replace(/\D/g, '');
+          return cleanClientWhatsapp === cleanManualWhatsapp;
+        });
 
         if (!existingClient) {
           // Cliente manual que ainda não fez agendamentos
           uniqueClients.push({
-            id: `manual_${manualClient.whatsapp}`, // ID único para cliente manual
-            whatsapp: manualClient.whatsapp,
+            id: `manual_${cleanManualWhatsapp}`, // ID único para cliente manual
+            whatsapp: cleanManualWhatsapp,
             name: manualClient.name,
             appointmentCount: 0,
             isSubscriber: false,
             birthday: manualClient.birthday
           });
-          console.log(`➕ Cliente manual adicionado: ${manualClient.name}`);
+          console.log(`➕ Cliente manual adicionado: ${manualClient.name} (${cleanManualWhatsapp})`);
         } else {
           // Cliente manual que já fez agendamentos - usar nome mais atualizado
           existingClient.name = manualClient.name;
           if (manualClient.birthday) {
             existingClient.birthday = manualClient.birthday;
           }
-          console.log(`🔄 Cliente manual atualizado: ${manualClient.name}`);
+          console.log(`🔄 Cliente manual atualizado: ${manualClient.name} (${cleanManualWhatsapp})`);
         }
       });
 
