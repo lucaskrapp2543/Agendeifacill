@@ -4825,30 +4825,75 @@ Estamos te aguardando! 😎✂️`;
         throw error;
       }
 
-      // Atualizar também no localStorage se for cliente manual
+      // Atualizar também no Supabase se for cliente manual
+      const cleanOldWhatsapp = editingClient.replace(/\D/g, '');
+      const cleanNewWhatsapp = editClientWhatsapp.trim().replace(/\D/g, '');
+
+      // Verificar se é cliente manual no Supabase
+      const { data: existingManualClient } = await supabase
+        .from('manual_clients')
+        .select('*')
+        .eq('establishment_id', establishment?.id)
+        .eq('whatsapp', cleanOldWhatsapp)
+        .single();
+
+      if (existingManualClient) {
+        // Se o WhatsApp mudou, fazer upsert (remove o antigo e cria o novo)
+        if (cleanOldWhatsapp !== cleanNewWhatsapp) {
+          // Deletar o antigo
+          await supabase
+            .from('manual_clients')
+            .delete()
+            .eq('establishment_id', establishment?.id)
+            .eq('whatsapp', cleanOldWhatsapp);
+
+          // Criar o novo
+          await supabase
+            .from('manual_clients')
+            .upsert({
+              establishment_id: establishment?.id,
+              name: editClientName.trim(),
+              whatsapp: cleanNewWhatsapp,
+              birthday: existingManualClient.birthday,
+              alert: existingManualClient.alert,
+              updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'establishment_id,whatsapp'
+            });
+        } else {
+          // Apenas atualizar
+          await supabase
+            .from('manual_clients')
+            .update({
+              name: editClientName.trim(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('establishment_id', establishment?.id)
+            .eq('whatsapp', cleanOldWhatsapp);
+        }
+        console.log('💾 Cliente manual atualizado no Supabase');
+      }
+
+      // Também atualizar no localStorage como backup
       const storageKey = `manual_clients_${establishment?.id}`;
       const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
 
-      if (manualClients[editingClient]) {
-        // Atualizar cliente manual no localStorage
-        manualClients[editingClient] = {
-          ...manualClients[editingClient],
-          name: editClientName.trim(),
-          whatsapp: editClientWhatsapp.trim()
-        };
-
-        // Se o WhatsApp mudou, remover a entrada antiga e criar nova
-        if (editingClient !== editClientWhatsapp.trim()) {
-          delete manualClients[editingClient];
-          manualClients[editClientWhatsapp.trim()] = {
-            ...manualClients[editingClient],
+      if (manualClients[cleanOldWhatsapp]) {
+        if (cleanOldWhatsapp !== cleanNewWhatsapp) {
+          delete manualClients[cleanOldWhatsapp];
+          manualClients[cleanNewWhatsapp] = {
             name: editClientName.trim(),
-            whatsapp: editClientWhatsapp.trim()
+            whatsapp: cleanNewWhatsapp,
+            birthday: manualClients[cleanOldWhatsapp]?.birthday,
+            addedAt: manualClients[cleanOldWhatsapp]?.addedAt
+          };
+        } else {
+          manualClients[cleanOldWhatsapp] = {
+            ...manualClients[cleanOldWhatsapp],
+            name: editClientName.trim()
           };
         }
-
         localStorage.setItem(storageKey, JSON.stringify(manualClients));
-        console.log('💾 Cliente manual atualizado no localStorage');
       }
 
       console.log('✅ Cliente atualizado com sucesso!');
@@ -4886,12 +4931,27 @@ Estamos te aguardando! 😎✂️`;
         throw error;
       }
 
-      // Excluir também do localStorage se for cliente manual
+      // Excluir também do Supabase se for cliente manual
+      const cleanWhatsapp = clientWhatsapp.replace(/\D/g, '');
+
+      const { error: deleteManualError } = await supabase
+        .from('manual_clients')
+        .delete()
+        .eq('establishment_id', establishment?.id)
+        .eq('whatsapp', cleanWhatsapp);
+
+      if (deleteManualError) {
+        console.warn('⚠️ Erro ao excluir cliente manual do Supabase:', deleteManualError);
+      } else {
+        console.log('🗑️ Cliente manual removido do Supabase');
+      }
+
+      // Também excluir do localStorage
       const storageKey = `manual_clients_${establishment?.id}`;
       const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
 
-      if (manualClients[clientWhatsapp]) {
-        delete manualClients[clientWhatsapp];
+      if (manualClients[cleanWhatsapp]) {
+        delete manualClients[cleanWhatsapp];
         localStorage.setItem(storageKey, JSON.stringify(manualClients));
         console.log('🗑️ Cliente manual removido do localStorage');
       }
@@ -5131,12 +5191,48 @@ Estamos te aguardando! 😎✂️`;
     return alertsMap;
   };
 
-  // Função para carregar clientes manuais do localStorage
-  const loadManualClientsFromStorage = () => {
+  // Função para carregar clientes manuais do Supabase (e localStorage como fallback)
+  const loadManualClientsFromStorage = async () => {
     if (!establishment?.id) return {};
 
-    const storageKey = `manual_clients_${establishment.id}`;
-    return JSON.parse(localStorage.getItem(storageKey) || '{}');
+    try {
+      // Buscar do Supabase primeiro
+      const { data: supabaseClients, error } = await supabase
+        .from('manual_clients')
+        .select('*')
+        .eq('establishment_id', establishment.id);
+
+      if (error) {
+        console.warn('⚠️ Erro ao buscar clientes do Supabase, usando localStorage:', error);
+        // Fallback para localStorage
+        const storageKey = `manual_clients_${establishment.id}`;
+        return JSON.parse(localStorage.getItem(storageKey) || '{}');
+      }
+
+      // Converter array do Supabase para objeto indexado por WhatsApp
+      const clientsMap: Record<string, any> = {};
+      if (supabaseClients) {
+        supabaseClients.forEach(client => {
+          clientsMap[client.whatsapp] = {
+            name: client.name,
+            whatsapp: client.whatsapp,
+            birthday: client.birthday,
+            alert: client.alert,
+            addedAt: client.created_at,
+            appointmentCount: 0
+          };
+        });
+      }
+
+      console.log('✅ Clientes manuais carregados do Supabase:', Object.keys(clientsMap).length);
+      return clientsMap;
+
+    } catch (error) {
+      console.error('❌ Erro ao carregar clientes manuais:', error);
+      // Fallback para localStorage em caso de erro
+      const storageKey = `manual_clients_${establishment.id}`;
+      return JSON.parse(localStorage.getItem(storageKey) || '{}');
+    }
   };
 
   // Estado para armazenar assinantes pagos
@@ -5259,9 +5355,14 @@ Estamos te aguardando! 😎✂️`;
   };
 
   // Função para adicionar cliente manualmente
-  const addManualClient = () => {
+  const addManualClient = async () => {
     if (!newClientName.trim() || !newClientWhatsapp.trim()) {
       toast('Nome e WhatsApp são obrigatórios!', 'error');
+      return;
+    }
+
+    if (!establishment?.id) {
+      toast('Erro: Estabelecimento não encontrado', 'error');
       return;
     }
 
@@ -5274,35 +5375,51 @@ Estamos te aguardando! 😎✂️`;
     }
 
     try {
-      // Salvar cliente manual no localStorage
-      const storageKey = `manual_clients_${establishment?.id}`;
-      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      // Salvar cliente manual no Supabase (banco de dados)
+      const { data, error } = await supabase
+        .from('manual_clients')
+        .upsert({
+          establishment_id: establishment.id,
+          name: newClientName.trim(),
+          whatsapp: cleanWhatsapp,
+          birthday: newClientBirthday || null,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'establishment_id,whatsapp'
+        })
+        .select()
+        .single();
 
+      if (error) {
+        console.error('❌ Erro ao salvar no Supabase:', error);
+        throw error;
+      }
+
+      console.log('✅ Cliente manual salvo no banco de dados:', data);
+
+      // Também salvar no localStorage como backup/cache
+      const storageKey = `manual_clients_${establishment.id}`;
+      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
       manualClients[cleanWhatsapp] = {
         name: newClientName.trim(),
         whatsapp: cleanWhatsapp,
         birthday: newClientBirthday || null,
         addedAt: new Date().toISOString(),
-        appointmentCount: 0 // Começa com 0, será incrementado quando agendar
+        appointmentCount: 0
       };
-
       localStorage.setItem(storageKey, JSON.stringify(manualClients));
 
       // Se tem aniversário, salvar também no storage de aniversários
       if (newClientBirthday) {
-        const birthdayStorageKey = `client_birthdays_${establishment?.id}`;
+        const birthdayStorageKey = `client_birthdays_${establishment.id}`;
         const savedBirthdays = JSON.parse(localStorage.getItem(birthdayStorageKey) || '{}');
-
         savedBirthdays[cleanWhatsapp] = {
           name: newClientName.trim(),
           birthday: newClientBirthday,
           savedAt: new Date().toISOString()
         };
-
         localStorage.setItem(birthdayStorageKey, JSON.stringify(savedBirthdays));
       }
-
-      console.log('✅ Cliente manual adicionado:', manualClients[cleanWhatsapp]);
 
       toast('Cliente adicionado com sucesso!', 'success');
 
@@ -5317,7 +5434,7 @@ Estamos te aguardando! 😎✂️`;
 
     } catch (error: any) {
       console.error('❌ Erro ao adicionar cliente:', error);
-      toast('Erro ao adicionar cliente', 'error');
+      toast(error.message || 'Erro ao adicionar cliente', 'error');
     }
   };
 
@@ -5802,7 +5919,7 @@ Estamos te aguardando! 😎✂️`;
       if (!appointmentsData || appointmentsData.length === 0) {
         console.log('📋 Nenhum agendamento encontrado - carregando apenas clientes manuais');
         // Mesmo sem agendamentos, carregar clientes manuais
-        const manualClients = loadManualClientsFromStorage();
+        const manualClients = await loadManualClientsFromStorage();
         console.log('👤 Clientes manuais carregados:', manualClients);
 
         const uniqueClients: Client[] = Object.values(manualClients).map((manualClient: any) => ({
@@ -5827,7 +5944,7 @@ Estamos te aguardando! 😎✂️`;
       // Se não há IDs únicos, carregar apenas clientes manuais
       if (uniqueClientIds.length === 0) {
         console.log('📋 Nenhum client_id válido encontrado - carregando apenas clientes manuais');
-        const manualClients = loadManualClientsFromStorage();
+        const manualClients = await loadManualClientsFromStorage();
         const uniqueClients: Client[] = Object.values(manualClients).map((manualClient: any) => ({
           id: `manual_${manualClient.whatsapp}`,
           whatsapp: manualClient.whatsapp,
@@ -5934,8 +6051,8 @@ Estamos te aguardando! 😎✂️`;
         birthday: birthday
       }));
 
-      // Carregar clientes manuais do localStorage
-      const manualClients = loadManualClientsFromStorage();
+      // Carregar clientes manuais do Supabase
+      const manualClients = await loadManualClientsFromStorage();
       console.log('👤 Clientes manuais carregados:', manualClients);
 
       // Adicionar clientes manuais que ainda não existem na lista
