@@ -4,7 +4,6 @@ import {
   Camera,
   CheckCircle,
   Mail,
-  Menu,
   MessageCircle,
   Phone,
   Rocket,
@@ -13,9 +12,7 @@ import {
   Smartphone,
   Sparkles,
   Target,
-  Users,
-  Wifi,
-  X
+  Users
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -563,7 +560,7 @@ const LandingVendas = () => {
               <div className="text-center">
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">Plano Mensal</h3>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold text-gray-900">R$ 57</span>
+                  <span className="text-4xl font-bold text-gray-900">R$ 49</span>
                   <span className="text-xl text-gray-600">,90/mês</span>
                 </div>
                 <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
@@ -641,14 +638,14 @@ const LandingVendas = () => {
                     <span className="text-gray-700 text-sm">Notificações em tempo real de agendamentos ou cancelamentos</span>
                   </li>
                 </ul>
-              <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-                <p className="text-blue-900 text-sm sm:text-base font-semibold leading-snug text-center">
-                  PARECE LOUCURA NÉ, mas é isso mesmo: R$ 57,90 para ter tudo isso. Clique agora em começar!
-                </p>
-              </div>
+                <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                  <p className="text-blue-900 text-sm sm:text-base font-semibold leading-snug text-center">
+                    PARECE LOUCURA NÉ, mas é isso mesmo: R$ 49,90 para ter tudo isso. Clique agora em começar!
+                  </p>
+                </div>
                 <div className="space-y-3">
                   <a
-                    href="https://pay.kiwify.com.br/6z5ZX4t"
+                    href="https://wa.me/5548991484275?text=quero%20ser%20agendei%20facil%20mensal"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
@@ -667,14 +664,14 @@ const LandingVendas = () => {
               <div className="text-center">
                 <h3 className="text-2xl font-bold text-white mb-2">Plano Anual</h3>
                 <div className="mb-2">
-                  <span className="text-sm text-gray-200 line-through">R$ 814,80</span>
+                  <span className="text-sm text-gray-200 line-through">R$ 598,80</span>
                 </div>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold text-white">R$ 579</span>
+                  <span className="text-4xl font-bold text-white">R$ 499</span>
                   <span className="text-xl text-gray-200">,90/ano</span>
                 </div>
                 <div className="mb-6 bg-blue-700 rounded-lg py-2 px-4">
-                  <span className="text-gray-200">Economize R$ 134,90 por ano</span>
+                  <span className="text-gray-200">Economize R$ 98,90 por ano</span>
                 </div>
                 <div className="mb-6 bg-yellow-500 rounded-lg py-3 px-4">
                   <p className="text-black font-semibold text-sm">
@@ -696,7 +693,7 @@ const LandingVendas = () => {
                 </ul>
                 <div className="space-y-3">
                   <a
-                    href="https://pay.kiwify.com.br/Z6ETL6v"
+                    href="https://wa.me/5548991484275?text=quero%20mais%20informaçoes%20do%20anual"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors font-semibold"
