@@ -15,11 +15,12 @@ export default defineConfig({
     watch: {
       usePolling: true, // Melhor compatibilidade com Windows
     },
-    // Configuração para lidar com rotas do React Router
+    // Configuração para lidar com rotas do React Router e API
     proxy: {
       '/api': {
-        target: 'http://localhost:5173',
+        target: 'http://localhost:3001',
         changeOrigin: true,
+        secure: false,
       },
     },
     // Configurações para evitar cache - ULTRA AGRESSIVAS

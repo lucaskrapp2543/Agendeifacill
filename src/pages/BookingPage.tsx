@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AppointmentForm } from '../components/AppointmentForm';
+import { PaymentModal } from '../components/PaymentModal';
 import { QuickBookingModal } from '../components/QuickBookingModal';
 import ReadMore from '../components/ReadMore';
 import { useAuth } from '../context/AuthContext';
@@ -87,6 +88,11 @@ export default function BookingPage() {
   const [subscriberDetectionDisabled, setSubscriberDetectionDisabled] = useState(false); // Estado para desabilitar detecção de assinante
   const [showQuickBookingModal, setShowQuickBookingModal] = useState(false); // Modal de agendamento rápido
   const [guestClientData, setGuestClientData] = useState<{ name: string; phone: string } | null>(null); // Dados do cliente convidado
+  // Pagamento antecipado (Pagar.me) no booking público
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
+  const [pendingPaymentAmount, setPendingPaymentAmount] = useState<number>(0);
+  const [pendingCustomerData, setPendingCustomerData] = useState<{ name: string; phone?: string; email?: string; document?: string } | null>(null);
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
@@ -388,6 +394,18 @@ export default function BookingPage() {
     if (!establishment) return;
 
     try {
+      // ✅ LIMPEZA AUTOMÁTICA: liberar horários presos por pagamento pendente antigo
+      // Se o cliente fechou a aba antes de pagar, o agendamento pode ficar em pending_payment e bloquear a vaga.
+      // Aqui cancelamos pendências antigas para não "travar" o booking.
+      const thresholdMinutes = 10;
+      const thresholdDate = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
+      await supabase
+        .from('appointments')
+        .update({ status: 'cancelled', payment_status: 'failed' })
+        .eq('establishment_id', establishment.id)
+        .eq('status', 'pending_payment')
+        .lt('created_at', thresholdDate);
+
       const { data, error } = await supabase
         .from('appointments')
         .select('*')
@@ -425,11 +443,11 @@ export default function BookingPage() {
       if (subscriptionsData && Array.isArray(subscriptionsData)) {
         // 👁️ FILTRAR assinaturas ocultas (is_hidden = true) para não mostrar no Booking
         const visibleSubscriptions = subscriptionsData.filter(sub => !sub.is_hidden);
-        
+
         console.log('📋 Total de assinaturas:', subscriptionsData.length);
         console.log('👁️ Assinaturas ocultas:', subscriptionsData.filter(sub => sub.is_hidden).length);
         console.log('✅ Assinaturas visíveis:', visibleSubscriptions.length);
-        
+
         setSubscriptions(visibleSubscriptions);
         console.log('✅ Assinaturas carregadas no Booking:', visibleSubscriptions.length, 'planos visíveis');
       } else {
@@ -445,7 +463,7 @@ export default function BookingPage() {
   const handleSubscribeClick = (subscriptionName: string) => {
     // Buscar a assinatura completa para verificar se tem link personalizado
     const subscription = subscriptions.find(sub => sub.name === subscriptionName);
-    
+
     // Se tiver link personalizado, redirecionar para ele
     if (subscription && subscription.custom_link && subscription.custom_link.trim()) {
       const customLink = subscription.custom_link.trim();
@@ -549,9 +567,88 @@ export default function BookingPage() {
       return;
     }
 
+    // Helper: evita ficar preso para sempre em chamadas do Supabase
+    const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout (${ms}ms): ${label}`)), ms)
+        )
+      ]);
+    };
+
     try {
       // Lógica para agendamentos reais
       const isEstablishmentOwner = currentUser?.id === establishment.owner_id;
+
+      // ✅ PAGAMENTO ANTECIPADO (Pagar.me) - Booking público
+      // Regra: se exigir pagamento antecipado, o agendamento só confirma após pagar.
+      const exigirPagamentoAntecipado = (establishment as any)?.exigir_pagamento_antecipado === true;
+      const pagamentoAdiantadoLiberadoAdmin = (establishment as any)?.pagamento_adiantado_liberado_admin === true;
+      const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
+      const isSubscriber = appointmentData?.is_subscriber === true;
+      const valorAgendamento = Number(appointmentData?.price || 0);
+      const precisaPagamento =
+        pagamentoAdiantadoLiberadoAdmin && exigirPagamentoAntecipado && !isSubscriber && valorAgendamento > 0;
+
+      console.log('💳 DEBUG - BookingPage/handleSubmit pagamento:', {
+        exigirPagamentoAntecipado,
+        pagamentoAdiantadoLiberadoAdmin,
+        isSubscriber,
+        valorAgendamento,
+        precisaPagamento,
+        hasPagarmeRecipientId: Boolean(pagarmeRecipientId),
+        pagarmeRecipientIdPreview: pagarmeRecipientId ? `${pagarmeRecipientId.slice(0, 6)}...${pagarmeRecipientId.slice(-4)}` : null
+      });
+
+      if (precisaPagamento) {
+        if (!pagarmeRecipientId) {
+          toast.error('Este estabelecimento exige pagamento antecipado, mas ainda não configurou o recebedor. Fale com o estabelecimento.');
+          return;
+        }
+
+        console.log('🧾 DEBUG - Criando agendamento pending_payment no Supabase...', {
+          establishment_id: establishment.id,
+          appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+          appointment_time: appointmentData?.appointment_time,
+          professional: appointmentData?.professional,
+          service: appointmentData?.service,
+          price: appointmentData?.price
+        });
+
+        const { data: inserted, error: insertError } = await withTimeout(
+          supabase
+            .from('appointments')
+            .insert([{
+              client_id: currentUser.id,
+              establishment_id: establishment.id,
+              establishment_code: establishment.code,
+              appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+              status: 'pending_payment',
+              payment_status: 'pending',
+              payment_method: 'pendente',
+              ...appointmentData
+            }])
+            .select('id')
+            .single(),
+          20000,
+          'insert appointments (pending_payment)'
+        );
+
+        if (insertError) throw insertError;
+
+        console.log('✅ DEBUG - Agendamento pending_payment criado:', inserted?.id);
+        setPendingAppointmentId(inserted.id);
+        setPendingPaymentAmount(valorAgendamento);
+        setPendingCustomerData({
+          name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
+          phone: appointmentData?.client_whatsapp || guestClientData?.phone,
+          email: currentUser?.email || undefined,
+          document: appointmentData?.client_cpf || undefined,
+        });
+        setShowPaymentModal(true);
+        return;
+      }
 
       // 🔥 VALIDAÇÃO DE 1 AGENDAMENTO POR SEMANA PARA ASSINANTES
       if (appointmentData.is_subscriber && currentUser?.id) {
@@ -595,17 +692,31 @@ export default function BookingPage() {
       // 🔥 VALIDAÇÃO DE PUNIÇÃO POR CANCELAMENTO - REMOVIDA
       // Sistema de punição foi removido conforme remove_punishment_feature.sql
 
-      const { error } = await supabase
-        .from('appointments')
-        .insert([{
-          client_id: currentUser.id,
-          establishment_id: establishment.id,
-          establishment_code: establishment.code, // Salvar código do estabelecimento
-          appointment_date: format(selectedDate, 'yyyy-MM-dd'),
-          // TODO: Adicionar is_establishment_booking quando a coluna for criada no banco
-          // is_establishment_booking: isEstablishmentOwner,
-          ...appointmentData
-        }]);
+      console.log('🧾 DEBUG - Criando agendamento normal no Supabase...', {
+        establishment_id: establishment.id,
+        appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+        appointment_time: appointmentData?.appointment_time,
+        professional: appointmentData?.professional,
+        service: appointmentData?.service,
+        price: appointmentData?.price,
+        payment_method: appointmentData?.payment_method
+      });
+
+      const { error } = await withTimeout(
+        supabase
+          .from('appointments')
+          .insert([{
+            client_id: currentUser.id,
+            establishment_id: establishment.id,
+            establishment_code: establishment.code, // Salvar código do estabelecimento
+            appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+            // TODO: Adicionar is_establishment_booking quando a coluna for criada no banco
+            // is_establishment_booking: isEstablishmentOwner,
+            ...appointmentData
+          }]),
+        20000,
+        'insert appointments (normal)'
+      );
 
       if (error) throw error;
 
@@ -660,8 +771,15 @@ export default function BookingPage() {
         window.location.href = '/view-appointments';
       }, 1000);
     } catch (error: any) {
+      // Supabase costuma trazer { message, details, hint, code }
+      const code = error?.code || error?.status || undefined;
+      const details = error?.details || error?.hint || undefined;
       console.error('Error creating appointment:', error);
-      toast.error(error.message || 'Erro ao criar agendamento');
+      toast.error(
+        [error?.message || 'Erro ao criar agendamento', code ? `(código: ${code})` : null, details ? `- ${details}` : null]
+          .filter(Boolean)
+          .join(' ')
+      );
     } finally {
       setIsLoading(false);
     }
@@ -1701,6 +1819,10 @@ export default function BookingPage() {
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
                 existingAppointments={existingAppointments}
+                requireAdvancePayment={
+                  (establishment as any)?.exigir_pagamento_antecipado === true &&
+                  !!String((establishment as any)?.pagarme_recipient_id || '').trim()
+                }
                 onConvertToSubscriber={handleConvertToSubscriber}
                 subscriberDetectionDisabled={subscriberDetectionDisabled}
                 onSubscriberDetectionDisabledChange={setSubscriberDetectionDisabled}
@@ -1839,6 +1961,57 @@ export default function BookingPage() {
         establishmentName={establishment?.name || 'este estabelecimento'}
         establishmentWhatsapp={establishment?.whatsapp}
       />
+
+      {/* Modal de Pagamento (Pagar.me) - Booking público */}
+      {showPaymentModal && pendingAppointmentId && (
+        <PaymentModal
+          isOpen={showPaymentModal}
+          onClose={() => {
+            setShowPaymentModal(false);
+            // Se fechar sem pagar, cancelar agendamento pendente
+            if (pendingAppointmentId) {
+              supabase
+                .from('appointments')
+                .update({ status: 'cancelled', payment_status: 'failed' })
+                .eq('id', pendingAppointmentId);
+            }
+            toast.error('Pagamento não concluído. Agendamento cancelado.');
+          }}
+          appointmentId={pendingAppointmentId}
+          amount={pendingPaymentAmount}
+          establishmentId={String(establishment?.id || '')}
+          recipientId={String((establishment as any)?.pagarme_recipient_id || '')}
+          onPaymentSuccess={(clientPhone) => {
+            setShowPaymentModal(false);
+            setPendingAppointmentId(null);
+
+            // Se tiver telefone, redirecionar para view-appointments
+            if (clientPhone) {
+              const cleanPhone = clientPhone.replace(/\D/g, '');
+              localStorage.setItem('last_booking_phone', cleanPhone);
+              window.location.href = `/view-appointments?phone=${encodeURIComponent(cleanPhone)}`;
+              return;
+            }
+            setPendingCustomerData(null);
+            // Redirecionar para a página de agendamentos
+            toast.success('Pagamento confirmado! Redirecionando para seus agendamentos...');
+            setTimeout(() => {
+              window.location.href = '/view-appointments';
+            }, 800);
+          }}
+          onPaymentFailure={() => {
+            setShowPaymentModal(false);
+            setPendingAppointmentId(null);
+            setPendingCustomerData(null);
+            toast.error('Pagamento não concluído. Agendamento cancelado.');
+          }}
+          customerData={{
+            name: pendingCustomerData?.name || guestClientData?.name || 'Cliente',
+            phone: pendingCustomerData?.phone || guestClientData?.phone,
+            email: pendingCustomerData?.email || user?.email || undefined
+          }}
+        />
+      )}
 
     </div>
   );

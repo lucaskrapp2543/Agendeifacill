@@ -2,6 +2,7 @@ import { CheckCircle, Clock, Scissors, Search, User } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { PaymentModal } from './PaymentModal';
 
 interface Professional {
   id: string;
@@ -97,6 +98,12 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearchQuery, setClientSearchQuery] = useState<string>('');
   const [loadingClients, setLoadingClients] = useState(false);
+
+  // Estados para pagamento antecipado
+  const [exigirPagamentoAntecipado, setExigirPagamentoAntecipado] = useState(false);
+  const [pagarmeRecipientId, setPagarmeRecipientId] = useState<string>('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [pendingAppointmentId, setPendingAppointmentId] = useState<string>('');
 
   // Função para carregar clientes do estabelecimento
   const loadClients = async () => {
@@ -215,7 +222,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         console.log('🔍 Carregando profissionais para establishment:', establishmentId);
         const { data, error } = await supabase
           .from('establishments')
-          .select('professionals, use_20_minute_schedule')
+          .select('professionals, use_20_minute_schedule, exigir_pagamento_antecipado, pagarme_recipient_id')
           .eq('id', establishmentId)
           .single();
 
@@ -229,6 +236,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         // Carregar configuração de horários de 20 em 20 minutos
         setUse20MinuteSchedule(data?.use_20_minute_schedule ?? false);
         console.log('✅ Configuração de horários 20min:', data?.use_20_minute_schedule);
+
+        // Carregar configuração de pagamento antecipado
+        setExigirPagamentoAntecipado((data as any)?.exigir_pagamento_antecipado ?? false);
+        setPagarmeRecipientId((data as any)?.pagarme_recipient_id || '');
+        console.log('✅ Pagamento antecipado:', (data as any)?.exigir_pagamento_antecipado);
 
         // Converter profissionais do formato JSON para o formato esperado
         // Filtrar profissionais ocultos do booking
@@ -898,7 +910,10 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         isAvulso = true;
       }
 
-      const { error } = await supabase
+      // Verificar se exige pagamento antecipado
+      const requiresPayment = exigirPagamentoAntecipado && pagarmeRecipientId;
+
+      const { data: appointmentData, error } = await supabase
         .from('appointments')
         .insert({
           client_id: clientId,
@@ -909,15 +924,24 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           client_whatsapp: clientWhatsapp,
           appointment_date: selectedDate,
           appointment_time: selectedTime,
-          status: 'confirmed',
+          status: requiresPayment ? 'pending_payment' : 'confirmed', // Status baseado em pagamento
           price: totalPrice,
           total_price: totalPrice,
           duration: totalDuration,
           is_avulso: isAvulso,
           is_subscriber: isSubscriber // Salvar se é assinante
-        });
+        })
+        .select('id')
+        .single();
 
       if (error) throw error;
+
+      // Se exige pagamento, abrir modal de pagamento
+      if (requiresPayment && appointmentData?.id) {
+        setPendingAppointmentId(appointmentData.id);
+        setShowPaymentModal(true);
+        return; // Não fechar o modal ainda, aguardar pagamento
+      }
 
       // ✅ SEMPRE disparar evento para recarregar agendamentos no dashboard
       // (Independente de ser cliente conhecido, avulso ou assinante)
@@ -1385,10 +1409,10 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                         onClick={() => slot.available && handleTimeSelect(slot.time)}
                         disabled={!slot.available}
                         className={`w-full p-3 text-sm rounded-lg transition-all relative ${slot.available
-                            ? 'bg-green-100 hover:bg-green-200 text-green-900 border border-green-400 font-semibold'
-                            : slot.isAvulso
-                              ? 'bg-blue-100 text-blue-900 border border-blue-400 cursor-not-allowed'
-                              : 'bg-red-100 text-red-900 border border-red-400 cursor-not-allowed'
+                          ? 'bg-green-100 hover:bg-green-200 text-green-900 border border-green-400 font-semibold'
+                          : slot.isAvulso
+                            ? 'bg-blue-100 text-blue-900 border border-blue-400 cursor-not-allowed'
+                            : 'bg-red-100 text-red-900 border border-red-400 cursor-not-allowed'
                           }`}
                       >
                         <div className="text-center">
@@ -1491,6 +1515,59 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           )}
         </div>
       </div>
+
+      {/* Modal de Pagamento */}
+      {showPaymentModal && pendingAppointmentId && (
+        <PaymentModal
+          isOpen={showPaymentModal}
+          onClose={() => {
+            setShowPaymentModal(false);
+            // Se fechar sem pagar, cancelar agendamento
+            if (pendingAppointmentId) {
+              supabase
+                .from('appointments')
+                .update({ status: 'cancelled' })
+                .eq('id', pendingAppointmentId);
+            }
+          }}
+          appointmentId={pendingAppointmentId}
+          amount={selectedServices.length > 0
+            ? selectedServices.reduce((sum, s) => sum + s.price, 0)
+            : (selectedService?.price || 0)}
+          establishmentId={establishmentId}
+          recipientId={pagarmeRecipientId}
+          onPaymentSuccess={(clientPhoneFromPayment) => {
+            setShowPaymentModal(false);
+            setPendingAppointmentId('');
+
+            // Usar telefone do callback ou do cliente selecionado
+            const clientPhone = clientPhoneFromPayment || selectedClient?.whatsapp || '';
+
+            // Redirecionar para view-appointments com o telefone do cliente
+            if (clientPhone) {
+              const cleanPhone = clientPhone.replace(/\D/g, '');
+              // Salvar telefone no localStorage para login automático
+              localStorage.setItem('last_booking_phone', cleanPhone);
+              // Redirecionar para view-appointments
+              window.location.href = `/view-appointments?phone=${encodeURIComponent(cleanPhone)}`;
+            } else {
+              // Fallback: apenas fechar e recarregar
+              window.dispatchEvent(new CustomEvent('clientAppointmentCreated'));
+              onClose();
+            }
+          }}
+          onPaymentFailure={() => {
+            setShowPaymentModal(false);
+            setPendingAppointmentId('');
+            // Agendamento já foi cancelado no PaymentModal
+          }}
+          customerData={{
+            name: selectedClient?.name || 'CLIENTE AVULSO',
+            phone: selectedClient?.whatsapp,
+            email: user?.email
+          }}
+        />
+      )}
     </div>
   );
 }

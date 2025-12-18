@@ -1,5 +1,5 @@
 import { Session, User } from '@supabase/supabase-js';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { usePWASession } from '../hooks/usePWASession';
 import { supabase } from '../lib/supabase';
 
@@ -34,6 +34,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [, setSession] = useState<Session | null>(null);
   const [isInitialized, setIsInitialized] = useState(false); // Flag para controlar inicialização
+  const isInitializedRef = useRef(false);
 
   // Hook para gerenciar sessão PWA
   const { isPWAMode } = usePWASession();
@@ -41,13 +42,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     let isMounted = true; // Flag para evitar atualizações após unmount
     let timeoutId: NodeJS.Timeout | null = null;
+    let authSubscription: { unsubscribe: () => void } | null = null;
+
+    const markInitialized = () => {
+      isInitializedRef.current = true;
+      setIsInitialized(true);
+    };
 
     // Timeout de segurança: se não inicializar em 10 segundos, parar o loading
     timeoutId = setTimeout(() => {
       if (isMounted && isLoading) {
         console.warn('⚠️ Timeout na inicialização de autenticação, parando loading...');
         setIsLoading(false);
-        setIsInitialized(true);
+        markInitialized();
       }
     }, 10000); // 10 segundos
 
@@ -83,7 +90,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
               if (isMounted) {
                 setIsLoading(false);
-                setIsInitialized(true);
+                markInitialized();
               }
               return;
             }
@@ -108,7 +115,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
                 if (isMounted) {
                   setIsLoading(false);
-                  setIsInitialized(true);
+                  markInitialized();
                 }
                 return; // Sair aqui se renovação foi bem-sucedida
               } else {
@@ -125,7 +132,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                   setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
                   if (isMounted) {
                     setIsLoading(false);
-                    setIsInitialized(true);
+                    markInitialized();
                   }
                   return;
                 } else {
@@ -146,7 +153,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
                 if (isMounted) {
                   setIsLoading(false);
-                  setIsInitialized(true);
+                  markInitialized();
                 }
                 return;
               } else {
@@ -190,19 +197,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
             clearTimeout(timeoutId);
           }
           setIsLoading(false);
-          setIsInitialized(true);
+          markInitialized();
         }
       }
     };
 
     initializeAuth();
-
-    return () => {
-      isMounted = false;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
 
     // Inscreve para mudanças na sessão com melhor tratamento para PWA
     const {
@@ -211,16 +211,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.log(`🔄 Evento de autenticação: ${event}`);
       console.log('📱 Sessão atual:', session ? 'Presente' : 'Ausente');
       console.log('📱 User atual:', session?.user?.email || 'Nenhum');
-      console.log('📱 Já inicializado?', isInitialized);
+      console.log('📱 Já inicializado?', isInitializedRef.current);
 
       // IMPORTANTE: Ignorar eventos INITIAL_SESSION se já inicializamos
-      if (event === 'INITIAL_SESSION' && isInitialized) {
+      if (event === 'INITIAL_SESSION' && isInitializedRef.current) {
         console.log('⚠️ INITIAL_SESSION ignorado - já temos sessão restaurada');
         return; // Não fazer nada
       }
 
       // IMPORTANTE: Não sobrescrever sessão válida com sessão vazia
-      if (!session && isInitialized && event === 'INITIAL_SESSION') {
+      if (!session && isInitializedRef.current && event === 'INITIAL_SESSION') {
         console.log('⚠️ Sessão inicial vazia ignorada - mantendo sessão existente');
         return; // Não limpar a sessão válida
       }
@@ -255,12 +255,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     });
 
+    authSubscription = subscription;
+
     return () => {
       isMounted = false; // Evitar atualizações após unmount
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
-      subscription.unsubscribe();
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
     };
   }, []);
 

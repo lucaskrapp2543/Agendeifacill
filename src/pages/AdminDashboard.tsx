@@ -42,6 +42,7 @@ interface Establishment {
   booking_blocked?: boolean; // Indica se o booking está bloqueado
   admin_notes?: string; // Observações privadas do admin
   whatsapp?: string; // WhatsApp do estabelecimento
+  pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar "Pagamento adiantado" ao barbeiro
 }
 
 const AdminDashboard = () => {
@@ -67,6 +68,43 @@ const AdminDashboard = () => {
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [editingEstablishment, setEditingEstablishment] = useState<Establishment | null>(null);
   const [notesText, setNotesText] = useState('');
+
+  const togglePagamentoAdiantadoAdmin = async (establishmentId: string, current: boolean) => {
+    try {
+      const next = !current;
+
+      // Se o admin está DESATIVANDO, forçar o estabelecimento a parar de exigir pagamento antecipado.
+      const payload: any = { pagamento_adiantado_liberado_admin: next };
+      if (!next) payload.exigir_pagamento_antecipado = false;
+
+      const { error } = await supabase
+        .from('establishments')
+        .update(payload)
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.error('Erro ao atualizar pagamento adiantado (admin):', error);
+        toast.error('Erro ao atualizar pagamento adiantado');
+        return;
+      }
+
+      setEstablishments(prev =>
+        prev.map(e =>
+          e.id === establishmentId
+            ? {
+                ...e,
+                pagamento_adiantado_liberado_admin: next,
+              }
+            : e
+        )
+      );
+
+      toast.success(next ? 'Pagamento adiantado liberado para o estabelecimento' : 'Pagamento adiantado bloqueado (e desativado no booking)');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao atualizar pagamento adiantado');
+    }
+  };
 
   // Verificar se é a conta de suporte
   const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
@@ -1235,6 +1273,26 @@ const AdminDashboard = () => {
                               WHATSAPP
                             </button>
                           )}
+                          <button
+                            onClick={() =>
+                              togglePagamentoAdiantadoAdmin(
+                                establishment.id,
+                                Boolean(establishment.pagamento_adiantado_liberado_admin)
+                              )
+                            }
+                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
+                              establishment.pagamento_adiantado_liberado_admin
+                                ? 'text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100'
+                                : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+                            }`}
+                            title={
+                              establishment.pagamento_adiantado_liberado_admin
+                                ? 'Bloquear Pagamento Adiantado (e desativar no booking)'
+                                : 'Liberar Pagamento Adiantado para este estabelecimento'
+                            }
+                          >
+                            PAGAMENTO AD
+                          </button>
                         </div>
                       </td>
                     </tr>

@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { shouldDisableAggressiveReloads } from './utils/browserEnv';
 
 // Adiciona meta tags anti-cache dinamicamente
 const addAntiCacheMetaTags = () => {
@@ -28,6 +29,7 @@ addAntiCacheMetaTags();
 const handleChunkErrors = () => {
   let reloadAttempts = 0;
   const maxReloadAttempts = 2;
+  const disableAggressiveReloads = shouldDisableAggressiveReloads();
 
   window.addEventListener('error', (event) => {
     const target = event.target as HTMLElement;
@@ -43,7 +45,7 @@ const handleChunkErrors = () => {
         console.log('🔄 Tentando recuperar...');
 
         // Evitar loops infinitos
-        if (reloadAttempts < maxReloadAttempts) {
+        if (!disableAggressiveReloads && reloadAttempts < maxReloadAttempts) {
           reloadAttempts++;
 
           // Limpar cache e recarregar
@@ -71,7 +73,7 @@ const handleChunkErrors = () => {
             }
           }, 1000);
         } else {
-          console.error('❌ Muitas tentativas de reload, parando...');
+          console.error('❌ Muitas tentativas de reload (ou modo seguro em mobile/in-app), parando...');
           // Mostrar mensagem ao usuário
           const root = document.getElementById('root');
           if (root) {
@@ -83,6 +85,9 @@ const handleChunkErrors = () => {
                   <button onclick="window.location.reload()" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px;">
                     Recarregar Página
                   </button>
+                  <p style="margin-top: 16px; color: #888; font-size: 12px;">
+                    Dica: se estiver abrindo pelo Instagram/WhatsApp, tente abrir no Chrome para melhor estabilidade.
+                  </p>
                 </div>
               </div>
             `;
@@ -101,7 +106,7 @@ const handleChunkErrors = () => {
       event.reason?.message?.includes('404') ||
       event.reason?.message?.includes('Failed to load')) {
       console.log('🔄 Erro de chunk detectado, tentando recuperar...');
-      if (reloadAttempts < maxReloadAttempts) {
+      if (!disableAggressiveReloads && reloadAttempts < maxReloadAttempts) {
         reloadAttempts++;
         setTimeout(() => window.location.reload(), 1000);
       }
@@ -113,14 +118,22 @@ const handleChunkErrors = () => {
 handleChunkErrors();
 
 // Inicializar sistema automático de limpeza de cache
-if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+if (
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1' &&
+  !shouldDisableAggressiveReloads()
+) {
   import('./utils/autoCacheCleaner').then(({ initializeAutoCleanup }) => {
     initializeAutoCleanup();
   });
 }
 
 // ⚠️ DETECÇÃO DE LOOP DE RELOAD: Verificar primeiro se há loop antes de qualquer coisa
-if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+if (
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1' &&
+  !shouldDisableAggressiveReloads()
+) {
   import('./utils/cacheCleaner').then(({ detectAndCleanReloadLoop, checkAndCleanCorruptedData }) => {
     // Verificar e limpar dados corrompidos preventivamente
     checkAndCleanCorruptedData();
@@ -175,11 +188,35 @@ if (!rootElement) {
   `;
 } else {
   // Timeout de segurança: se não renderizar em 8 segundos, forçar reload automático
+  const disableAggressiveReloads = shouldDisableAggressiveReloads();
+  const renderTimeoutMs = disableAggressiveReloads ? 25000 : 8000;
   const renderTimeout = setTimeout(() => {
     if (!rootElement.hasChildNodes()) {
-      console.error('❌ Timeout na renderização após 8 segundos! Forçando reload...');
+      console.error(`❌ Timeout na renderização após ${renderTimeoutMs}ms!`);
 
-      // Limpar cache e recarregar
+      // Em mobile/in-app, NÃO forçar reload automático (evita piscaceira).
+      if (disableAggressiveReloads) {
+        const root = document.getElementById('root');
+        if (root) {
+          root.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; font-family: system-ui;">
+              <div>
+                <h1 style="font-size: 22px; margin-bottom: 12px;">Carregando...</h1>
+                <p style="margin-bottom: 18px; color: #666;">Seu navegador pode estar limitando o carregamento (Instagram/WhatsApp).</p>
+                <button onclick="window.location.reload()" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                  Recarregar
+                </button>
+                <p style="margin-top: 16px; color: #888; font-size: 12px;">
+                  Dica: clique em “Abrir no Chrome” no menu do Instagram/WhatsApp.
+                </p>
+              </div>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      // Desktop: limpar cache e recarregar (comportamento atual)
       if ('caches' in window) {
         caches.keys().then(cacheNames => {
           cacheNames.forEach(name => caches.delete(name));
@@ -192,12 +229,11 @@ if (!rootElement) {
         });
       }
 
-      // Recarregar (Service Worker já busca da rede sempre)
       setTimeout(() => {
         window.location.reload(true);
       }, 500);
     }
-  }, 8000); // Reduzido de 15s para 8s
+  }, renderTimeoutMs);
 
   try {
     const root = createRoot(rootElement);

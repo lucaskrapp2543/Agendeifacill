@@ -1,0 +1,599 @@
+/**
+ * Servidor Express para rotas de API
+ * 
+ * Este servidor processa todas as requisições /api/* que precisam
+ * de acesso a variáveis de ambiente do servidor (como PAGARME_SECRET_KEY)
+ */
+
+// Carregar variáveis de ambiente do arquivo .env
+import dotenv from 'dotenv';
+import path, { dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// Obter o diretório atual (compatível com ES modules)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Carregar .env da raiz do projeto (1 nível acima de server/)
+const envPath = path.resolve(__dirname, '..', '.env');
+console.log('🔍 Procurando .env em:', envPath);
+
+const result = dotenv.config({ path: envPath });
+
+if (result.error) {
+  console.error('❌ Erro ao carregar .env:', result.error);
+  console.error('   Tentando carregar .env da raiz do processo...');
+  // Fallback: tentar carregar da raiz do processo atual
+  dotenv.config();
+} else {
+  console.log('✅ .env carregado com sucesso');
+}
+
+// Debug: verificar se a variável foi carregada
+console.log('🔑 PAGARME_SECRET_KEY existe?', !!process.env.PAGARME_SECRET_KEY);
+if (process.env.PAGARME_SECRET_KEY) {
+  console.log('   Tamanho da chave:', process.env.PAGARME_SECRET_KEY.length, 'caracteres');
+}
+
+import cors from 'cors';
+import express from 'express';
+import {
+  checkPaymentStatus,
+  createPayment,
+  createRecipient,
+  getOrderDetails,
+  getRecipientStatus,
+} from '../src/lib/pagarme-server';
+
+const app = express();
+const PORT = process.env.API_PORT || 3001;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Health check
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+/**
+ * POST /api/pagarme/create-recipient
+ * Cria um recebedor na Pagar.me
+ */
+app.post('/api/pagarme/create-recipient', async (req, res) => {
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('🚨 REQUISIÇÃO RECEBIDA: /api/pagarme/create-recipient');
+  console.log('═══════════════════════════════════════════════════════════');
+
+  try {
+    const {
+      cpfCnpj,
+      bankName,
+      agency,
+      account,
+      accountType,
+      legalName,
+      email,
+      phone,
+      // Campos extras para CPF (individual)
+      registerName,
+      birthdate,
+      monthlyIncome,
+      professionalOccupation,
+      address,
+    } = req.body;
+
+    console.log('📥 Dados recebidos do frontend:');
+    console.log(
+      JSON.stringify(
+        {
+          cpfCnpj,
+          bankName,
+          agency,
+          account,
+          accountType,
+          legalName,
+          email,
+          phone,
+          registerName,
+          birthdate,
+          monthlyIncome,
+          professionalOccupation,
+          address,
+        },
+        null,
+        2
+      )
+    );
+
+    // Validação
+    if (!cpfCnpj || !bankName || !agency || !account || !legalName || !email || !phone) {
+      return res.status(400).json({
+        error: 'Dados bancários incompletos',
+        required: ['cpfCnpj', 'bankName', 'agency', 'account', 'legalName', 'email', 'phone']
+      });
+    }
+
+    console.log('🔄 Chamando createRecipient...');
+
+    // Variável para armazenar os detalhes do erro ANTES de lançar
+    let pagarmeErrorDetails: any = null;
+
+    // Criar recebedor - capturar erro diretamente
+    try {
+      const result = await createRecipient({
+        cpfCnpj,
+        bankName,
+        agency,
+        account,
+        accountType: accountType || 'conta_corrente',
+        legalName,
+        email,
+        phone,
+        registerName,
+        birthdate,
+        monthlyIncome,
+        professionalOccupation,
+        address,
+      });
+
+      console.log('✅ Recebedor criado com sucesso:', result);
+      console.log('═══════════════════════════════════════════════════════════');
+
+      return res.status(200).json(result);
+    } catch (recipientError: any) {
+      // Capturar os detalhes do erro da Pagar.me ANTES de processar
+      console.log('🔍 Erro capturado no try/catch:');
+      console.log('   Tipo:', recipientError.constructor.name);
+      console.log('   Propriedades:', Object.keys(recipientError));
+
+      // Tentar pegar os detalhes de todas as formas possíveis
+      // Prioridade: pagarmeErrorDetails (propriedade enumerable) > outras propriedades
+      if ((recipientError as any).pagarmeErrorDetails) {
+        pagarmeErrorDetails = (recipientError as any).pagarmeErrorDetails;
+        console.log('✅ Capturado via pagarmeErrorDetails (enumerable)');
+      } else if (recipientError.errorDetails) {
+        pagarmeErrorDetails = recipientError.errorDetails;
+        console.log('✅ Capturado via errorDetails');
+      } else if (recipientError.pagarmeErrorData) {
+        pagarmeErrorDetails = recipientError.pagarmeErrorData;
+        console.log('✅ Capturado via pagarmeErrorData');
+      } else if (recipientError.fullError) {
+        pagarmeErrorDetails = recipientError.fullError;
+        console.log('✅ Capturado via fullError');
+      } else if (recipientError.errorData) {
+        pagarmeErrorDetails = recipientError.errorData;
+        console.log('✅ Capturado via errorData');
+      } else if (recipientError.response?.data) {
+        pagarmeErrorDetails = recipientError.response.data;
+        console.log('✅ Capturado via response.data');
+      } else if (recipientError.errors) {
+        pagarmeErrorDetails = { errors: recipientError.errors };
+        console.log('✅ Capturado via errors');
+      }
+
+      // Se encontrou detalhes, armazenar para retornar diretamente
+      if (pagarmeErrorDetails) {
+        console.log('✅ Detalhes capturados:', JSON.stringify(pagarmeErrorDetails, null, 2));
+        // Armazenar nos detalhes do erro para o catch externo usar
+        (recipientError as any).__capturedDetails = pagarmeErrorDetails;
+      } else {
+        console.log('⚠️ Nenhum detalhe encontrado no erro!');
+        console.log('   Propriedades disponíveis:', Object.keys(recipientError));
+        // Tentar serializar o erro completo para debug
+        try {
+          const errorStr = JSON.stringify(recipientError, Object.getOwnPropertyNames(recipientError), 2);
+          console.log('   recipientError serializado:', errorStr.substring(0, 500));
+        } catch (e) {
+          console.log('   Não foi possível serializar o erro');
+        }
+      }
+
+      // Re-lançar o erro para ser capturado pelo catch externo
+      throw recipientError;
+    }
+  } catch (error: any) {
+    console.error('═══════════════════════════════════════════════════════════');
+    console.error('❌ ERRO AO CRIAR RECEBEDOR:');
+    console.error('═══════════════════════════════════════════════════════════');
+    console.error('Mensagem:', error.message);
+    console.error('Stack:', error.stack);
+    if (error.response) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+      console.error('Response status:', error.response.status);
+    }
+    if (error.errors) {
+      console.error('Errors:', JSON.stringify(error.errors, null, 2));
+    }
+    console.error('═══════════════════════════════════════════════════════════');
+
+    // Retornar erro detalhado para o frontend
+    const rawMessage: string = error?.message || 'Erro ao criar recebedor na Pagar.me';
+    const errorMessage = rawMessage;
+
+    // Melhorar UX: mapear erros conhecidos da Pagar.me para mensagens amigáveis
+    const isActionForbidden =
+      typeof rawMessage === 'string' &&
+      (rawMessage.includes('action_forbidden') ||
+        rawMessage.toLowerCase().includes('not allowed to create a recipient'));
+
+    // Coletar todos os detalhes possíveis - verificar TODAS as propriedades
+    let errorDetails: any = null;
+
+    // Logar todas as propriedades do erro para debug
+    console.log('🔍 Propriedades do erro:', Object.keys(error));
+    console.log('🔍 Tipo do erro:', error.constructor.name);
+
+    // Prioridade: __capturedDetails (capturado no try/catch interno) > capturedDetails > pagarmeErrorDetails > errorDetails > pagarmeErrorData > fullError > errorData > etc
+    if ((error as any).__capturedDetails) {
+      errorDetails = (error as any).__capturedDetails;
+      console.log('✅ Usando error.__capturedDetails (capturado no try/catch interno)');
+    } else if ((error as any).capturedDetails) {
+      errorDetails = (error as any).capturedDetails;
+      console.log('✅ Usando error.capturedDetails (capturado no try/catch)');
+    } else if ((error as any).pagarmeErrorDetails) {
+      errorDetails = (error as any).pagarmeErrorDetails;
+      console.log('✅ Usando error.pagarmeErrorDetails (propriedade enumerable)');
+    } else if ((error as any).errorDetails) {
+      errorDetails = (error as any).errorDetails;
+      console.log('✅ Usando error.errorDetails (propriedade da classe)');
+    } else if ((error as any).pagarmeErrorData) {
+      errorDetails = (error as any).pagarmeErrorData;
+      console.log('✅ Usando error.pagarmeErrorData (classe customizada)');
+    } else if ((error as any).fullError) {
+      errorDetails = (error as any).fullError;
+      console.log('✅ Usando error.fullError');
+    } else if ((error as any).errorData) {
+      errorDetails = (error as any).errorData;
+      console.log('✅ Usando error.errorData');
+    } else if ((error as any).pagarmeError) {
+      errorDetails = (error as any).pagarmeError;
+      console.log('✅ Usando error.pagarmeError');
+    } else if ((error as any).originalError) {
+      errorDetails = (error as any).originalError;
+      console.log('✅ Usando error.originalError');
+    } else if ((error as any).response?.data) {
+      errorDetails = (error as any).response.data;
+      console.log('✅ Usando error.response.data');
+    } else if ((error as any).errors && Array.isArray((error as any).errors) && (error as any).errors.length > 0) {
+      errorDetails = { errors: (error as any).errors };
+      console.log('✅ Usando error.errors');
+    } else if ((error as any).response) {
+      errorDetails = {
+        status: (error as any).response.status,
+        statusText: (error as any).response.statusText,
+        data: (error as any).response.data,
+        text: (error as any).response.text
+      };
+      console.log('✅ Usando error.response completo');
+    }
+
+    // Se ainda não tiver detalhes, tentar pegar qualquer propriedade que possa ter informação
+    if (!errorDetails) {
+      console.log('⚠️ Nenhum detalhe encontrado, tentando propriedades alternativas...');
+      // Tentar pegar qualquer propriedade que não seja padrão de Error
+      const customProps: any = {};
+      for (const key in error) {
+        if (key !== 'message' && key !== 'name' && key !== 'stack' && key !== 'cause') {
+          const value = (error as any)[key];
+          // Não incluir funções ou objetos muito complexos
+          if (typeof value !== 'function' && !(value instanceof Error)) {
+            try {
+              JSON.stringify(value); // Testar se é serializável
+              customProps[key] = value;
+            } catch {
+              // Ignorar se não for serializável
+            }
+          }
+        }
+      }
+      errorDetails = {
+        message: error.message,
+        name: error.name,
+        ...customProps
+      };
+    }
+
+    console.error('📤 Enviando erro para frontend:');
+    console.error(JSON.stringify({ error: errorMessage, details: errorDetails }, null, 2));
+
+    // Se for bloqueio de permissão, retornar 403 (facilita tratar no frontend)
+    const statusCode = isActionForbidden ? 403 : 500;
+
+    return res.status(statusCode).json({
+      error: errorMessage,
+      // Mensagem mais amigável para exibição (sem "código técnico")
+      userMessage: isActionForbidden
+        ? 'Sua conta Pagar.me não tem permissão para criar recebedor (Recipient/Marketplace). Normalmente é necessário: conta aprovada/ativa em produção e habilitação de Marketplace/Recipients (split).'
+        : undefined,
+      details: errorDetails,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    });
+  }
+});
+
+/**
+ * POST /api/pagarme/create-payment
+ * Cria um pagamento na Pagar.me
+ */
+app.post('/api/pagarme/create-payment', async (req, res) => {
+  try {
+    const {
+      amount,
+      payment_method,
+      customer,
+      split_rules,
+      metadata,
+    } = req.body;
+
+    console.log('💳 [create-payment] Requisição recebida:', {
+      amount,
+      payment_method,
+      customerName: customer?.name,
+      hasCustomerEmail: Boolean(customer?.email),
+      hasCustomerPhone: Boolean(customer?.phone),
+      hasCustomerDocument: Boolean(customer?.document),
+      recipientIdPreview: split_rules?.[0]?.recipient_id
+        ? `${String(split_rules[0].recipient_id).slice(0, 6)}...${String(split_rules[0].recipient_id).slice(-4)}`
+        : null,
+      appointmentId: metadata?.appointment_id || null,
+    });
+
+    // Validação
+    if (!amount || !payment_method || !customer?.name) {
+      return res.status(400).json({
+        error: 'Dados do pagamento incompletos',
+        required: ['amount', 'payment_method', 'customer.name']
+      });
+    }
+
+    // Split (plataforma + estabelecimento)
+    // - A plataforma precisa ter um recipient_id próprio (configure no .env)
+    // - O frontend manda somente o recipient_id do estabelecimento (em split_rules[0])
+    const platformRecipientId = String(process.env.PAGARME_PLATFORM_RECIPIENT_ID || '').trim();
+    const platformFeeCents = Number(process.env.PLATFORM_FEE_CENTS || 100); // padrão: R$ 1,00
+
+    const amountCents = Math.round(Number(amount));
+    const barberRecipientId = String(split_rules?.[0]?.recipient_id || '').trim();
+
+    // Guardrail: impedir pagamento antecipado enquanto o recebedor ainda está em afiliação/pendente.
+    // Isso evita "sumir" no recebedor do estabelecimento e ficar tudo na plataforma enquanto o KYC não finaliza.
+    if (barberRecipientId) {
+      try {
+        const recipient = await getRecipientStatus(barberRecipientId);
+        const normalizedStatus = String(recipient.status || '').toLowerCase();
+        console.log('👤 [create-payment] Status do recebedor (estabelecimento):', {
+          recipientIdPreview: `${barberRecipientId.slice(0, 6)}...${barberRecipientId.slice(-4)}`,
+          status: normalizedStatus,
+        });
+
+        if (normalizedStatus !== 'active') {
+          return res.status(400).json({
+            error: 'Recebedor do estabelecimento ainda não está ativo',
+            userMessage:
+              'O recebedor do estabelecimento ainda está em análise/afiliação (Pagar.me). Para evitar problemas no repasse, finalize a ativação do recebedor e tente novamente.',
+            details: { recipient_status: normalizedStatus },
+          });
+        }
+      } catch (e: any) {
+        // Se a consulta falhar, não vamos bloquear por erro momentâneo, mas vamos logar para diagnóstico.
+        console.warn('⚠️ [create-payment] Não foi possível validar status do recebedor. Prosseguindo mesmo assim.', {
+          recipientIdPreview: `${barberRecipientId.slice(0, 6)}...${barberRecipientId.slice(-4)}`,
+          error: e?.message,
+        });
+      }
+    }
+
+    // Segurança: evitar configuração errada onde o recebedor da barbearia é o mesmo da plataforma
+    if (platformRecipientId && barberRecipientId && platformRecipientId === barberRecipientId) {
+      return res.status(400).json({
+        error: 'Recebedor do estabelecimento inválido',
+        userMessage:
+          'O recebedor do estabelecimento não pode ser o mesmo da plataforma (AgendeiFácil). Cadastre/seleciona um recebedor diferente para a barbearia e tente novamente.',
+        details: {
+          platformRecipientIdPreview: `${platformRecipientId.slice(0, 6)}...${platformRecipientId.slice(-4)}`,
+        },
+      });
+    }
+
+    // Converter split_rules para o formato esperado (fallback)
+    let split =
+      split_rules?.map((rule: any) => ({
+        recipient_id: rule.recipient_id,
+        amount: rule.amount,
+        type: 'flat' as const,
+        liable: rule.liable ?? true,
+        charge_processing_fee: rule.charge_processing_fee ?? false,
+        // Por padrão, o próprio estabelecimento assume a taxa de resto (quando aplicável).
+        charge_remainder_fee: rule.charge_remainder_fee ?? true,
+      })) || [];
+
+    // Se tiver plataforma configurada, gerar split corretamente
+    if (platformRecipientId && barberRecipientId) {
+      if (amountCents <= platformFeeCents) {
+        return res.status(400).json({
+          error: 'Valor do pagamento é muito baixo para aplicar a taxa da plataforma.',
+          details: { amountCents, platformFeeCents },
+        });
+      }
+
+      const barberAmountCents = amountCents - platformFeeCents;
+
+      split = [
+        {
+          recipient_id: platformRecipientId,
+          amount: platformFeeCents,
+          type: 'flat' as const,
+          liable: false,
+          // Plataforma NÃO paga a taxa de processamento
+          charge_processing_fee: false,
+          // Plataforma também não assume taxa de resto
+          charge_remainder_fee: false,
+        },
+        {
+          recipient_id: barberRecipientId,
+          amount: barberAmountCents,
+          type: 'flat' as const,
+          liable: true,
+          // Barbearia paga a taxa de processamento (assim você fica com R$ 1,00 “inteiro” e a taxa sai do restante)
+          charge_processing_fee: true,
+          // Barbearia assume a taxa de resto
+          charge_remainder_fee: true,
+        },
+      ];
+    }
+
+    console.log('🧾 [create-payment] Split aplicado:', split.map((s: any) => ({
+      recipient: s.recipient_id ? `${String(s.recipient_id).slice(0, 6)}...${String(s.recipient_id).slice(-4)}` : null,
+      amount: s.amount,
+      charge_processing_fee: s.charge_processing_fee,
+      liable: s.liable,
+    })));
+
+    // Criar pagamento
+    const cleanDocument = customer.document?.replace(/\D/g, '') || undefined;
+    const customerType =
+      cleanDocument && cleanDocument.length === 11
+        ? 'individual'
+        : cleanDocument && cleanDocument.length === 14
+          ? 'company'
+          : undefined;
+
+    const result = await createPayment({
+      amount: amountCents, // Garantir que é número inteiro (centavos)
+      payment_method,
+      customer: {
+        name: customer.name,
+        email: customer.email,
+        document: cleanDocument,
+        ...(customerType ? { type: customerType } : {}),
+        phones: customer.phone ? {
+          mobile_phone: {
+            country_code: '55',
+            area_code: String(customer.phone).replace(/\D/g, '').substring(0, 2),
+            number: String(customer.phone).replace(/\D/g, '').substring(2),
+          },
+        } : undefined,
+      },
+      split,
+      metadata,
+    });
+
+    console.log('✅ [create-payment] Resposta Pagar.me (resumo):', {
+      id: (result as any)?.id,
+      status: (result as any)?.status,
+      hasPix: Boolean((result as any)?.pix),
+    });
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('❌ Erro ao criar pagamento:', error);
+    const details = (error as any)?.__capturedDetails || (error as any)?.pagarmeErrorDetails || undefined;
+    const isTimeout = (error as any)?.code === 'PAGARME_TIMEOUT' || String(error?.message || '').toLowerCase().includes('timeout');
+    return res.status(isTimeout ? 504 : 500).json({
+      error: error.message || 'Erro ao processar pagamento',
+      userMessage: isTimeout
+        ? 'O servidor de pagamentos demorou demais para responder. Tente novamente em alguns segundos.'
+        : undefined,
+      details,
+    });
+  }
+});
+
+/**
+ * GET /api/pagarme/check-status
+ * Verifica o status de um pagamento
+ */
+app.get('/api/pagarme/check-status', async (req, res) => {
+  try {
+    const orderId = req.query.orderId as string;
+
+    if (!orderId || typeof orderId !== 'string') {
+      return res.status(400).json({
+        error: 'orderId é obrigatório'
+      });
+    }
+
+    // Verificar status
+    const result = await checkPaymentStatus(orderId);
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('❌ Erro ao verificar status:', error);
+    return res.status(500).json({
+      error: error.message || 'Erro ao verificar status do pagamento'
+    });
+  }
+});
+
+/**
+ * GET /api/pagarme/order-details
+ * Retorna um resumo do pedido na Pagar.me (inclui split) para debug.
+ *
+ * Ex: /api/pagarme/order-details?orderId=or_xxx
+ */
+app.get('/api/pagarme/order-details', async (req, res) => {
+  try {
+    const orderId = req.query.orderId as string;
+
+    if (!orderId || typeof orderId !== 'string') {
+      return res.status(400).json({ error: 'orderId é obrigatório' });
+    }
+
+    const details = await getOrderDetails(orderId);
+
+    // Mascara recipient_id para não vazar IDs completos no frontend por acidente
+    const splitMasked = (details.split || []).map(s => ({
+      ...s,
+      recipient_id: s.recipient_id
+        ? `${s.recipient_id.slice(0, 6)}...${s.recipient_id.slice(-4)}`
+        : s.recipient_id,
+    }));
+
+    return res.status(200).json({
+      id: details.id,
+      status: details.status,
+      amount: details.amount,
+      created_at: details.created_at,
+      closed_at: details.closed_at,
+      charge: details.charge,
+      split: splitMasked,
+      metadata: details.metadata,
+    });
+  } catch (error: any) {
+    console.error('❌ Erro ao buscar detalhes do pedido:', error);
+    const details = (error as any)?.__capturedDetails || undefined;
+    return res.status(500).json({
+      error: error.message || 'Erro ao buscar detalhes do pedido',
+      details,
+    });
+  }
+});
+
+// Iniciar servidor
+app.listen(PORT, () => {
+  console.log('');
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('🚀 SERVIDOR DE API EXPRESS RODANDO!');
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log(`📍 URL: http://localhost:${PORT}`);
+  const platformRecipientId = String(process.env.PAGARME_PLATFORM_RECIPIENT_ID || '').trim();
+  const platformFeeCents = String(process.env.PLATFORM_FEE_CENTS || '100').trim();
+  console.log(`💰 Split plataforma configurado? ${platformRecipientId ? 'SIM' : 'NÃO'}`);
+  console.log(`   - PAGARME_PLATFORM_RECIPIENT_ID: ${platformRecipientId ? `${platformRecipientId.slice(0, 6)}...` : '(vazio)'}`);
+  console.log(`   - PLATFORM_FEE_CENTS: ${platformFeeCents}`);
+  console.log(`📡 Rotas disponíveis:`);
+  console.log(`   POST /api/pagarme/create-recipient`);
+  console.log(`   POST /api/pagarme/create-payment`);
+  console.log(`   GET  /api/pagarme/check-status`);
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('');
+  console.log('👀 ATENÇÃO: Os logs das requisições aparecerão AQUI neste terminal!');
+  console.log('   Quando você clicar em "Salvar e Ativar" no navegador,');
+  console.log('   os logs aparecerão abaixo desta mensagem.');
+  console.log('');
+});
+
+export default app;
+

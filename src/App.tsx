@@ -10,6 +10,7 @@ import { UpdateNotification } from './components/UpdateNotification';
 import { AuthProvider } from './context/AuthContext';
 import { SupabaseProvider } from './context/SupabaseContext';
 import { registerServiceWorker } from './utils/serviceWorker';
+import { shouldDisableAggressiveReloads } from './utils/browserEnv';
 
 import { PWARedirect } from './components/PWARedirect';
 
@@ -62,9 +63,11 @@ function App() {
   // Verificar e limpar dados corrompidos na inicialização
   React.useEffect(() => {
     // Importar e executar limpeza preventiva
-    import('./utils/cacheCleaner').then(({ checkAndCleanCorruptedData }) => {
-      checkAndCleanCorruptedData();
-    });
+    if (!shouldDisableAggressiveReloads()) {
+      import('./utils/cacheCleaner').then(({ checkAndCleanCorruptedData }) => {
+        checkAndCleanCorruptedData();
+      });
+    }
   }, []);
 
   // Registrar Service Worker

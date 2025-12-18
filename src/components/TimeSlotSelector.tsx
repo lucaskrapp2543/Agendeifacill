@@ -561,7 +561,7 @@ export function TimeSlotSelector({
               <span>{time}</span>
               {isAvulso && (
                 <span className="text-xs mt-1 text-orange-600">
-                  RESERVA AVULSA
+                  RESERVA
                 </span>
               )}
               {isReserved && !isAvulso && (

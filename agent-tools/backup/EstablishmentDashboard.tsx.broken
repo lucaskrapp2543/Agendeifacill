@@ -1,0 +1,1686 @@
+import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { v4 as uuidv4 } from 'uuid';
+import AdditionalProductModal from '../components/AdditionalProductModal';
+import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
+import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
+import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
+import { ExpensesManager } from '../components/ExpensesManager';
+import { FinancialDashboard } from '../components/FinancialDashboard';
+import { GoalModalSimple } from '../components/GoalModalSimple';
+import { GoalProgressBar } from '../components/GoalProgressBar';
+import { NotificationPermission } from '../components/NotificationPermission';
+import { NotificationsPanel } from '../components/NotificationsPanel';
+import PinPasswordModal from '../components/PinPasswordModal';
+import { ProfessionalPaymentControl } from '../components/ProfessionalPaymentControl';
+import ProfessionalPinModal from '../components/ProfessionalPinModal';
+import { ProfessionalSelector } from '../components/ProfessionalSelector';
+import ReservarCliente from '../components/ReservarCliente';
+import Sidebar from '../components/Sidebar';
+import { SpecificServiceModal } from '../components/SpecificServiceModal';
+import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
+import { TimeSelector } from '../components/TimeSelector';
+import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
+import { useToast } from '../components/ui/Toaster';
+// UpdateButton removido - sistema automático já cuida de tudo
+import { ValidityDisplay } from '../components/ValidityDisplay';
+import { ValidityHeader } from '../components/ValidityHeader';
+import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../hooks/useNotifications';
+// Import removido - agora usa API Route
+import { addExpense, createEstablishment, deleteExpense, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
+
+interface BusinessHours {
+  enabled: boolean;
+  open1: string;
+  close1: string;
+  open2: string | null;
+  close2: string | null;
+}
+
+interface Professional {
+  id: string;
+  name: string;
+  specialties: string[];
+  percentage?: number; // Campo para percentual do profissional (opcional)
+  photo_url?: string; // Campo para foto do profissional
+  whatsapp?: string; // Campo para WhatsApp do profissional
+  offers_child_service?: boolean; // Campo para indicar se oferece serviço infantil
+  hidden_from_booking?: boolean; // Campo para ocultar profissional do booking público
+  work_hours?: {
+    [key: string]: {
+      enabled: boolean;
+      entry_time?: string;
+      break_start?: string;
+      break_end?: string;
+      exit_time?: string;
+    };
+  } | null; // Horários personalizados de trabalho do profissional
+  specific_services?: { // ✅ Serviços específicos do profissional
+    id: string;
+    name: string;
+    price: number;
+    duration: number;
+  }[];
+}
+
+interface ProfessionalPin {
+  professional_id: string;
+  pin: string;
+}
+
+interface Service {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+}
+
+interface Establishment {
+  id: string;
+  name: string;
+  description: string;
+  code: string;
+  owner_id: string;
+  business_hours: Record<string, BusinessHours>;
+  professionals: Professional[];
+  professionals_pins: ProfessionalPin[];
+  services_with_prices: Service[];
+  profile_image_url?: string;
+  affiliate_link?: string;
+  custom_photo_1_url?: string;
+  custom_photo_2_url?: string;
+  custom_photo_3_url?: string;
+  custom_photo_4_url?: string;
+  custom_photo_5_url?: string;
+  custom_photo_6_url?: string;
+  custom_photo_7_url?: string;
+  pix_key_type?: string;
+  pix_key?: string;
+  pin_password?: string;
+  logo_url?: string;
+  review_link?: string;       // Nova coluna
+  social_media_link?: string; // Nova coluna
+  pix_payment_link?: string;  // Nova coluna
+  location_link?: string; // Novo estado para o link do local
+  has_wifi?: boolean; // Novo estado para Wi-fi
+  has_parking?: boolean;
+  limit_subscriber_bookings?: boolean; // Limitar agendamentos de assinantes
+  require_cancellation_request?: boolean; // Exigir solicitação de cancelamento via WhatsApp
+  prevent_same_day_reschedule?: boolean; // Impedir remarcação no mesmo dia
+  has_accessibility?: boolean; // Novo estado para Acessibilidade
+  enable_whatsapp_notifications?: boolean; // Ativar notificações WhatsApp após agendamentos
+  wifi_password?: string; // Senha do Wi-Fi
+  whatsapp?: string; // Novo campo para WhatsApp
+  credit_card_tax_percentage?: number; // Taxa do cartão de crédito (%)
+  carousel_position?: 'behind' | 'below'; // Posição do carrossel: atrás ou embaixo do perfil
+  debit_card_tax_percentage?: number; // Taxa do cartão de débito (%)
+  card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
+  payment_alert_enabled?: boolean; // Indica se o alerta de pagamento está ativado
+  promotion_enabled?: boolean; // Indica se a propaganda está ativada
+  exigir_pagamento_antecipado?: boolean; // Exigir pagamento antecipado para todos os agendamentos (padrão: false)
+  bank_cpf_cnpj?: string; // CPF ou CNPJ para recebimento
+  bank_name?: string; // Nome do banco
+  bank_agency?: string; // Agência bancária
+  bank_account?: string; // Número da conta bancária
+  pagarme_recipient_id?: string; // ID do recebedor na Pagar.me
+  pagarme_register_information?: any; // Dados adicionais exigidos pela Pagar.me (KYC) para criar recebedor
+}
+
+type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page' | 'indication' | 'support';
+
+interface AdditionalProduct {
+  name: string;
+  price: number;
+}
+
+interface EstablishmentProduct {
+  id: string;
+  establishment_id: string;
+  name: string;
+  sale_price: number;
+  cost_price: number;
+  stock_quantity: number;
+  sold_quantity: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AppointmentProduct {
+  id: string;
+  appointment_id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  created_at: string;
+}
+
+interface ServiceCategory {
+  id: string;
+  establishment_id: string;
+  name: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ServiceSubcategory {
+  id: string;
+  category_id: string;
+  name: string;
+  price: number;
+  duration: number;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Appointment {
+  id: string;
+  client_id: string;
+  client_name: string;
+  client_whatsapp?: string;
+  client_cpf?: string;
+  establishment_id: string;
+  service: string;
+  professional: string;
+  appointment_date: string;
+  appointment_time: string;
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  created_at: string;
+  is_premium: boolean;
+  duration: number;
+  price: number;
+  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia';
+  card_brand?: string;
+  pix_payment_status?: string;
+  pix_proof_url?: string;
+  additional_products?: AdditionalProduct[];
+  total_price?: number;
+  observation?: string;
+  establishment_observation?: string;
+  is_subscriber?: boolean;
+  is_child_service?: boolean;
+  is_avulso?: boolean;
+  sold_products?: {
+    id: string;
+    product_id: string;
+    name: string;
+    quantity: number;
+    unit_price: number;
+    total: number;
+  }[];
+}
+
+interface PremiumSubscriber {
+  id: string;
+  display_name: string;
+  whatsapp: string;
+  created_at: string;
+  user_id: string;
+  is_winner?: boolean;
+  winner_position?: number;
+  last_draw_date?: string;
+}
+
+interface PremiumClient {
+  id: string;
+  premium_user_id: string;
+  establishment_id: string;
+  client_name: string;
+  client_phone: string;
+  created_at: string;
+  is_winner?: boolean;
+  winner_position?: number;
+  last_draw_date?: string;
+}
+
+interface Client {
+  id: string; // ID do profile do cliente
+  whatsapp: string;
+  name: string;
+  appointmentCount: number;
+  isSubscriber: boolean; // Nova propriedade
+  birthday: string | null; // Campo de aniversário
+  alert?: string | null; // Campo de alerta/anotação (máximo 100 caracteres)
+}
+
+interface Subscription {
+  id: string;
+  name: string;
+  value: number;
+  duration_months: number;
+  fixed_commission_value?: number;
+}
+
+interface ClientSubscription {
+  id: string;
+  client_id: string;
+  subscription_id: string;
+  establishment_id: string;
+  start_date: string;
+  end_date: string;
+  payment_status: 'paid' | 'unpaid';
+  last_payment_date: string | null;
+  subscriptions: Subscription;
+  profiles: { full_name: string };
+}
+
+const EstablishmentDashboard = () => {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
+
+  // Estados básicos
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabType>('passo-a-passo');
+  const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
+  const [establishment, setEstablishment] = useState<Establishment | null>(null);
+  const [isEstablishmentLoading, setIsEstablishmentLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isSavingServicesOrder, setIsSavingServicesOrder] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isPaymentDropdownOpen, setIsPaymentDropdownOpen] = useState(false);
+  const [selectedProfessional, setSelectedProfessional] = useState('');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('todos');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
+  const [highlightedProfessionalId, setHighlightedProfessionalId] = useState<string | null>(null);
+  const [highlightReserveButton, setHighlightReserveButton] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const previousAppointmentsRef = useRef<Appointment[]>([]);
+  const paymentDropdownRef = useRef<HTMLDivElement>(null);
+  const onboardingCompletedRef = useRef(false); // Evita múltiplas chamadas ao completar onboarding
+  const [clients, setClients] = useState<Client[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showBirthdayFilter, setShowBirthdayFilter] = useState(false);
+  const [editingClientBirthday, setEditingClientBirthday] = useState<string | null>(null);
+  const [newBirthday, setNewBirthday] = useState('');
+  const [editingClientAlert, setEditingClientAlert] = useState<string | null>(null);
+  const [newAlert, setNewAlert] = useState('');
+
+  // Estados para adicionar cliente manualmente
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientWhatsapp, setNewClientWhatsapp] = useState('');
+
+  // Estados para editar cliente (seção Meus Clientes)
+  const [editingClient, setEditingClient] = useState<string | null>(null);
+  const [editClientName, setEditClientName] = useState('');
+  const [editClientWhatsapp, setEditClientWhatsapp] = useState('');
+  const [newClientBirthday, setNewClientBirthday] = useState('');
+
+  // Estados para ranking de clientes
+  const [showRankingModal, setShowRankingModal] = useState(false);
+
+  // Estados para clientes sumidos
+  const [showMissingClientsModal, setShowMissingClientsModal] = useState(false);
+
+  // Estados para sorteio (Clientes Fiéis)
+  const [showDrawModal, setShowDrawModal] = useState(false);
+
+  // Estados para Reservar Cliente
+  const [showReservarClienteModal, setShowReservarClienteModal] = useState(false);
+
+  // Estados para Clientes Fiéis
+  const [showLoyalForm, setShowLoyalForm] = useState(false);
+  const [loyalCustomers, setLoyalCustomers] = useState<any[]>([]);
+  const [selectedLoyalCustomer, setSelectedLoyalCustomer] = useState<any>(null);
+  const [selectedLoyalMonth, setSelectedLoyalMonth] = useState(new Date());
+  const [loyalFormData, setLoyalFormData] = useState({
+    customerName: '',
+    whatsapp: '',
+    registrationDate: format(new Date(), 'yyyy-MM-dd')
+  });
+  const [isLoadingLoyal, setIsLoadingLoyal] = useState(false);
+
+  // Estados do formulário
+  const [establishmentName, setEstablishmentName] = useState('');
+  const [establishmentDescription, setEstablishmentDescription] = useState('');
+  const [establishmentCode, setEstablishmentCode] = useState('');
+  const [affiliateLink, setAffiliateLink] = useState('');
+  const [pixKeyType, setPixKeyType] = useState<string>('');
+  const [pixKey, setPixKey] = useState<string>('');
+  // Novos estados para os links
+  const [reviewLink, setReviewLink] = useState('');
+  const [socialMediaLink, setSocialMediaLink] = useState('');
+  const [pixPaymentLink, setPixPaymentLink] = useState('');
+  const [locationLink, setLocationLink] = useState(''); // Novo estado para o link do local
+
+  // ✅ Refs para debounce do auto-save
+  const linksAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const amenitiesAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scheduleConfigAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const businessHoursAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const paymentConfigAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const paymentMethodsAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [hasWifi, setHasWifi] = useState(false); // Novo estado para Wi-fi
+  const [hasParking, setHasParking] = useState(false); // Novo estado para Estacionamento
+  const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
+  const [hasAirConditioning, setHasAirConditioning] = useState(false); // Novo estado para Ar-Condicionado
+  const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
+  const [wifiNetworkName, setWifiNetworkName] = useState(''); // Nome da rede Wi-Fi
+  const [requireCancellationRequest, setRequireCancellationRequest] = useState(false); // Exigir solicitação de cancelamento via WhatsApp
+  const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
+  const [requireCpf, setRequireCpf] = useState(false); // Solicitar CPF no agendamento
+  const [enableWhatsAppNotifications, setEnableWhatsAppNotifications] = useState(false); // Ativar notificações WhatsApp após agendamentos
+  const [requireCancelPassword, setRequireCancelPassword] = useState(false); // Exigir senha para cancelar agendamento
+  const [exigirPagamentoAntecipado, setExigirPagamentoAntecipado] = useState(false); // Exigir pagamento antecipado para todos os agendamentos
+  // Estados para dados bancários
+  const [bankCpfCnpj, setBankCpfCnpj] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [bankAgency, setBankAgency] = useState('');
+  const [bankAccount, setBankAccount] = useState('');
+  // Dados adicionais exigidos pela Pagar.me quando o documento é CPF (individual)
+  const [titularNomeCompleto, setTitularNomeCompleto] = useState('');
+  const [titularDataNascimento, setTitularDataNascimento] = useState(''); // YYYY-MM-DD
+  const [titularRendaMensalReais, setTitularRendaMensalReais] = useState(''); // ex.: 3500.00
+  const [titularProfissao, setTitularProfissao] = useState('');
+  const [enderecoCep, setEnderecoCep] = useState('');
+  const [enderecoRua, setEnderecoRua] = useState('');
+  const [enderecoNumero, setEnderecoNumero] = useState('');
+  const [enderecoBairro, setEnderecoBairro] = useState('');
+  const [enderecoCidade, setEnderecoCidade] = useState('');
+  const [enderecoUf, setEnderecoUf] = useState(''); // UF (SP, RJ...)
+  const [enderecoComplemento, setEnderecoComplemento] = useState('');
+  const [enderecoPontoReferencia, setEnderecoPontoReferencia] = useState('');
+  const [showBankDataModal, setShowBankDataModal] = useState(false);
+  const [bankModalMode, setBankModalMode] = useState<'create' | 'view' | 'edit'>('create');
+  const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
+  const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
+  const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState<string[]>(['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
+  const [carouselPosition, setCarouselPosition] = useState<'behind' | 'below'>('behind'); // Posição do carrossel
+  const [cardBrandTaxes, setCardBrandTaxes] = useState<Record<string, number>>({
+    visa: 3.5,
+    mastercard: 3.5,
+    elo: 3.0,
+    hipercard: 3.0,
+    american_express: 4.0,
+    discover: 3.5,
+    jcb: 3.5,
+    outros: 3.5
+  }); // Taxas por bandeira de cartão
+
+  // Efeito para garantir que exigirPagamentoAntecipado só fique ativo se tiver dados bancários
+  useEffect(() => {
+    if (exigirPagamentoAntecipado) {
+      const hasBankData = bankCpfCnpj && bankName && bankAgency && bankAccount;
+      const recipientId = (establishment as any)?.pagarme_recipient_id;
+      const hasRecipientId = !!recipientId;
+
+      if (!hasBankData || !hasRecipientId) {
+        console.log('⚠️ Desativando exigirPagamentoAntecipado - faltam dados bancários');
+        setExigirPagamentoAntecipado(false);
+      }
+    }
+  }, [exigirPagamentoAntecipado, bankCpfCnpj, bankName, bankAgency, bankAccount, establishment]);
+
+  const openBankModalView = () => {
+    setBankModalMode('view');
+    setShowBankDataModal(true);
+  };
+
+  const openBankModalEdit = () => {
+    setBankModalMode('edit');
+    setShowBankDataModal(true);
+  };
+
+  const openBankModalCreate = () => {
+    setBankModalMode('create');
+    setShowBankDataModal(true);
+  };
+
+  const maskEnd = (value: string, visibleEnd: number) => {
+    const clean = String(value || '');
+    if (!clean) return '';
+    if (clean.length <= visibleEnd) return clean;
+    return `${'*'.repeat(Math.max(0, clean.length - visibleEnd))}${clean.slice(-visibleEnd)}`;
+  };
+
+  const maskCpfCnpj = (value: string) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return '';
+    return maskEnd(digits, 4);
+  };
+
+  const maskBankAccount = (value: string) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return '';
+    return maskEnd(digits, 4);
+  };
+
+  // Efeito para preencher automaticamente o pixPaymentLink
+  useEffect(() => {
+    if (pixKey && pixKey.toLowerCase() !== 'naotenhopix') {
+      // Aqui você pode definir a lógica para gerar o link. 
+      // Exemplo: Usando um domínio fixo e a chave PIX.
+      // Adapte 'seusite.com.br' para o domínio real do seu aplicativo.
+      setPixPaymentLink(`https://agendafacil.com.br/pix/${pixKey}`);
+    } else if (pixKey.toLowerCase() === 'naotenhopix') {
+      setPixPaymentLink(''); // Limpa se for 'naotenhopix'
+    }
+  }, [pixKey]);
+
+  // Carregar preferência de layout claro/escuro do localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('dashboard:useLightLayout');
+      if (saved === 'true') {
+        setUseLightLayout(true);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar preferência de layout:', error);
+    }
+  }, []);
+
+  const toggleLayoutTheme = () => {
+    setUseLightLayout(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('dashboard:useLightLayout', next ? 'true' : 'false');
+      } catch (error) {
+        console.error('Erro ao salvar preferência de layout:', error);
+      }
+      return next;
+    });
+  };
+
+  // Estados de imagens
+  const [profileImage, setProfileImage] = useState<File | null>(null);
+  const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
+  const [customPhoto1, setCustomPhoto1] = useState<File | null>(null);
+  const [customPhoto2, setCustomPhoto2] = useState<File | null>(null);
+  const [customPhoto3, setCustomPhoto3] = useState<File | null>(null);
+  const [customPhoto4, setCustomPhoto4] = useState<File | null>(null);
+  const [customPhoto5, setCustomPhoto5] = useState<File | null>(null);
+  const [customPhoto6, setCustomPhoto6] = useState<File | null>(null);
+  const [customPhoto7, setCustomPhoto7] = useState<File | null>(null);
+  const [customPhoto1Preview, setCustomPhoto1Preview] = useState<string | null>(null);
+  const [customPhoto2Preview, setCustomPhoto2Preview] = useState<string | null>(null);
+  const [customPhoto3Preview, setCustomPhoto3Preview] = useState<string | null>(null);
+  const [customPhoto4Preview, setCustomPhoto4Preview] = useState<string | null>(null);
+  const [customPhoto5Preview, setCustomPhoto5Preview] = useState<string | null>(null);
+  const [customPhoto6Preview, setCustomPhoto6Preview] = useState<string | null>(null);
+  const [customPhoto7Preview, setCustomPhoto7Preview] = useState<string | null>(null);
+
+  // Force update state para mobile
+  const [forceUpdate, setForceUpdate] = useState(0);
+
+  // Listener para forçar update no mobile
+  useEffect(() => {
+    const handlePhotoUploaded = () => {
+      console.log('🔄 Forçando update no mobile...');
+      setForceUpdate(prev => prev + 1);
+    };
+
+    window.addEventListener('photoUploaded', handlePhotoUploaded);
+    return () => window.removeEventListener('photoUploaded', handlePhotoUploaded);
+  }, []);
+
+  // Estados de horários e profissionais
+  // Horários padrão para novos estabelecimentos: todos os horários em 00:00
+  // Estados para o quiz passo-a-passo (apenas novos usuários)
+  const [quizStep, setQuizStep] = useState<number>(1);
+  const [isNewUser, setIsNewUser] = useState<boolean>(false);
+  const [quizCompleted, setQuizCompleted] = useState<boolean>(false); // Quiz foi completado
+  const [quizAlertMessage, setQuizAlertMessage] = useState<string>(''); // Mensagem de alerta quando requisito não atendido
+
+  const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
+    monday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    tuesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    wednesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    thursday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    friday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    saturday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
+    sunday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' }
+  });
+
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
+
+  const [servicesWithPrices, setServicesWithPrices] = useState<Service[]>([]);
+
+  // Estado para intervalo de 15 minutos
+  const [use15MinuteInterval, setUse15MinuteInterval] = useState(false);
+
+  // Estado para horários de 20 em 20 minutos
+  const [use20MinuteSchedule, setUse20MinuteSchedule] = useState(false);
+
+  // Estado para mostrar imagem "Melhor do Brasil"
+  const [showBestOfBrazilImage, setShowBestOfBrazilImage] = useState(true);
+
+  // Estado para mostrar/ocultar valores financeiros
+  const [showFinancialValues, setShowFinancialValues] = useState(true);
+
+  // Estado para popup de alerta de pagamento
+  const [showPaymentAlert, setShowPaymentAlert] = useState(false);
+
+  // Estado para popup de propaganda
+  const [showPromotionPopup, setShowPromotionPopup] = useState(false);
+
+  // Estados para sistema de onboarding
+  const [onboardingStep, setOnboardingStep] = useState<number>(4); // 1=config, 2=profissional, 3=serviço, 4=completo
+  const [termsAccepted, setTermsAccepted] = useState(false); // Aceite de termos
+  const [showOnboardingPopup, setShowOnboardingPopup] = useState(false);
+  const [onboardingPopupMessage, setOnboardingPopupMessage] = useState('');
+  const [showBlockedItemModal, setShowBlockedItemModal] = useState(false); // Modal para item bloqueado
+  const [showInfoModal, setShowInfoModal] = useState(false); // Modal de informações mobile
+  const [infoModalContent, setInfoModalContent] = useState<{ title: string; content: string } | null>(null); // Conteúdo do modal
+
+  // Estados premium
+  const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
+  const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
+  const [subscriberDropdowns, setSubscriberDropdowns] = useState<Record<string, boolean>>({});
+  const [appointmentDropdowns, setAppointmentDropdowns] = useState<Record<string, boolean>>({});
+  const [appointmentSubscribers, setAppointmentSubscribers] = useState<Record<string, boolean>>({});
+
+  // Estados para despesas
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [expensesTotal, setExpensesTotal] = useState(0);
+  const [allProfessionalPayments, setAllProfessionalPayments] = useState<any[]>([]);
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showExpensesList, setShowExpensesList] = useState(false);
+  const [newExpenseName, setNewExpenseName] = useState('');
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [openExtraProductsDropdown, setOpenExtraProductsDropdown] = useState<string | null>(null);
+  const [openDailyRevenueDropdown, setOpenDailyRevenueDropdown] = useState(false);
+  const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
+  const [showReminderPopup, setShowReminderPopup] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
+  const [showCancelPasswordModal, setShowCancelPasswordModal] = useState(false);
+
+  // Estados para modal de lembrete
+  const [showReminderConfirm, setShowReminderConfirm] = useState(false);
+  const [appointmentForReminder, setAppointmentForReminder] = useState<Appointment | null>(null);
+
+  // Estado para modal informativo de lembrete
+  const [showReminderInfoModal, setShowReminderInfoModal] = useState(false);
+
+  // Layout claro/escuro do dashboard (apenas para este dashboard)
+  const [useLightLayout, setUseLightLayout] = useState<boolean>(false);
+
+  // Estados para edição de valor do agendamento
+  const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+
+  // Estados para histórico de valores
+  const [appointmentValueHistory, setAppointmentValueHistory] = useState<Record<string, {
+    originalValue: number;
+    changes: Array<{
+      value: number;
+      date: string;
+      timestamp: string;
+    }>;
+  }>>({});
+  const [showHistoryDropdown, setShowHistoryDropdown] = useState<string | null>(null);
+
+  // Estados para edição de nome de cliente avulso
+  const [editingClientName, setEditingClientName] = useState<string | null>(null);
+  const [editingClientNameValue, setEditingClientNameValue] = useState('');
+
+  // Estados para observações dos agendamentos
+  const [showObservationModal, setShowObservationModal] = useState(false);
+  const [selectedAppointmentForObservation, setSelectedAppointmentForObservation] = useState<string | null>(null);
+  const [observationText, setObservationText] = useState('');
+
+  // Estados para filtro de pagamento nos serviços individuais
+  const [paymentFilter, setPaymentFilter] = useState<string>('todos');
+
+  // Estados para relatório de taxas
+  const [taxesReport, setTaxesReport] = useState<any>(null);
+  const [isLoadingTaxes, setIsLoadingTaxes] = useState(false);
+
+  // Estados para novos clientes
+  const [newClientsInfo, setNewClientsInfo] = useState<Record<string, boolean>>({});
+
+  // Estados para ausências dos profissionais
+  const [showAbsenceModal, setShowAbsenceModal] = useState(false);
+  const [selectedProfessionalForAbsence, setSelectedProfessionalForAbsence] = useState<string | null>(null);
+  const [professionalAbsences, setProfessionalAbsences] = useState<Record<string, string[]>>({});
+  const [absenceModalCurrentMonth, setAbsenceModalCurrentMonth] = useState(new Date());
+
+  // Estados para metas dos profissionais
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [selectedProfessionalForGoal, setSelectedProfessionalForGoal] = useState<string | null>(null);
+  const [professionalGoals, setProfessionalGoals] = useState<Record<string, number>>({});
+
+  // ✅ Estados para serviços específicos dos profissionais
+  const [showSpecificServiceModal, setShowSpecificServiceModal] = useState(false);
+  const [selectedProfessionalForSpecificService, setSelectedProfessionalForSpecificService] = useState<string | null>(null);
+
+  // Estado para serviços selecionados das metas
+  const [professionalSelectedServices, setProfessionalSelectedServices] = useState<Record<string, string[]>>({});
+  // Estado para dados de progresso das metas
+  const [professionalGoalProgress, setProfessionalGoalProgress] = useState<Record<string, {
+    goalAmount: number;
+    completedServices: number;
+    progressPercentage: number;
+    remainingServices: number;
+  }>>({});
+  const [goalModalCurrentMonth, setGoalModalCurrentMonth] = useState(new Date());
+  const [isLoadingGoal, setIsLoadingGoal] = useState(false);
+
+  // Estados para transferência de agendamentos
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [selectedAppointmentForTransfer, setSelectedAppointmentForTransfer] = useState<Appointment | null>(null);
+
+  // Estados para gerenciar bloqueio de horários dos profissionais
+  const [showBlockTimeModal, setShowBlockTimeModal] = useState(false);
+  const [selectedProfessionalForBlock, setSelectedProfessionalForBlock] = useState<string | null>(null);
+  const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
+  const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
+
+  // Estados para gerenciar horários de trabalho dos profissionais
+  const [showWorkHoursModal, setShowWorkHoursModal] = useState(false);
+  const [selectedProfessionalForWorkHours, setSelectedProfessionalForWorkHours] = useState<string | null>(null);
+  const [workHoursData, setWorkHoursData] = useState<{
+    [key: string]: {
+      enabled: boolean;
+      entry_time?: string;
+      break_start?: string;
+      break_end?: string;
+      exit_time?: string;
+    };
+  }>({});
+
+  // Estados para modal de observação (removido - já existe acima)
+
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [pinPassword, setPinPassword] = useState('');
+  const [showSavePinConfirmModal, setShowSavePinConfirmModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [isConfigUnlocked, setIsConfigUnlocked] = useState(false);
+
+  // Estados para o modal de senha do profissional
+  const [showProfessionalPinModal, setShowProfessionalPinModal] = useState(false);
+  const [selectedProfessionalForPin, setSelectedProfessionalForPin] = useState<string | null>(null);
+  const [tempSelectedProfessional, setTempSelectedProfessional] = useState<string | null>(null);
+  const [authenticatedProfessionalId, setAuthenticatedProfessionalId] = useState<string | null>(null);
+
+  // Estados para proteção de configurações sensíveis
+  const [showConfigPasswordModal, setShowConfigPasswordModal] = useState(false);
+  const [configPasswordVerified, setConfigPasswordVerified] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{
+    type: 'percentage' | 'password' | 'goal';
+    professionalId: string;
+    data?: any;
+  } | null>(null);
+
+  // Estados para controlar visibilidade de senhas dos profissionais
+  const [professionalPasswordVisible, setProfessionalPasswordVisible] = useState<Record<string, boolean>>({});
+  const [professionalPercentageEditable, setProfessionalPercentageEditable] = useState<Record<string, boolean>>({});
+
+  // Estado para controlar os valores dos inputs de senha
+  const [professionalPins, setProfessionalPins] = useState<Record<string, string>>({});
+
+  // Estado para controlar o modal de produtos adicionais
+  const [showAdditionalProductModal, setShowAdditionalProductModal] = useState(false);
+  const [selectedAppointmentForProduct, setSelectedAppointmentForProduct] = useState<string | null>(null);
+
+  // Novo estado para controlar o modal do comprovante
+  const [showProofModal, setShowProofModal] = useState(false);
+  const [selectedProofUrl, setSelectedProofUrl] = useState<string | null>(null);
+
+  const [isSettingsUnlocked, setIsSettingsUnlocked] = useState(false);
+  const [isDashboardUnlocked, setIsDashboardUnlocked] = useState(false);
+  const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
+  // Estados para valores financeiros iniciais
+  // Estados para edição do valor bruto por mês
+  const [isEditingGrossValue, setIsEditingGrossValue] = useState(false);
+  const [editingGrossValue, setEditingGrossValue] = useState('');
+  const [monthlyGrossValues, setMonthlyGrossValues] = useState<{ [key: string]: number }>({});
+
+  // Estados para produtos
+  const [products, setProducts] = useState<EstablishmentProduct[]>([]);
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [showEditProductModal, setShowEditProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<EstablishmentProduct | null>(null);
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    sale_price: '',
+    cost_price: '',
+    stock_quantity: ''
+  });
+  const [selectedProductForSales, setSelectedProductForSales] = useState<string | null>(null);
+  const [productSalesData, setProductSalesData] = useState<Record<string, any[]>>({});
+  // Estado para mês selecionado na aba de produtos
+  const [selectedProductsMonth, setSelectedProductsMonth] = useState(new Date());
+  // Estado para armazenar vendas de produtos por período
+  const [productSalesByPeriod, setProductSalesByPeriod] = useState<Record<string, number>>({});
+
+  const handleShowProductSales = async (productId: string) => {
+    if (selectedProductForSales === productId) {
+      setSelectedProductForSales(null);
+      return;
+    }
+
+    setSelectedProductForSales(productId);
+
+    // Buscar vendas se ainda não foram carregadas
+    if (!productSalesData[productId]) {
+      const sales = await fetchProductSalesByProfessional(productId);
+      setProductSalesData(prev => ({
+        ...prev,
+        [productId]: sales
+      }));
+    }
+  };
+  const [showAddProductToAppointmentModal, setShowAddProductToAppointmentModal] = useState(false);
+
+  // Estados para categorias de serviços
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
+  const [serviceSubcategories, setServiceSubcategories] = useState<ServiceSubcategory[]>([]);
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
+  const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
+  const [showEditSubcategoryModal, setShowEditSubcategoryModal] = useState(false);
+  const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<string | null>(null);
+  const [newCategory, setNewCategory] = useState({ name: '' });
+  const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
+  const [editingSubcategory, setEditingSubcategory] = useState<ServiceSubcategory | null>(null);
+  const [newSubcategory, setNewSubcategory] = useState({
+    name: '',
+    price: '',
+    duration: '30'
+  });
+
+  // Estados para controlar visibilidade dos tutoriais
+  const [showTutorials, setShowTutorials] = useState<{
+    products: boolean;
+    services: boolean;
+    professionals: boolean;
+    subscribers: boolean;
+    config: boolean;
+    reserveClient: boolean;
+    appointments: boolean;
+    dashboard: boolean;
+  }>({
+    products: true,
+    services: true,
+    professionals: true,
+    subscribers: true,
+    config: true,
+    reserveClient: true,
+    appointments: true,
+    dashboard: true
+  });
+
+  // Função para carregar preferências dos tutoriais
+  const loadTutorialPreferences = () => {
+    const saved = localStorage.getItem('tutorial-preferences');
+    if (saved) {
+      try {
+        const preferences = JSON.parse(saved);
+        setShowTutorials(preferences);
+      } catch (error) {
+        console.error('Erro ao carregar preferências dos tutoriais:', error);
+      }
+    }
+  };
+
+  // Função para salvar preferências dos tutoriais
+  const saveTutorialPreferences = (newPreferences: typeof showTutorials) => {
+    localStorage.setItem('tutorial-preferences', JSON.stringify(newPreferences));
+    setShowTutorials(newPreferences);
+  };
+
+  // Função para alternar visibilidade de um tutorial específico
+  const toggleTutorial = (tutorialType: keyof typeof showTutorials) => {
+    // Se está tentando ocultar o tutorial (valor atual é true)
+    if (showTutorials[tutorialType]) {
+      const confirmacao = window.confirm(
+        '⚠️ Deseja mesmo ocultar este tutorial?\n\n' +
+        'Este vídeo pode tirar várias dúvidas futuras.\n' +
+        'Você já assistiu ao vídeo completo?\n\n' +
+        'Você poderá mostrar o tutorial novamente clicando no botão "Mostrar Tutorial".'
+      );
+
+      if (!confirmacao) {
+        return; // Cancela a ação se o usuário clicar em "Cancelar"
+      }
+    }
+
+    const newPreferences = {
+      ...showTutorials,
+      [tutorialType]: !showTutorials[tutorialType]
+    };
+    saveTutorialPreferences(newPreferences);
+  };
+
+  // Estados para controlar modais de tutorial popup
+  const [showTutorialModals, setShowTutorialModals] = useState<{
+    appointments: boolean;
+    reserveClient: boolean;
+    config: boolean;
+    dashboard: boolean;
+    subscribers: boolean;
+    services: boolean;
+    products: boolean;
+    professionals: boolean;
+  }>({
+    appointments: false,
+    reserveClient: false,
+    config: false,
+    dashboard: false,
+    subscribers: false,
+    services: false,
+    products: false,
+    professionals: false
+  });
+
+  // Função para verificar se o usuário já marcou "não quero mais ver isso"
+  const shouldShowTutorialModal = (tutorialKey: string): boolean => {
+    const dismissedKey = `tutorial-popup-dismissed-${tutorialKey}`;
+    return localStorage.getItem(dismissedKey) !== 'true';
+  };
+
+  // Função para marcar que não quer mais ver o modal
+  const dismissTutorialModal = (tutorialKey: string) => {
+    const dismissedKey = `tutorial-popup-dismissed-${tutorialKey}`;
+    localStorage.setItem(dismissedKey, 'true');
+    setShowTutorialModals(prev => ({
+      ...prev,
+      [tutorialKey]: false
+    }));
+  };
+
+  // Função para apenas fechar o modal (sem marcar como "não quero mais ver")
+  const closeTutorialModal = (tutorialKey: string) => {
+    setShowTutorialModals(prev => ({
+      ...prev,
+      [tutorialKey]: false
+    }));
+  };
+
+  // Função para salvar valor bruto do mês específico
+  const handleSaveGrossValue = async () => {
+    if (!establishment) return;
+
+    const value = parseFloat(editingGrossValue);
+    if (isNaN(value) || value < 0) {
+      toast('Por favor, digite um valor válido (maior ou igual a 0)', 'error');
+      return;
+    }
+
+    try {
+      const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+
+      // Atualiza o estado local
+      setMonthlyGrossValues(prev => ({
+        ...prev,
+        [monthKey]: value
+      }));
+
+      // Salva no banco de dados
+      const { error } = await supabase
+        .from('establishment_initial_values')
+        .upsert({
+          establishment_id: establishment.id,
+          month_year: monthKey,
+          initial_gross_revenue: value,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) {
+        console.error('Erro ao salvar valor bruto:', error);
+        toast('Erro ao salvar valor bruto', 'error');
+        return;
+      }
+
+      setIsEditingGrossValue(false);
+      setEditingGrossValue('');
+      toast(`Valor bruto de ${formatCurrency(value)} salvo para ${selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}!`, 'success');
+    } catch (error: any) {
+      console.error('Erro ao salvar valor bruto:', error);
+      toast('Erro ao salvar valor bruto', 'error');
+    }
+  };
+
+  // Funções para produtos
+  const fetchProducts = async () => {
+    if (!establishment) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('establishment_products')
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao buscar produtos:', error);
+        return;
+      }
+
+      setProducts(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar produtos:', error);
+    }
+  };
+
+  // Função para buscar vendas de produtos por período
+  const fetchProductSalesByPeriod = async (month: Date) => {
+    if (!establishment?.id) return;
+
+    try {
+      const start = startOfMonth(month);
+      const end = endOfMonth(month);
+
+      // Buscar todos os appointment_products do período
+      const { data: appointmentProducts, error: productsError } = await supabase
+        .from('appointment_products')
+        .select(`
+          id,
+          product_id,
+          quantity,
+          unit_price,
+          appointment_id
+        `)
+        .order('created_at', { ascending: false });
+
+      if (productsError) {
+        console.error('Erro ao buscar produtos vendidos:', productsError);
+        return;
+      }
+
+      // Buscar appointments relacionados para filtrar por data e establishment
+      const appointmentIds = appointmentProducts?.map(p => p.appointment_id) || [];
+
+      if (appointmentIds.length === 0) {
+        setProductSalesByPeriod({});
+        return;
+      }
+
+      const { data: appointments, error: appointmentsError } = await supabase
+        .from('appointments')
+        .select(`
+          id,
+          appointment_date,
+          establishment_id,
+          status
+        `)
+        .in('id', appointmentIds)
+        .eq('establishment_id', establishment.id)
+        .neq('status', 'cancelled');
+
+      if (appointmentsError) {
+        console.error('Erro ao buscar appointments:', appointmentsError);
+        return;
+      }
+
+      // Filtrar appointments do período selecionado
+      const periodAppointments = appointments?.filter(apt => {
+        const aptDate = new Date(apt.appointment_date);
+        return aptDate >= start && aptDate <= end;
+      }) || [];
+
+      const periodAppointmentIds = new Set(periodAppointments.map(apt => apt.id));
+
+      // Agrupar vendas por product_id
+      const salesByProduct: Record<string, number> = {};
+
+      appointmentProducts?.forEach(productSale => {
+        if (periodAppointmentIds.has(productSale.appointment_id)) {
+          const currentQuantity = salesByProduct[productSale.product_id] || 0;
+          salesByProduct[productSale.product_id] = currentQuantity + productSale.quantity;
+        }
+      });
+
+      console.log('📊 Vendas de produtos no período:', {
+        month: month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+        salesByProduct
+      });
+
+      setProductSalesByPeriod(salesByProduct);
+    } catch (error) {
+      console.error('Erro ao buscar vendas por período:', error);
+    }
+  };
+
+  // Função para buscar vendas de produtos por funcionário no período selecionado
+  const fetchProductSalesByProfessional = async (productId: string) => {
+    if (!establishment?.id) return [];
+
+    try {
+      const start = startOfMonth(selectedProductsMonth);
+      const end = endOfMonth(selectedProductsMonth);
+
+      // 1. PRIMEIRO: Buscar TODOS os funcionários do estabelecimento
+      const allProfessionals = establishment.professionals || [];
+      const professionalNames = allProfessionals.map(p => p.name);
+
+      // Criar mapeamento ID -> Nome
+      const professionalIdToName: Record<string, string> = {};
+      allProfessionals.forEach(prof => {
+        if (prof.id && prof.name) {
+          professionalIdToName[prof.id] = prof.name;
+        }
+      });
+
+      console.log('🔍 DEBUG - Mapeamento ID -> Nome:', professionalIdToName);
+
+      // 2. Buscar vendas deste produto
+      const { data, error } = await supabase
+        .from('appointment_products')
+        .select(`
+          id,
+          quantity,
+          unit_price,
+          appointment_id
+        `)
+        .eq('product_id', productId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao buscar vendas:', error);
+        return [];
+      }
+
+      // 3. Buscar appointments relacionados
+      const appointmentIds = data?.map(sale => sale.appointment_id) || [];
+      console.log('🔍 DEBUG - Appointment IDs para buscar:', appointmentIds);
+
+      const { data: appointments, error: appointmentsError } = await supabase
+        .from('appointments')
+        .select(`
+          id,
+          professional,
+          appointment_date,
+          status,
+          establishment_id
+        `)
+        .in('id', appointmentIds);
+
+      console.log('🔍 DEBUG - Appointments encontrados (SEM filtro de establishment):', appointments);
+
+      // Filtrar por establishment após buscar
+      const filteredAppointments = appointments?.filter(apt => apt.establishment_id === establishment.id);
+      console.log('🔍 DEBUG - Appointments filtrados por establishment:', filteredAppointments);
+
+      if (appointmentsError) {
+        console.error('Erro ao buscar appointments:', appointmentsError);
+        return [];
+      }
+
+      // 4. Inicializar TODOS os funcionários com 0 vendas
+      const salesByProfessional: Record<string, {
+        professional_name: string;
+        total_quantity: number;
+        total_value: number;
+        sales_count: number;
+      }> = {};
+
+      // Inicializar todos os funcionários com 0
+      professionalNames.forEach(name => {
+        salesByProfessional[name] = {
+          professional_name: name,
+          total_quantity: 0,
+          total_value: 0,
+          sales_count: 0
+        };
+      });
+
+      // 5. Filtrar appointments do período selecionado
+      const periodAppointments = filteredAppointments?.filter(apt => {
+        const aptDate = new Date(apt.appointment_date);
+        return aptDate >= start && aptDate <= end;
+      }) || [];
+
+      // 6. Processar vendas reais do período
+      console.log('🔍 DEBUG - Dados de vendas:', data);
+      console.log('🔍 DEBUG - Appointments encontrados:', appointments);
+      console.log('🔍 DEBUG - Appointments do período:', periodAppointments);
+
+      const periodAppointmentIds = new Set(periodAppointments.map(apt => apt.id));
+
+      data?.forEach(sale => {
+        // Só processar vendas do período selecionado
+        if (!periodAppointmentIds.has(sale.appointment_id)) {
+          return;
+        }
+
+        const appointment = periodAppointments.find(apt => apt.id === sale.appointment_id);
+
+        // Converter ID do profissional para nome
+        let professionalName = 'Funcionário não identificado';
+        if (appointment?.professional) {
+          // Se é um ID numérico, tentar mapear para nome
+          if (professionalIdToName[appointment.professional]) {
+            professionalName = professionalIdToName[appointment.professional];
+          } else {
+            // Se já é um nome, usar diretamente
+            professionalName = appointment.professional;
+          }
+        }
+
+        console.log('🔍 DEBUG - Venda:', sale);
+        console.log('🔍 DEBUG - Appointment encontrado:', appointment);
+        console.log('🔍 DEBUG - Professional ID/Nome original:', appointment?.professional);
+        console.log('🔍 DEBUG - Nome do profissional convertido:', professionalName);
+
+        if (salesByProfessional[professionalName]) {
+          salesByProfessional[professionalName].total_quantity += sale.quantity;
+          salesByProfessional[professionalName].total_value += sale.quantity * sale.unit_price;
+          salesByProfessional[professionalName].sales_count += 1;
+          console.log('🔍 DEBUG - Venda atribuída ao profissional:', professionalName);
+        } else {
+          console.log('🔍 DEBUG - Profissional não encontrado:', professionalName);
+        }
+      });
+
+      const result = Object.values(salesByProfessional);
+      console.log('🔍 DEBUG - Resultado final (TODOS os funcionários):', result);
+      console.log('🔍 DEBUG - Estabelecimento:', establishment.name);
+      console.log('🔍 DEBUG - Funcionários do estabelecimento:', professionalNames);
+      return result;
+    } catch (error) {
+      console.error('Erro ao buscar vendas por profissional:', error);
+      return [];
+    }
+  };
+
+  const handleAddProduct = async () => {
+    if (!establishment) return;
+
+    const salePrice = parseFloat(newProduct.sale_price);
+    const costPrice = parseFloat(newProduct.cost_price);
+    const stockQuantity = parseInt(newProduct.stock_quantity);
+
+    if (!newProduct.name || isNaN(salePrice) || isNaN(costPrice) || isNaN(stockQuantity)) {
+      toast('Por favor, preencha todos os campos corretamente', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('establishment_products')
+        .insert({
+          establishment_id: establishment.id,
+          name: newProduct.name,
+          sale_price: salePrice,
+          cost_price: costPrice,
+          stock_quantity: stockQuantity,
+          sold_quantity: 0
+        });
+
+      if (error) {
+        console.error('Erro ao adicionar produto:', error);
+        toast('Erro ao adicionar produto', 'error');
+        return;
+      }
+
+      setNewProduct({ name: '', sale_price: '', cost_price: '', stock_quantity: '' });
+      setShowAddProductModal(false);
+      fetchProducts();
+      toast('Produto adicionado com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar produto:', error);
+      toast('Erro ao adicionar produto', 'error');
+    }
+  };
+
+  const handleAddProductToAppointment = async (product: EstablishmentProduct) => {
+    if (!selectedAppointmentForProduct || !establishment) return;
+
+    if (product.stock_quantity <= 0) {
+      toast('Produto sem estoque disponível', 'error');
+      return;
+    }
+
+    try {
+      // Buscar o profissional do agendamento para associar à venda do produto
+      const { data: appointmentData } = await supabase
+        .from('appointments')
+        .select('professional')
+        .eq('id', selectedAppointmentForProduct)
+        .single();
+
+      // Adicionar produto ao agendamento
+      const { error: appointmentProductError } = await supabase
+        .from('appointment_products')
+        .insert({
+          appointment_id: selectedAppointmentForProduct,
+          product_id: product.id,
+          quantity: 1,
+          unit_price: product.sale_price,
+          professional_id: appointmentData?.professional
+        });
+
+      if (appointmentProductError) {
+        console.error('Erro ao adicionar produto ao agendamento:', appointmentProductError);
+        toast('Erro ao adicionar produto ao agendamento', 'error');
+        return;
+      }
+
+      // Atualizar estoque do produto
+      const { error: stockError } = await supabase
+        .from('establishment_products')
+        .update({
+          stock_quantity: product.stock_quantity - 1,
+          sold_quantity: product.sold_quantity + 1
+        })
+        .eq('id', product.id);
+
+      if (stockError) {
+        console.error('Erro ao atualizar estoque:', stockError);
+        toast('Erro ao atualizar estoque do produto', 'error');
+        return;
+      }
+
+      // Atualizar valor total do agendamento
+      const appointment = appointments.find(apt => apt.id === selectedAppointmentForProduct);
+      if (appointment) {
+        const newTotal = (appointment.total_price || appointment.price || 0) + product.sale_price;
+
+        const { error: updateError } = await supabase
+          .from('appointments')
+          .update({ total_price: newTotal })
+          .eq('id', selectedAppointmentForProduct);
+
+        if (updateError) {
+          console.error('Erro ao atualizar valor do agendamento:', updateError);
+        }
+      }
+
+      // Fechar modal e atualizar dados
+      setShowAddProductToAppointmentModal(false);
+      setSelectedAppointmentForProduct(null);
+      fetchProducts();
+      fetchAppointments();
+      toast(`Produto "${product.name}" adicionado ao agendamento!`, 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar produto:', error);
+      toast('Erro ao adicionar produto', 'error');
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string, productName: string) => {
+    if (!establishment) return;
+
+    const confirmDelete = window.confirm(
+      `🗑️ Excluir produto "${productName}"?\n\n⚠️ Atenção: Esta ação não pode ser desfeita!\n\nO que acontecerá:\n✅ Produto será removido do estoque\n✅ Todas as vendas serão removidas\n\nDeseja continuar?`
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      // Primeiro, remover todos os appointment_products relacionados
+      const { error: deleteAppointmentProductsError } = await supabase
+        .from('appointment_products')
+        .delete()
+        .eq('product_id', productId);
+
+      if (deleteAppointmentProductsError) {
+        console.error('Erro ao remover vendas do produto:', deleteAppointmentProductsError);
+        toast('Erro ao remover vendas do produto', 'error');
+        return;
+      }
+
+      // Depois, remover o produto
+      const { error: deleteProductError } = await supabase
+        .from('establishment_products')
+        .delete()
+        .eq('id', productId)
+        .eq('establishment_id', establishment.id);
+
+      if (deleteProductError) {
+        console.error('Erro ao excluir produto:', deleteProductError);
+        toast('Erro ao excluir produto', 'error');
+        return;
+      }
+
+      fetchProducts();
+      fetchAppointments(); // Atualizar agendamentos para remover produtos vendidos
+      toast(`Produto "${productName}" excluído com sucesso!`, 'success');
+    } catch (error) {
+      console.error('Erro ao excluir produto:', error);
+      toast('Erro ao excluir produto', 'error');
+    }
+  };
+
+  // Função para editar produto
+  const handleEditProduct = async () => {
+    if (!editingProduct || !establishment) return;
+
+    const salePrice = parseFloat(editingProduct.sale_price.toString());
+    const costPrice = parseFloat(editingProduct.cost_price.toString());
+    const stockQuantity = parseInt(editingProduct.stock_quantity.toString());
+
+    if (!editingProduct.name.trim() || isNaN(salePrice) || isNaN(costPrice) || isNaN(stockQuantity)) {
+      toast('Por favor, preencha todos os campos corretamente', 'error');
+      return;
+    }
+
+    if (salePrice <= 0 || costPrice < 0 || stockQuantity < 0) {
+      toast('Preços devem ser positivos e estoque não pode ser negativo', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('establishment_products')
+        .update({
+          name: editingProduct.name.trim(),
+          sale_price: salePrice,
+          cost_price: costPrice,
+          stock_quantity: stockQuantity
+        })
+        .eq('id', editingProduct.id)
+        .eq('establishment_id', establishment.id);
+
+      if (error) {
+        console.error('Erro ao editar produto:', error);
+        toast('Erro ao editar produto', 'error');
+        return;
+      }
+
+      // Atualizar estado local
+      setProducts(prev =>
+        prev.map(product =>
+          product.id === editingProduct.id
+            ? { ...product, name: editingProduct.name.trim(), sale_price: salePrice, cost_price: costPrice, stock_quantity: stockQuantity }
+            : product
+        )
+      );
+
+      setShowEditProductModal(false);
+      setEditingProduct(null);
+      toast('Produto editado com sucesso!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao editar produto:', error);
+      toast('Erro ao editar produto', 'error');
+    }
+  };
+
+  const handleRemoveProductFromAppointment = async (appointmentId: string, productId: string, productName: string) => {
+    if (!establishment) return;
+
+    const confirmRemove = window.confirm(
+      `Tem certeza que deseja remover "${productName}" deste agendamento?\n\nEsta ação irá:\n- Remover o produto do agendamento\n- Devolver 1 unidade ao estoque\n- Atualizar o valor total do agendamento`
+    );
+
+    if (!confirmRemove) return;
+
+    try {
+      // Buscar dados do produto vendido
+      const { data: appointmentProduct, error: fetchError } = await supabase
+        .from('appointment_products')
+        .select('quantity, unit_price')
+        .eq('appointment_id', appointmentId)
+        .eq('product_id', productId)
+        .single();
+
+      if (fetchError || !appointmentProduct) {
+        console.error('Erro ao buscar produto do agendamento:', fetchError);
+        toast('Erro ao buscar produto do agendamento', 'error');
+        return;
+      }
+
+      // Remover produto do agendamento
+      const { error: deleteError } = await supabase
+        .from('appointment_products')
+        .delete()
+        .eq('appointment_id', appointmentId)
+        .eq('product_id', productId);
+
+      if (deleteError) {
+        console.error('Erro ao remover produto do agendamento:', deleteError);
+        toast('Erro ao remover produto do agendamento', 'error');
+        return;
+      }
+
+      // Devolver ao estoque
+      const { data: product, error: productError } = await supabase
+        .from('establishment_products')
+        .select('stock_quantity, sold_quantity')
+        .eq('id', productId)
+        .single();
+
+      if (productError || !product) {
+        console.error('Erro ao buscar produto:', productError);
+        toast('Erro ao buscar produto', 'error');
+        return;
+      }
+
+      const { error: stockError } = await supabase
+        .from('establishment_products')
+        .update({
+          stock_quantity: product.stock_quantity + appointmentProduct.quantity,
+          sold_quantity: product.sold_quantity - appointmentProduct.quantity
+        })
+        .eq('id', productId);
+
+      if (stockError) {
+        console.error('Erro ao atualizar estoque:', stockError);
+        toast('Erro ao atualizar estoque', 'error');
+        return;
+      }
+
+      // Atualizar valor total do agendamento
+      const appointment = appointments.find(apt => apt.id === appointmentId);
+      if (appointment) {
+        const removedValue = appointmentProduct.quantity * appointmentProduct.unit_price;
+        const newTotal = Math.max(0, (appointment.total_price || appointment.price || 0) - removedValue);
+
+        const { error: updateError } = await supabase
+          .from('appointments')
+          .update({ total_price: newTotal })
+          .eq('id', appointmentId);
+
+        if (updateError) {
+          console.error('Erro ao atualizar valor do agendamento:', updateError);
+        }
+      }
+
+      fetchProducts();
+      fetchAppointments();
+      toast(`Produto "${productName}" removido do agendamento!`, 'success');
+    } catch (error) {
+      console.error('Erro ao remover produto do agendamento:', error);
+      toast('Erro ao remover produto do agendamento', 'error');
+    }
+  };
+
+  // Funções para categorias de serviços
+  const fetchServiceCategories = async () => {
+    if (!establishment) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('service_categories')
+        .select('*')
+        .eq('establishment_id', establishment.id)
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (error) {
+        console.error('Erro ao buscar categorias de serviços:', error);
+        return;
+      }
+
+      setServiceCategories(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar categorias de serviços:', error);
+    }
+  };
+
+  const fetchServiceSubcategories = async () => {
+    if (!establishment) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('service_subcategories')
+        .select(`
+          *,
+          service_categories (
+            establishment_id
+          )
+        `)
+        .eq('is_active', true)
+        .eq('service_categories.establishment_id', establishment.id)
+        .order('display_order', { ascending: true });
+
+      if (error) {
+        console.error('Erro ao buscar subcategorias de serviços:', error);
+        return;
+      }
+
+      setServiceSubcategories(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar subcategorias de serviços:', error);
+    }
+  };
+
+  const handleAddCategory = async () => {
+    if (!establishment) return;
+
+    if (!newCategory.name.trim()) {
+      toast('Por favor, digite o nome da categoria', 'error');
+      return;
+    }
+
+    try {
+      // Incrementar o display_order de todas as categorias existentes em 1
+      // para que a nova categoria apareça primeiro (com display_order: 0)
+      if (serviceCategories.length > 0) {
+        const updatePromises = serviceCategories.map(category =>
+          supabase
+            .from('service_categories')
+            .update({ display_order: (category.display_order || 0) + 1 })
+            .eq('id', category.id)
+        );
+
+        await Promise.all(updatePromises);
+      }
+
+      // Criar a nova categoria com display_order: 0 (aparecerá primeiro)
+      const { error } = await supabase
+        .from('service_categories')
+        .insert({
+          establishment_id: establishment.id,
+          name: newCategory.name.trim().toUpperCase(),
+          display_order: 0
+        });
+
+      if (error) {
+        console.error('Erro ao adicionar categoria:', error);
+        toast('Erro ao adicionar categoria', 'error');
+        return;
+      }
+
+      setNewCategory({ name: '' });
+      setShowAddCategoryModal(false);
+      fetchServiceCategories();
+      toast(`Categoria "${newCategory.name.toUpperCase()}" adicionada com sucesso!`, 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar categoria:', error);
+      toast('Erro ao adicionar categoria', 'error');
+    }
+  };
+
+  const handleAddSubcategory = async () => {
+    if (!selectedCategoryForSubcategory) return;
+
+    const price = parseFloat(newSubcategory.price);
+    const duration = parseInt(newSubcategory.duration);
+
+    if (!newSubcategory.name.trim() || isNaN(price) || isNaN(duration)) {
+      toast('Por favor, preencha todos os campos corretamente', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('service_subcategories')
+        .insert({
+          category_id: selectedCategoryForSubcategory,
+          name: newSubcategory.name.trim(),
+          price: price,
+          duration: duration,
+          display_order: serviceSubcategories.filter(sub => sub.category_id === selectedCategoryForSubcategory).length
+        });
+
+      if (error) {
+        console.error('Erro ao adicionar subcategoria:', error);
+        toast('Erro ao adicionar subcategoria', 'error');
+        return;
+      }
+
+      setNewSubcategory({ name: '', price: '', duration: '30' });
+      setShowAddSubcategoryModal(false);
+      setSelectedCategoryForSubcategory(null);
+      fetchServiceSubcategories();
+      toast(`Serviço "${newSubcategory.name}" adicionado com sucesso!`, 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar subcategoria:', error);
+      toast('Erro ao adicionar subcategoria', 'error');
+    }
+  };
+
+  // Função para deletar categoria
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      // Primeiro deletar todas as subcategorias da categoria
+      const { error: subcategoriesError } = await supabase
+        .from('service_subcategories')
+        .delete()
+        .eq('category_id', categoryId);
+
+      if (subcategoriesError) {
+        console.error('Erro ao deletar subcategorias:', subcategoriesError);
+        toast('Erro ao deletar serviços da categoria', 'error');
+        return;
+      }
+
+      // Depois deletar a categoria
+      const { error: categoryError } = await supabase
+        .from('service_categories')
+        .delete()
+        .eq('id', categoryId);
+
+      if (categoryError) {
+        console.error('Erro ao deletar categoria:', categoryError);
+        toast('Erro ao deletar categoria', 'error');
+        return;
+      }
+
+      // Atualizar estados locais
+      setServiceCategories(prev => prev.filter(cat => cat.id !== categoryId));
+      setServiceSubcategories(prev => prev.filter(sub => sub.category_id !== categoryId));
+
+      toast('Categoria e serviços excluídos com sucesso!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao deletar categoria:', error);
+      toast('Erro ao deletar categoria', 'error');
+    }
+  };
+
+  // Função para deletar subcategoria
+  const handleDeleteSubcategory = async (subcategoryId: string) => {
+    try {
+      const { error } = await supabase
+        .from('service_subcategories')
+        .delete()
+        .eq('id', subcategoryId);
+
+      if (error) {
+        console.error('Erro ao deletar subcategoria:', error);
+        toast('Erro ao deletar serviço', 'error');
+        return;
+      }
+
+      // Atualizar estado local
+      setServiceSubcategories(prev => prev.filter(sub => sub

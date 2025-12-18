@@ -182,10 +182,11 @@ export const createGuestClientAndLogin = async (name: string, phone: string) => 
           // Se falhar login, o usuário já existe mas com outra senha - precisamos resetar
           console.log('⚠️ Usuário existe mas senha é diferente. Criando nova conta com timestamp...');
           const uniqueEmail = `guest_${cleanPhone}_${Date.now()}@agendafacil.local`;
+          const uniquePassword = Math.random().toString(36).slice(-12) + '!@#';
 
           const { data: newSignUpData, error: newSignUpError } = await supabase.auth.signUp({
             email: uniqueEmail,
-            password: Math.random().toString(36).slice(-12) + '!@#',
+            password: uniquePassword,
             options: {
               data: {
                 role: 'client',
@@ -197,6 +198,13 @@ export const createGuestClientAndLogin = async (name: string, phone: string) => 
           });
 
           if (newSignUpError) throw newSignUpError;
+
+          // Garantir que uma sessão exista (alguns projetos retornam user sem session no signUp)
+          try {
+            await supabase.auth.signInWithPassword({ email: uniqueEmail, password: uniquePassword });
+          } catch (e) {
+            console.warn('⚠️ Não foi possível fazer login imediato após signUp (email único):', e);
+          }
 
           // Atualizar perfil
           if (newSignUpData.user) {
@@ -219,6 +227,13 @@ export const createGuestClientAndLogin = async (name: string, phone: string) => 
 
     // Conta criada com sucesso
     if (signUpData.user) {
+      // Garantir sessão (alguns projetos retornam user sem session no signUp)
+      try {
+        await supabase.auth.signInWithPassword({ email: fakeEmail, password: randomPassword });
+      } catch (e) {
+        console.warn('⚠️ Não foi possível fazer login imediato após signUp:', e);
+      }
+
       // Criar perfil
       try {
         await supabase.from('profiles').insert([{

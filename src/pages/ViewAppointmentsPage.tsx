@@ -3,13 +3,14 @@ import { ptBR } from 'date-fns/locale';
 import { ArrowLeft, Calendar, Clock, Download, MapPin, Phone, User, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneLoginModal } from '../components/PhoneLoginModal';
 import { SuccessBookingModal } from '../components/SuccessBookingModal';
 import { getAppointmentsByPhone, supabase } from '../lib/supabase';
 
 export default function ViewAppointmentsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [showLoginModal, setShowLoginModal] = useState(true);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -26,8 +27,21 @@ export default function ViewAppointmentsPage() {
   const [cancelledAppointment, setCancelledAppointment] = useState<any>(null); // Para mostrar botão de enviar mensagem após cancelar
 
 
-  // Buscar telefone salvo e carregar agendamentos automaticamente
+  // Buscar telefone da URL, localStorage ou carregar agendamentos automaticamente
   useEffect(() => {
+    // Prioridade 1: Telefone da URL (vindo do pagamento)
+    const phoneFromUrl = searchParams.get('phone');
+    if (phoneFromUrl && phoneFromUrl.length >= 10) {
+      console.log('✅ Telefone encontrado na URL, carregando agendamentos...');
+      handlePhoneLogin(phoneFromUrl);
+      // Limpar parâmetro da URL após usar
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.delete('phone');
+      navigate(`/view-appointments?${newSearchParams.toString()}`, { replace: true });
+      return;
+    }
+
+    // Prioridade 2: Telefone salvo no localStorage
     const savedPhone = localStorage.getItem('last_booking_phone');
     console.log('🔍 Telefone salvo encontrado:', savedPhone);
 
@@ -37,7 +51,7 @@ export default function ViewAppointmentsPage() {
       // Limpar o telefone após usar (opcional)
       // localStorage.removeItem('last_booking_phone');
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchParams, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listener para capturar o prompt de instalação do PWA
   useEffect(() => {
@@ -90,6 +104,10 @@ export default function ViewAppointmentsPage() {
 
       setAppointments(sortedAppointments);
       setShowLoginModal(false);
+
+      // Salvar telefone no localStorage para futuras visitas
+      localStorage.setItem('last_booking_phone', phone);
+
       // Toast removido - não é necessário mostrar quantos agendamentos foram encontrados
 
       // Carregar configuração de WhatsApp do primeiro estabelecimento
@@ -199,7 +217,7 @@ export default function ViewAppointmentsPage() {
           { code: '34', minLength: 11 },
           { code: '1', minLength: 11 }
         ];
-        const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+        const hasCountryCode = countryCodes.some(({ code, minLength }) =>
           cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength
         );
 
@@ -247,7 +265,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
       }
 
       // Atualizar a lista de agendamentos
-      const updatedAppointments = appointments.map(apt => 
+      const updatedAppointments = appointments.map(apt =>
         apt.id === appointmentId ? { ...apt, status: 'cancelled' } : apt
       );
       setAppointments(updatedAppointments);
@@ -283,7 +301,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         { code: '34', minLength: 11 },
         { code: '1', minLength: 11 }
       ];
-      const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+      const hasCountryCode = countryCodes.some(({ code, minLength }) =>
         cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength
       );
 
@@ -314,7 +332,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
       window.open(whatsappUrl, '_blank');
       toast.success('Abrindo WhatsApp...');
-      
+
       // Limpar o estado após enviar
       setCancelledAppointment(null);
     } catch (error: any) {
@@ -1065,7 +1083,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
                           window.open(whatsappUrl, '_blank');
                           toast.success('Abrindo WhatsApp...');
-                          
+
                           // Limpar o estado após enviar
                           setCancelledAppointment(null);
                         } catch (error: any) {

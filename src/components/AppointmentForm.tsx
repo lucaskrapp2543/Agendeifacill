@@ -83,6 +83,7 @@ interface AppointmentFormProps {
   pix_proof_url?: string;
   subscriberService?: any; // Serviço de assinante para restringir dias
   isSubscriberBooking?: boolean; // Indica se é agendamento de assinante
+  requireAdvancePayment?: boolean; // Se true: não exigir forma de pagamento/PIX aqui (pagamento será no PaymentModal)
   onConvertToSubscriber?: (subscriberData: any) => void; // Callback para converter para assinante
   subscriberDetectionDisabled?: boolean; // Estado externo para desabilitar detecção
   onSubscriberDetectionDisabledChange?: (disabled: boolean) => void; // Callback para mudar o estado
@@ -97,6 +98,7 @@ export function AppointmentForm({
   existingAppointments = [],
   subscriberService,
   isSubscriberBooking = false,
+  requireAdvancePayment = false,
   onConvertToSubscriber,
   subscriberDetectionDisabled: externalSubscriberDetectionDisabled,
   guestClientData,
@@ -1011,8 +1013,11 @@ export function AppointmentForm({
         }
       }
 
-      if (!selectedPaymentMethod) {
-        missingFields.push('forma de pagamento');
+      // Se for pagamento antecipado, a forma de pagamento será escolhida no PaymentModal (Pagar.me)
+      if (!requireAdvancePayment) {
+        if (!selectedPaymentMethod) {
+          missingFields.push('forma de pagamento');
+        }
       }
     }
 
@@ -1029,9 +1034,11 @@ export function AppointmentForm({
       missingFields.push('informação se é serviço infantil');
     }
 
-    // Validação específica para PIX
-    if (selectedPaymentMethod === 'pix' && pixPaymentMethod === 'pix_now' && !pixProofUrl) {
-      missingFields.push('comprovante do PIX');
+    // Validação específica para PIX (somente no fluxo antigo, sem pagamento antecipado)
+    if (!requireAdvancePayment) {
+      if (selectedPaymentMethod === 'pix' && pixPaymentMethod === 'pix_now' && !pixProofUrl) {
+        missingFields.push('comprovante do PIX');
+      }
     }
 
     // VALIDAÇÃO DE ASSINANTE - BLOQUEAR AGENDAMENTO SE FORA DA SEMANA
@@ -1155,7 +1162,7 @@ export function AppointmentForm({
         appointment_time: selectedTime,
         duration: isSubscriberBooking && subscriberService ? (subscriberService.service_duration || 30) : totalDuration, // Usar duração total
         price: isSubscriberBooking && subscriberService ? 0 : totalPrice, // Preço total
-        payment_method: isSubscriberBooking ? 'assinante' : selectedPaymentMethod,
+        payment_method: isSubscriberBooking ? 'assinante' : (requireAdvancePayment ? 'pendente' : selectedPaymentMethod),
         observation: observation.trim() || null, // Adicionar observação (null se vazia)
         is_child_service: isChildService === true, // Adicionar serviço infantil (garantir boolean)
         is_subscriber: isSubscriberBooking // Adicionar flag de assinante
@@ -2561,40 +2568,50 @@ export function AppointmentForm({
                 </button>
               </div>
             )}
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              7. Forma de Pagamento
-            </label>
-            <PaymentMethodSelector
-              selectedMethod={selectedPaymentMethod}
-              onMethodSelect={(method) => {
-                setSelectedPaymentMethod(method);
-                // Scroll automático para o botão FINALIZAR AGENDAMENTO - DESCE, NÃO SOBE
-                setTimeout(() => {
-                  const submitButton = document.querySelector('button[type="submit"]');
-                  if (submitButton) {
-                    const rect = submitButton.getBoundingClientRect();
-                    const scrollPosition = window.scrollY + rect.top - 100; // 100px de margem do topo
-                    window.scrollTo({
-                      top: scrollPosition,
-                      behavior: 'smooth'
-                    });
-                  } else {
-                    // Scroll genérico para BAIXO
-                    window.scrollBy({
-                      top: 400,
-                      behavior: 'smooth'
-                    });
-                  }
-                }, 200);
-              }}
-              showPixOptions={!!establishment.pix_key}
-              pixPaymentMethod={pixPaymentMethod}
-              onPixMethodSelect={handlePixMethodSelect}
-              enabledMethods={establishment.payment_methods_enabled}
-            />
+            {requireAdvancePayment ? (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  💳 <strong>Pagamento antecipado obrigatório.</strong> Após clicar em finalizar, você será direcionado para o pagamento (Pagar.me) para confirmar o agendamento.
+                </p>
+              </div>
+            ) : (
+              <>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  7. Forma de Pagamento
+                </label>
+                <PaymentMethodSelector
+                  selectedMethod={selectedPaymentMethod}
+                  onMethodSelect={(method) => {
+                    setSelectedPaymentMethod(method);
+                    // Scroll automático para o botão FINALIZAR AGENDAMENTO - DESCE, NÃO SOBE
+                    setTimeout(() => {
+                      const submitButton = document.querySelector('button[type="submit"]');
+                      if (submitButton) {
+                        const rect = submitButton.getBoundingClientRect();
+                        const scrollPosition = window.scrollY + rect.top - 100; // 100px de margem do topo
+                        window.scrollTo({
+                          top: scrollPosition,
+                          behavior: 'smooth'
+                        });
+                      } else {
+                        // Scroll genérico para BAIXO
+                        window.scrollBy({
+                          top: 400,
+                          behavior: 'smooth'
+                        });
+                      }
+                    }, 200);
+                  }}
+                  showPixOptions={!!establishment.pix_key}
+                  pixPaymentMethod={pixPaymentMethod}
+                  onPixMethodSelect={handlePixMethodSelect}
+                  enabledMethods={establishment.payment_methods_enabled}
+                />
+              </>
+            )}
 
             {/* Formulário PIX quando selecionado */}
-            {selectedPaymentMethod === 'pix' && establishment.pix_key && (
+            {!requireAdvancePayment && selectedPaymentMethod === 'pix' && establishment.pix_key && (
               <div className="mt-4">
                 <PixPaymentForm
                   establishment={establishment}
@@ -2688,7 +2705,7 @@ export function AppointmentForm({
             )}
 
             {/* RESUMO DO AGENDAMENTO - Fluxo Normal */}
-            {selectedPaymentMethod && ((selectedService && selectedProfessional && selectedTime) ||
+            {(selectedPaymentMethod || requireAdvancePayment) && ((selectedService && selectedProfessional && selectedTime) ||
               (useMultiService && selectedServices.length > 0 && selectedProfessional && selectedTime) ||
               (useCategoryService && ((selectedSubcategory && selectedProfessional && selectedTime) || (useMultiCategoryService && selectedCategoryServices.length > 0 && selectedProfessional && selectedTime)))) && (
                 <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
@@ -2706,11 +2723,12 @@ export function AppointmentForm({
                             : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
                     }</div>
                     <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
-                    <div><strong>Pagamento:</strong> {
-                      selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
+                    <div><strong>Pagamento:</strong> {requireAdvancePayment
+                      ? 'Pagamento antecipado (Pagar.me)'
+                      : (selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
                         selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
                           selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
-                            selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod
+                            selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod)
                     }</div>
                     <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
                     <div><strong>Horário:</strong> {selectedTime}</div>
@@ -2733,8 +2751,8 @@ export function AppointmentForm({
                 </div>
               )}
 
-            {/* Botão para finalizar após selecionar forma de pagamento - AGORA DEPOIS DO RESUMO */}
-            {selectedPaymentMethod && (
+            {/* Botão para finalizar após selecionar forma de pagamento (ou pagamento antecipado) - AGORA DEPOIS DO RESUMO */}
+            {(selectedPaymentMethod || requireAdvancePayment) && (
               <div className="mt-6">
                 <button
                   type="submit"
@@ -2744,7 +2762,7 @@ export function AppointmentForm({
                     : 'bg-green-600 hover:bg-green-700 text-white'
                     }`}
                 >
-                  {isLoading ? 'Agendando...' : 'FINALIZAR AGENDAMENTO'}
+                  {isLoading ? 'Agendando...' : (requireAdvancePayment ? 'FINALIZAR E PAGAR' : 'FINALIZAR AGENDAMENTO')}
                 </button>
               </div>
             )}

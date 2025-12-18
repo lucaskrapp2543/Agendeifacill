@@ -13,9 +13,30 @@ interface HealthCheckResult {
   needsCleanup: boolean;
 }
 
+const canUseStorage = (type: 'local' | 'session'): boolean => {
+  try {
+    const storage = type === 'local' ? window.localStorage : window.sessionStorage;
+    const testKey = '__agf_storage_test__';
+    storage.setItem(testKey, '1');
+    storage.removeItem(testKey);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 // Verificar saúde da aplicação
 export const performHealthCheck = (): HealthCheckResult => {
   try {
+    // ⚠️ Se storage não funciona (muito comum em WebViews do Instagram/WhatsApp),
+    // não podemos usar essa rotina para decidir reload/cleanup. Em vez disso, "não faz nada".
+    if (!canUseStorage('local') || !canUseStorage('session')) {
+      return {
+        isHealthy: true,
+        needsCleanup: false
+      };
+    }
+
     // 1. Verificar se localStorage está funcionando
     try {
       const testKey = '__health_check__';
@@ -242,6 +263,9 @@ export const autoCleanup = async (): Promise<void> => {
 // Detectar problemas de carregamento
 export const detectLoadProblems = (): boolean => {
   try {
+    // Se não dá pra acessar storage, não tentar "detectar problemas" (evita loop de reload).
+    if (!canUseStorage('local')) return false;
+
     // Verificar se a página está travada
     const lastCheck = localStorage.getItem(LAST_HEALTH_CHECK);
     if (lastCheck) {
@@ -267,7 +291,8 @@ export const detectLoadProblems = (): boolean => {
     return false;
   } catch (error) {
     console.warn('⚠️ Erro ao detectar problemas:', error);
-    return true; // Em caso de erro, assumir que há problema
+    // Em WebViews pode dar erro de storage; NÃO assumir problema para não iniciar loop.
+    return false;
   }
 };
 
@@ -327,6 +352,11 @@ export const startAutoMonitoring = (): void => {
 // Verificação agressiva na inicialização - detecta problemas ANTES de carregar
 export const aggressiveInitialCheck = (): boolean => {
   try {
+    // Se não dá pra usar storage, não rodar lógica agressiva (evita piscaceira).
+    if (!canUseStorage('local') || !canUseStorage('session')) {
+      return false;
+    }
+
     // 1. Verificar se há problemas de carregamento anteriores
     const failedAttempts = parseInt(localStorage.getItem(FAILED_LOAD_ATTEMPTS) || '0');
     if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
@@ -352,10 +382,8 @@ export const aggressiveInitialCheck = (): boolean => {
       }
     } catch (error) {
       console.warn('⚠️ Erro ao testar localStorage, limpando...');
-      autoCleanup().then(() => {
-        window.location.reload();
-      });
-      return true;
+      // Se localStorage falha, não forçar reload infinito em WebView
+      return false;
     }
 
     // 3. Verificar se há Service Workers problemáticos
@@ -375,11 +403,8 @@ export const aggressiveInitialCheck = (): boolean => {
     return false; // Tudo ok
   } catch (error) {
     console.error('❌ Erro na verificação inicial:', error);
-    // Em caso de erro, assumir que precisa limpar
-    autoCleanup().then(() => {
-      window.location.reload();
-    });
-    return true;
+    // Em caso de erro, NÃO assumir que precisa limpar (evita loop)
+    return false;
   }
 };
 
