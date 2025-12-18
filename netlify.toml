@@ -3,6 +3,32 @@
   publish = "dist"
   command = "npm install --include=dev && npm run build"
 
+## Netlify Functions (API em produção)
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+## Rotas de API (Pagar.me)
+[[redirects]]
+  from = "/api/pagarme/create-recipient"
+  to = "/.netlify/functions/pagarme-create-recipient"
+  status = 200
+
+[[redirects]]
+  from = "/api/pagarme/create-payment"
+  to = "/.netlify/functions/pagarme-create-payment"
+  status = 200
+
+[[redirects]]
+  from = "/api/pagarme/check-status"
+  to = "/.netlify/functions/pagarme-check-status"
+  status = 200
+
+[[redirects]]
+  from = "/api/pagarme/order-details"
+  to = "/.netlify/functions/pagarme-order-details"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
