@@ -13,21 +13,29 @@
   from = "/api/pagarme/create-recipient"
   to = "/.netlify/functions/pagarme-create-recipient"
   status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
 
 [[redirects]]
   from = "/api/pagarme/create-payment"
   to = "/.netlify/functions/pagarme-create-payment"
   status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
 
 [[redirects]]
   from = "/api/pagarme/check-status"
   to = "/.netlify/functions/pagarme-check-status"
   status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
 
 [[redirects]]
   from = "/api/pagarme/order-details"
   to = "/.netlify/functions/pagarme-order-details"
   status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
 
 [[redirects]]
   from = "/*"
