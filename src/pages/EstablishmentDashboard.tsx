@@ -88,6 +88,7 @@ interface Establishment {
   professionals: Professional[];
   professionals_pins: ProfessionalPin[];
   services_with_prices: Service[];
+  updated_at?: string;
   profile_image_url?: string;
   affiliate_link?: string;
   custom_photo_1_url?: string;
@@ -129,6 +130,10 @@ interface Establishment {
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
   payment_alert_enabled?: boolean; // Indica se o alerta de pagamento está ativado
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
+  use_15_minute_interval?: boolean;
+  use_20_minute_schedule?: boolean;
+  show_best_of_brazil_image?: boolean;
+  payment_methods_enabled?: string[];
 }
 
 type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page' | 'indication' | 'support';
@@ -365,6 +370,9 @@ const EstablishmentDashboard = () => {
   const businessHoursAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const paymentConfigAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const paymentMethodsAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // ✅ Rascunho (draft) do cadastro Pagar.me (para não perder ao sair/voltar)
+  const pagarmeDraftAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pagarmeDraftDirtyRef = useRef(false);
   const [hasWifi, setHasWifi] = useState(false); // Novo estado para Wi-fi
   const [hasParking, setHasParking] = useState(false); // Novo estado para Estacionamento
   const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
@@ -426,6 +434,218 @@ const EstablishmentDashboard = () => {
       setPixPaymentLink(''); // Limpa se for 'naotenhopix'
     }
   }, [pixKey]);
+
+  const markPagarmeDraftDirty = useCallback(() => {
+    pagarmeDraftDirtyRef.current = true;
+  }, []);
+
+  const getPagarmeDraftStorageKey = useCallback((establishmentId: string) => {
+    return `pagarme_draft_${establishmentId}`;
+  }, []);
+
+  const writePagarmeDraftToStorage = useCallback(() => {
+    if (!establishment?.id) return;
+    try {
+      const key = getPagarmeDraftStorageKey(establishment.id);
+      const payload = {
+        updatedAt: Date.now(),
+        bankCpfCnpj,
+        bankName,
+        bankAgency,
+        bankAccount,
+        bankAccountType,
+        bankLegalName,
+        pagarmeRegisterName,
+        pagarmeBirthdate,
+        pagarmeMonthlyIncome,
+        pagarmeProfessionalOccupation,
+        enderecoCep,
+        enderecoRua,
+        enderecoNumero,
+        enderecoBairro,
+        enderecoCidade,
+        enderecoUf,
+        enderecoComplemento,
+        enderecoPontoReferencia,
+      };
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch (error) {
+      // Em alguns ambientes (ex: WebView) o storage pode falhar. Não quebrar o fluxo.
+      console.warn('⚠️ Falha ao salvar rascunho do Pagar.me no storage:', error);
+    }
+  }, [
+    establishment?.id,
+    getPagarmeDraftStorageKey,
+    bankCpfCnpj,
+    bankName,
+    bankAgency,
+    bankAccount,
+    bankAccountType,
+    bankLegalName,
+    pagarmeRegisterName,
+    pagarmeBirthdate,
+    pagarmeMonthlyIncome,
+    pagarmeProfessionalOccupation,
+    enderecoCep,
+    enderecoRua,
+    enderecoNumero,
+    enderecoBairro,
+    enderecoCidade,
+    enderecoUf,
+    enderecoComplemento,
+    enderecoPontoReferencia,
+  ]);
+
+  const savePagarmeDraftToSupabase = useCallback(async () => {
+    if (!establishment?.id) return;
+    try {
+      const nextRegisterInfo = {
+        ...(establishment as any).pagarme_register_information,
+        legal_name: bankLegalName.trim(),
+        account_type: bankAccountType,
+        name: pagarmeRegisterName.trim(),
+        birthdate: pagarmeBirthdate.trim(),
+        monthly_income: (() => {
+          const raw = String(pagarmeMonthlyIncome || '').replace(/\./g, '').replace(',', '.');
+          const n = Number(raw);
+          if (!String(pagarmeMonthlyIncome || '').trim()) return null;
+          return Number.isFinite(n) ? Math.round(n * 100) : null;
+        })(),
+        professional_occupation: pagarmeProfessionalOccupation.trim(),
+        address: {
+          zip_code: enderecoCep.trim(),
+          street: enderecoRua.trim(),
+          street_number: enderecoNumero.trim(),
+          neighborhood: enderecoBairro.trim(),
+          city: enderecoCidade.trim(),
+          state: enderecoUf.trim(),
+          complementary: enderecoComplemento.trim(),
+          reference_point: enderecoPontoReferencia.trim(),
+        },
+      };
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          bank_cpf_cnpj: bankCpfCnpj.trim(),
+          bank_name: bankName.trim(),
+          bank_agency: bankAgency.trim(),
+          bank_account: bankAccount.trim(),
+          pagarme_register_information: nextRegisterInfo,
+        })
+        .eq('id', establishment.id);
+
+      if (error) {
+        console.error('❌ Erro ao salvar rascunho do Pagar.me automaticamente:', error);
+        return;
+      }
+
+      setEstablishment({
+        ...establishment,
+        bank_cpf_cnpj: bankCpfCnpj.trim(),
+        bank_name: bankName.trim(),
+        bank_agency: bankAgency.trim(),
+        bank_account: bankAccount.trim(),
+        pagarme_register_information: nextRegisterInfo,
+      } as any);
+
+      // Se salvou no banco, podemos limpar o rascunho local para não sobrescrever dados futuros
+      try {
+        const key = getPagarmeDraftStorageKey(establishment.id);
+        localStorage.removeItem(key);
+      } catch (e) {
+        // ignore
+      }
+    } catch (err) {
+      console.error('❌ Erro inesperado ao salvar rascunho do Pagar.me:', err);
+    }
+  }, [
+    establishment,
+    getPagarmeDraftStorageKey,
+    bankCpfCnpj,
+    bankName,
+    bankAgency,
+    bankAccount,
+    bankAccountType,
+    bankLegalName,
+    pagarmeRegisterName,
+    pagarmeBirthdate,
+    pagarmeMonthlyIncome,
+    pagarmeProfessionalOccupation,
+    enderecoCep,
+    enderecoRua,
+    enderecoNumero,
+    enderecoBairro,
+    enderecoCidade,
+    enderecoUf,
+    enderecoComplemento,
+    enderecoPontoReferencia,
+  ]);
+
+  // ✅ Sempre que o usuário mexer no formulário da Pagar.me, salvar rascunho (local) e agendar auto-save (Supabase)
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (!pagarmeDraftDirtyRef.current) return;
+
+    writePagarmeDraftToStorage();
+
+    if (pagarmeDraftAutoSaveTimeoutRef.current) {
+      clearTimeout(pagarmeDraftAutoSaveTimeoutRef.current);
+    }
+    pagarmeDraftAutoSaveTimeoutRef.current = setTimeout(() => {
+      savePagarmeDraftToSupabase();
+    }, 900);
+  }, [
+    establishment?.id,
+    writePagarmeDraftToStorage,
+    savePagarmeDraftToSupabase,
+    bankCpfCnpj,
+    bankName,
+    bankAgency,
+    bankAccount,
+    bankAccountType,
+    bankLegalName,
+    pagarmeRegisterName,
+    pagarmeBirthdate,
+    pagarmeMonthlyIncome,
+    pagarmeProfessionalOccupation,
+    enderecoCep,
+    enderecoRua,
+    enderecoNumero,
+    enderecoBairro,
+    enderecoCidade,
+    enderecoUf,
+    enderecoComplemento,
+    enderecoPontoReferencia,
+  ]);
+
+  // ✅ Ao sair do app / trocar de aba (mobile), forçar persistência do rascunho
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) return;
+      if (!establishment?.id) return;
+      if (!pagarmeDraftDirtyRef.current) return;
+
+      // Salvar rápido no storage (sincrono) e tentar salvar no banco
+      writePagarmeDraftToStorage();
+      savePagarmeDraftToSupabase();
+    };
+
+    const handleBeforeUnload = () => {
+      if (!establishment?.id) return;
+      if (!pagarmeDraftDirtyRef.current) return;
+      writePagarmeDraftToStorage();
+      // No beforeunload, não dá pra garantir await; pelo menos o rascunho local fica.
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [establishment?.id, writePagarmeDraftToStorage, savePagarmeDraftToSupabase]);
 
   // Carregar preferência de layout claro/escuro do localStorage
   useEffect(() => {
@@ -3587,32 +3807,79 @@ Estamos te aguardando! 😎✂️`;
         setExigirPagamentoAntecipado((establishmentData as any).exigir_pagamento_antecipado ?? false); // Pagamento antecipado
         setPagamentoAdiantadoOpcional((establishmentData as any).pagamento_adiantado_opcional ?? false);
         // Dados bancários / recebedor Pagar.me
-        setBankCpfCnpj((establishmentData as any).bank_cpf_cnpj || '');
-        setBankName((establishmentData as any).bank_name || '');
-        setBankAgency((establishmentData as any).bank_agency || '');
-        setBankAccount((establishmentData as any).bank_account || '');
-        const registerInfo = (establishmentData as any).pagarme_register_information || {};
-        setBankLegalName(registerInfo?.legal_name || registerInfo?.legalName || '');
-        setPagarmeRegisterName(registerInfo?.name || registerInfo?.registerName || '');
-        // birthdate no Pagar.me pode vir como DD/MM/AAAA ou YYYY-MM-DD; guardar como string
-        setPagarmeBirthdate(registerInfo?.birthdate || registerInfo?.birthdateRaw || '');
-        setPagarmeMonthlyIncome(
-          typeof registerInfo?.monthly_income === 'number'
-            ? String((registerInfo.monthly_income / 100).toFixed(2)).replace('.', ',')
-            : ''
+        // ✅ Priorizar rascunho local (draft) caso a página tenha sido recarregada ao sair/voltar do app
+        let draft: any = null;
+        try {
+          const key = getPagarmeDraftStorageKey(establishmentData.id);
+          const raw = localStorage.getItem(key);
+          if (raw) draft = JSON.parse(raw);
+        } catch (e) {
+          // ignore
+        }
+        const updatedAtDb = establishmentData.updated_at ? new Date(establishmentData.updated_at).getTime() : 0;
+        const draftUpdatedAt = typeof draft?.updatedAt === 'number' ? draft.updatedAt : 0;
+        const useDraft = Boolean(draft && draftUpdatedAt && draftUpdatedAt > updatedAtDb);
+
+        if (useDraft) {
+          pagarmeDraftDirtyRef.current = true; // força persistência e evita perder novamente
+        }
+
+        setBankCpfCnpj(
+          useDraft && typeof draft?.bankCpfCnpj === 'string' ? draft.bankCpfCnpj : ((establishmentData as any).bank_cpf_cnpj || '')
         );
-        setPagarmeProfessionalOccupation(registerInfo?.professional_occupation || '');
-        const addr = registerInfo?.address || {};
-        setEnderecoCep(addr?.zip_code || '');
-        setEnderecoRua(addr?.street || '');
-        setEnderecoNumero(addr?.street_number || '');
-        setEnderecoBairro(addr?.neighborhood || '');
-        setEnderecoCidade(addr?.city || '');
-        setEnderecoUf(addr?.state || '');
-        setEnderecoComplemento(addr?.complementary || '');
-        setEnderecoPontoReferencia(addr?.reference_point || '');
+        setBankName(useDraft && typeof draft?.bankName === 'string' ? draft.bankName : ((establishmentData as any).bank_name || ''));
+        setBankAgency(
+          useDraft && typeof draft?.bankAgency === 'string' ? draft.bankAgency : ((establishmentData as any).bank_agency || '')
+        );
+        setBankAccount(
+          useDraft && typeof draft?.bankAccount === 'string' ? draft.bankAccount : ((establishmentData as any).bank_account || '')
+        );
         setBankAccountType(
-          (registerInfo?.account_type || registerInfo?.accountType) === 'conta_poupanca' ? 'conta_poupanca' : 'conta_corrente'
+          useDraft && draft?.bankAccountType === 'conta_poupanca' ? 'conta_poupanca' : ((establishmentData as any).pagarme_register_information?.account_type ||
+            (establishmentData as any).pagarme_register_information?.accountType) === 'conta_poupanca'
+            ? 'conta_poupanca'
+            : 'conta_corrente'
+        );
+
+        const registerInfo = (establishmentData as any).pagarme_register_information || {};
+        setBankLegalName(
+          useDraft && typeof draft?.bankLegalName === 'string'
+            ? draft.bankLegalName
+            : (registerInfo?.legal_name || registerInfo?.legalName || '')
+        );
+        setPagarmeRegisterName(
+          useDraft && typeof draft?.pagarmeRegisterName === 'string'
+            ? draft.pagarmeRegisterName
+            : (registerInfo?.name || registerInfo?.registerName || '')
+        );
+        // birthdate no Pagar.me pode vir como DD/MM/AAAA ou YYYY-MM-DD; guardar como string
+        setPagarmeBirthdate(
+          useDraft && typeof draft?.pagarmeBirthdate === 'string' ? draft.pagarmeBirthdate : (registerInfo?.birthdate || registerInfo?.birthdateRaw || '')
+        );
+        setPagarmeMonthlyIncome(() => {
+          if (useDraft && typeof draft?.pagarmeMonthlyIncome === 'string') return draft.pagarmeMonthlyIncome;
+          return typeof registerInfo?.monthly_income === 'number'
+            ? String((registerInfo.monthly_income / 100).toFixed(2)).replace('.', ',')
+            : '';
+        });
+        setPagarmeProfessionalOccupation(
+          useDraft && typeof draft?.pagarmeProfessionalOccupation === 'string'
+            ? draft.pagarmeProfessionalOccupation
+            : (registerInfo?.professional_occupation || '')
+        );
+
+        const addr = registerInfo?.address || {};
+        setEnderecoCep(useDraft && typeof draft?.enderecoCep === 'string' ? draft.enderecoCep : (addr?.zip_code || ''));
+        setEnderecoRua(useDraft && typeof draft?.enderecoRua === 'string' ? draft.enderecoRua : (addr?.street || ''));
+        setEnderecoNumero(useDraft && typeof draft?.enderecoNumero === 'string' ? draft.enderecoNumero : (addr?.street_number || ''));
+        setEnderecoBairro(useDraft && typeof draft?.enderecoBairro === 'string' ? draft.enderecoBairro : (addr?.neighborhood || ''));
+        setEnderecoCidade(useDraft && typeof draft?.enderecoCidade === 'string' ? draft.enderecoCidade : (addr?.city || ''));
+        setEnderecoUf(useDraft && typeof draft?.enderecoUf === 'string' ? draft.enderecoUf : (addr?.state || ''));
+        setEnderecoComplemento(
+          useDraft && typeof draft?.enderecoComplemento === 'string' ? draft.enderecoComplemento : (addr?.complementary || '')
+        );
+        setEnderecoPontoReferencia(
+          useDraft && typeof draft?.enderecoPontoReferencia === 'string' ? draft.enderecoPontoReferencia : (addr?.reference_point || '')
         );
         setEnableWhatsAppNotifications(establishmentData.enable_whatsapp_notifications ?? false); // Ativar notificações WhatsApp
         const requireCancelPasswordValue = (establishmentData as any).require_cancel_password ?? false;
@@ -3833,19 +4100,23 @@ Estamos te aguardando! 😎✂️`;
 
       case 5: // PIX - verificar se preencheu (pode ser opcional, mas vamos exigir para o quiz)
         // Verificar se tem PIX configurado OU se digitou "naotenhopix"
-        const hasPix = (pixKeyType && pixKey && pixKey.trim() !== '' && pixKey.trim().toLowerCase() !== 'naotenhopix') ||
+        const hasPix: boolean = !!(
+          (pixKeyType && pixKey && pixKey.trim() !== '' && pixKey.trim().toLowerCase() !== 'naotenhopix') ||
           (pixKey && pixKey.trim().toLowerCase() === 'naotenhopix') ||
-          (establishment?.pix_key && establishment.pix_key.trim() !== '' && establishment.pix_key.trim().toLowerCase() !== 'naotenhopix');
+          (establishment?.pix_key && establishment.pix_key.trim() !== '' && establishment.pix_key.trim().toLowerCase() !== 'naotenhopix')
+        );
         return {
           isValid: hasPix,
           message: hasPix ? '' : 'Preencha os dados do PIX ou digite "naotenhopix" para continuar'
         };
 
       case 6: // Links Personalizados - pelo menos 1 link
-        const hasAnyLink = (reviewLink && reviewLink.trim() !== '') ||
+        const hasAnyLink: boolean = !!(
+          (reviewLink && reviewLink.trim() !== '') ||
           (socialMediaLink && socialMediaLink.trim() !== '') ||
           (pixPaymentLink && pixPaymentLink.trim() !== '') ||
-          (locationLink && locationLink.trim() !== '');
+          (locationLink && locationLink.trim() !== '')
+        );
         return {
           isValid: hasAnyLink,
           message: hasAnyLink ? '' : 'Adicione ao menos 1 link antes de avançar'
@@ -7182,12 +7453,21 @@ Estamos te aguardando! 😎✂️`;
         pagarme_register_information: nextRegisterInfo,
       } as any);
 
+      // ✅ Se o usuário salvou manualmente, limpar rascunho local para evitar sobrescritas inesperadas
+      try {
+        const key = getPagarmeDraftStorageKey(establishment.id);
+        localStorage.removeItem(key);
+      } catch (e) {
+        // ignore
+      }
+
       toast.success('Dados bancários salvos!');
     } catch (err: any) {
       toast.error(`Erro ao salvar dados bancários: ${err?.message || 'Erro desconhecido'}`);
     }
   }, [
     establishment,
+    getPagarmeDraftStorageKey,
     bankCpfCnpj,
     bankName,
     bankAgency,
@@ -7548,19 +7828,22 @@ Estamos te aguardando! 😎✂️`;
 
         const hoursToSave = unsavedBusinessHoursRef.current;
 
-        // Usar fetch com keepalive para garantir que a requisição seja enviada
-        supabase
-          .from('establishments')
-          .update({ business_hours: hoursToSave })
-          .eq('id', establishment.id)
-          .then(({ error }) => {
+        // No beforeunload, não dá pra garantir await (mas evita erro de typing do supabase thenable)
+        void (async () => {
+          try {
+            const { error } = await supabase
+              .from('establishments')
+              .update({ business_hours: hoursToSave })
+              .eq('id', establishment.id);
             if (error) {
               console.error('❌ Erro ao salvar no beforeunload:', error);
             } else {
               console.log('✅ Salvo no beforeunload!');
             }
-          })
-          .catch(err => console.error('Erro:', err));
+          } catch (err) {
+            console.error('Erro:', err);
+          }
+        })();
       }
     };
 
@@ -7615,6 +7898,9 @@ Estamos te aguardando! 😎✂️`;
       }
       if (paymentMethodsAutoSaveTimeoutRef.current) {
         clearTimeout(paymentMethodsAutoSaveTimeoutRef.current);
+      }
+      if (pagarmeDraftAutoSaveTimeoutRef.current) {
+        clearTimeout(pagarmeDraftAutoSaveTimeoutRef.current);
       }
     };
   }, []);
@@ -9376,11 +9662,11 @@ Estamos te aguardando! 😎✂️`;
                       establishment={establishment}
                       onDateChange={(newDate) => setSelectedDate(newDate)}
                       onAppointmentUpdate={() => {
-                        fetchAppointments(selectedDate);
+                        fetchAppointments();
                         fetchMonthlyAppointments();
                       }}
-                      onOpenTransferModal={handleOpenTransferModal}
-                      onOpenObservationModal={handleOpenObservationModal}
+                      onOpenTransferModal={handleOpenTransferModal as any}
+                      onOpenObservationModal={handleOpenObservationModal as any}
                       onOpenAdditionalProductModal={(appointmentId) => {
                         setSelectedAppointmentForProduct(appointmentId);
                         setShowAdditionalProductModal(true);
@@ -9389,8 +9675,8 @@ Estamos te aguardando! 😎✂️`;
                         setSelectedAppointmentForProduct(appointmentId);
                         setShowAddProductToAppointmentModal(true);
                       }}
-                      onGenerateNF={handleGenerateNF}
-                      onOpenReminderModal={handleOpenReminderModal}
+                      onGenerateNF={handleGenerateNF as any}
+                      onOpenReminderModal={handleOpenReminderModal as any}
                       onGoToProfessionalConfig={handleGoToProfessionalConfig}
                       onGoToClients={handleGoToClients}
                       onCancelAppointment={handleCancelClick}
@@ -11321,7 +11607,7 @@ Estamos te aguardando! 😎✂️`;
 
                         {/* Pagamento adiantado (Pagar.me) - liberado pelo admin */}
                         {Boolean((establishment as any)?.pagamento_adiantado_liberado_admin) && (
-                          <div className="ml-7 mt-2 mb-2 p-4 bg-[#242628] rounded-lg border border-gray-700/70">
+                          <div className="ml-7 mt-2 mb-2 p-4 rounded-lg border-2 border-green-500/40 bg-gradient-to-r from-[#142319] via-[#1b2a20] to-[#242628] shadow-[0_0_0_1px_rgba(34,197,94,0.12)]">
                             <label className="flex items-center space-x-2 mb-3">
                               <input
                                 type="checkbox"
@@ -11338,8 +11624,10 @@ Estamos te aguardando! 😎✂️`;
                                 className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                               />
                               <div className="flex flex-col flex-1">
-                                <span className="text-white text-sm sm:text-base">Pagamento adiantado</span>
-                                <span className="hidden sm:inline text-xs text-gray-400 mt-1">
+                                <span className="text-green-200 font-extrabold tracking-wide text-sm sm:text-base">
+                                  Quero receber adiantado os serviços
+                                </span>
+                                <span className="hidden sm:inline text-xs text-gray-200/90 mt-1">
                                   Se ativado, o cliente só confirma o agendamento após pagar o PIX (Pagar.me).
                                 </span>
                               </div>
@@ -11390,6 +11678,7 @@ Estamos te aguardando! 😎✂️`;
                                   value={bankCpfCnpj}
                                   onChange={(e) => {
                                     setBankCpfCnpj(e.target.value);
+                                    markPagarmeDraftDirty();
                                   }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Digite o CPF/CNPJ"
@@ -11400,7 +11689,10 @@ Estamos te aguardando! 😎✂️`;
                                 <input
                                   type="text"
                                   value={bankName}
-                                  onChange={(e) => setBankName(e.target.value)}
+                                  onChange={(e) => {
+                                    setBankName(e.target.value);
+                                    markPagarmeDraftDirty();
+                                  }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Ex: Nubank, Itaú, Bradesco..."
                                 />
@@ -11410,7 +11702,10 @@ Estamos te aguardando! 😎✂️`;
                                 <input
                                   type="text"
                                   value={bankAgency}
-                                  onChange={(e) => setBankAgency(e.target.value)}
+                                  onChange={(e) => {
+                                    setBankAgency(e.target.value);
+                                    markPagarmeDraftDirty();
+                                  }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Ex: 0001"
                                 />
@@ -11420,7 +11715,10 @@ Estamos te aguardando! 😎✂️`;
                                 <input
                                   type="text"
                                   value={bankAccount}
-                                  onChange={(e) => setBankAccount(e.target.value)}
+                                  onChange={(e) => {
+                                    setBankAccount(e.target.value);
+                                    markPagarmeDraftDirty();
+                                  }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Ex: 12345678-9"
                                 />
@@ -11429,9 +11727,10 @@ Estamos te aguardando! 😎✂️`;
                                 <label className="text-xs text-gray-300">Tipo de conta</label>
                                 <select
                                   value={bankAccountType}
-                                  onChange={(e) =>
-                                    setBankAccountType(e.target.value === 'conta_poupanca' ? 'conta_poupanca' : 'conta_corrente')
-                                  }
+                                  onChange={(e) => {
+                                    setBankAccountType(e.target.value === 'conta_poupanca' ? 'conta_poupanca' : 'conta_corrente');
+                                    markPagarmeDraftDirty();
+                                  }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                 >
                                   <option value="conta_corrente">Conta corrente</option>
@@ -11443,7 +11742,10 @@ Estamos te aguardando! 😎✂️`;
                                 <input
                                   type="text"
                                   value={bankLegalName}
-                                  onChange={(e) => setBankLegalName(e.target.value)}
+                                  onChange={(e) => {
+                                    setBankLegalName(e.target.value);
+                                    markPagarmeDraftDirty();
+                                  }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Ex: João da Silva"
                                 />
@@ -11466,6 +11768,7 @@ Estamos te aguardando! 😎✂️`;
                                         setPagarmeRegisterName(e.target.value);
                                         // ajuda: manter o nome do banco preenchido também
                                         if (!bankLegalName.trim()) setBankLegalName(e.target.value);
+                                        markPagarmeDraftDirty();
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Nome completo do titular"
@@ -11476,7 +11779,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="date"
                                       value={pagarmeBirthdate}
-                                      onChange={(e) => setPagarmeBirthdate(e.target.value)}
+                                      onChange={(e) => {
+                                        setPagarmeBirthdate(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                     />
                                   </div>
@@ -11485,7 +11791,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={pagarmeMonthlyIncome}
-                                      onChange={(e) => setPagarmeMonthlyIncome(e.target.value)}
+                                      onChange={(e) => {
+                                        setPagarmeMonthlyIncome(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Ex: 3000,00"
                                     />
@@ -11495,7 +11804,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={pagarmeProfessionalOccupation}
-                                      onChange={(e) => setPagarmeProfessionalOccupation(e.target.value)}
+                                      onChange={(e) => {
+                                        setPagarmeProfessionalOccupation(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Ex: Barbeiro"
                                     />
@@ -11508,7 +11820,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={enderecoCep}
-                                      onChange={(e) => setEnderecoCep(e.target.value)}
+                                      onChange={(e) => {
+                                        setEnderecoCep(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="00000-000"
                                     />
@@ -11518,7 +11833,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={enderecoUf}
-                                      onChange={(e) => setEnderecoUf(e.target.value.toUpperCase())}
+                                      onChange={(e) => {
+                                        setEnderecoUf(e.target.value.toUpperCase());
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="SP"
                                       maxLength={2}
@@ -11529,7 +11847,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={enderecoRua}
-                                      onChange={(e) => setEnderecoRua(e.target.value)}
+                                      onChange={(e) => {
+                                        setEnderecoRua(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Rua/Avenida"
                                     />
@@ -11539,7 +11860,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={enderecoNumero}
-                                      onChange={(e) => setEnderecoNumero(e.target.value)}
+                                      onChange={(e) => {
+                                        setEnderecoNumero(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="123"
                                     />
@@ -11549,7 +11873,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={enderecoBairro}
-                                      onChange={(e) => setEnderecoBairro(e.target.value)}
+                                      onChange={(e) => {
+                                        setEnderecoBairro(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Centro"
                                     />
@@ -11559,7 +11886,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={enderecoCidade}
-                                      onChange={(e) => setEnderecoCidade(e.target.value)}
+                                      onChange={(e) => {
+                                        setEnderecoCidade(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="São Paulo"
                                     />
@@ -11569,7 +11899,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={enderecoComplemento}
-                                      onChange={(e) => setEnderecoComplemento(e.target.value)}
+                                      onChange={(e) => {
+                                        setEnderecoComplemento(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Apto, sala..."
                                     />
@@ -11579,7 +11912,10 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type="text"
                                       value={enderecoPontoReferencia}
-                                      onChange={(e) => setEnderecoPontoReferencia(e.target.value)}
+                                      onChange={(e) => {
+                                        setEnderecoPontoReferencia(e.target.value);
+                                        markPagarmeDraftDirty();
+                                      }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Opcional"
                                     />
