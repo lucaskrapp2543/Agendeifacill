@@ -373,6 +373,7 @@ const EstablishmentDashboard = () => {
   // ✅ Rascunho (draft) do cadastro Pagar.me (para não perder ao sair/voltar)
   const pagarmeDraftAutoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pagarmeDraftDirtyRef = useRef(false);
+  const savePagarmeDraftToSupabaseRef = useRef<(() => void) | null>(null);
   const [hasWifi, setHasWifi] = useState(false); // Novo estado para Wi-fi
   const [hasParking, setHasParking] = useState(false); // Novo estado para Estacionamento
   const [hasAccessibility, setHasAccessibility] = useState(false); // Novo estado para Acessibilidade
@@ -435,19 +436,37 @@ const EstablishmentDashboard = () => {
     }
   }, [pixKey]);
 
-  const markPagarmeDraftDirty = useCallback(() => {
-    pagarmeDraftDirtyRef.current = true;
-  }, []);
+  type PagarmeDraft = {
+    updatedAt: number;
+    bankCpfCnpj: string;
+    bankName: string;
+    bankAgency: string;
+    bankAccount: string;
+    bankAccountType: 'conta_corrente' | 'conta_poupanca';
+    bankLegalName: string;
+    pagarmeRegisterName: string;
+    pagarmeBirthdate: string;
+    pagarmeMonthlyIncome: string;
+    pagarmeProfessionalOccupation: string;
+    enderecoCep: string;
+    enderecoRua: string;
+    enderecoNumero: string;
+    enderecoBairro: string;
+    enderecoCidade: string;
+    enderecoUf: string;
+    enderecoComplemento: string;
+    enderecoPontoReferencia: string;
+  };
 
   const getPagarmeDraftStorageKey = useCallback((establishmentId: string) => {
     return `pagarme_draft_${establishmentId}`;
   }, []);
 
-  const writePagarmeDraftToStorage = useCallback(() => {
+  const writePagarmeDraftToStorage = useCallback((overrides?: Partial<PagarmeDraft>) => {
     if (!establishment?.id) return;
     try {
       const key = getPagarmeDraftStorageKey(establishment.id);
-      const payload = {
+      const payload: PagarmeDraft = {
         updatedAt: Date.now(),
         bankCpfCnpj,
         bankName,
@@ -467,6 +486,7 @@ const EstablishmentDashboard = () => {
         enderecoUf,
         enderecoComplemento,
         enderecoPontoReferencia,
+        ...(overrides || {}),
       };
       localStorage.setItem(key, JSON.stringify(payload));
     } catch (error) {
@@ -582,53 +602,45 @@ const EstablishmentDashboard = () => {
     enderecoPontoReferencia,
   ]);
 
-  // ✅ Sempre que o usuário mexer no formulário da Pagar.me, salvar rascunho (local) e agendar auto-save (Supabase)
+  // ✅ Evita dependências/capturas que podem causar "use before define" em alguns setups de TS/ESLint
   useEffect(() => {
-    if (!establishment?.id) return;
-    if (!pagarmeDraftDirtyRef.current) return;
+    savePagarmeDraftToSupabaseRef.current = () => {
+      void savePagarmeDraftToSupabase();
+    };
+  }, [savePagarmeDraftToSupabase]);
 
-    writePagarmeDraftToStorage();
+  const persistPagarmeDraft = useCallback(
+    (overrides?: Partial<PagarmeDraft>) => {
+      // ✅ Marca como "sujo" e salva imediatamente no storage (pra não perder ao sair rápido do app)
+      pagarmeDraftDirtyRef.current = true;
+      writePagarmeDraftToStorage(overrides);
 
-    if (pagarmeDraftAutoSaveTimeoutRef.current) {
-      clearTimeout(pagarmeDraftAutoSaveTimeoutRef.current);
-    }
-    pagarmeDraftAutoSaveTimeoutRef.current = setTimeout(() => {
-      savePagarmeDraftToSupabase();
-    }, 900);
-  }, [
-    establishment?.id,
-    writePagarmeDraftToStorage,
-    savePagarmeDraftToSupabase,
-    bankCpfCnpj,
-    bankName,
-    bankAgency,
-    bankAccount,
-    bankAccountType,
-    bankLegalName,
-    pagarmeRegisterName,
-    pagarmeBirthdate,
-    pagarmeMonthlyIncome,
-    pagarmeProfessionalOccupation,
-    enderecoCep,
-    enderecoRua,
-    enderecoNumero,
-    enderecoBairro,
-    enderecoCidade,
-    enderecoUf,
-    enderecoComplemento,
-    enderecoPontoReferencia,
-  ]);
+      // ✅ Agenda auto-save no Supabase (debounce)
+      if (pagarmeDraftAutoSaveTimeoutRef.current) {
+        clearTimeout(pagarmeDraftAutoSaveTimeoutRef.current);
+      }
+      pagarmeDraftAutoSaveTimeoutRef.current = setTimeout(() => {
+        savePagarmeDraftToSupabaseRef.current?.();
+      }, 900);
+    },
+    [writePagarmeDraftToStorage]
+  );
+
+  // ✅ (A persistência agora é imediata no onChange via persistPagarmeDraft)
 
   // ✅ Ao sair do app / trocar de aba (mobile), forçar persistência do rascunho
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) return;
+    const flushDraft = () => {
       if (!establishment?.id) return;
       if (!pagarmeDraftDirtyRef.current) return;
-
       // Salvar rápido no storage (sincrono) e tentar salvar no banco
       writePagarmeDraftToStorage();
-      savePagarmeDraftToSupabase();
+      savePagarmeDraftToSupabaseRef.current?.();
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) return;
+      flushDraft();
     };
 
     const handleBeforeUnload = () => {
@@ -640,12 +652,17 @@ const EstablishmentDashboard = () => {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('beforeunload', handleBeforeUnload);
+    // ✅ Eventos mais confiáveis em mobile/webview
+    window.addEventListener('pagehide', flushDraft);
+    window.addEventListener('blur', flushDraft);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', flushDraft);
+      window.removeEventListener('blur', flushDraft);
     };
-  }, [establishment?.id, writePagarmeDraftToStorage, savePagarmeDraftToSupabase]);
+  }, [establishment?.id, writePagarmeDraftToStorage]);
 
   // Carregar preferência de layout claro/escuro do localStorage
   useEffect(() => {
@@ -7507,6 +7524,10 @@ Estamos te aguardando! 😎✂️`;
       toast.error('Preencha CPF/CNPJ, banco, agência, conta e nome do titular.');
       return;
     }
+    if (legalName.length > 30) {
+      toast.error('O nome do titular (banco) precisa ter no máximo 30 caracteres. Abrevie o nome e tente novamente.');
+      return;
+    }
 
     const docDigits = cpfCnpj.replace(/\D/g, '');
     const isCpf = docDigits.length === 11;
@@ -11678,7 +11699,7 @@ Estamos te aguardando! 😎✂️`;
                                   value={bankCpfCnpj}
                                   onChange={(e) => {
                                     setBankCpfCnpj(e.target.value);
-                                    markPagarmeDraftDirty();
+                                    persistPagarmeDraft({ bankCpfCnpj: e.target.value });
                                   }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Digite o CPF/CNPJ"
@@ -11691,7 +11712,7 @@ Estamos te aguardando! 😎✂️`;
                                   value={bankName}
                                   onChange={(e) => {
                                     setBankName(e.target.value);
-                                    markPagarmeDraftDirty();
+                                    persistPagarmeDraft({ bankName: e.target.value });
                                   }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Ex: Nubank, Itaú, Bradesco..."
@@ -11704,7 +11725,7 @@ Estamos te aguardando! 😎✂️`;
                                   value={bankAgency}
                                   onChange={(e) => {
                                     setBankAgency(e.target.value);
-                                    markPagarmeDraftDirty();
+                                    persistPagarmeDraft({ bankAgency: e.target.value });
                                   }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Ex: 0001"
@@ -11717,7 +11738,7 @@ Estamos te aguardando! 😎✂️`;
                                   value={bankAccount}
                                   onChange={(e) => {
                                     setBankAccount(e.target.value);
-                                    markPagarmeDraftDirty();
+                                    persistPagarmeDraft({ bankAccount: e.target.value });
                                   }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Ex: 12345678-9"
@@ -11729,7 +11750,9 @@ Estamos te aguardando! 😎✂️`;
                                   value={bankAccountType}
                                   onChange={(e) => {
                                     setBankAccountType(e.target.value === 'conta_poupanca' ? 'conta_poupanca' : 'conta_corrente');
-                                    markPagarmeDraftDirty();
+                                    persistPagarmeDraft({
+                                      bankAccountType: e.target.value === 'conta_poupanca' ? 'conta_poupanca' : 'conta_corrente',
+                                    });
                                   }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                 >
@@ -11738,17 +11761,32 @@ Estamos te aguardando! 😎✂️`;
                                 </select>
                               </div>
                               <div>
-                                <label className="text-xs text-gray-300">Nome do titular (banco)</label>
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs text-gray-300">Nome do titular (banco)</label>
+                                  <span
+                                    className={
+                                      String(bankLegalName || '').length > 30
+                                        ? 'text-[11px] text-red-300'
+                                        : 'text-[11px] text-gray-400'
+                                    }
+                                  >
+                                    {String(bankLegalName || '').length}/30
+                                  </span>
+                                </div>
                                 <input
                                   type="text"
                                   value={bankLegalName}
+                                  maxLength={30}
                                   onChange={(e) => {
                                     setBankLegalName(e.target.value);
-                                    markPagarmeDraftDirty();
+                                    persistPagarmeDraft({ bankLegalName: e.target.value });
                                   }}
                                   className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                   placeholder="Ex: João da Silva"
                                 />
+                                <div className="mt-1 text-[11px] text-gray-400">
+                                  A Pagar.me limita o nome do titular a <span className="text-gray-200 font-semibold">30 caracteres</span>.
+                                </div>
                               </div>
                             </div>
 
@@ -11768,7 +11806,7 @@ Estamos te aguardando! 😎✂️`;
                                         setPagarmeRegisterName(e.target.value);
                                         // ajuda: manter o nome do banco preenchido também
                                         if (!bankLegalName.trim()) setBankLegalName(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ pagarmeRegisterName: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Nome completo do titular"
@@ -11781,7 +11819,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={pagarmeBirthdate}
                                       onChange={(e) => {
                                         setPagarmeBirthdate(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ pagarmeBirthdate: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                     />
@@ -11793,7 +11831,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={pagarmeMonthlyIncome}
                                       onChange={(e) => {
                                         setPagarmeMonthlyIncome(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ pagarmeMonthlyIncome: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Ex: 3000,00"
@@ -11806,7 +11844,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={pagarmeProfessionalOccupation}
                                       onChange={(e) => {
                                         setPagarmeProfessionalOccupation(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ pagarmeProfessionalOccupation: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Ex: Barbeiro"
@@ -11822,7 +11860,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={enderecoCep}
                                       onChange={(e) => {
                                         setEnderecoCep(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ enderecoCep: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="00000-000"
@@ -11835,7 +11873,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={enderecoUf}
                                       onChange={(e) => {
                                         setEnderecoUf(e.target.value.toUpperCase());
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ enderecoUf: e.target.value.toUpperCase() });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="SP"
@@ -11849,7 +11887,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={enderecoRua}
                                       onChange={(e) => {
                                         setEnderecoRua(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ enderecoRua: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Rua/Avenida"
@@ -11862,7 +11900,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={enderecoNumero}
                                       onChange={(e) => {
                                         setEnderecoNumero(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ enderecoNumero: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="123"
@@ -11875,7 +11913,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={enderecoBairro}
                                       onChange={(e) => {
                                         setEnderecoBairro(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ enderecoBairro: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Centro"
@@ -11888,7 +11926,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={enderecoCidade}
                                       onChange={(e) => {
                                         setEnderecoCidade(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ enderecoCidade: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="São Paulo"
@@ -11901,7 +11939,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={enderecoComplemento}
                                       onChange={(e) => {
                                         setEnderecoComplemento(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ enderecoComplemento: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Apto, sala..."
@@ -11914,7 +11952,7 @@ Estamos te aguardando! 😎✂️`;
                                       value={enderecoPontoReferencia}
                                       onChange={(e) => {
                                         setEnderecoPontoReferencia(e.target.value);
-                                        markPagarmeDraftDirty();
+                                        persistPagarmeDraft({ enderecoPontoReferencia: e.target.value });
                                       }}
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       placeholder="Opcional"
@@ -11944,7 +11982,11 @@ Estamos te aguardando! 😎✂️`;
                                 disabled={isCreatingPagarmeRecipient}
                                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                               >
-                                {isCreatingPagarmeRecipient ? 'Criando recebedor...' : 'Criar / Trocar recebedor'}
+                                {isCreatingPagarmeRecipient
+                                  ? 'Criando recebedor...'
+                                  : String((establishment as any)?.pagarme_recipient_id || '').trim()
+                                    ? 'Trocar recebedor'
+                                    : 'Criar recebedor'}
                               </button>
                             </div>
                           </div>
