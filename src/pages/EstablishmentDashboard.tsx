@@ -114,6 +114,7 @@ interface Establishment {
   enable_whatsapp_notifications?: boolean; // Ativar notificações WhatsApp após agendamentos
   exigir_pagamento_antecipado?: boolean; // Exigir pagamento antecipado (Pagar.me) no booking público
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar opção ao barbeiro
+  pagamento_adiantado_opcional?: boolean; // Se true, pagamento vira opcional (cliente agenda e escolhe pagar ou não)
   pagarme_recipient_id?: string; // Recipient do estabelecimento na Pagar.me (para pagamento antecipado)
   bank_cpf_cnpj?: string;
   bank_name?: string;
@@ -374,6 +375,7 @@ const EstablishmentDashboard = () => {
   const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
   const [requireCpf, setRequireCpf] = useState(false); // Solicitar CPF no agendamento
   const [exigirPagamentoAntecipado, setExigirPagamentoAntecipado] = useState(false); // Exigir pagamento antecipado (Pagar.me)
+  const [pagamentoAdiantadoOpcional, setPagamentoAdiantadoOpcional] = useState(false); // Se true, cliente pode agendar sem pagar
   // Configuração do recebedor (Pagar.me)
   const [bankCpfCnpj, setBankCpfCnpj] = useState('');
   const [bankName, setBankName] = useState('');
@@ -3583,6 +3585,7 @@ Estamos te aguardando! 😎✂️`;
         setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
         setRequireCpf(establishmentData.require_cpf ?? false); // Solicitar CPF no agendamento
         setExigirPagamentoAntecipado((establishmentData as any).exigir_pagamento_antecipado ?? false); // Pagamento antecipado
+        setPagamentoAdiantadoOpcional((establishmentData as any).pagamento_adiantado_opcional ?? false);
         // Dados bancários / recebedor Pagar.me
         setBankCpfCnpj((establishmentData as any).bank_cpf_cnpj || '');
         setBankName((establishmentData as any).bank_name || '');
@@ -7082,6 +7085,7 @@ Estamos te aguardando! 😎✂️`;
           prevent_same_day_reschedule: preventSameDayReschedule,
           require_cpf: requireCpf,
           exigir_pagamento_antecipado: exigirPagamentoAntecipado,
+          pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
           enable_whatsapp_notifications: enableWhatsAppNotifications
           // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
         })
@@ -7116,13 +7120,14 @@ Estamos te aguardando! 😎✂️`;
         prevent_same_day_reschedule: preventSameDayReschedule,
         require_cpf: requireCpf,
         exigir_pagamento_antecipado: exigirPagamentoAntecipado,
+        pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
         enable_whatsapp_notifications: enableWhatsAppNotifications
         // require_cancel_password é salvo imediatamente, não precisa do auto-save
       } as any);
     } catch (error) {
       console.error('❌ Erro ao salvar comodidades automaticamente:', error);
     }
-  }, [establishment, hasWifi, hasParking, hasAccessibility, hasAirConditioning, wifiPassword, wifiNetworkName, requireCancellationRequest, preventSameDayReschedule, requireCpf, exigirPagamentoAntecipado, enableWhatsAppNotifications, requireCancelPassword]);
+  }, [establishment, hasWifi, hasParking, hasAccessibility, hasAirConditioning, wifiPassword, wifiNetworkName, requireCancellationRequest, preventSameDayReschedule, requireCpf, exigirPagamentoAntecipado, pagamentoAdiantadoOpcional, enableWhatsAppNotifications, requireCancelPassword]);
 
   const handleSaveBankData = useCallback(async () => {
     if (!establishment?.id) return;
@@ -11339,6 +11344,31 @@ Estamos te aguardando! 😎✂️`;
                                 </span>
                               </div>
                             </label>
+
+                            {exigirPagamentoAntecipado && (
+                              <label className="flex items-center space-x-2 mb-4">
+                                <input
+                                  type="checkbox"
+                                  checked={pagamentoAdiantadoOpcional}
+                                  onChange={(e) => {
+                                    setPagamentoAdiantadoOpcional(e.target.checked);
+                                    if (amenitiesAutoSaveTimeoutRef.current) {
+                                      clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                    }
+                                    amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                      autoSaveAmenities();
+                                    }, 1000);
+                                  }}
+                                  className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                                />
+                                <div className="flex flex-col">
+                                  <span className="text-white text-sm sm:text-base">Não ser obrigatório cliente pagar para agendar</span>
+                                  <span className="text-xs text-gray-400">
+                                    Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora.
+                                  </span>
+                                </div>
+                              </label>
+                            )}
 
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
                               <div className="text-white font-semibold">Recebedor Pagar.me</div>

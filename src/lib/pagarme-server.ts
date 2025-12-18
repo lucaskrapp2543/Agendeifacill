@@ -619,15 +619,27 @@ export async function createPayment(
   const client = createPagarMeClient();
 
   try {
+    // PIX expiração (em segundos). Padrão: 90s (1:30).
+    // Configure no ambiente do servidor: PIX_EXPIRES_IN_SECONDS=90
+    const pixExpiresIn = (() => {
+      const n = Number(process.env.PIX_EXPIRES_IN_SECONDS || 90);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 3600;
+    })();
+
     const hasSplit = Boolean(paymentData.split && paymentData.split.length > 0);
-    const splitRulesForPagarme = hasSplit
+    // ✅ Formato correto do Marketplace Split (Core v5):
+    // payments[0].split: [{ amount, recipient_id, type, options: { liable, charge_processing_fee, charge_remainder_fee } }]
+    // Obs: a API pode IGNORAR `split_rules`, então usamos `split` (conforme docs).
+    const splitForPagarme = hasSplit
       ? paymentData.split!.map(rule => ({
           recipient_id: rule.recipient_id,
           amount: rule.amount,
           type: rule.type,
-          liable: rule.liable,
-          charge_processing_fee: rule.charge_processing_fee,
-          charge_remainder_fee: rule.charge_remainder_fee,
+          options: {
+            liable: rule.liable,
+            charge_processing_fee: rule.charge_processing_fee,
+            charge_remainder_fee: rule.charge_remainder_fee,
+          },
         }))
       : undefined;
 
@@ -637,9 +649,7 @@ export async function createPayment(
           amount: paymentData.amount,
           description: 'Pagamento de agendamento',
           quantity: 1,
-          // ✅ IMPORTANTE (Pagar.me v5): o split deve ser definido no item (split_rules).
-          // Colocar split no nível da ordem/pagamento pode ser ignorado e creditar 100% na plataforma.
-          ...(splitRulesForPagarme ? { split_rules: splitRulesForPagarme } : {}),
+          // Split fica no payment (payments[0].split). Não enviar split no item para evitar inconsistências.
         },
       ],
       customer: paymentData.customer,
@@ -648,7 +658,7 @@ export async function createPayment(
           payment_method: paymentData.payment_method,
           ...(paymentData.payment_method === 'pix' && {
             pix: {
-              expires_in: 3600, // 1 hora
+              expires_in: pixExpiresIn,
             },
           }),
           ...(paymentData.payment_method === 'credit_card' && {
@@ -662,6 +672,7 @@ export async function createPayment(
               statement_descriptor: 'AGENDAMENTO',
             },
           }),
+          ...(splitForPagarme ? { split: splitForPagarme } : {}),
         },
       ],
       metadata: paymentData.metadata || {},
@@ -717,6 +728,7 @@ export async function createPayment(
           ? {
               qr_code: pixQrCode,
               qr_code_url: pixQrCodeUrl,
+              expires_in: pixExpiresIn,
             }
           : undefined,
       charges: data.charges,

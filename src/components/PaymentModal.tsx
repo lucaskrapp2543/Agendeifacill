@@ -1,5 +1,5 @@
 import { CreditCard, Loader2, QrCode, Wallet, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useToast } from './ui/Toaster';
 // Import removido - agora usa API Routes
 import { supabase } from '../lib/supabase';
@@ -19,6 +19,8 @@ interface PaymentModalProps {
     phone?: string;
     document?: string;
   };
+  // Se false: não cancela agendamento se o cliente não pagar (modo opcional)
+  cancelAppointmentOnFailure?: boolean;
 }
 
 type PaymentMethod = 'pix' | 'credit_card' | 'debit_card' | null;
@@ -32,15 +34,19 @@ export const PaymentModal = ({
   recipientId,
   onPaymentSuccess,
   onPaymentFailure,
-  customerData
+  customerData,
+  cancelAppointmentOnFailure = true,
 }: PaymentModalProps) => {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pixQrCode, setPixQrCode] = useState<string>('');
   const [pixQrCodeUrl, setPixQrCodeUrl] = useState<string>('');
+  const [pixExpiresInSeconds, setPixExpiresInSeconds] = useState<number>(90);
+  const [pixRemainingSeconds, setPixRemainingSeconds] = useState<number>(0);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [cpfCliente, setCpfCliente] = useState<string>(customerData.document || '');
   const { toast } = useToast();
+  const pixCountdownIntervalRef = useRef<number | null>(null);
 
   // Valor em centavos
   const amountInCents = Math.round(amount * 100);
@@ -125,6 +131,10 @@ export const PaymentModal = ({
       if (method === 'pix' && paymentResult.pix?.qr_code) {
         setPixQrCode(paymentResult.pix.qr_code);
         setPixQrCodeUrl(paymentResult.pix.qr_code_url || '');
+        const expiresIn = Number(paymentResult.pix?.expires_in || 90);
+        const safeExpiresIn = Number.isFinite(expiresIn) && expiresIn > 0 ? Math.floor(expiresIn) : 90;
+        setPixExpiresInSeconds(safeExpiresIn);
+        setPixRemainingSeconds(safeExpiresIn);
 
         // Iniciar verificação de pagamento
         setIsCheckingPayment(true);
@@ -154,6 +164,59 @@ export const PaymentModal = ({
       setSelectedMethod(null);
       onPaymentFailure();
     }
+  };
+
+  // Countdown do PIX (expira e encerra fluxo)
+  useEffect(() => {
+    // limpar interval anterior
+    if (pixCountdownIntervalRef.current) {
+      window.clearInterval(pixCountdownIntervalRef.current);
+      pixCountdownIntervalRef.current = null;
+    }
+
+    if (!pixQrCode || !isCheckingPayment || pixRemainingSeconds <= 0) return;
+
+    pixCountdownIntervalRef.current = window.setInterval(() => {
+      setPixRemainingSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => {
+      if (pixCountdownIntervalRef.current) {
+        window.clearInterval(pixCountdownIntervalRef.current);
+        pixCountdownIntervalRef.current = null;
+      }
+    };
+  }, [pixQrCode, isCheckingPayment, pixRemainingSeconds]);
+
+  useEffect(() => {
+    // Quando zerar, expirar
+    if (!pixQrCode) return;
+    if (!isCheckingPayment) return;
+    if (pixRemainingSeconds > 0) return;
+
+    const handleExpire = async () => {
+      try {
+        setIsCheckingPayment(false);
+        toast('⏳ Tempo do PIX expirou. Gere novamente para pagar.', 'warning');
+        if (cancelAppointmentOnFailure) {
+          await cancelAppointment();
+        } else {
+          await markAppointmentPaymentUnpaid();
+        }
+      } finally {
+        onPaymentFailure();
+        onClose();
+      }
+    };
+
+    handleExpire();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pixRemainingSeconds, pixQrCode, isCheckingPayment]);
+
+  const formatMMSS = (totalSeconds: number) => {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
   const checkPaymentStatusPeriodically = async (transactionId: string) => {
@@ -189,13 +252,21 @@ export const PaymentModal = ({
           clearInterval(checkInterval);
           setIsCheckingPayment(false);
           toast('Pagamento recusado ou cancelado', 'error');
-          await cancelAppointment();
+          if (cancelAppointmentOnFailure) {
+            await cancelAppointment();
+          } else {
+            await markAppointmentPaymentUnpaid();
+          }
           onPaymentFailure();
         } else if (attempts >= maxAttempts) {
           clearInterval(checkInterval);
           setIsCheckingPayment(false);
           toast('Tempo limite de pagamento excedido', 'error');
-          await cancelAppointment();
+          if (cancelAppointmentOnFailure) {
+            await cancelAppointment();
+          } else {
+            await markAppointmentPaymentUnpaid();
+          }
           onPaymentFailure();
         }
       } catch (error: any) {
@@ -203,11 +274,28 @@ export const PaymentModal = ({
         if (attempts >= maxAttempts) {
           clearInterval(checkInterval);
           setIsCheckingPayment(false);
-          await cancelAppointment();
+          if (cancelAppointmentOnFailure) {
+            await cancelAppointment();
+          } else {
+            await markAppointmentPaymentUnpaid();
+          }
           onPaymentFailure();
         }
       }
     }, 5000); // Verificar a cada 5 segundos
+  };
+
+  const markAppointmentPaymentUnpaid = async () => {
+    try {
+      await supabase
+        .from('appointments')
+        .update({
+          payment_status: 'unpaid',
+        })
+        .eq('id', appointmentId);
+    } catch (error) {
+      console.error('❌ Erro ao marcar pagamento como unpaid:', error);
+    }
   };
 
   const confirmAppointment = async (transactionId: string) => {
@@ -291,7 +379,10 @@ export const PaymentModal = ({
           <div className="space-y-4">
             <div className="bg-blue-600/20 border border-blue-500/50 rounded-lg p-4 mb-6">
               <p className="text-sm text-blue-300">
-                💳 Para confirmar seu agendamento, é necessário realizar o pagamento antecipado de <strong>R$ {amount.toFixed(2)}</strong>.
+                💳 {cancelAppointmentOnFailure
+                  ? <>Para confirmar seu agendamento, é necessário realizar o pagamento antecipado de <strong>R$ {amount.toFixed(2)}</strong>.</>
+                  : <>Parabéns pelo agendamento! Quer pagar agora <strong>R$ {amount.toFixed(2)}</strong> e já <strong>deixar seu barbeiro feliz</strong>?</>
+                }
               </p>
             </div>
 
@@ -320,30 +411,6 @@ export const PaymentModal = ({
                   <div className="text-sm text-gray-400">Aprovação imediata</div>
                 </div>
               </button>
-
-              <button
-                onClick={() => handlePayment('credit_card')}
-                disabled
-                className="w-full p-4 bg-[#2a2b2c] border border-gray-700 rounded-lg opacity-60 cursor-not-allowed flex items-center gap-3"
-              >
-                <CreditCard className="h-6 w-6 text-green-400" />
-                <div className="flex-1 text-left">
-                  <div className="text-white font-medium">Cartão de Crédito</div>
-                  <div className="text-sm text-gray-400">Em breve</div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => handlePayment('debit_card')}
-                disabled
-                className="w-full p-4 bg-[#2a2b2c] border border-gray-700 rounded-lg opacity-60 cursor-not-allowed flex items-center gap-3"
-              >
-                <Wallet className="h-6 w-6 text-purple-400" />
-                <div className="flex-1 text-left">
-                  <div className="text-white font-medium">Cartão de Débito</div>
-                  <div className="text-sm text-gray-400">Em breve</div>
-                </div>
-              </button>
             </div>
           </div>
         ) : pixQrCode ? (
@@ -351,6 +418,9 @@ export const PaymentModal = ({
             <div className="bg-green-600/20 border border-green-500/50 rounded-lg p-4 mb-6">
               <p className="text-sm text-green-300 text-center">
                 Escaneie o QR Code abaixo para pagar via PIX
+              </p>
+              <p className="text-xs text-green-200/90 text-center mt-2">
+                ⏱️ Tempo para pagar: <span className="font-bold">{formatMMSS(pixRemainingSeconds || pixExpiresInSeconds)}</span>
               </p>
             </div>
 

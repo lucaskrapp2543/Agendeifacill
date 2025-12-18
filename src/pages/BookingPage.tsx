@@ -93,6 +93,8 @@ export default function BookingPage() {
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
   const [pendingPaymentAmount, setPendingPaymentAmount] = useState<number>(0);
   const [pendingCustomerData, setPendingCustomerData] = useState<{ name: string; phone?: string; email?: string; document?: string } | null>(null);
+  const [paymentIsOptional, setPaymentIsOptional] = useState(false);
+  const [showOptionalPayPrompt, setShowOptionalPayPrompt] = useState(false);
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
 
@@ -585,15 +587,19 @@ export default function BookingPage() {
       // Regra: se exigir pagamento antecipado, o agendamento só confirma após pagar.
       const exigirPagamentoAntecipado = (establishment as any)?.exigir_pagamento_antecipado === true;
       const pagamentoAdiantadoLiberadoAdmin = (establishment as any)?.pagamento_adiantado_liberado_admin === true;
+      const pagamentoAdiantadoOpcional = (establishment as any)?.pagamento_adiantado_opcional === true;
       const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
       const isSubscriber = appointmentData?.is_subscriber === true;
       const valorAgendamento = Number(appointmentData?.price || 0);
-      const precisaPagamento =
+      const pagamentoAdiantadoAtivo =
         pagamentoAdiantadoLiberadoAdmin && exigirPagamentoAntecipado && !isSubscriber && valorAgendamento > 0;
+      const precisaPagamento = pagamentoAdiantadoAtivo && !pagamentoAdiantadoOpcional;
+      const permitePagamentoOpcional = pagamentoAdiantadoAtivo && pagamentoAdiantadoOpcional;
 
       console.log('💳 DEBUG - BookingPage/handleSubmit pagamento:', {
         exigirPagamentoAntecipado,
         pagamentoAdiantadoLiberadoAdmin,
+        pagamentoAdiantadoOpcional,
         isSubscriber,
         valorAgendamento,
         precisaPagamento,
@@ -646,6 +652,7 @@ export default function BookingPage() {
           email: currentUser?.email || undefined,
           document: appointmentData?.client_cpf || undefined,
         });
+        setPaymentIsOptional(false);
         setShowPaymentModal(true);
         return;
       }
@@ -702,7 +709,7 @@ export default function BookingPage() {
         payment_method: appointmentData?.payment_method
       });
 
-      const { error } = await withTimeout(
+      const { data: insertedAppointment, error } = await withTimeout(
         supabase
           .from('appointments')
           .insert([{
@@ -710,10 +717,10 @@ export default function BookingPage() {
             establishment_id: establishment.id,
             establishment_code: establishment.code, // Salvar código do estabelecimento
             appointment_date: format(selectedDate, 'yyyy-MM-dd'),
-            // TODO: Adicionar is_establishment_booking quando a coluna for criada no banco
-            // is_establishment_booking: isEstablishmentOwner,
             ...appointmentData
-          }]),
+          }])
+          .select('id')
+          .single(),
         20000,
         'insert appointments (normal)'
       );
@@ -721,6 +728,26 @@ export default function BookingPage() {
       if (error) throw error;
 
       toast.success('Agendamento realizado com sucesso!');
+
+      // Se pagamento é opcional, perguntar se deseja pagar agora
+      if (permitePagamentoOpcional) {
+        if (!pagarmeRecipientId) {
+          // Sem recipient configurado: só seguir como normal
+          console.warn('⚠️ Pagamento opcional ativo, mas sem pagarme_recipient_id. Seguindo sem pagamento.');
+        } else {
+          setPendingAppointmentId(insertedAppointment?.id || null);
+          setPendingPaymentAmount(valorAgendamento);
+          setPendingCustomerData({
+            name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
+            phone: appointmentData?.client_whatsapp || guestClientData?.phone,
+            email: currentUser?.email || undefined,
+            document: appointmentData?.client_cpf || undefined,
+          });
+          setPaymentIsOptional(true);
+          setShowOptionalPayPrompt(true);
+          return;
+        }
+      }
 
       // Store appointment data for dashboard reminder modal
       // Buscar o nome do profissional do banco de dados
@@ -1968,14 +1995,18 @@ export default function BookingPage() {
           isOpen={showPaymentModal}
           onClose={() => {
             setShowPaymentModal(false);
-            // Se fechar sem pagar, cancelar agendamento pendente
-            if (pendingAppointmentId) {
+            // Se fechar sem pagar:
+            // - obrigatório: cancela
+            // - opcional: mantém agendamento
+            if (!paymentIsOptional && pendingAppointmentId) {
               supabase
                 .from('appointments')
                 .update({ status: 'cancelled', payment_status: 'failed' })
                 .eq('id', pendingAppointmentId);
+              toast.error('Pagamento não concluído. Agendamento cancelado.');
+            } else {
+              toast('Pagamento não concluído. Agendamento mantido.', 'warning');
             }
-            toast.error('Pagamento não concluído. Agendamento cancelado.');
           }}
           appointmentId={pendingAppointmentId}
           amount={pendingPaymentAmount}
@@ -2003,14 +2034,62 @@ export default function BookingPage() {
             setShowPaymentModal(false);
             setPendingAppointmentId(null);
             setPendingCustomerData(null);
-            toast.error('Pagamento não concluído. Agendamento cancelado.');
+            if (!paymentIsOptional) {
+              toast.error('Pagamento não concluído. Agendamento cancelado.');
+            } else {
+              toast('Pagamento não concluído. Agendamento mantido.', 'warning');
+            }
           }}
+          cancelAppointmentOnFailure={!paymentIsOptional}
           customerData={{
             name: pendingCustomerData?.name || guestClientData?.name || 'Cliente',
             phone: pendingCustomerData?.phone || guestClientData?.phone,
             email: pendingCustomerData?.email || user?.email || undefined
           }}
         />
+      )}
+
+      {/* Prompt: Pagamento opcional após agendar */}
+      {showOptionalPayPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-700">
+            <h2 className="text-xl font-extrabold text-white mb-2">Parabéns! Agendamento feito ✅</h2>
+            <p className="text-gray-300 mb-6 leading-relaxed">
+              Quer <span className="font-semibold text-white">pagar agora</span> e já
+              <span className="ml-2 inline-block px-2 py-1 rounded-md bg-green-600/20 border border-green-500/40 text-green-300 font-extrabold">
+                deixar seu barbeiro feliz
+              </span>
+              ?
+              <span className="block mt-2 text-xs text-gray-400">
+                Se você preferir, pode só confirmar e pagar depois.
+              </span>
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={() => {
+                  setShowOptionalPayPrompt(false);
+                  setShowPaymentModal(true);
+                }}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+              >
+                Sim, pagar agora
+              </button>
+              <button
+                onClick={() => {
+                  setShowOptionalPayPrompt(false);
+                  // Seguir fluxo normal (sem pagamento)
+                  toast.success('Agendamento confirmado! Redirecionando...');
+                  setTimeout(() => {
+                    window.location.href = '/view-appointments';
+                  }, 800);
+                }}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+              >
+                Não, só confirmar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
