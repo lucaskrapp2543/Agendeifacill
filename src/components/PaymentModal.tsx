@@ -83,7 +83,11 @@ export const PaymentModal = ({
       const timeoutId = window.setTimeout(() => controller.abort(), 25000);
 
       // Criar pagamento na Pagar.me via API Route
-      const paymentResponse = await fetch('/api/pagarme/create-payment', {
+      const createPaymentUrl = import.meta.env.PROD
+        ? '/.netlify/functions/pagarme-create-payment'
+        : '/api/pagarme/create-payment';
+
+      const paymentResponse = await fetch(createPaymentUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -228,7 +232,11 @@ export const PaymentModal = ({
 
       try {
         // Chamar API Route para verificar status
-        const statusResponse = await fetch(`/api/pagarme/check-status?orderId=${transactionId}`);
+        const checkStatusUrl = import.meta.env.PROD
+          ? `/.netlify/functions/pagarme-check-status?orderId=${transactionId}`
+          : `/api/pagarme/check-status?orderId=${transactionId}`;
+
+        const statusResponse = await fetch(checkStatusUrl);
 
         if (!statusResponse.ok) {
           throw new Error('Erro ao verificar status');

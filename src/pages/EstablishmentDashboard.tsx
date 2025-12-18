@@ -7564,7 +7564,11 @@ Estamos te aguardando! 😎✂️`;
 
     setIsCreatingPagarmeRecipient(true);
     try {
-      const resp = await fetch('/api/pagarme/create-recipient', {
+      const createRecipientUrl = import.meta.env.PROD
+        ? '/.netlify/functions/pagarme-create-recipient'
+        : '/api/pagarme/create-recipient';
+
+      const resp = await fetch(createRecipientUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
