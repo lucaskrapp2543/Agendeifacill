@@ -399,19 +399,9 @@ export async function createRecipient(
       throw new Error('Renda mensal do titular é obrigatória e deve ser um valor válido.');
     }
     if (!professionalOccupation) throw new Error('Profissão do titular é obrigatória para criar o recebedor.');
-    if (
-      !addr.zip_code ||
-      !addr.street ||
-      !addr.street_number ||
-      !addr.neighborhood ||
-      !addr.city ||
-      !addr.state ||
-      !addr.complementary ||
-      !addr.reference_point
-    ) {
-      throw new Error(
-        'Endereço completo do titular é obrigatório (CEP, rua, número, bairro, cidade, UF, complemento e ponto de referência).'
-      );
+    // Endereço mínimo exigido para KYC (campos complementares podem ser opcionais dependendo do caso)
+    if (!addr.zip_code || !addr.street || !addr.street_number || !addr.neighborhood || !addr.city || !addr.state) {
+      throw new Error('Endereço do titular é obrigatório (CEP, rua, número, bairro, cidade e UF).');
     }
 
     registerInformation.name = registerName;
@@ -437,8 +427,8 @@ export async function createRecipient(
       street: addr.street?.toString(),
       street_number: addr.street_number?.toString(),
       zip_code: addr.zip_code?.toString(),
-      complementary: addr.complementary?.toString(),
-      reference_point: addr.reference_point?.toString(),
+      ...(addr.complementary ? { complementary: addr.complementary?.toString() } : {}),
+      ...(addr.reference_point ? { reference_point: addr.reference_point?.toString() } : {}),
     };
   }
 
