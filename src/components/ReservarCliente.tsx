@@ -910,8 +910,10 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         isAvulso = true;
       }
 
-      // Verificar se exige pagamento antecipado
-      const requiresPayment = exigirPagamentoAntecipado && pagarmeRecipientId;
+      // ⚠️ IMPORTANTE:
+      // "Quero receber adiantado os serviços" (pagamento via Pagar.me) é uma regra do BOOKING PÚBLICO (cliente agendando no site).
+      // Reservas criadas pelo profissional dentro do DASHBOARD (Reservar Cliente) NÃO devem exigir PIX/CPF.
+      const requiresPayment = false;
 
       const { data: appointmentData, error } = await supabase
         .from('appointments')
@@ -924,7 +926,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           client_whatsapp: clientWhatsapp,
           appointment_date: selectedDate,
           appointment_time: selectedTime,
-          status: requiresPayment ? 'pending_payment' : 'confirmed', // Status baseado em pagamento
+          status: 'confirmed', // Reservas internas sempre confirmadas (sem pagamento antecipado)
           price: totalPrice,
           total_price: totalPrice,
           duration: totalDuration,
@@ -936,12 +938,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
       if (error) throw error;
 
-      // Se exige pagamento, abrir modal de pagamento
-      if (requiresPayment && appointmentData?.id) {
-        setPendingAppointmentId(appointmentData.id);
-        setShowPaymentModal(true);
-        return; // Não fechar o modal ainda, aguardar pagamento
-      }
+      // Reservas internas não abrem modal de pagamento (ver comentário acima)
 
       // ✅ SEMPRE disparar evento para recarregar agendamentos no dashboard
       // (Independente de ser cliente conhecido, avulso ou assinante)

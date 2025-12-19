@@ -399,7 +399,8 @@ export default function BookingPage() {
       // ✅ LIMPEZA AUTOMÁTICA: liberar horários presos por pagamento pendente antigo
       // Se o cliente fechou a aba antes de pagar, o agendamento pode ficar em pending_payment e bloquear a vaga.
       // Aqui cancelamos pendências antigas para não "travar" o booking.
-      const thresholdMinutes = 10;
+      // PIX expira rápido (ex: 90s). Usamos uma margem pequena para não deixar horários presos.
+      const thresholdMinutes = 2;
       const thresholdDate = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
       await supabase
         .from('appointments')
@@ -422,6 +423,56 @@ export default function BookingPage() {
       console.error('Error fetching existing appointments:', error);
     }
   };
+
+  // ✅ Se o PIX é obrigatório e o usuário fechar/recarregar a página sem pagar,
+  // precisamos cancelar o pending_payment para não "travar" o horário.
+  // Usamos fetch keepalive direto no REST do Supabase para aumentar a chance de concluir no unload.
+  useEffect(() => {
+    if (!showPaymentModal) return;
+    if (!pendingAppointmentId) return;
+    if (paymentIsOptional) return;
+
+    const appointmentId = pendingAppointmentId;
+
+    const cancelPendingPaymentKeepalive = () => {
+      try {
+        const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
+        const anonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+        if (!supabaseUrl || !anonKey) return;
+
+        void fetch(`${supabaseUrl}/rest/v1/appointments?id=eq.${encodeURIComponent(appointmentId)}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: anonKey,
+            Authorization: `Bearer ${anonKey}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify({ status: 'cancelled', payment_status: 'failed' }),
+          // @ts-expect-error - keepalive existe em browsers modernos
+          keepalive: true,
+        });
+      } catch {
+        // silêncio: é melhor tentar do que bloquear o usuário
+      }
+    };
+
+    const handleBeforeUnload = () => cancelPendingPaymentKeepalive();
+    const handlePageHide = () => cancelPendingPaymentKeepalive();
+    const handleVisibilityChange = () => {
+      if (document.hidden) cancelPendingPaymentKeepalive();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [showPaymentModal, pendingAppointmentId, paymentIsOptional]);
 
   const fetchSubscriptions = async () => {
     if (!establishment) {
