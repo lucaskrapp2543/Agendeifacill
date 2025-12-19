@@ -31,9 +31,12 @@ export default function ViewAppointmentsPage() {
   useEffect(() => {
     // Prioridade 1: Telefone da URL (vindo do pagamento)
     const phoneFromUrl = searchParams.get('phone');
-    if (phoneFromUrl && phoneFromUrl.length >= 10) {
+    const cleanPhoneFromUrl = String(phoneFromUrl || '').replace(/\D/g, '');
+
+    // Aceitar também telefones sem DDD (alguns fluxos antigos salvam só o número)
+    if (cleanPhoneFromUrl && cleanPhoneFromUrl.length >= 8) {
       console.log('✅ Telefone encontrado na URL, carregando agendamentos...');
-      handlePhoneLogin(phoneFromUrl);
+      handlePhoneLogin(cleanPhoneFromUrl);
       // Limpar parâmetro da URL após usar
       const newSearchParams = new URLSearchParams(searchParams);
       newSearchParams.delete('phone');
@@ -45,9 +48,10 @@ export default function ViewAppointmentsPage() {
     const savedPhone = localStorage.getItem('last_booking_phone');
     console.log('🔍 Telefone salvo encontrado:', savedPhone);
 
-    if (savedPhone && savedPhone.length >= 10) {
+    const cleanSavedPhone = String(savedPhone || '').replace(/\D/g, '');
+    if (cleanSavedPhone && cleanSavedPhone.length >= 8) {
       console.log('✅ Telefone válido encontrado, carregando agendamentos...');
-      handlePhoneLogin(savedPhone);
+      handlePhoneLogin(cleanSavedPhone);
       // Limpar o telefone após usar (opcional)
       // localStorage.removeItem('last_booking_phone');
     }
@@ -68,10 +72,11 @@ export default function ViewAppointmentsPage() {
   }, []);
 
   const handlePhoneLogin = async (phone: string) => {
-    console.log('📞 handlePhoneLogin chamada com telefone:', phone);
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    console.log('📞 handlePhoneLogin chamada com telefone:', cleanPhone);
     setIsLoading(true);
     try {
-      const { data, error } = await getAppointmentsByPhone(phone);
+      const { data, error } = await getAppointmentsByPhone(cleanPhone);
 
       console.log('📊 Resultado da busca:');
       console.log('  - Data:', data);
@@ -106,7 +111,7 @@ export default function ViewAppointmentsPage() {
       setShowLoginModal(false);
 
       // Salvar telefone no localStorage para futuras visitas
-      localStorage.setItem('last_booking_phone', phone);
+      localStorage.setItem('last_booking_phone', cleanPhone);
 
       // Toast removido - não é necessário mostrar quantos agendamentos foram encontrados
 

@@ -404,6 +404,41 @@ export async function createRecipient(
       throw new Error('Endereço do titular é obrigatório (CEP, rua, número, bairro, cidade e UF).');
     }
 
+    // A Pagar.me valida UF com rigor: normalmente precisa ser sigla (2 letras).
+    const uf = String(addr.state || '').trim().toUpperCase();
+    const ufsValidas = new Set([
+      'AC',
+      'AL',
+      'AP',
+      'AM',
+      'BA',
+      'CE',
+      'DF',
+      'ES',
+      'GO',
+      'MA',
+      'MT',
+      'MS',
+      'MG',
+      'PA',
+      'PB',
+      'PR',
+      'PE',
+      'PI',
+      'RJ',
+      'RN',
+      'RS',
+      'RO',
+      'RR',
+      'SC',
+      'SP',
+      'SE',
+      'TO',
+    ]);
+    if (!ufsValidas.has(uf)) {
+      throw new Error('UF inválida. Use a sigla do estado (ex: SP, RJ, MG).');
+    }
+
     registerInformation.name = registerName;
 
     // Pagar.me exige o formato dd/mm/aaaa para birthdate no register_information
@@ -421,7 +456,7 @@ export async function createRecipient(
     registerInformation.professional_occupation = professionalOccupation;
     registerInformation.address = {
       country: (addr.country || 'BR').toString(),
-      state: addr.state?.toString(),
+      state: uf,
       city: addr.city?.toString(),
       neighborhood: addr.neighborhood?.toString(),
       street: addr.street?.toString(),

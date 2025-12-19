@@ -52,18 +52,29 @@ export const handler: Handler = async (event) => {
     return json(200, result);
   } catch (error: any) {
     const rawMessage: string = error?.message || 'Erro ao criar recebedor na Pagar.me';
+    const details =
+      (error as any)?.__capturedDetails || (error as any)?.pagarmeErrorDetails || (error as any)?.response?.data;
+
+    const hasInvalidParameter =
+      Array.isArray((details as any)?.errors) &&
+      (details as any).errors.some(
+        (e: any) =>
+          String(e?.type || '').toLowerCase() === 'invalid_parameter' ||
+          String(e?.parameter_name || '').toLowerCase().includes('register_information')
+      );
     const isValidationError =
       typeof rawMessage === 'string' &&
       (rawMessage.includes('obrigatório') ||
         rawMessage.includes('deve ter') ||
         rawMessage.toLowerCase().includes('inválida') ||
-        rawMessage.toLowerCase().includes('invalida'));
+        rawMessage.toLowerCase().includes('invalida') ||
+        rawMessage.toLowerCase().includes('invalid_parameter') ||
+        hasInvalidParameter);
     const isActionForbidden =
       typeof rawMessage === 'string' &&
       (rawMessage.includes('action_forbidden') ||
         rawMessage.toLowerCase().includes('not allowed to create a recipient'));
 
-    const details = (error as any)?.__capturedDetails || (error as any)?.pagarmeErrorDetails || (error as any)?.response?.data;
     const statusCode = isValidationError ? 400 : isActionForbidden ? 403 : 500;
 
     return json(statusCode, {

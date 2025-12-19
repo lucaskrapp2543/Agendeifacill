@@ -7548,8 +7548,42 @@ Estamos te aguardando! 😎✂️`;
         toast.error('Informe a profissão.');
         return;
       }
-      if (!enderecoCep.trim() || !enderecoRua.trim() || !enderecoNumero.trim() || !enderecoBairro.trim() || !enderecoCidade.trim() || !enderecoUf.trim()) {
+      const uf = enderecoUf.trim().toUpperCase();
+      const ufsValidas = new Set([
+        'AC',
+        'AL',
+        'AP',
+        'AM',
+        'BA',
+        'CE',
+        'DF',
+        'ES',
+        'GO',
+        'MA',
+        'MT',
+        'MS',
+        'MG',
+        'PA',
+        'PB',
+        'PR',
+        'PE',
+        'PI',
+        'RJ',
+        'RN',
+        'RS',
+        'RO',
+        'RR',
+        'SC',
+        'SP',
+        'SE',
+        'TO',
+      ]);
+      if (!enderecoCep.trim() || !enderecoRua.trim() || !enderecoNumero.trim() || !enderecoBairro.trim() || !enderecoCidade.trim() || !uf) {
         toast.error('Preencha o endereço completo (CEP, rua, número, bairro, cidade e UF).');
+        return;
+      }
+      if (!ufsValidas.has(uf)) {
+        toast.error('UF inválida. Use a sigla do estado (ex: SP, RJ, MG).');
         return;
       }
     }
@@ -11993,6 +12027,26 @@ Estamos te aguardando! 😎✂️`;
                                     : 'Criar recebedor'}
                               </button>
                             </div>
+
+                            {String((establishment as any)?.pagarme_recipient_id || '').trim() && (
+                              <div className="mt-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const phone = '5548991265320';
+                                    const msg = 'quero ativar meus recebimentos de clientes pela pagarme ja fiz o cadastro completo!';
+                                    const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+                                    window.open(url, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  className="w-full px-4 py-2 bg-yellow-500 text-black rounded-lg hover:bg-yellow-400 transition-colors font-extrabold"
+                                >
+                                  Ativar conta para receber
+                                </button>
+                                <p className="mt-2 text-xs text-gray-200/80">
+                                  Para você <span className="font-semibold">começar a receber os pagamentos</span>, é necessário pedir para o suporte <span className="font-semibold">ativar sua conta</span> (status pode ficar em <span className="font-semibold">afiliaçao</span> até a liberação da Pagar.me).
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
 
