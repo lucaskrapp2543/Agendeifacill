@@ -780,26 +780,6 @@ export default function BookingPage() {
 
       toast.success('Agendamento realizado com sucesso!');
 
-      // Se pagamento é opcional, perguntar se deseja pagar agora
-      if (permitePagamentoOpcional) {
-        if (!pagarmeRecipientId) {
-          // Sem recipient configurado: só seguir como normal
-          console.warn('⚠️ Pagamento opcional ativo, mas sem pagarme_recipient_id. Seguindo sem pagamento.');
-        } else {
-          setPendingAppointmentId(insertedAppointment?.id || null);
-          setPendingPaymentAmount(valorAgendamento);
-          setPendingCustomerData({
-            name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
-            phone: appointmentData?.client_whatsapp || guestClientData?.phone,
-            email: currentUser?.email || undefined,
-            document: appointmentData?.client_cpf || undefined,
-          });
-          setPaymentIsOptional(true);
-          setShowOptionalPayPrompt(true);
-          return;
-        }
-      }
-
       // Store appointment data for dashboard reminder modal
       // Buscar o nome do profissional do banco de dados
       let professionalName = 'Não especificado';
@@ -837,16 +817,38 @@ export default function BookingPage() {
       setShowBookingForm(false); // Esconder formulário após agendamento
 
       // Salvar o telefone no localStorage para usar na página de visualização
-      if (guestClientData?.phone) {
-        const cleanPhone = guestClientData.phone.replace(/\D/g, '');
+      const phoneForViewAppointments = (appointmentData?.client_whatsapp || guestClientData?.phone || '').toString();
+      if (phoneForViewAppointments) {
+        const cleanPhone = phoneForViewAppointments.replace(/\D/g, '');
         localStorage.setItem('last_booking_phone', cleanPhone);
         console.log('📱 Telefone salvo para visualização:', cleanPhone);
+      }
+
+      // Se pagamento é opcional, perguntar se deseja pagar agora (mas já salvamos telefone/reminder acima)
+      if (permitePagamentoOpcional) {
+        if (!pagarmeRecipientId) {
+          // Sem recipient configurado: só seguir como normal
+          console.warn('⚠️ Pagamento opcional ativo, mas sem pagarme_recipient_id. Seguindo sem pagamento.');
+        } else {
+          setPendingAppointmentId(insertedAppointment?.id || null);
+          setPendingPaymentAmount(valorAgendamento);
+          setPendingCustomerData({
+            name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
+            phone: appointmentData?.client_whatsapp || guestClientData?.phone,
+            email: currentUser?.email || undefined,
+            document: appointmentData?.client_cpf || undefined,
+          });
+          setPaymentIsOptional(true);
+          setShowOptionalPayPrompt(true);
+          return;
+        }
       }
 
       // Redirecionar para a página de visualização de agendamentos
       toast.success('Redirecionando para seus agendamentos...');
       setTimeout(() => {
-        window.location.href = '/view-appointments';
+        const cleanPhone = phoneForViewAppointments ? phoneForViewAppointments.replace(/\D/g, '') : '';
+        window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
       }, 1000);
     } catch (error: any) {
       // Supabase costuma trazer { message, details, hint, code }
@@ -2131,7 +2133,10 @@ export default function BookingPage() {
                   // Seguir fluxo normal (sem pagamento)
                   toast.success('Agendamento confirmado! Redirecionando...');
                   setTimeout(() => {
-                    window.location.href = '/view-appointments';
+                    const phone =
+                      (pendingCustomerData?.phone || guestClientData?.phone || localStorage.getItem('last_booking_phone') || '').toString();
+                    const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+                    window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
                   }, 800);
                 }}
                 className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors"
