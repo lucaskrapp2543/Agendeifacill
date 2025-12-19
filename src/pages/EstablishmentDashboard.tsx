@@ -11692,6 +11692,44 @@ Estamos te aguardando! 😎✂️`;
                               </div>
                             </label>
 
+                            {/* Info de taxas (PIX) - para incentivar uso */}
+                            <div className="mb-4 rounded-lg border border-green-500/20 bg-black/20 p-3">
+                              {(() => {
+                                const taxaPixPercent = 1.19;
+                                const taxaPlataforma = 0.5; // R$ 0,50 (AgendeiFácil)
+                                const exemploValor = 10;
+                                const taxaPagarme = Number((exemploValor * (taxaPixPercent / 100)).toFixed(2));
+                                const recebe = Number((exemploValor - taxaPagarme - taxaPlataforma).toFixed(2));
+                                const fmt = (v: number) =>
+                                  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+                                return (
+                                  <div className="text-xs sm:text-sm text-gray-100/90">
+                                    <div className="font-bold text-green-200 mb-1">Taxas do PIX (Pagar.me)</div>
+                                    <ul className="space-y-1">
+                                      <li>
+                                        - <span className="font-semibold">Pagar.me</span>: {taxaPixPercent.toString().replace('.', ',')}% no PIX
+                                      </li>
+                                      <li>
+                                        - <span className="font-semibold">AgendeiFácil</span>: {fmt(taxaPlataforma)} por cliente (plataforma)
+                                      </li>
+                                      <li className="pt-1">
+                                        <span className="font-semibold text-white">Exemplo:</span> em um serviço de{' '}
+                                        <span className="font-semibold text-white">{fmt(exemploValor)}</span>, você recebe{' '}
+                                        <span className="font-extrabold text-green-200">{fmt(recebe)}</span> (já descontando as taxas).
+                                      </li>
+                                    </ul>
+                                    <div className="mt-2 text-[11px] text-gray-300/80">
+                                      * O seu dinheiro cai na Pagar.me e você pode escolher receber todo dia seu valor, ou algum dia da semana. Obs:
+                                      diariamente cobra R$ 3,67 por saque.
+                                    </div>
+                                    <div className="mt-2 text-[11px] text-gray-300/80">
+                                      * Valores aproximados; pode haver variação por arredondamentos e regras da Pagar.me.
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+
                             {exigirPagamentoAntecipado && (
                               <label className="flex items-center space-x-2 mb-4">
                                 <input
