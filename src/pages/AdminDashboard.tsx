@@ -51,6 +51,16 @@ const AdminDashboard = () => {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [deletedEstablishments, setDeletedEstablishments] = useState<Establishment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingSaldos, setIsLoadingSaldos] = useState(false);
+  const [saldosPorEstabelecimento, setSaldosPorEstabelecimento] = useState<Record<string, number>>({});
+  const [totalVendasLiquidasPorEstabelecimento, setTotalVendasLiquidasPorEstabelecimento] = useState<Record<string, number>>({});
+  const [totalPagoAdminPorEstabelecimento, setTotalPagoAdminPorEstabelecimento] = useState<Record<string, number>>({});
+  const [qtdPixPagoPorEstabelecimento, setQtdPixPagoPorEstabelecimento] = useState<Record<string, number>>({});
+  const [isPayingByEstablishment, setIsPayingByEstablishment] = useState<Record<string, boolean>>({});
+  const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
+  const [payoutHistoryEstablishment, setPayoutHistoryEstablishment] = useState<Establishment | null>(null);
+  const [payoutHistoryRows, setPayoutHistoryRows] = useState<any[]>([]);
+  const [isLoadingPayoutHistory, setIsLoadingPayoutHistory] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchTermDeleted, setSearchTermDeleted] = useState(''); // Busca na lixeira
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
@@ -108,6 +118,199 @@ const AdminDashboard = () => {
 
   // Verificar se é a conta de suporte
   const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
+
+  const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+
+  const calcularLiquidoPix = (bruto: number) => {
+    const taxaPlataforma = 0.5; // R$ 0,50
+    const taxaPixPercent = 1.19 / 100; // 1,19%
+    const liquido = bruto - taxaPlataforma - bruto * taxaPixPercent;
+    return Math.max(0, Math.round(liquido * 100) / 100);
+  };
+
+  const carregarSaldosEmVendas = async (establishmentsList: Establishment[]) => {
+    const ids = (establishmentsList || []).map(e => e.id).filter(Boolean);
+    if (ids.length === 0) return;
+
+    setIsLoadingSaldos(true);
+    try {
+      // 1) Payouts (histórico de pagamentos do admin)
+      let payouts: any[] = [];
+      const { data: payoutsData, error: payoutsError } = await supabase
+        .from('establishment_payouts')
+        .select('establishment_id,amount')
+        .in('establishment_id', ids);
+
+      if (payoutsError) {
+        const msg = String((payoutsError as any)?.message || '');
+        // se migration ainda não aplicada, seguir com payouts=0
+        if (!/establishment_payouts/i.test(msg)) throw payoutsError;
+      } else {
+        payouts = (payoutsData as any[]) || [];
+      }
+
+      const pagoMap: Record<string, number> = {};
+      for (const p of payouts) {
+        const estId = String(p?.establishment_id || '');
+        const amount = Number(p?.amount ?? 0);
+        if (!estId || !Number.isFinite(amount)) continue;
+        pagoMap[estId] = Math.round(((pagoMap[estId] || 0) + amount) * 100) / 100;
+      }
+
+      // 2) Vendas PIX pagas (appointments)
+      // Filtrar: confirmed + pix + (payment_status=paid OR pix_payment_status=confirmado)
+      const { data: appts, error: apptsError } = await supabase
+        .from('appointments')
+        // ✅ No Supabase de produção pode não existir service_price; usar apenas price
+        .select('id,establishment_id,price,payment_status,pix_payment_status,payment_method,payment_transaction_id,status')
+        .in('establishment_id', ids)
+        .or('payment_status.eq.paid,pix_payment_status.eq.confirmado');
+
+      if (apptsError) throw apptsError;
+
+      const totalLiquidoMap: Record<string, number> = {};
+      const qtdMap: Record<string, number> = {};
+      const seenByEst = new Map<string, Set<string>>();
+
+      for (const row of (appts as any[]) || []) {
+        const estId = String(row?.establishment_id || '');
+        const id = String(row?.id || '');
+        if (!estId || !id) continue;
+        if (!seenByEst.has(estId)) seenByEst.set(estId, new Set());
+        const seen = seenByEst.get(estId)!;
+        if (seen.has(id)) continue;
+        seen.add(id);
+
+        const paymentStatus = String(row?.payment_status || '').toLowerCase();
+        const pixPaymentStatus = String(row?.pix_payment_status || '').toLowerCase();
+        const hasTransactionId = Boolean(String(row?.payment_transaction_id || '').trim());
+        const isPaid = paymentStatus === 'paid' || pixPaymentStatus === 'confirmado';
+        if (!isPaid) continue;
+        if (paymentStatus === 'paid' && !hasTransactionId && pixPaymentStatus !== 'confirmado') continue;
+
+        const metodo = String(row?.payment_method || '').toLowerCase();
+        const isPix =
+          metodo === 'pix' ||
+          metodo === 'pix_now' ||
+          pixPaymentStatus === 'confirmado' ||
+          (paymentStatus === 'paid' && hasTransactionId);
+        if (!isPix) continue;
+
+        const status = String(row?.status || '').toLowerCase();
+        if (status !== 'confirmed') continue; // regra do produto: só entra se finalizou agendamento
+
+        const bruto = Number(row?.price ?? 0);
+        if (!Number.isFinite(bruto) || bruto <= 0) continue;
+
+        totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto)) * 100) / 100;
+        qtdMap[estId] = (qtdMap[estId] || 0) + 1;
+      }
+
+      const saldoMap: Record<string, number> = {};
+      for (const estId of ids) {
+        const totalLiquido = totalLiquidoMap[estId] || 0;
+        const totalPago = pagoMap[estId] || 0;
+        saldoMap[estId] = Math.max(0, Math.round((totalLiquido - totalPago) * 100) / 100);
+      }
+
+      setTotalVendasLiquidasPorEstabelecimento(totalLiquidoMap);
+      setTotalPagoAdminPorEstabelecimento(pagoMap);
+      setQtdPixPagoPorEstabelecimento(qtdMap);
+      setSaldosPorEstabelecimento(saldoMap);
+    } catch (e: any) {
+      console.error('Erro ao carregar saldos em vendas (admin):', e);
+      toast.error('Não foi possível calcular os saldos em vendas agora.');
+    } finally {
+      setIsLoadingSaldos(false);
+    }
+  };
+
+  const registrarPagamentoSaldoTotal = async (establishment: Establishment) => {
+    try {
+      const estId = establishment.id;
+      const saldoAtual = Number(saldosPorEstabelecimento[estId] || 0);
+      if (!saldoAtual || saldoAtual <= 0) {
+        toast.error('Saldo zerado. Nada para pagar.');
+        return;
+      }
+      if (!user?.id) {
+        toast.error('Usuário não autenticado.');
+        return;
+      }
+
+      const confirm = window.confirm(`Confirmar pagamento do saldo total?\n${establishment.name} (${establishment.code})\nValor: ${fmtBRL(saldoAtual)}`);
+      if (!confirm) return;
+
+      setIsPayingByEstablishment(prev => ({ ...prev, [estId]: true }));
+
+      const { error } = await supabase
+        .from('establishment_payouts')
+        .insert([
+          {
+            establishment_id: estId,
+            amount: saldoAtual,
+            paid_by: user.id,
+            note: 'Pagamento registrado pelo admin (zerar saldo)',
+          } as any,
+        ]);
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (/establishment_payouts/i.test(msg)) {
+          toast.error('Tabela de histórico não existe ainda. Aplique a migration no Supabase.');
+        } else {
+          toast.error('Erro ao registrar pagamento.');
+        }
+        console.error(error);
+        return;
+      }
+
+      // Atualizar estado local: saldo zera
+      setTotalPagoAdminPorEstabelecimento(prev => ({
+        ...prev,
+        [estId]: Math.round(((prev[estId] || 0) + saldoAtual) * 100) / 100,
+      }));
+      setSaldosPorEstabelecimento(prev => ({ ...prev, [estId]: 0 }));
+
+      toast.success('Pagamento registrado e saldo zerado!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao registrar pagamento.');
+    } finally {
+      setIsPayingByEstablishment(prev => ({ ...prev, [establishment.id]: false }));
+    }
+  };
+
+  const abrirHistoricoPagamentos = async (establishment: Establishment) => {
+    setPayoutHistoryEstablishment(establishment);
+    setShowPayoutHistoryModal(true);
+    setIsLoadingPayoutHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('establishment_payouts')
+        .select('id,amount,created_at,paid_by,note')
+        .eq('establishment_id', establishment.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (/establishment_payouts/i.test(msg)) {
+          toast.error('Tabela de histórico não existe ainda. Aplique a migration no Supabase.');
+          setPayoutHistoryRows([]);
+          return;
+        }
+        throw error;
+      }
+
+      setPayoutHistoryRows((data as any[]) || []);
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao carregar histórico de pagamentos.');
+      setPayoutHistoryRows([]);
+    } finally {
+      setIsLoadingPayoutHistory(false);
+    }
+  };
 
   // Função para formatar o último acesso
   const formatLastAccess = (lastAccess: string | null) => {
@@ -296,6 +499,10 @@ const AdminDashboard = () => {
 
       setEstablishments(establishmentsWithEmails);
       setDeletedEstablishments(deletedWithEmails);
+
+      // ✅ Carregar saldos em vendas (PIX pago) para controle do admin
+      // (saldo = vendas líquidas - pagamentos já feitos)
+      await carregarSaldosEmVendas(establishmentsWithEmails);
 
       // Verificar e atualizar status vencidos automaticamente
       await checkAndUpdateExpiredStatus();
@@ -1110,6 +1317,9 @@ const AdminDashboard = () => {
                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                       🕐 Último Acesso
                     </th>
+                    <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                      Saldo (PIX)
+                    </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
                       Ações
                     </th>
@@ -1169,6 +1379,17 @@ const AdminDashboard = () => {
                             }`}>
                             {formatLastAccess(establishment.last_access)}
                           </span>
+                        </div>
+                      </td>
+
+                      <td className="px-2 py-4">
+                        <div className="text-xs font-semibold text-gray-900">
+                          {isLoadingSaldos ? '...' : fmtBRL(Number(saldosPorEstabelecimento[establishment.id] || 0))}
+                        </div>
+                        <div className="text-[10px] text-gray-500">
+                          {qtdPixPagoPorEstabelecimento[establishment.id]
+                            ? `${qtdPixPagoPorEstabelecimento[establishment.id]} PIX pago(s)`
+                            : '—'}
                         </div>
                       </td>
 
@@ -1293,12 +1514,110 @@ const AdminDashboard = () => {
                           >
                             PAGAMENTO AD
                           </button>
+                          <button
+                            onClick={() => registrarPagamentoSaldoTotal(establishment)}
+                            disabled={Boolean(isPayingByEstablishment[establishment.id]) || Number(saldosPorEstabelecimento[establishment.id] || 0) <= 0}
+                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
+                              Number(saldosPorEstabelecimento[establishment.id] || 0) > 0
+                                ? 'text-green-700 border-green-300 bg-green-50 hover:bg-green-100'
+                                : 'text-gray-400 border-gray-200 bg-gray-50 cursor-not-allowed'
+                            }`}
+                            title="Registrar pagamento do saldo total (zera o saldo)"
+                          >
+                            PAGAR
+                          </button>
+                          <button
+                            onClick={() => abrirHistoricoPagamentos(establishment)}
+                            className="text-xs px-2 py-0.5 border rounded font-medium text-blue-700 border-blue-300 bg-blue-50 hover:bg-blue-100"
+                            title="Ver histórico de pagamentos (admin)"
+                          >
+                            HISTÓRICO
+                          </button>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+
+              {/* Modal - Histórico de Pagamentos */}
+              {showPayoutHistoryModal && payoutHistoryEstablishment && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl">
+                    <div className="flex items-center justify-between px-4 py-3 border-b">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Histórico de Pagamentos</div>
+                        <div className="text-xs text-gray-600">
+                          {payoutHistoryEstablishment.name} • Código {payoutHistoryEstablishment.code}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowPayoutHistoryModal(false);
+                          setPayoutHistoryEstablishment(null);
+                          setPayoutHistoryRows([]);
+                        }}
+                        className="p-2 rounded hover:bg-gray-100"
+                        title="Fechar"
+                      >
+                        <X className="h-5 w-5 text-gray-600" />
+                      </button>
+                    </div>
+
+                    <div className="p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                        <div className="p-3 rounded border bg-gray-50">
+                          <div className="text-[11px] text-gray-600">Vendas líquidas (PIX)</div>
+                          <div className="text-sm font-extrabold text-gray-900">
+                            {fmtBRL(Number(totalVendasLiquidasPorEstabelecimento[payoutHistoryEstablishment.id] || 0))}
+                          </div>
+                        </div>
+                        <div className="p-3 rounded border bg-gray-50">
+                          <div className="text-[11px] text-gray-600">Pago (admin)</div>
+                          <div className="text-sm font-extrabold text-gray-900">
+                            {fmtBRL(Number(totalPagoAdminPorEstabelecimento[payoutHistoryEstablishment.id] || 0))}
+                          </div>
+                        </div>
+                        <div className="p-3 rounded border bg-gray-50">
+                          <div className="text-[11px] text-gray-600">Saldo atual</div>
+                          <div className="text-sm font-extrabold text-green-700">
+                            {fmtBRL(Number(saldosPorEstabelecimento[payoutHistoryEstablishment.id] || 0))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {isLoadingPayoutHistory ? (
+                        <div className="py-8 text-center text-sm text-gray-600">Carregando histórico...</div>
+                      ) : payoutHistoryRows.length === 0 ? (
+                        <div className="py-8 text-center text-sm text-gray-600">Nenhum pagamento registrado ainda.</div>
+                      ) : (
+                        <div className="overflow-auto border rounded">
+                          <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Obs</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {payoutHistoryRows.map((row: any) => (
+                                <tr key={row.id}>
+                                  <td className="px-3 py-2 text-xs text-gray-700">
+                                    {row.created_at ? new Date(row.created_at).toLocaleString('pt-BR') : '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs font-bold text-gray-900">{fmtBRL(Number(row.amount || 0))}</td>
+                                  <td className="px-3 py-2 text-xs text-gray-700">{row.note || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {filteredEstablishments.length === 0 && (
                 <div className="text-center py-8">

@@ -131,6 +131,25 @@ export const PaymentModal = ({
 
       const paymentResult = await paymentResponse.json();
 
+      // ✅ Importante: persistir o ID da transação no Supabase assim que o pagamento é criado.
+      // Isso evita perder referência caso o usuário feche/recarregue a página antes da confirmação,
+      // e permite reconciliação futura.
+      try {
+        if (paymentResult?.id) {
+          await supabase
+            .from('appointments')
+            .update({
+              payment_transaction_id: paymentResult.id,
+              // se for PIX, deixar explícito que foi iniciado via Pagar.me
+              ...(method === 'pix' ? { payment_method: 'pix', pix_payment_status: 'enviado' } : {}),
+            })
+            .eq('id', appointmentId);
+        }
+      } catch (e) {
+        // Não bloquear o fluxo de pagamento por falha de log; apenas registrar.
+        console.warn('⚠️ Não foi possível salvar payment_transaction_id no Supabase:', e);
+      }
+
       // Se for PIX, mostrar QR Code
       if (method === 'pix' && paymentResult.pix?.qr_code) {
         setPixQrCode(paymentResult.pix.qr_code);
@@ -315,7 +334,10 @@ export const PaymentModal = ({
           status: 'confirmed',
           payment_status: 'paid',
           payment_transaction_id: transactionId,
-          payment_method: selectedMethod
+          // ✅ Forçar consistência: no fluxo de pagamento adiantado atual só existe PIX
+          // (evita ficar NULL e quebrar o cálculo do saldo)
+          payment_method: 'pix',
+          pix_payment_status: 'confirmado',
         })
         .eq('id', appointmentId);
 

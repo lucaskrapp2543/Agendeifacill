@@ -281,6 +281,8 @@ const EstablishmentDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const lastSaldoFetchAtRef = useRef<number>(0);
+  const lastSaldoFetchEstIdRef = useRef<string>('');
   const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
 
   // Estados básicos
@@ -385,6 +387,12 @@ const EstablishmentDashboard = () => {
   const [requireCpf, setRequireCpf] = useState(false); // Solicitar CPF no agendamento
   const [exigirPagamentoAntecipado, setExigirPagamentoAntecipado] = useState(false); // Exigir pagamento antecipado (Pagar.me)
   const [pagamentoAdiantadoOpcional, setPagamentoAdiantadoOpcional] = useState(false); // Se true, cliente pode agendar sem pagar
+  // Saldo (vendas PIX via Pagar.me) - líquido já com taxas
+  const [saldoEmVendas, setSaldoEmVendas] = useState<number>(0);
+  const [isLoadingSaldoEmVendas, setIsLoadingSaldoEmVendas] = useState(false);
+  const [saldoEmVendasErro, setSaldoEmVendasErro] = useState<string | null>(null);
+  const [saldoEmVendasDebug, setSaldoEmVendasDebug] = useState<string | null>(null);
+  const saldoAutoLoadedRef = useRef<string>(''); // evita recalcular em loop por re-renders
   // Configuração do recebedor (Pagar.me)
   const [bankCpfCnpj, setBankCpfCnpj] = useState('');
   const [bankName, setBankName] = useState('');
@@ -457,6 +465,142 @@ const EstablishmentDashboard = () => {
     enderecoComplemento: string;
     enderecoPontoReferencia: string;
   };
+
+  const fmtBRL = useCallback((v: number) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+  }, []);
+
+  const carregarSaldoEmVendas = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    // Regras fixas solicitadas
+    const taxaPlataforma = 0.5; // R$ 0,50
+    const taxaPixPercent = 1.19 / 100; // 1,19%
+
+    // Evitar várias chamadas seguidas durante carregamentos/re-renders
+    const nowStart = Date.now();
+    if (lastSaldoFetchEstIdRef.current === establishment.id && nowStart - lastSaldoFetchAtRef.current < 8000) {
+      return;
+    }
+    lastSaldoFetchEstIdRef.current = establishment.id;
+    lastSaldoFetchAtRef.current = nowStart;
+
+    setIsLoadingSaldoEmVendas(true);
+    setSaldoEmVendasErro(null);
+    setSaldoEmVendasDebug(null);
+    try {
+      // 1) Buscar total de pagamentos já feitos (histórico do admin)
+      const { data: payoutsData, error: payoutsError } = await supabase
+        .from('establishment_payouts')
+        .select('amount')
+        .eq('establishment_id', establishment.id);
+      // Se a tabela ainda não existir (migration não aplicada), não quebrar o dashboard
+      if (payoutsError) {
+        const msg = String((payoutsError as any)?.message || '');
+        if (!/establishment_payouts/i.test(msg)) throw payoutsError;
+      }
+
+      const totalPagoAdmin = ((payoutsData as any[]) || []).reduce((acc, r) => {
+        const v = Number((r as any)?.amount ?? 0);
+        return Number.isFinite(v) ? acc + v : acc;
+      }, 0);
+
+      // 2) Buscar PIX pagos do estabelecimento (trazer amplo e filtrar no código)
+      // Motivo: versões antigas/fluxos podem gravar status/método de formas diferentes.
+      const { data, error } = await supabase
+        .from('appointments')
+        // ⚠️ selecionar apenas colunas "seguras" (total_price nem sempre existe)
+        // ✅ No Supabase de produção pode não existir service_price; usar apenas price
+        .select('id,price,status,payment_status,payment_method,payment_transaction_id,pix_payment_status')
+        .eq('establishment_id', establishment.id)
+        // considerar apenas pagamentos efetivamente pagos (depois filtramos por status/método)
+        .or('payment_status.eq.paid,pix_payment_status.eq.confirmado');
+
+      if (error) throw error;
+
+      const seen = new Set<string>();
+      let total = 0;
+      let paidPixCount = 0;
+      let confirmedPaidPixCount = 0;
+
+      for (const row of (data as any[]) || []) {
+        const id = String((row as any)?.id || '').trim();
+        if (!id || seen.has(id)) continue; // sem duplicidade
+        seen.add(id);
+
+        // Contabilizar somente PIX realmente pago/confirmado
+        const paymentStatus = String((row as any)?.payment_status || '').toLowerCase();
+        const pixPaymentStatus = String((row as any)?.pix_payment_status || '').toLowerCase();
+        const hasTransactionId = Boolean(String((row as any)?.payment_transaction_id || '').trim());
+        const isPaid = paymentStatus === 'paid' || pixPaymentStatus === 'confirmado';
+        // Para considerar histórico antigo: aceita "confirmado" mesmo sem transactionId (caso versões antigas não salvassem)
+        if (!isPaid) continue;
+        if (paymentStatus === 'paid' && !hasTransactionId && pixPaymentStatus !== 'confirmado') continue;
+
+        const metodo = String((row as any)?.payment_method || '').toLowerCase();
+        // ✅ Considerar PIX Pagar.me mesmo se payment_method vier vazio (casos antigos/bug),
+        // desde que esteja pago e tenha transaction_id.
+        const isPix =
+          metodo === 'pix' ||
+          metodo === 'pix_now' ||
+          pixPaymentStatus === 'confirmado' ||
+          (paymentStatus === 'paid' && hasTransactionId);
+        if (!isPix) continue;
+
+        paidPixCount += 1;
+
+        const status = String((row as any)?.status || '').toLowerCase();
+        const isConfirmed = status === 'confirmed';
+        if (!isConfirmed) {
+          // pago, mas não finalizou agendamento -> não entra no saldo (regra do produto)
+          continue;
+        }
+        confirmedPaidPixCount += 1;
+
+        const bruto = Number((row as any)?.price ?? 0);
+        if (!Number.isFinite(bruto) || bruto <= 0) continue;
+
+        const taxaPercentual = bruto * taxaPixPercent;
+        const liquidoPorVenda = Math.max(0, Math.round((bruto - taxaPlataforma - taxaPercentual) * 100) / 100);
+        total += liquidoPorVenda;
+      }
+
+      // Saldo final exibido = vendas líquidas - pagamentos já feitos (histórico)
+      const saldo = Math.max(0, Math.round((total - totalPagoAdmin) * 100) / 100);
+      setSaldoEmVendas(saldo);
+
+      // Debug leve para casos de saldo zerado (ajuda a diagnosticar sem quebrar UX)
+      if (paidPixCount > 0 && confirmedPaidPixCount === 0) {
+        setSaldoEmVendasDebug(
+          `Encontramos ${paidPixCount} PIX pago(s), mas 0 com agendamento confirmado. Isso indica que o PIX foi pago, porém o agendamento não foi finalizado/confirmado no Supabase.`
+        );
+      } else if (paidPixCount === 0) {
+        setSaldoEmVendasDebug('Nenhum PIX pago encontrado para este estabelecimento (pelos campos do Supabase).');
+      } else {
+        setSaldoEmVendasDebug(null);
+      }
+    } catch (e: any) {
+      console.error('❌ Erro ao carregar saldo em vendas:', e);
+      // Não usar toast aqui (evita loop infinito). Mostrar erro apenas no card.
+      const msg =
+        String(e?.message || e?.error_description || e?.details || '').trim() ||
+        'Não foi possível calcular seu saldo em vendas agora. Tente novamente em instantes.';
+      setSaldoEmVendasErro(msg);
+      setSaldoEmVendas(0);
+    } finally {
+      setIsLoadingSaldoEmVendas(false);
+    }
+  }, [establishment?.id]);
+
+  // Carregar automaticamente ao abrir o dashboard (quando tiver establishment)
+  useEffect(() => {
+    const liberadoAdmin = Boolean((establishment as any)?.pagamento_adiantado_liberado_admin);
+    if (!liberadoAdmin) return;
+    if (!establishment?.id) return;
+    if (saldoAutoLoadedRef.current === establishment.id) return;
+    saldoAutoLoadedRef.current = establishment.id;
+    carregarSaldoEmVendas();
+  }, [carregarSaldoEmVendas, establishment?.id, (establishment as any)?.pagamento_adiantado_liberado_admin]);
 
   const getPagarmeDraftStorageKey = useCallback((establishmentId: string) => {
     return `pagarme_draft_${establishmentId}`;
@@ -11728,6 +11872,60 @@ Estamos te aguardando! 😎✂️`;
                                   </div>
                                 );
                               })()}
+                            </div>
+
+                            {/* Saldo em vendas (PIX Pagar.me) - líquido */}
+                            <div className="mb-4 rounded-lg border border-green-500/20 bg-black/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                              <div>
+                                <div className="text-xs text-gray-300">Saldo em vendas</div>
+                                <div className="text-xl font-extrabold text-green-200">
+                                  {isLoadingSaldoEmVendas ? 'Calculando...' : fmtBRL(saldoEmVendas)}
+                                </div>
+                                <div className="mt-1 text-[11px] text-gray-300/80">
+                                  * Soma somente PIX pagos (Pagar.me), já com R$ 0,50 + 1,19% descontados.
+                                </div>
+                                {saldoEmVendasErro && (
+                                  <div className="mt-2 text-[11px] text-red-200/90">
+                                    Não foi possível calcular agora. Clique em “Atualizar”.
+                                  </div>
+                                )}
+                                {saldoEmVendasDebug && !saldoEmVendasErro && (
+                                  <div className="mt-2 text-[11px] text-yellow-100/90">
+                                    {saldoEmVendasDebug}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <button
+                                  type="button"
+                                  disabled={isLoadingSaldoEmVendas}
+                                  onClick={() => {
+                                    if (isLoadingSaldoEmVendas) return;
+                                    carregarSaldoEmVendas();
+                                  }}
+                                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  Atualizar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isLoadingSaldoEmVendas || saldoEmVendas <= 0}
+                                  onClick={() => {
+                                    if (isLoadingSaldoEmVendas) return;
+                                    if (saldoEmVendas <= 0) {
+                                      toast.error('Seu saldo em vendas está zerado.');
+                                      return;
+                                    }
+                                    const whatsappNumber = '5548991265320';
+                                    const valorSaldo = fmtBRL(saldoEmVendas);
+                                    const message = `Quero sacar meu valor: ${valorSaldo}\nBarbearia: ${establishment?.name || ''}\nCódigo: ${establishment?.code || ''}`;
+                                    window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank');
+                                  }}
+                                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  Sacar
+                                </button>
+                              </div>
                             </div>
 
                             {exigirPagamentoAntecipado && (
