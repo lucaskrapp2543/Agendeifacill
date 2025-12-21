@@ -11,6 +11,7 @@ import {
   Layers,
   Link,
   LogOut,
+  MessageCircle,
   MessageSquare,
   Package,
   Receipt,
@@ -21,7 +22,27 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'reserve-client' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page' | 'indication' | 'support';
+type TabType =
+  | 'appointments'
+  | 'services'
+  | 'settings'
+  | 'financial-dashboard'
+  | 'expenses'
+  | 'clients'
+  | 'subscribers'
+  | 'products'
+  | 'professionals'
+  | 'service-categories'
+  | 'taxes'
+  | 'reserve-client'
+  | 'ranking'
+  | 'missing-clients'
+  | 'draw'
+  | 'passo-a-passo'
+  | 'client-page'
+  | 'indication'
+  | 'whatsapp-reminders'
+  | 'support';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -135,6 +156,20 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       isActive: activeTab === 'appointments',
       disabled: isItemLocked('appointments')
+    },
+    {
+      id: 'whatsapp-reminders',
+      label: '📣 Lembretes de agendamentos',
+      icon: MessageCircle,
+      onClick: () => {
+        if (isItemLocked('whatsapp-reminders')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('whatsapp-reminders'));
+        }
+      },
+      isActive: activeTab === 'whatsapp-reminders',
+      disabled: isItemLocked('whatsapp-reminders')
     },
     {
       id: 'indication',

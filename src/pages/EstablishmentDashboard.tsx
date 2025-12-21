@@ -26,6 +26,7 @@ import { TimeSelector } from '../components/TimeSelector';
 import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
 import { useToast } from '../components/ui/Toaster';
 // UpdateButton removido - sistema automático já cuida de tudo
+import { EstablishmentWhatsappRemindersInfo } from '../../modules/whatsapp-reminders/ui/EstablishmentWhatsappRemindersInfo';
 import { ValidityDisplay } from '../components/ValidityDisplay';
 import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
@@ -136,7 +137,26 @@ interface Establishment {
   payment_methods_enabled?: string[];
 }
 
-type TabType = 'appointments' | 'services' | 'settings' | 'financial-dashboard' | 'expenses' | 'clients' | 'subscribers' | 'products' | 'professionals' | 'service-categories' | 'taxes' | 'ranking' | 'missing-clients' | 'draw' | 'passo-a-passo' | 'client-page' | 'indication' | 'support';
+type TabType =
+  | 'appointments'
+  | 'services'
+  | 'settings'
+  | 'financial-dashboard'
+  | 'expenses'
+  | 'clients'
+  | 'subscribers'
+  | 'products'
+  | 'professionals'
+  | 'service-categories'
+  | 'taxes'
+  | 'ranking'
+  | 'missing-clients'
+  | 'draw'
+  | 'passo-a-passo'
+  | 'client-page'
+  | 'indication'
+  | 'whatsapp-reminders'
+  | 'support';
 
 interface AdditionalProduct {
   name: string;
@@ -11253,6 +11273,12 @@ Estamos te aguardando! 😎✂️`;
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {activeTab === 'whatsapp-reminders' && (
+                <div className="space-y-6 w-full max-w-3xl">
+                  {establishment && <EstablishmentWhatsappRemindersInfo establishmentId={establishment.id} />}
                 </div>
               )}
 

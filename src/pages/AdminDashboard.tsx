@@ -23,6 +23,7 @@ import { NewRegistrations } from '../components/NewRegistrations';
 import { PWADownloadLink } from '../components/PWADownloadLink';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { AdminEstablishmentWhatsappReminders } from '../../modules/whatsapp-reminders/ui/AdminEstablishmentWhatsappReminders';
 
 interface Establishment {
   id: string;
@@ -61,6 +62,8 @@ const AdminDashboard = () => {
   const [payoutHistoryEstablishment, setPayoutHistoryEstablishment] = useState<Establishment | null>(null);
   const [payoutHistoryRows, setPayoutHistoryRows] = useState<any[]>([]);
   const [isLoadingPayoutHistory, setIsLoadingPayoutHistory] = useState(false);
+  const [showWhatsappRemindersModal, setShowWhatsappRemindersModal] = useState(false);
+  const [whatsappRemindersEstablishment, setWhatsappRemindersEstablishment] = useState<Establishment | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchTermDeleted, setSearchTermDeleted] = useState(''); // Busca na lixeira
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
@@ -118,6 +121,12 @@ const AdminDashboard = () => {
 
   // Verificar se é a conta de suporte
   const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
+
+  const openWhatsappRemindersModal = (establishment: Establishment) => {
+    if (!isSupportAccount) return;
+    setWhatsappRemindersEstablishment(establishment);
+    setShowWhatsappRemindersModal(true);
+  };
 
   const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
@@ -1533,6 +1542,15 @@ const AdminDashboard = () => {
                           >
                             HISTÓRICO
                           </button>
+                          {isSupportAccount && (
+                            <button
+                              onClick={() => openWhatsappRemindersModal(establishment)}
+                              className="text-xs px-2 py-0.5 border rounded font-medium text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"
+                              title="Configurar lembretes automáticos por WhatsApp (WaSender)"
+                            >
+                              📣 Lembretes WhatsApp
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1682,6 +1700,36 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Modal - 📣 Lembretes WhatsApp */}
+              {showWhatsappRemindersModal && whatsappRemindersEstablishment && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-auto">
+                    <div className="flex items-center justify-between px-4 py-3 border-b">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">📣 Lembretes WhatsApp</div>
+                        <div className="text-xs text-gray-600">
+                          {whatsappRemindersEstablishment.name} • Código {whatsappRemindersEstablishment.code}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowWhatsappRemindersModal(false);
+                          setWhatsappRemindersEstablishment(null);
+                        }}
+                        className="p-2 rounded hover:bg-gray-100"
+                        title="Fechar"
+                      >
+                        <X className="h-5 w-5 text-gray-600" />
+                      </button>
+                    </div>
+
+                    <div className="p-4">
+                      <AdminEstablishmentWhatsappReminders establishmentId={whatsappRemindersEstablishment.id} />
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
