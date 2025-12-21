@@ -29,39 +29,73 @@ AS $$
   -- Defesa em profundidade: só permitir execução com service_role
   WITH ctx AS (
     SELECT date_trunc('minute', timezone(p_timezone, now())) AS now_local
+  ),
+  appt AS (
+    SELECT
+      a.*,
+      e.name AS establishment_name_joined,
+      e.professionals AS establishment_professionals,
+      p.whatsapp AS profile_whatsapp,
+      p.phone AS profile_phone,
+      s.remind_before_minutes,
+      s.message_template,
+      i.provider,
+      i.api_key_encrypted,
+      i.phone_number AS instance_phone_number,
+      i.status::text AS instance_status,
+      date_trunc(
+        'minute',
+        (a.appointment_date::date + ((substring(a.appointment_time from 1 for 5) || ':00')::time))
+      ) AS appt_at_minute
+    FROM public.appointments a
+    JOIN public.establishments e
+      ON e.id = a.establishment_id
+    LEFT JOIN public.profiles p
+      ON p.id = a.client_id
+    JOIN public.whatsapp_reminder_settings s
+      ON s.establishment_id = a.establishment_id
+     AND s.enabled = true
+    JOIN public.whatsapp_instances i
+      ON i.establishment_id = a.establishment_id
+     AND i.status = 'active'
   )
   SELECT
     a.id AS appointment_id,
     a.establishment_id,
     COALESCE(
       NULLIF(trim(COALESCE(a.client_whatsapp, '')), ''),
-      NULLIF(trim(COALESCE(p.whatsapp, '')), ''),
-      NULLIF(trim(COALESCE(p.phone, '')), '')
+      NULLIF(trim(COALESCE(a.profile_whatsapp, '')), ''),
+      NULLIF(trim(COALESCE(a.profile_phone, '')), '')
     ) AS client_whatsapp,
     COALESCE(a.client_name, '') AS client_name,
-    COALESCE(e.name, '') AS establishment_name,
+    COALESCE(a.establishment_name_joined, '') AS establishment_name,
     COALESCE(a.service, '') AS service_name,
-    COALESCE(a.professional, '') AS professional_name,
+    COALESCE(
+      NULLIF(
+        CASE
+          -- Se for UUID, tentar traduzir pelo JSON de profissionais do estabelecimento
+          WHEN COALESCE(a.professional, '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (
+            SELECT (p->>'name')::text
+            FROM jsonb_array_elements(COALESCE(a.establishment_professionals::jsonb, '[]'::jsonb)) p
+            WHERE (p->>'id')::text = a.professional
+            LIMIT 1
+          )
+          ELSE a.professional
+        END,
+        ''
+      ),
+      COALESCE(a.professional, '')
+    ) AS professional_name,
     a.appointment_date::date AS appointment_date,
     a.appointment_time::text AS appointment_time,
-    s.remind_before_minutes,
-    s.message_template,
-    i.provider,
-    i.api_key_encrypted,
-    i.phone_number AS instance_phone_number,
-    i.status::text AS instance_status
-  FROM public.appointments a
+    a.remind_before_minutes,
+    a.message_template,
+    a.provider,
+    a.api_key_encrypted,
+    a.instance_phone_number,
+    a.instance_status
+  FROM appt a
   CROSS JOIN ctx
-  JOIN public.establishments e
-    ON e.id = a.establishment_id
-  LEFT JOIN public.profiles p
-    ON p.id = a.client_id
-  JOIN public.whatsapp_reminder_settings s
-    ON s.establishment_id = a.establishment_id
-   AND s.enabled = true
-  JOIN public.whatsapp_instances i
-    ON i.establishment_id = a.establishment_id
-   AND i.status = 'active'
   LEFT JOIN public.whatsapp_reminder_logs l
     ON l.appointment_id = a.id
   WHERE auth.role() = 'service_role'
@@ -69,19 +103,14 @@ AS $$
     AND lower(a.status::text) <> 'cancelled'
     AND COALESCE(
       NULLIF(trim(COALESCE(a.client_whatsapp, '')), ''),
-      NULLIF(trim(COALESCE(p.whatsapp, '')), ''),
-      NULLIF(trim(COALESCE(p.phone, '')), '')
+      NULLIF(trim(COALESCE(a.profile_whatsapp, '')), ''),
+      NULLIF(trim(COALESCE(a.profile_phone, '')), '')
     ) IS NOT NULL
     AND (
-      date_trunc(
-        'minute',
-        (a.appointment_date::date + ((substring(a.appointment_time from 1 for 5) || ':00')::time))
-      ) >= (ctx.now_local + (s.remind_before_minutes || ' minutes')::interval)
+      -- Robustez contra atraso do cron: pega lembretes "vencidos" nos últimos 5 minutos.
+      (a.appt_at_minute - (a.remind_before_minutes || ' minutes')::interval) >= (ctx.now_local - interval '5 minutes')
       AND
-      date_trunc(
-        'minute',
-        (a.appointment_date::date + ((substring(a.appointment_time from 1 for 5) || ':00')::time))
-      ) < (ctx.now_local + ((s.remind_before_minutes + 5) || ' minutes')::interval)
+      (a.appt_at_minute - (a.remind_before_minutes || ' minutes')::interval) < (ctx.now_local + interval '1 minute')
     );
 $$;
 

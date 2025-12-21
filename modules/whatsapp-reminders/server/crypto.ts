@@ -44,7 +44,9 @@ export function encryptApiKey(plain: string, envVarName?: string): string {
 
 export function decryptApiKey(ciphertextB64: string, envVarName?: string): string {
   const key = getKeyFromEnv(envVarName);
-  const raw = Buffer.from(ciphertextB64, 'base64');
+  // Tolerar whitespace acidental (quebra de linha/espacos ao copiar/colar)
+  const normalized = String(ciphertextB64 || '').replace(/\s+/g, '');
+  const raw = Buffer.from(normalized, 'base64');
   if (raw.length < 1 + IV_LEN + TAG_LEN + 1) {
     throw new Error('Ciphertext inválido (tamanho insuficiente).');
   }

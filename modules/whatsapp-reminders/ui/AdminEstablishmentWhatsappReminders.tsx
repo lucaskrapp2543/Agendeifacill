@@ -260,6 +260,9 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
             placeholder="(cole aqui o ciphertext gerado pelo encryptApiKey.ts)"
             disabled={loading}
           />
+          <div className="mt-1 text-xs text-gray-400" style={{ color: '#9ca3af' }}>
+            Por segurança, após salvar este campo é limpo e a chave não é exibida novamente. Isso não significa que “não salvou”.
+          </div>
         </div>
       </div>
 

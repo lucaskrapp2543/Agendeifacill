@@ -15,8 +15,23 @@ import { runSendWhatsappRemindersOnce } from '../../modules/whatsapp-reminders/j
  * - WHATSAPP_REMINDERS_DELAY_MS
  * - WHATSAPP_REMINDERS_TIMEZONE (default America/Sao_Paulo)
  */
-export const handler: Handler = async () => {
+export const handler: Handler = async (event) => {
   try {
+    // Proteção opcional contra disparo público (recomendado).
+    // Configure no Netlify: WHATSAPP_REMINDERS_CRON_TOKEN
+    // E chame a function como:
+    //   /.netlify/functions/send-whatsapp-reminders?token=SEU_TOKEN
+    const tokenEnv = process.env.WHATSAPP_REMINDERS_CRON_TOKEN;
+    if (tokenEnv) {
+      const token = event.queryStringParameters?.token || '';
+      if (token !== tokenEnv) {
+        return {
+          statusCode: 401,
+          body: JSON.stringify({ ok: false, error: 'unauthorized' }),
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        };
+      }
+    }
     const result = await runSendWhatsappRemindersOnce();
     return {
       statusCode: 200,
