@@ -11278,7 +11278,14 @@ Estamos te aguardando! 😎✂️`;
 
               {activeTab === 'whatsapp-reminders' && (
                 <div className="space-y-6 w-full max-w-3xl">
-                  {establishment && <EstablishmentWhatsappRemindersInfo establishmentId={establishment.id} />}
+                  {establishment && (
+                    <EstablishmentWhatsappRemindersInfo
+                      establishmentId={establishment.id}
+                      useLightLayout={useLightLayout}
+                      establishmentNome={establishment.name}
+                      establishmentCodigo={establishment.code}
+                    />
+                  )}
                 </div>
               )}
 

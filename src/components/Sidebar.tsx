@@ -159,7 +159,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'whatsapp-reminders',
-      label: '📣 Lembretes de agendamentos',
+      label: 'Lembretes para Clientes',
       icon: MessageCircle,
       onClick: () => {
         if (isItemLocked('whatsapp-reminders')) {
@@ -519,6 +519,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {menuItems.map((item, index) => {
             const Icon = item.icon;
             const isIndicationItem = item.id === 'indication';
+            const isLembretesClientesItem = item.id === 'whatsapp-reminders';
             const isLastItem = index === menuItems.length - 1;
 
             return (
@@ -531,6 +532,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                       ? item.isActive
                         ? 'bg-white text-black shadow-md'
                         : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
+                      : isLembretesClientesItem && !item.disabled
+                        ? item.isActive
+                          ? 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 text-white shadow-lg shadow-amber-500/25 ring-1 ring-amber-200/40'
+                          : isLight
+                            ? 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-950 hover:from-amber-100 hover:to-yellow-100 border border-amber-200/80 shadow-sm hover:shadow-md hover:shadow-amber-500/15'
+                            : 'bg-gradient-to-r from-amber-500/15 to-yellow-500/10 text-amber-200 hover:from-amber-500/25 hover:to-yellow-500/20 border border-amber-400/20 shadow-sm shadow-amber-500/10'
                       : item.isActive
                         ? isLight
                           ? 'bg-gray-900 text-white shadow-md'
@@ -555,6 +562,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                           ? item.isActive
                             ? 'text-black'
                             : 'text-white'
+                          : isLembretesClientesItem && !item.disabled
+                            ? item.isActive
+                              ? 'text-white'
+                              : isLight
+                                ? 'text-amber-700'
+                                : 'text-amber-300'
                           : item.disabled
                             ? item.id === 'hours'
                               ? isLight ? 'text-gray-400' : 'text-black'
@@ -582,6 +595,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                             ? item.isActive
                               ? 'text-black'
                               : 'text-white'
+                            : isLembretesClientesItem && !item.disabled
+                              ? item.isActive
+                                ? 'text-white'
+                                : isLight
+                                  ? 'text-amber-900'
+                                  : 'text-amber-300'
                             : item.disabled && item.id === 'hours'
                               ? isLight
                                 ? 'text-gray-500'
@@ -603,6 +622,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                               ? item.isActive
                                 ? 'text-black'
                                 : 'text-white'
+                              : isLembretesClientesItem && !item.disabled
+                                ? item.isActive
+                                  ? 'text-white'
+                                  : isLight
+                                    ? 'text-amber-700'
+                                    : 'text-amber-300'
                               : item.disabled && item.id === 'hours'
                                 ? isLight
                                   ? 'text-gray-500'
