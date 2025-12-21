@@ -27,6 +27,9 @@ SECURITY DEFINER
 STABLE
 AS $$
   -- Defesa em profundidade: só permitir execução com service_role
+  WITH ctx AS (
+    SELECT date_trunc('minute', timezone(p_timezone, now())) AS now_local
+  )
   SELECT
     a.id AS appointment_id,
     a.establishment_id,
@@ -48,6 +51,7 @@ AS $$
     i.phone_number AS instance_phone_number,
     i.status::text AS instance_status
   FROM public.appointments a
+  CROSS JOIN ctx
   JOIN public.establishments e
     ON e.id = a.establishment_id
   LEFT JOIN public.profiles p
@@ -69,11 +73,15 @@ AS $$
       NULLIF(trim(COALESCE(p.phone, '')), '')
     ) IS NOT NULL
     AND (
-      (a.appointment_date::date + (a.appointment_time::time)) >=
-        (timezone(p_timezone, now()) + (s.remind_before_minutes || ' minutes')::interval)
+      date_trunc(
+        'minute',
+        (a.appointment_date::date + ((substring(a.appointment_time from 1 for 5) || ':00')::time))
+      ) >= (ctx.now_local + (s.remind_before_minutes || ' minutes')::interval)
       AND
-      (a.appointment_date::date + (a.appointment_time::time)) <
-        (timezone(p_timezone, now()) + ((s.remind_before_minutes + 5) || ' minutes')::interval)
+      date_trunc(
+        'minute',
+        (a.appointment_date::date + ((substring(a.appointment_time from 1 for 5) || ':00')::time))
+      ) < (ctx.now_local + ((s.remind_before_minutes + 5) || ' minutes')::interval)
     );
 $$;
 
