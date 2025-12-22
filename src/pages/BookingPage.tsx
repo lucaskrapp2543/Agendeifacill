@@ -313,9 +313,11 @@ export default function BookingPage() {
       // Verificar se o booking está bloqueado
       if (data.booking_blocked) {
         console.log('🚫 Booking bloqueado para este estabelecimento');
+        // ✅ Mesmo bloqueado, manter o estabelecimento carregado para permitir ações (ex.: botão para mandar mensagem)
+        setEstablishment(data);
         setIsBookingBlocked(true);
         setIsLoading(false);
-        return; // Não define o estabelecimento, então a mensagem será mostrada
+        return;
       }
 
       console.log('✅ Estabelecimento encontrado:', data);
@@ -913,6 +915,25 @@ export default function BookingPage() {
 
   // Verificar se o booking está bloqueado
   if (isBookingBlocked) {
+    const whatsappRaw = establishment?.whatsapp as string | undefined;
+    const whatsappDigits = (whatsappRaw || '').replace(/\D/g, '');
+    const whatsappE164 =
+      whatsappDigits.length === 0 ? '' : whatsappDigits.startsWith('55') ? whatsappDigits : `55${whatsappDigits}`;
+
+    const handleMandarMensagemBarbeiro = () => {
+      if (!whatsappE164) {
+        toast.error('WhatsApp do barbeiro não está cadastrado.');
+        return;
+      }
+
+      const mensagem = encodeURIComponent(
+        'Opa, fui agendar no Agendei Fácil e não consegui. O que houve?\n\n' +
+          'Preciso agendar e não abriu para mim. Diz: "Página desativada temporariamente".'
+      );
+
+      window.open(`https://wa.me/${whatsappE164}?text=${mensagem}`, '_blank', 'noopener,noreferrer');
+    };
+
     return (
       <div className="min-h-screen" style={{ backgroundColor: '#f0f6ff' }}>
         <div className="container-custom py-8">
@@ -920,6 +941,18 @@ export default function BookingPage() {
             <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
             <h1 className="text-2xl font-bold mb-4 text-gray-900">Estabelecimento Inativo</h1>
             <p className="text-gray-600 mb-4 text-lg">Este estabelecimento está inativo.</p>
+            <button
+              type="button"
+              onClick={handleMandarMensagemBarbeiro}
+              className="inline-flex items-center justify-center mt-2 mb-4 px-5 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors"
+            >
+              Mandar mensagem barbeiro
+            </button>
+            <div className="mt-1">
+              <div className="text-xs text-gray-500">
+                {whatsappE164 ? 'Abrirá o WhatsApp para falar com o estabelecimento.' : 'Estabelecimento sem WhatsApp cadastrado.'}
+              </div>
+            </div>
             <Link to="/" className="text-primary hover:underline">
               Voltar para a página inicial
             </Link>

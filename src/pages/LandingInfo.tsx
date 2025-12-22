@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import PlanosOuroDiamante from '../components/PlanosOuroDiamante';
 import WhatsAppButton from '../components/WhatsAppButton';
 
 const LandingInfo = () => {
@@ -585,146 +586,10 @@ const LandingInfo = () => {
             </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            {/* Plano Mensal */}
-            <div className="bg-white border-2 border-gray-200 rounded-2xl p-8 hover:border-blue-500 transition-all duration-300 shadow-lg">
-              <div className="text-center">
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">Plano Mensal</h3>
-                <div className="mb-6">
-                  <span className="text-4xl font-bold text-gray-900">R$ 67</span>
-                  <span className="text-xl text-gray-600">,90/mês</span>
-                </div>
-                <ul className="space-y-3 mb-8 text-left">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Agendamentos ilimitados</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Gestão completa de clientes</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Relatórios detalhados financeiro completo</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Confirmação automática por SMS</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Lucros diários e mensais</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Profissionais ilimitados</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Controle de % para colaboradores</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Cálculo por base taxa da maquininha</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Serviços ilimitados</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Sistema de prêmio para clientes fiéis</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Mensagem de lembrete para clientes</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Página de agendamentos exclusiva sua e personalizável</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Sistema de assinantes incluso</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Controle total de clientes novos e antigos e atuais</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Controle de clientes sumidos</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Ranking de clientes</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-4 w-4 text-green-500 mr-3 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm">Notificações em tempo real de agendamentos ou cancelamentos</span>
-                  </li>
-                </ul>
-                <div className="space-y-3">
-                  <a
-                    href="https://pay.kiwify.com.br/6sJj9tM"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block w-full py-3 px-6 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                  >
-                    Começar Agora
-                  </a>
-                </div>
-              </div>
-            </div>
-
-            {/* Plano Anual */}
-            <div className="bg-blue-600 border-2 border-blue-500 rounded-2xl p-8 hover:border-blue-400 transition-all duration-300 relative shadow-lg">
-              <div className="absolute -top-3 right-4 bg-yellow-400 text-black px-3 py-1 rounded-full text-sm font-medium">
-                4 meses grátis
-              </div>
-              <div className="text-center">
-                <h3 className="text-2xl font-bold text-white mb-2">Plano Anual</h3>
-                <div className="mb-2">
-                  <span className="text-sm text-gray-200 line-through">R$ 814,80</span>
-                </div>
-                <div className="mb-6">
-                  <span className="text-4xl font-bold text-white">R$ 679</span>
-                  <span className="text-xl text-gray-200">,90/ano</span>
-                </div>
-                <div className="mb-6 bg-blue-700 rounded-lg py-2 px-4">
-                  <span className="text-gray-200">Economize R$ 134,90 por ano</span>
-                </div>
-                <div className="mb-6 bg-yellow-500 rounded-lg py-3 px-4">
-                  <p className="text-black font-semibold text-sm">
-                    🎉 Paga 10 meses e ganha 4 meses a mais!
-                  </p>
-                  <p className="text-black text-xs mt-1">
-                    Você só vai renovar seu plano daqui a 1 ano e 4 meses 😉
-                  </p>
-                </div>
-                <ul className="space-y-4 mb-8 text-left">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-white mr-3" />
-                    <span className="text-white">Tudo do plano mensal</span>
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-white mr-3" />
-                    <span className="text-white">4 meses totalmente grátis</span>
-                  </li>
-                </ul>
-                <div className="space-y-3">
-                  <a
-                    href="https://pay.kiwify.com.br/uadfJqr"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block w-full py-3 px-6 text-center text-blue-600 bg-white hover:bg-gray-100 rounded-lg transition-colors font-semibold"
-                  >
-                    Começar Agora
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
+          <PlanosOuroDiamante
+            ouroHref="https://pay.kiwify.com.br/6sJj9tM"
+            diamanteHref="https://pay.kiwify.com.br/uadfJqr"
+          />
         </div>
       </section>
 

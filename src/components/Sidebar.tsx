@@ -519,7 +519,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {menuItems.map((item, index) => {
             const Icon = item.icon;
             const isIndicationItem = item.id === 'indication';
-            const isLembretesClientesItem = item.id === 'whatsapp-reminders';
+            const isWhatsappPremiumItem = item.id === 'whatsapp-reminders';
             const isLastItem = index === menuItems.length - 1;
 
             return (
@@ -532,27 +532,29 @@ const Sidebar: React.FC<SidebarProps> = ({
                       ? item.isActive
                         ? 'bg-white text-black shadow-md'
                         : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
-                      : isLembretesClientesItem && !item.disabled
-                        ? item.isActive
-                          ? 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 text-white shadow-lg shadow-amber-500/25 ring-1 ring-amber-200/40'
-                          : isLight
-                            ? 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-950 hover:from-amber-100 hover:to-yellow-100 border border-amber-200/80 shadow-sm hover:shadow-md hover:shadow-amber-500/15'
-                            : 'bg-gradient-to-r from-amber-500/15 to-yellow-500/10 text-amber-200 hover:from-amber-500/25 hover:to-yellow-500/20 border border-amber-400/20 shadow-sm shadow-amber-500/10'
-                      : item.isActive
-                        ? isLight
-                          ? 'bg-gray-900 text-white shadow-md'
-                          : 'bg-white text-black shadow-md'
-                        : item.disabled
-                          ? item.id === 'hours'
-                            ? isLight
-                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                              : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
+                      : isWhatsappPremiumItem
+                        ? item.disabled
+                          ? isLight
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                            : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
+                          : item.isActive
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black shadow-md border border-amber-200'
+                            : 'bg-gradient-to-r from-amber-300 to-yellow-400 text-black hover:from-amber-400 hover:to-yellow-500 shadow-md border border-amber-200'
+                        : item.isActive
+                          ? isLight
+                            ? 'bg-gray-900 text-white shadow-md'
+                            : 'bg-white text-black shadow-md'
+                          : item.disabled
+                            ? item.id === 'hours'
+                              ? isLight
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
+                              : isLight
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                                : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
                             : isLight
-                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
-                              : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
-                          : isLight
-                            ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
-                            : 'bg-transparent text-white'
+                              ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
+                              : 'bg-transparent text-white'
                       }`}
                     title={item.tooltip || (isExpanded ? '' : item.label)}
                   >
@@ -562,23 +564,21 @@ const Sidebar: React.FC<SidebarProps> = ({
                           ? item.isActive
                             ? 'text-black'
                             : 'text-white'
-                          : isLembretesClientesItem && !item.disabled
-                            ? item.isActive
-                              ? 'text-white'
-                              : isLight
-                                ? 'text-amber-700'
-                                : 'text-amber-300'
-                          : item.disabled
-                            ? item.id === 'hours'
-                              ? isLight ? 'text-gray-400' : 'text-black'
-                              : 'text-gray-500'
-                            : item.isActive
-                              ? isLight
-                                ? 'text-white'
-                                : 'text-black'
-                              : isLight
-                                ? 'text-gray-700'
-                                : 'text-white'
+                          : isWhatsappPremiumItem
+                            ? item.disabled
+                              ? 'text-gray-500'
+                              : 'text-black'
+                            : item.disabled
+                              ? item.id === 'hours'
+                                ? isLight ? 'text-gray-400' : 'text-black'
+                                : 'text-gray-500'
+                              : item.isActive
+                                ? isLight
+                                  ? 'text-white'
+                                  : 'text-black'
+                                : isLight
+                                  ? 'text-gray-700'
+                                  : 'text-white'
                           }`}
                       />
                       {item.showBadge && (
@@ -595,23 +595,21 @@ const Sidebar: React.FC<SidebarProps> = ({
                             ? item.isActive
                               ? 'text-black'
                               : 'text-white'
-                            : isLembretesClientesItem && !item.disabled
-                              ? item.isActive
-                                ? 'text-white'
-                                : isLight
-                                  ? 'text-amber-900'
-                                  : 'text-amber-300'
-                            : item.disabled && item.id === 'hours'
-                              ? isLight
-                                ? 'text-gray-500'
+                            : isWhatsappPremiumItem
+                              ? item.disabled
+                                ? 'text-gray-400'
                                 : 'text-black'
-                              : item.isActive
+                              : item.disabled && item.id === 'hours'
                                 ? isLight
-                                  ? 'text-white'
+                                  ? 'text-gray-500'
                                   : 'text-black'
-                                : isLight
-                                  ? 'text-gray-800'
-                                  : 'text-white'
+                                : item.isActive
+                                  ? isLight
+                                    ? 'text-white'
+                                    : 'text-black'
+                                  : isLight
+                                    ? 'text-gray-800'
+                                    : 'text-white'
                             }`}
                         >
                           {item.label}
@@ -622,23 +620,21 @@ const Sidebar: React.FC<SidebarProps> = ({
                               ? item.isActive
                                 ? 'text-black'
                                 : 'text-white'
-                              : isLembretesClientesItem && !item.disabled
-                                ? item.isActive
-                                  ? 'text-white'
-                                  : isLight
-                                    ? 'text-amber-700'
-                                    : 'text-amber-300'
-                              : item.disabled && item.id === 'hours'
-                                ? isLight
-                                  ? 'text-gray-500'
+                              : isWhatsappPremiumItem
+                                ? item.disabled
+                                  ? 'text-gray-400'
                                   : 'text-black'
-                                : item.isActive
+                                : item.disabled && item.id === 'hours'
                                   ? isLight
-                                    ? 'text-white'
+                                    ? 'text-gray-500'
                                     : 'text-black'
-                                  : isLight
-                                    ? 'text-gray-700'
-                                    : 'text-white'
+                                  : item.isActive
+                                    ? isLight
+                                      ? 'text-white'
+                                      : 'text-black'
+                                    : isLight
+                                      ? 'text-gray-700'
+                                      : 'text-white'
                               }`}
                           />
                         )}

@@ -10,3 +10,5 @@ ADD COLUMN IF NOT EXISTS pagarme_register_information jsonb;
 
 
 
+
+
