@@ -503,7 +503,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               />
               {isExpanded && (
                 <span className="text-sm font-medium whitespace-nowrap">
-                  Passo a passo
+                  Como funciona o Sistema
                 </span>
               )}
             </button>
@@ -511,7 +511,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             {/* Tooltip para menu recolhido */}
             {!isExpanded && (
               <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
-                Passo a passo
+                Como funciona o Sistema
               </div>
             )}
           </div>

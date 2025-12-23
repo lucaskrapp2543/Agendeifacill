@@ -149,6 +149,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [squeezeStartTime, setSqueezeStartTime] = useState('');
     const [squeezeEndTime, setSqueezeEndTime] = useState('');
 
+    // Modal: Horários disponíveis (somente visualização, para print)
+    const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+    const [availabilityProfessionalName, setAvailabilityProfessionalName] = useState<string>('');
+    const [availabilitySlots, setAvailabilitySlots] = useState<TimeSlot[]>([]);
+
     const formatCurrency = (value: number) => {
       return new Intl.NumberFormat('pt-BR', {
         style: 'currency',
@@ -1237,6 +1242,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           >
                             🟣 Criar Encaixe
                           </button>
+
+                          <button
+                            onClick={() => {
+                              setAvailabilityProfessionalName(professional.name);
+                              setAvailabilitySlots(timeSlots);
+                              setShowAvailabilityModal(true);
+                            }}
+                            className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
+                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                              }`}
+                            title="Ver horários disponíveis (somente visualização)"
+                          >
+                            <span className="inline-flex items-center justify-center gap-2">
+                              <Calendar className="h-4 w-4" />
+                              Horários disponíveis
+                            </span>
+                          </button>
                         </div>
 
                         {/* Contadores de Status por Profissional */}
@@ -1824,6 +1847,101 @@ export const AllProfessionalsAppointmentsView: React.FC<
             </div>
           </div>
         </div>
+
+      {/* Modal: Horários disponíveis (somente leitura) */}
+      {showAvailabilityModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-amber-500/30 bg-gradient-to-b from-[#0b0b0c] to-black">
+            <div className="p-4 border-b border-white/10">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-white font-extrabold text-lg">Horários disponíveis</div>
+                  <div className="text-xs text-white/70 mt-1">
+                    {availabilityProfessionalName} • {format(selectedDate, 'dd/MM/yyyy')}
+                  </div>
+                  <div className="text-[11px] text-white/60 mt-1">
+                    Visualização para print (não dá pra clicar/agendar).
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAvailabilityModal(false)}
+                  className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/15 text-white flex items-center justify-center"
+                  title="Fechar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 max-h-[70vh] overflow-y-auto">
+              {/* Grade no estilo do Booking (TimeSlotSelector) */}
+              <div className="grid grid-cols-4 gap-2">
+                {availabilitySlots.map((slot, idx) => {
+                  const appointment = slot.appointment || slot.parentAppointment;
+                  const isAvailable = slot.isEmpty && !slot.isBlocked;
+                  const isBlocked = slot.isBlocked;
+                  const isAvulso = Boolean((appointment as any)?.is_avulso);
+                  const isSqueeze = Boolean((appointment as any)?.is_squeeze);
+                  const isReserved = Boolean(appointment) && !isAvulso && !isSqueeze;
+
+                  const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isSqueeze;
+
+                  const badgeText = isAvulso
+                    ? 'RESERVA'
+                    : isSqueeze
+                      ? 'ENCAIXE'
+                      : isBlocked
+                        ? 'Horário Fechado'
+                        : isReserved
+                          ? 'Horário Reservado'
+                          : '';
+
+                  return (
+                    <button
+                      type="button"
+                      key={`${slot.time}-${idx}`}
+                      // Só visualização: não faz nada ao clicar
+                      onClick={() => { }}
+                      className={`
+                        px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 cursor-default
+                        ${isAvulso
+                          ? 'bg-orange-100 text-orange-800'
+                          : isSqueeze
+                            ? 'bg-purple-700 text-white'
+                            : isDisabled
+                              ? 'bg-red-600 text-white'
+                              : 'bg-green-600 text-white'
+                        }
+                      `}
+                      aria-disabled="true"
+                    >
+                      <div className="flex flex-col items-center">
+                        <span>{slot.time}</span>
+                        {badgeText && (
+                          <span className={`text-xs mt-1 ${isAvulso ? 'text-orange-600' : 'text-white'}`}>
+                            {badgeText}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowAvailabilityModal(false)}
+                className="w-full rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-extrabold py-3 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
         {/* Modal de Informações do Profissional */}
         {selectedProfessionalForInfo && (
