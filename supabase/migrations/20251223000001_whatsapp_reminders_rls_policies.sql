@@ -1,10 +1,10 @@
--- Módulo isolado: WhatsApp Reminders (WaSenderAPI)
--- 002 - Segurança (RLS + policies + triggers)
--- Objetivo: impedir exposição de `api_key_encrypted` no frontend.
+-- WhatsApp Reminders (WaSenderAPI) - RLS + Policies
+-- Motivo: corrigir erro "new row violates row-level security policy" ao salvar configs no Admin.
+-- Observação: este script NÃO expõe api_key_encrypted no frontend.
 
 BEGIN;
 
--- Helper: considerar "ADMIN" a conta de suporte (padrão já usado no projeto)
+-- Helper: conta ADMIN/SUPORTE (padrão usado no projeto)
 CREATE OR REPLACE FUNCTION public.is_admin_user()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -13,7 +13,7 @@ AS $$
   SELECT lower(coalesce(auth.jwt() ->> 'email', '')) = 'suporteagendeifacil@gmail.com'
 $$;
 
--- Helper: estabelecimento dono (mesmo padrão usado em `manual_clients`)
+-- Helper: dono do estabelecimento
 CREATE OR REPLACE FUNCTION public.is_owner_of_establishment(p_establishment_id uuid)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -60,7 +60,6 @@ ALTER TABLE public.whatsapp_reminder_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.whatsapp_reminder_logs ENABLE ROW LEVEL SECURITY;
 
 -- IMPORTANTE: bloquear leitura do campo sensível para anon/authenticated
--- (service_role continua tendo acesso via bypass de RLS e privilégios).
 REVOKE SELECT (api_key_encrypted) ON public.whatsapp_instances FROM anon, authenticated;
 
 -- Policies: whatsapp_instances

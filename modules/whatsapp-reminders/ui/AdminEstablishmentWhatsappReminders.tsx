@@ -33,6 +33,15 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
   const [instance, setInstance] = useState<InstanceRow | null>(null);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
 
+  const templatePadrao =
+    'Olá {client_name}! 👋\n' +
+    'Lembrete do seu agendamento em {establishment_name}.\n\n' +
+    '📅 {appointment_date}\n' +
+    '⏰ {appointment_time}\n' +
+    '✂️ {service_name}\n' +
+    '👨‍💼 {professional_name}\n\n' +
+    'Se precisar reagendar, fale com a barbearia.';
+
   const [phoneNumber, setPhoneNumber] = useState('');
   const [status, setStatus] = useState<InstanceRow['status']>('pending');
   const [enabled, setEnabled] = useState(false);
@@ -74,7 +83,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
       setStatus(String((inst as any)?.status || 'pending'));
       setEnabled(Boolean((cfg as any)?.enabled ?? false));
       setRemindBeforeMinutes(Number((cfg as any)?.remind_before_minutes ?? 60));
-      setMessageTemplate(String((cfg as any)?.message_template || ''));
+      setMessageTemplate(String((cfg as any)?.message_template || '').trim() || templatePadrao);
     } catch (e) {
       console.error(e);
       toast.error('Erro ao carregar config de WhatsApp');
@@ -92,6 +101,8 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
     if (!establishmentId) return;
     setLoading(true);
     try {
+      const existeInstancia = Boolean(instance?.establishment_id);
+
       // 1) Settings
       const { error: sErr } = await supabase.from('whatsapp_reminder_settings').upsert(
         {
@@ -106,6 +117,12 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
 
       // 2) Instance (phone/status/provider + api_key_encrypted opcional)
       if (phoneNumber.trim()) {
+        // Se a instância foi apagada (número banido / recadastro), precisamos do ciphertext de novo
+        if (!existeInstancia && !apiKeyEncrypted.trim()) {
+          toast.error('Cole a API Key (criptografada) para cadastrar um novo número.');
+          return;
+        }
+
         const payload: any = {
           establishment_id: establishmentId,
           provider: 'wasender',
