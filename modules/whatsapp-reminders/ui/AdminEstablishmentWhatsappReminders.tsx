@@ -42,6 +42,21 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
     '👨‍💼 {professional_name}\n\n' +
     'Se precisar reagendar, fale com a barbearia.';
 
+  const isCiphertextValido = (ciphertextB64: string) => {
+    // Validação local (sem chave): apenas checa formato e versão do payload.
+    // Formato esperado: base64( version(1 byte=1) | iv(12) | tag(16) | data(>=1) )
+    try {
+      const normalized = String(ciphertextB64 || '').replace(/\s+/g, '');
+      if (!normalized) return false;
+      const bin = atob(normalized);
+      if (!bin || bin.length < 1 + 12 + 16 + 1) return false;
+      const versionByte = bin.charCodeAt(0);
+      return versionByte === 1;
+    } catch {
+      return false;
+    }
+  };
+
   const [phoneNumber, setPhoneNumber] = useState('');
   const [status, setStatus] = useState<InstanceRow['status']>('pending');
   const [enabled, setEnabled] = useState(false);
@@ -120,6 +135,14 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
         // Se a instância foi apagada (número banido / recadastro), precisamos do ciphertext de novo
         if (!existeInstancia && !apiKeyEncrypted.trim()) {
           toast.error('Cole a API Key (criptografada) para cadastrar um novo número.');
+          return;
+        }
+
+        // Se colou algo, validar formato antes de salvar (evita quebrar o job com ciphertext inválido)
+        if (apiKeyEncrypted.trim() && !isCiphertextValido(apiKeyEncrypted.trim())) {
+          toast.error(
+            'API Key criptografada inválida. Gere pelo helper do projeto (encryptApiKey.ts) e cole o resultado (base64).'
+          );
           return;
         }
 
