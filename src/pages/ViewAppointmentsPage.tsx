@@ -144,16 +144,16 @@ export default function ViewAppointmentsPage() {
 
   const getStatusBadge = (status: string) => {
     const statusMap: any = {
-      'completed': { text: 'Concluído', color: 'bg-green-100 text-green-800' },
-      'cancelled': { text: 'Cancelado', color: 'bg-red-100 text-red-800' },
-      'confirmed': { text: 'Confirmado', color: 'bg-blue-100 text-blue-800' },
-      'pending': { text: 'Pendente', color: 'bg-yellow-100 text-yellow-800' },
+      'completed': { text: 'Concluído', color: 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/25' },
+      'cancelled': { text: 'Cancelado', color: 'bg-red-500/15 text-red-200 border border-red-400/25' },
+      'confirmed': { text: 'Confirmado', color: 'bg-[#E6C78B]/15 text-[#E6C78B] border border-[#E6C78B]/25' },
+      'pending': { text: 'Pendente', color: 'bg-amber-500/15 text-amber-200 border border-amber-400/25' },
     };
 
     const statusInfo = statusMap[status] || { text: status, color: 'bg-gray-100 text-gray-800' };
 
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.color}`}>
+      <span className={`px-2 py-1 rounded-full text-xs font-extrabold ${statusInfo.color}`}>
         {statusInfo.text}
       </span>
     );
@@ -858,14 +858,15 @@ Por favor, confirme o cancelamento. Obrigado!`;
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="app-background">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
+      <div className="border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
         <div className="container-custom py-4">
           <div className="flex items-center justify-between mb-4">
             <button
               onClick={() => navigate('/')}
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+              className="flex items-center gap-2 transition-colors"
+              style={{ color: '#A1A1A1' }}
             >
               <ArrowLeft className="w-5 h-5" />
               <span>Voltar</span>
@@ -873,13 +874,20 @@ Por favor, confirme o cancelamento. Obrigado!`;
             {appointments.length > 0 && (
               <button
                 onClick={handleLogout}
-                className="px-4 py-2 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors font-medium"
+                className="px-4 py-2 text-sm rounded-xl transition-colors font-semibold hover:bg-white/5"
+                style={{
+                  background: '#151515',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  color: '#A1A1A1'
+                }}
               >
                 Desconectar
               </button>
             )}
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Meus Agendamentos</h1>
+          <h1 className="text-2xl font-extrabold" style={{ color: '#E6C78B' }}>
+            Meus Agendamentos
+          </h1>
 
           {/* Botões de Ação */}
           {appointments.length > 0 && (
@@ -887,7 +895,8 @@ Por favor, confirme o cancelamento. Obrigado!`;
               {/* Botão Agendar Novamente */}
               <button
                 onClick={handleBookAgain}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center gap-2"
+                className="px-4 py-3 rounded-xl transition-colors font-extrabold flex items-center justify-center gap-2 active:scale-[0.99]"
+                style={{ background: '#E6C78B', color: '#0B0B0B' }}
               >
                 <Calendar className="w-4 h-4" />
                 Agendar novamente
@@ -897,7 +906,12 @@ Por favor, confirme o cancelamento. Obrigado!`;
               {!isPWA() && (
                 <button
                   onClick={handleDownloadApp}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
+                  className="px-4 py-3 rounded-xl transition-colors font-semibold flex items-center justify-center gap-2 hover:bg-white/5"
+                  style={{
+                    background: '#151515',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    color: '#A1A1A1'
+                  }}
                 >
                   <Download className="w-4 h-4" />
                   Baixar app
@@ -911,16 +925,33 @@ Por favor, confirme o cancelamento. Obrigado!`;
       {/* Content */}
       <div className="container-custom py-6">
         {appointments.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Phone className="w-8 h-8 text-blue-600" />
+          <div
+            className="p-8 text-center"
+            style={{
+              background: '#1A1A1A',
+              borderRadius: '20px',
+              border: '1px solid rgba(255,255,255,0.06)',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+            }}
+          >
+            <div
+              className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+              style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              <Phone className="w-8 h-8" style={{ color: '#E6C78B' }} />
             </div>
-            <p className="text-gray-600">Informe seu telefone para ver seus agendamentos</p>
+            <p style={{ color: '#A1A1A1' }}>Informe seu telefone para ver seus agendamentos</p>
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-              <p className="text-sm text-blue-800">
+            <div
+              className="rounded-2xl p-4 mb-6"
+              style={{
+                background: 'rgba(230,199,139,0.08)',
+                border: '1px solid rgba(230,199,139,0.18)'
+              }}
+            >
+              <p className="text-sm text-white/85">
                 <strong>Encontrado(s):</strong> {appointments.length} agendamento(s)
               </p>
             </div>
@@ -928,15 +959,21 @@ Por favor, confirme o cancelamento. Obrigado!`;
             {appointments.map((appointment) => (
               <div
                 key={appointment.id}
-                className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+                className="p-6 transition-shadow"
+                style={{
+                  background: '#1A1A1A',
+                  borderRadius: '20px',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                }}
               >
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                    <h3 className="text-lg font-extrabold text-white mb-1">
                       {appointment.service_name || appointment.service || 'Serviço não especificado'}
                     </h3>
-                    <p className="text-sm text-gray-600">
-                      <MapPin className="w-4 h-4 inline mr-1" />
+                    <p className="text-sm" style={{ color: '#A1A1A1' }}>
+                      <MapPin className="w-4 h-4 inline mr-1" style={{ color: '#A1A1A1' }} />
                       {appointment.establishments?.name || appointment.establishment_name || 'Estabelecimento não especificado'}
                     </p>
                   </div>
@@ -944,32 +981,32 @@ Por favor, confirme o cancelamento. Obrigado!`;
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div className="flex items-center gap-2 text-gray-700">
-                    <Calendar className="w-5 h-5 text-gray-400" />
-                    <span className="text-sm">{formatDate(appointment.appointment_date)}</span>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5" style={{ color: '#A1A1A1' }} />
+                    <span className="text-sm" style={{ color: '#A1A1A1' }}>{formatDate(appointment.appointment_date)}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-gray-700">
-                    <Clock className="w-5 h-5 text-gray-400" />
-                    <span className="text-sm">{appointment.appointment_time}</span>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-5 h-5" style={{ color: '#A1A1A1' }} />
+                    <span className="text-sm" style={{ color: '#A1A1A1' }}>{appointment.appointment_time}</span>
                   </div>
                   {appointment.professional_name && (
-                    <div className="flex items-center gap-2 text-gray-700">
-                      <User className="w-5 h-5 text-gray-400" />
-                      <span className="text-sm">{appointment.professional_name}</span>
+                    <div className="flex items-center gap-2">
+                      <User className="w-5 h-5" style={{ color: '#A1A1A1' }} />
+                      <span className="text-sm" style={{ color: '#A1A1A1' }}>{appointment.professional_name}</span>
                     </div>
                   )}
                   {appointment.duration && (
-                    <div className="flex items-center gap-2 text-gray-700">
-                      <Clock className="w-5 h-5 text-gray-400" />
-                      <span className="text-sm">Duração: {appointment.duration} min</span>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-5 h-5" style={{ color: '#A1A1A1' }} />
+                      <span className="text-sm" style={{ color: '#A1A1A1' }}>Duração: {appointment.duration} min</span>
                     </div>
                   )}
                 </div>
 
                 {appointment.client_name && (
-                  <div className="pt-4 border-t border-gray-200 mb-4">
-                    <p className="text-sm text-gray-600">
-                      <User className="w-4 h-4 inline mr-1" />
+                  <div className="pt-4 mb-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <p className="text-sm" style={{ color: '#A1A1A1' }}>
+                      <User className="w-4 h-4 inline mr-1" style={{ color: '#A1A1A1' }} />
                       Cliente: {appointment.client_name}
                     </p>
                   </div>
@@ -977,10 +1014,10 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
                 {/* Código do Estabelecimento */}
                 {(appointment.establishment_code || appointment.establishments?.code) && (
-                  <div className="bg-blue-50 rounded-lg p-3 mb-4">
-                    <div className="flex items-center gap-2 text-blue-700">
-                      <span className="text-sm font-medium">Código:</span>
-                      <code className="text-sm bg-blue-100 px-2 py-1 rounded font-mono">
+                  <div className="rounded-2xl p-3 mb-4" style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="flex items-center gap-2" style={{ color: '#A1A1A1' }}>
+                      <span className="text-sm font-semibold">Código:</span>
+                      <code className="text-sm px-2 py-1 rounded font-mono" style={{ background: 'rgba(230,199,139,0.10)', color: '#E6C78B' }}>
                         booking/{appointment.establishment_code || appointment.establishments?.code}
                       </code>
                     </div>

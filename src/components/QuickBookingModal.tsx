@@ -182,14 +182,28 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div
+        className="w-full max-w-md mx-auto max-h-[90vh] flex flex-col overflow-hidden"
+        style={{
+          background: '#1A1A1A',
+          borderRadius: '20px',
+          border: '1px solid rgba(255,255,255,0.06)',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+        }}
+      >
         {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b border-gray-200 flex-shrink-0">
-          <h2 className="text-lg font-bold text-gray-900">Finalizar Agendamento</h2>
+        <div
+          className="flex justify-between items-center p-4 flex-shrink-0"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <h2 className="text-lg font-extrabold" style={{ color: '#E6C78B' }}>
+            Finalizar Agendamento
+          </h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 transition-colors"
+            className="transition-colors"
+            style={{ color: '#A1A1A1' }}
           >
             <X className="h-5 w-5" />
           </button>
@@ -198,17 +212,26 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
         {/* Content - Scrollável */}
         <div className="overflow-y-auto flex-1">
           <div className="p-4 space-y-3">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                <strong>Agendamento para:</strong> {establishmentName}
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                background: '#151515',
+                border: '1px solid rgba(255,255,255,0.06)'
+              }}
+            >
+              <p className="text-sm" style={{ color: '#A1A1A1' }}>
+                <span className="font-semibold" style={{ color: '#E6C78B' }}>
+                  Agendamento para:
+                </span>{' '}
+                <span className="text-white">{establishmentName}</span>
               </p>
-              <p className="text-xs text-blue-600 mt-1">
+              <p className="text-xs mt-2" style={{ color: '#A1A1A1' }}>
                 Informe seus dados para prosseguir com o agendamento
               </p>
             </div>
 
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="name" className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
                 Nome Completo *
               </label>
               <input
@@ -217,13 +240,17 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Seu nome completo"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                className="w-full px-4 py-3 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#E6C78B]/25"
+                style={{
+                  background: '#151515',
+                  border: '1px solid rgba(255,255,255,0.06)'
+                }}
                 required
               />
             </div>
 
             <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="phone" className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
                 Telefone com DDD *
               </label>
               <input
@@ -241,7 +268,11 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
                   if (cleanWhatsapp.startsWith('1')) return "Ex: +1 (555) 123-4567";
                   return "(00) 00000-0000";
                 })()}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                className="w-full px-4 py-3 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#E6C78B]/25"
+                style={{
+                  background: '#151515',
+                  border: '1px solid rgba(255,255,255,0.06)'
+                }}
                 required
                 maxLength={20}
                 onFocus={(e) => {
@@ -257,25 +288,44 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
               />
             </div>
 
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-600">
-                💡 <strong>Dica:</strong> Você poderá ver seus agendamentos futuros apenas informando este telefone
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                background: 'rgba(230,199,139,0.06)',
+                border: '1px solid rgba(230,199,139,0.16)'
+              }}
+            >
+              <p className="text-xs" style={{ color: '#A1A1A1' }}>
+                💡 <span className="font-semibold" style={{ color: '#E6C78B' }}>Dica:</span> Você poderá ver seus agendamentos
+                futuros apenas informando este telefone
               </p>
             </div>
           </div>
         </div>
 
         {/* Footer - Fixo na parte inferior */}
-        <div className="flex gap-3 p-4 border-t border-gray-200 bg-white flex-shrink-0">
+        <div
+          className="flex gap-3 p-4 flex-shrink-0"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+        >
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-3 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            className="flex-1 px-4 py-3 rounded-xl transition-colors font-semibold hover:bg-white/5"
+            style={{
+              color: '#A1A1A1',
+              background: '#151515',
+              border: '1px solid rgba(255,255,255,0.06)'
+            }}
           >
             Cancelar
           </button>
           <button
             onClick={handleContinue}
-            className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            className="flex-1 px-4 py-3 rounded-xl transition-colors font-extrabold active:scale-[0.99]"
+            style={{
+              background: '#E6C78B',
+              color: '#0B0B0B'
+            }}
           >
             Continuar
           </button>

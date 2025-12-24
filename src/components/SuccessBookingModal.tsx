@@ -34,24 +34,32 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
   const isConfirmationStep = step === 'confirmation';
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-md mx-auto">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div
+        className="w-full max-w-md mx-auto overflow-hidden"
+        style={{
+          background: '#1A1A1A',
+          borderRadius: '20px',
+          border: '1px solid rgba(255,255,255,0.06)',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+        }}
+      >
         <div className="p-6">
           {/* Ícone */}
           <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-              <CheckCircle className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <CheckCircle className="w-8 h-8" style={{ color: '#E6C78B' }} />
             </div>
           </div>
 
           {/* Título */}
-          <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
+          <h2 className="text-xl font-extrabold text-center mb-2" style={{ color: '#E6C78B' }}>
             {isConfirmationStep ? 'Confirmação' :
               enableWhatsAppNotifications ? 'Está quase lá!' : 'Agendamento concluído com sucesso!'}
           </h2>
 
           {/* Mensagem principal */}
-          <p className="text-gray-600 text-center mb-6">
+          <p className="text-center mb-6" style={{ color: '#A1A1A1' }}>
             {isConfirmationStep
               ? 'Tem certeza que deseja não ativar o lembrete? Se não ativar, você pode esquecer de ir e prejudicar seu profissional.'
               : enableWhatsAppNotifications
@@ -62,9 +70,9 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
 
           {/* Dados do agendamento (apenas no passo inicial) */}
           {!isConfirmationStep && appointmentData && (
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <h3 className="font-semibold text-gray-900 mb-2">Detalhes do agendamento:</h3>
-              <div className="space-y-1 text-sm text-gray-600">
+            <div className="rounded-2xl p-4 mb-6" style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <h3 className="font-extrabold text-white mb-2">Detalhes do agendamento:</h3>
+              <div className="space-y-1 text-sm" style={{ color: '#A1A1A1' }}>
                 <p><strong>Serviço:</strong> {appointmentData.serviceName}</p>
                 <p><strong>Local:</strong> {appointmentData.establishmentName}</p>
                 <p><strong>Data:</strong> {appointmentData.appointmentDate}</p>
@@ -78,7 +86,8 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
             {isConfirmationStep && (
               <button
                 onClick={() => onClose()}
-                className="flex-1 px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-3 rounded-xl transition-colors font-semibold hover:bg-white/5"
+                style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)', color: '#A1A1A1' }}
               >
                 Voltar
               </button>
@@ -89,7 +98,8 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
               // Nova interface para WhatsApp
               <button
                 onClick={onConfirmWhatsApp}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-3 rounded-xl transition-colors font-extrabold flex items-center justify-center gap-2 active:scale-[0.99]"
+                style={{ background: '#E6C78B', color: '#0B0B0B' }}
               >
                 <CheckCircle className="w-4 h-4" />
                 Confirmar
@@ -99,10 +109,10 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
               <>
                 <button
                   onClick={isConfirmationStep ? onActivateReminder : onDontActivate}
-                  className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isConfirmationStep
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
+                  className="flex-1 px-4 py-3 rounded-xl transition-colors flex items-center justify-center gap-2 font-extrabold"
+                  style={isConfirmationStep
+                    ? { background: '#E6C78B', color: '#0B0B0B' }
+                    : { background: '#151515', border: '1px solid rgba(255,255,255,0.06)', color: '#A1A1A1' }}
                 >
                   {isConfirmationStep ? (
                     <>
@@ -119,10 +129,10 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
 
                 <button
                   onClick={isConfirmationStep ? onDontActivate : onActivateReminder}
-                  className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isConfirmationStep
-                    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                    }`}
+                  className="flex-1 px-4 py-3 rounded-xl transition-colors flex items-center justify-center gap-2 font-extrabold"
+                  style={isConfirmationStep
+                    ? { background: '#151515', border: '1px solid rgba(255,255,255,0.06)', color: '#A1A1A1' }
+                    : { background: '#E6C78B', color: '#0B0B0B' }}
                 >
                   {isConfirmationStep ? (
                     <>

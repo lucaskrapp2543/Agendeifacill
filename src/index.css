@@ -90,6 +90,71 @@ body {
   .time-slot-blocked {
     @apply bg-red-600 border-red-700 text-white cursor-not-allowed;
   }
+
+  /* Booking: botão redondo premium (arco de luz + highlight) */
+  .booking-social-icon {
+    position: relative;
+    width: 68px;
+    height: 68px;
+    border-radius: 9999px;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(0, 0, 0, 0.35) 100%),
+      rgba(26, 26, 26, 0.65);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    /* borda leve e discreta (sem ficar “chapada”) */
+    outline: 1px solid rgba(255, 255, 255, 0.12);
+    outline-offset: -1px;
+  }
+
+  /* ARCO DE LUZ (obrigatório) */
+  .booking-social-icon::before {
+    content: '';
+    position: absolute;
+    bottom: -18px;
+    left: -10%;
+    width: 120%;
+    height: 46px;
+    background: radial-gradient(
+      circle at 35% 110%,
+      rgba(230, 199, 139, 0.55) 0%,
+      rgba(230, 199, 139, 0.32) 25%,
+      rgba(230, 199, 139, 0.16) 40%,
+      transparent 60%
+    );
+    filter: blur(14px);
+    opacity: 0.85;
+    pointer-events: none;
+  }
+
+  /* Highlight especular (detalhe pro) */
+  .booking-social-icon::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 40px;
+    height: 40px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, transparent 60%);
+    filter: blur(8px);
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  /* Fundo premium (camadas) - Booking */
+  .app-background {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.42) 100%),
+      radial-gradient(circle at top center, #262626 0%, #161616 35%, #0b0b0b 70%),
+      #0b0b0b;
+  }
+
+  /* Ícones monocromáticos em dourado premium (#E6C78B) */
+  .amenity-icon-gold {
+    filter: brightness(0) saturate(100%) invert(82%) sepia(22%) saturate(528%) hue-rotate(4deg)
+      brightness(95%) contrast(92%);
+  }
 }
 
 @layer utilities {

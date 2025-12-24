@@ -1336,23 +1336,23 @@ export function AppointmentForm({
       </style>
 
       {/* Barra de Progresso */}
-      <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
+      <div className="w-full bg-white/10 rounded-full h-3 mb-4 overflow-hidden">
         <div
-          className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out"
+          className="bg-gradient-to-r from-[#e6d7b1] to-[#d9c08c] h-3 rounded-full transition-all duration-500 ease-out"
           style={{ width: `${progress}%` }}
         ></div>
       </div>
-      <div className="text-center text-sm text-gray-600 mb-4">
+      <div className="text-center text-sm text-white/70 mb-4">
         Etapa {currentStep} de {totalSteps}
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg shadow-sm">
+      <form onSubmit={handleSubmit} className="space-y-6 bg-black/30 p-6 rounded-2xl border border-white/10 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
         {/* 1. NOME DO CLIENTE */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-semibold text-white/80 mb-2">
             {isEstablishmentOwner ? '1. Nome do Cliente (Reserva pelo Estabelecimento)' : '1. Nome do Cliente'}
             {isNewClientUser && !isEstablishmentOwner && (
-              <span className="text-xs text-gray-500 ml-2">(Dados fixos do cadastro)</span>
+              <span className="text-xs text-white/50 ml-2">(Dados fixos do cadastro)</span>
             )}
           </label>
           <div className="flex gap-2">
@@ -1360,7 +1360,7 @@ export function AppointmentForm({
               type="text"
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
-              className={`flex-1 px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 ${isNewClientUser && !isEstablishmentOwner ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+              className={`flex-1 px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#e6d7b1]/30 focus:border-[#e6d7b1]/40 ${isNewClientUser && !isEstablishmentOwner ? 'opacity-60 cursor-not-allowed' : ''
                 }`}
               placeholder="Digite seu nome"
               required
@@ -1370,24 +1370,24 @@ export function AppointmentForm({
               type="button"
               onClick={forceUpdateUserData}
               disabled={isLoadingUserData}
-              className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+              className="px-3 py-2 bg-white/10 text-white rounded-xl hover:bg-white/15 disabled:opacity-50 text-sm font-semibold border border-white/10"
               title="Atualizar dados do usuário"
             >
               {isLoadingUserData ? '...' : '🔄'}
             </button>
           </div>
           {user && clientName && (
-            <p className="mt-1 text-sm text-blue-600 italic">
+            <p className="mt-1 text-sm text-[#e6d7b1] italic">
               Esse é seu nome?
             </p>
           )}
           {isSubscriberBooking && (
-            <p className="mt-1 text-sm text-green-600 font-medium">
+            <p className="mt-1 text-sm text-emerald-300 font-semibold">
               📌 O sufixo "(ASSINANTE)" é fixo para identificação do estabelecimento
             </p>
           )}
           {isEstablishmentOwner && (
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-white/60">
               Você está fazendo uma reserva como estabelecimento para um cliente.
             </p>
           )}
@@ -1395,12 +1395,12 @@ export function AppointmentForm({
 
         {/* 2. WHATSAPP */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-semibold text-white/80 mb-2">
             <div className="flex items-center gap-2">
-              <Phone className="w-4 h-4" />
+              <Phone className="w-4 h-4 text-white/70" />
               <span>2. WhatsApp</span>
               {isNewClientUser && !isEstablishmentOwner && (
-                <span className="text-xs text-gray-500 ml-2">(Dados fixos do cadastro)</span>
+                <span className="text-xs text-white/50 ml-2">(Dados fixos do cadastro)</span>
               )}
             </div>
           </label>
@@ -1409,7 +1409,7 @@ export function AppointmentForm({
               type="tel"
               value={clientWhatsapp}
               onChange={handleWhatsappChange}
-              className={`flex-1 px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 ${isNewClientUser && !isEstablishmentOwner ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+              className={`flex-1 px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#e6d7b1]/30 focus:border-[#e6d7b1]/40 ${isNewClientUser && !isEstablishmentOwner ? 'opacity-60 cursor-not-allowed' : ''
                 }`}
               placeholder="(00) 00000-0000"
               required
@@ -1420,14 +1420,14 @@ export function AppointmentForm({
               type="button"
               onClick={forceUpdateUserData}
               disabled={isLoadingUserData}
-              className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+              className="px-3 py-2 bg-white/10 text-white rounded-xl hover:bg-white/15 disabled:opacity-50 text-sm font-semibold border border-white/10"
               title="Atualizar dados do usuário"
             >
               {isLoadingUserData ? '...' : '🔄'}
             </button>
           </div>
           {user && clientWhatsapp && (
-            <p className="mt-1 text-sm text-blue-600 italic">
+            <p className="mt-1 text-sm text-[#e6d7b1] italic">
               Esse é seu WhatsApp?
             </p>
           )}
@@ -1436,22 +1436,22 @@ export function AppointmentForm({
         {/* 3. CPF (Condicional - Só aparece se o estabelecimento solicitar) */}
         {establishment?.require_cpf && !isSubscriberBooking && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-semibold text-white/80 mb-2">
               <div className="flex items-center gap-2">
                 <span>3. CPF</span>
-                <span className="text-red-500 font-bold">*</span>
+                <span className="text-red-300 font-extrabold">*</span>
               </div>
             </label>
             <input
               type="text"
               value={clientCpf}
               onChange={handleCpfChange}
-              className="w-full px-4 py-2 rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary text-gray-900 placeholder-gray-400 bg-white"
+              className="w-full px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#e6d7b1]/30 focus:border-[#e6d7b1]/40"
               placeholder="000.000.000-00"
               required
               maxLength={14}
             />
-            <p className="mt-1 text-xs text-gray-500 italic">
+            <p className="mt-1 text-xs text-white/55 italic">
               ℹ️ Este estabelecimento solicita CPF pois emite nota fiscal dos serviços.
             </p>
           </div>
@@ -1469,9 +1469,9 @@ export function AppointmentForm({
             return shouldShow;
           })() && (
               <div
-                className={`mt-3 p-3 border rounded-lg ${detectedSubscriber.is_expired
-                  ? 'bg-red-50 border-red-200'
-                  : 'bg-green-50 border-green-200'
+                className={`mt-3 p-4 rounded-2xl border ${detectedSubscriber.is_expired
+                  ? 'bg-red-500/10 border-red-500/25'
+                  : 'bg-emerald-500/10 border-emerald-400/25'
                   }`}
                 ref={(el) => {
                   if (el) {
@@ -1485,34 +1485,34 @@ export function AppointmentForm({
               >
                 <div className="flex items-center gap-2">
                   <div className={`w-2 h-2 rounded-full ${detectedSubscriber.is_expired
-                    ? 'bg-red-500'
-                    : 'bg-green-500 animate-pulse'
+                    ? 'bg-red-400'
+                    : 'bg-emerald-400 animate-pulse'
                     }`}></div>
                   <span className={`text-sm font-medium ${detectedSubscriber.is_expired
-                    ? 'text-red-800'
-                    : 'text-green-800'
+                    ? 'text-red-200'
+                    : 'text-emerald-200'
                     }`}>
                     {detectedSubscriber.is_expired ? '⚠️ Plano Vencido Detectado!' : '🎯 Assinante detectado automaticamente!'}
                   </span>
                 </div>
 
                 <p className={`text-sm mt-1 ${detectedSubscriber.is_expired
-                  ? 'text-red-700'
-                  : 'text-green-700'
+                  ? 'text-red-200/90'
+                  : 'text-emerald-200/90'
                   }`}>
                   <strong>Plano:</strong> {detectedSubscriber.subscription_name || 'Plano não identificado'}
                 </p>
 
                 <p className={`text-sm ${detectedSubscriber.is_expired
-                  ? 'text-red-700'
-                  : 'text-green-700'
+                  ? 'text-red-200/90'
+                  : 'text-emerald-200/90'
                   }`}>
                   <strong>Válido até:</strong> {format(new Date(detectedSubscriber.end_date), 'dd/MM/yyyy', { locale: ptBR })}
                 </p>
 
                 {detectedSubscriber.is_expired && (
-                  <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded">
-                    <p className="text-sm text-red-800 font-medium">
+                  <div className="mt-2 p-3 bg-red-500/10 border border-red-500/25 rounded-xl">
+                    <p className="text-sm text-red-200 font-medium">
                       {detectedSubscriber.expiration_message || 'Seu plano venceu. Renove para continuar agendando.'}
                     </p>
                   </div>
@@ -1849,7 +1849,7 @@ export function AppointmentForm({
         {/* STEP 1: PROFISSIONAL */}
         {currentStep === 1 && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
               1. Escolha o Profissional
             </label>
             <ProfessionalSelector
@@ -1918,13 +1918,18 @@ export function AppointmentForm({
                 <button
                   type="button"
                   onClick={goToPreviousStep}
-                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                  className="px-4 py-2 rounded-xl transition-colors font-semibold hover:bg-white/5"
+                  style={{
+                    background: '#151515',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    color: '#A1A1A1'
+                  }}
                 >
                   ← Voltar
                 </button>
               </div>
             )}
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
               4. Escolha o Serviço
             </label>
 
@@ -1941,10 +1946,12 @@ export function AppointmentForm({
                     setSelectedCategory(null);
                     setSelectedSubcategory(null);
                   }}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${useMultiService && !useCategoryService
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
+                  className="px-4 py-2 rounded-xl text-sm font-extrabold transition-colors"
+                  style={{
+                    background: useMultiService && !useCategoryService ? '#E6C78B' : '#151515',
+                    color: useMultiService && !useCategoryService ? '#0B0B0B' : '#A1A1A1',
+                    border: '1px solid rgba(255,255,255,0.06)'
+                  }}
                 >
                   Escolha 1 ou mais serviços
                 </button>
@@ -1959,10 +1966,12 @@ export function AppointmentForm({
                   setSelectedService(undefined);
                   setSelectedServices([]);
                 }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${useCategoryService
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
+                className="px-4 py-2 rounded-xl text-sm font-extrabold transition-colors"
+                style={{
+                  background: useCategoryService ? '#E6C78B' : '#151515',
+                  color: useCategoryService ? '#0B0B0B' : '#A1A1A1',
+                  border: '1px solid rgba(255,255,255,0.06)'
+                }}
               >
                 SERVIÇOS EM CATEGORIA
               </button>
@@ -2002,25 +2011,36 @@ export function AppointmentForm({
                       setUseMultiCategoryService(true);
                       setSelectedSubcategory(null);
                     }}
-                    className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-primary text-white"
+                    className="px-4 py-2 rounded-xl text-sm font-extrabold transition-colors"
+                    style={{
+                      background: '#E6C78B',
+                      color: '#0B0B0B',
+                      border: '1px solid rgba(255,255,255,0.06)'
+                    }}
                   >
                     Escolha 1 ou mais serviços
                   </button>
                 </div>
 
                 {serviceCategories.length === 0 ? (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div
+                    className="rounded-2xl p-4"
+                    style={{
+                      background: 'rgba(230,199,139,0.08)',
+                      border: '1px solid rgba(230,199,139,0.18)'
+                    }}
+                  >
                     <div className="flex items-center">
                       <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                        <svg className="h-5 w-5" style={{ color: '#E6C78B' }} viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                         </svg>
                       </div>
                       <div className="ml-3">
-                        <h3 className="text-sm font-medium text-yellow-800">
+                        <h3 className="text-sm font-extrabold text-white">
                           Nenhuma categoria cadastrada
                         </h3>
-                        <div className="mt-2 text-sm text-yellow-700">
+                        <div className="mt-2 text-sm" style={{ color: '#A1A1A1' }}>
                           <p>O estabelecimento ainda não cadastrou categorias de serviços.</p>
                           <p className="mt-1">Use as outras opções de serviço disponíveis.</p>
                         </div>
@@ -2031,9 +2051,17 @@ export function AppointmentForm({
                   <div className="space-y-4">
                     {/* Seletor de Categoria - CATEGORIAS VISÍVEIS */}
                     <div>
-                      <label className="block text-lg font-bold text-blue-700 mb-3 bg-blue-50 p-3 rounded-lg border-2 border-blue-400">
-                        📋 Selecione uma categoria
-                      </label>
+                      <div
+                        className="p-3 rounded-2xl mb-3"
+                        style={{
+                          background: '#151515',
+                          border: '1px solid rgba(255,255,255,0.06)'
+                        }}
+                      >
+                        <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
+                          📋 Selecione uma categoria
+                        </div>
+                      </div>
                       {/* Lista de categorias como botões visíveis */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {serviceCategories.map((category) => (
@@ -2063,22 +2091,26 @@ export function AppointmentForm({
                                 }
                               }, 200);
                             }}
-                            className={`
-                              p-4 rounded-lg border-2 transition-all text-left
-                              ${selectedCategory === category.id
-                                ? 'bg-blue-600 text-white border-blue-700 shadow-lg transform scale-105'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                              }
-                            `}
+                            className="p-4 rounded-2xl transition-all text-left"
+                            style={{
+                              background: selectedCategory === category.id ? '#E6C78B' : '#151515',
+                              color: selectedCategory === category.id ? '#0B0B0B' : '#FFFFFF',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+                              transform: selectedCategory === category.id ? 'scale(1.02)' : undefined
+                            }}
                           >
                             <div className="flex items-center justify-between">
                               <span className="font-semibold text-base">{category.name}</span>
                               {selectedCategory === category.id && (
-                                <span className="text-white text-xl">✓</span>
+                                <span className="text-black text-xl">✓</span>
                               )}
                             </div>
                             {category.description && (
-                              <p className={`text-sm mt-1 ${selectedCategory === category.id ? 'text-blue-100' : 'text-gray-500'}`}>
+                              <p
+                                className="text-sm mt-1"
+                                style={{ color: selectedCategory === category.id ? 'rgba(11,11,11,0.7)' : '#A1A1A1' }}
+                              >
                                 {category.description}
                               </p>
                             )}
@@ -2090,9 +2122,17 @@ export function AppointmentForm({
                     {/* Seletor de Subcategoria */}
                     {selectedCategory && (
                       <div data-services-section>
-                        <label className="block text-base sm:text-lg font-bold text-blue-700 mb-3 bg-blue-50 p-3 rounded-lg border-2 border-blue-400 text-center">
-                          📋 Selecione um ou mais serviços
-                        </label>
+                        <div
+                          className="p-3 rounded-2xl mb-3"
+                          style={{
+                            background: '#151515',
+                            border: '1px solid rgba(255,255,255,0.06)'
+                          }}
+                        >
+                          <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
+                            📋 Selecione um ou mais serviços
+                          </div>
+                        </div>
 
                         {useMultiCategoryService ? (
                           <div className="space-y-3">
@@ -2105,15 +2145,17 @@ export function AppointmentForm({
                                 return (
                                   <div
                                     key={subcategory.id}
-                                    className={`w-full p-4 border-2 rounded-lg transition-colors ${isSelected
-                                      ? 'border-green-500 bg-green-50'
-                                      : 'border-gray-200 bg-white'
-                                      } ${isDisabled ? 'opacity-60' : ''}`}
+                                    className={`w-full p-4 rounded-2xl transition-colors ${isDisabled ? 'opacity-60' : ''}`}
+                                    style={{
+                                      background: isSelected ? 'rgba(230,199,139,0.10)' : '#151515',
+                                      border: `1px solid ${isSelected ? 'rgba(230,199,139,0.45)' : 'rgba(255,255,255,0.06)'}`,
+                                      boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                                    }}
                                   >
                                     <div className="flex justify-between items-center mb-3">
                                       <div>
-                                        <h4 className="font-semibold text-gray-900">{subcategory.name}</h4>
-                                        <p className="text-sm text-gray-600">
+                                        <h4 className="font-extrabold text-white">{subcategory.name}</h4>
+                                        <p className="text-sm" style={{ color: '#A1A1A1' }}>
                                           {subcategory.duration}min • R$ {subcategory.price.toFixed(2)}
                                         </p>
                                       </div>
@@ -2325,7 +2367,8 @@ export function AppointmentForm({
                 <button
                   type="button"
                   onClick={goToNextStep}
-                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  className="w-full px-4 py-3 rounded-xl transition-colors font-extrabold active:scale-[0.99]"
+                  style={{ background: '#E6C78B', color: '#0B0B0B' }}
                 >
                   ESCOLHER DIA →
                 </button>
@@ -2343,23 +2386,35 @@ export function AppointmentForm({
                 <button
                   type="button"
                   onClick={goToPreviousStep}
-                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                  className="px-4 py-2 rounded-xl transition-colors font-semibold hover:bg-white/5"
+                  style={{
+                    background: '#151515',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    color: '#A1A1A1'
+                  }}
                 >
                   ← Voltar
                 </button>
               </div>
             )}
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
               2. Serviço Incluído
             </label>
-            <div className="w-full p-4 rounded-lg border border-green-200 bg-green-50">
+            <div
+              className="w-full p-4 rounded-2xl"
+              style={{
+                background: '#151515',
+                border: '1px solid rgba(255,255,255,0.06)',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+              }}
+            >
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-green-800">{subscriberService.name}</h3>
-                  <p className="text-sm text-green-600">Incluído na sua assinatura</p>
+                  <h3 className="font-extrabold text-white">{subscriberService.name}</h3>
+                  <p className="text-sm" style={{ color: '#A1A1A1' }}>Incluído na sua assinatura</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-bold text-green-800">GRÁTIS</p>
+                  <p className="text-lg font-extrabold" style={{ color: '#E6C78B' }}>GRÁTIS</p>
                 </div>
               </div>
             </div>
@@ -2368,7 +2423,8 @@ export function AppointmentForm({
               <button
                 type="button"
                 onClick={goToNextStep}
-                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                className="w-full px-4 py-3 rounded-xl transition-colors font-extrabold active:scale-[0.99]"
+                style={{ background: '#E6C78B', color: '#0B0B0B' }}
               >
                 ESCOLHER DIA →
               </button>
@@ -2385,29 +2441,43 @@ export function AppointmentForm({
                 <button
                   type="button"
                   onClick={goToPreviousStep}
-                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                  className="px-4 py-2 rounded-xl transition-colors font-semibold hover:bg-white/5"
+                  style={{
+                    background: '#151515',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    color: '#A1A1A1'
+                  }}
                 >
                   ← Voltar
                 </button>
               </div>
             )}
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
               5. Escolha a Data
             </label>
-            <DatePicker
-              selectedDate={selectedDate}
-              onChange={(date) => {
-                onSelectDate(date);
-                setHasSelectedDate(true); // Marca que o usuário selecionou uma data
-                // ✅ Avançar automaticamente para a próxima etapa após selecionar data
-                setTimeout(() => {
-                  setCurrentStep(4);
-                }, 300);
+            <div
+              className="rounded-2xl p-3"
+              style={{
+                background: '#151515',
+                border: '1px solid rgba(255,255,255,0.06)',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
               }}
-              businessHours={establishment.business_hours}
-              allowedWeekdays={subscriberService?.weekdays}
-              isSubscriberBooking={isSubscriberBooking}
-            />
+            >
+              <DatePicker
+                selectedDate={selectedDate}
+                onChange={(date) => {
+                  onSelectDate(date);
+                  setHasSelectedDate(true); // Marca que o usuário selecionou uma data
+                  // ✅ Avançar automaticamente para a próxima etapa após selecionar data
+                  setTimeout(() => {
+                    setCurrentStep(4);
+                  }, 300);
+                }}
+                businessHours={establishment.business_hours}
+                allowedWeekdays={subscriberService?.weekdays}
+                isSubscriberBooking={isSubscriberBooking}
+              />
+            </div>
           </div>
         )}
 
@@ -2420,30 +2490,41 @@ export function AppointmentForm({
                 <button
                   type="button"
                   onClick={goToPreviousStep}
-                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                  className="px-4 py-2 rounded-xl transition-colors font-semibold hover:bg-white/5"
+                  style={{
+                    background: '#151515',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    color: '#A1A1A1'
+                  }}
                 >
                   ← Voltar
                 </button>
               </div>
             )}
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
               6. Escolha o Horário
             </label>
 
             {/* Verificar se o dia selecionado é válido para assinantes */}
             {isSubscriberBooking && subscriberService && !isValidDayForSubscriber(selectedDate, subscriberService.weekdays) ? (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div
+                className="rounded-2xl p-4"
+                style={{
+                  background: 'rgba(230,199,139,0.08)',
+                  border: '1px solid rgba(230,199,139,0.18)'
+                }}
+              >
                 <div className="flex items-start">
                   <div className="flex-shrink-0">
-                    <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                    <svg className="h-5 w-5" style={{ color: '#E6C78B' }} viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                   </div>
                   <div className="ml-3">
-                    <h3 className="text-sm font-medium text-yellow-800">
+                    <h3 className="text-sm font-extrabold text-white">
                       Dia não disponível para este serviço
                     </h3>
-                    <div className="mt-2 text-sm text-yellow-700">
+                    <div className="mt-2 text-sm" style={{ color: '#A1A1A1' }}>
                       <p>Seus dias de agendamento para <strong>{subscriberService.name}</strong> são:</p>
                       <p className="mt-1 font-semibold">
                         {subscriberService.weekdays?.map((day: string) => {
@@ -2544,7 +2625,8 @@ export function AppointmentForm({
                 <button
                   type="button"
                   onClick={goToNextStep}
-                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  className="w-full px-4 py-3 rounded-xl transition-colors font-extrabold active:scale-[0.99]"
+                  style={{ background: '#E6C78B', color: '#0B0B0B' }}
                 >
                   ESCOLHER FORMA DE PAGAMENTO →
                 </button>
@@ -2562,21 +2644,32 @@ export function AppointmentForm({
                 <button
                   type="button"
                   onClick={goToPreviousStep}
-                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium border border-blue-300 shadow-sm"
+                  className="px-4 py-2 rounded-xl transition-colors font-semibold hover:bg-white/5"
+                  style={{
+                    background: '#151515',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    color: '#A1A1A1'
+                  }}
                 >
                   ← Voltar
                 </button>
               </div>
             )}
             {requireAdvancePayment ? (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800">
+              <div
+                className="rounded-2xl p-4"
+                style={{
+                  background: 'rgba(230,199,139,0.08)',
+                  border: '1px solid rgba(230,199,139,0.18)'
+                }}
+              >
+                <p className="text-sm text-white/85">
                   💳 <strong>Pagamento antecipado obrigatório.</strong> Após clicar em finalizar, você será direcionado para o pagamento (Pagar.me) para confirmar o agendamento.
                 </p>
               </div>
             ) : (
               <>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
                   7. Forma de Pagamento
                 </label>
                 <PaymentMethodSelector
@@ -2641,7 +2734,7 @@ export function AppointmentForm({
             {/* OBSERVAÇÃO - Mostrada no step 5 antes do botão finalizar */}
             {selectedTime && (
               <div className="mt-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
                   Observação (Opcional)
                 </label>
                 <textarea
@@ -2652,15 +2745,19 @@ export function AppointmentForm({
                     }
                   }}
                   placeholder="Quer colocar alguma observação para o barbeiro?"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 resize-none"
+                  className="w-full px-4 py-3 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#E6C78B]/25 resize-none"
+                  style={{
+                    background: '#151515',
+                    border: '1px solid rgba(255,255,255,0.06)'
+                  }}
                   rows={3}
                   maxLength={100}
                 />
                 <div className="flex justify-between items-center mt-1">
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs" style={{ color: '#A1A1A1' }}>
                     (Opcional) Máximo 100 caracteres
                   </p>
-                  <span className={`text-xs ${observation.length > 90 ? 'text-red-500' : 'text-gray-400'}`}>
+                  <span className="text-xs" style={{ color: observation.length > 90 ? '#E6C78B' : '#A1A1A1' }}>
                     {observation.length}/100
                   </span>
                 </div>
@@ -2669,10 +2766,16 @@ export function AppointmentForm({
 
             {/* SERVIÇO INFANTIL - Obrigatório (só se profissional oferece) - Destacado e antes do botão finalizar */}
             {selectedTime && selectedProfessional && selectedProfessional.offers_child_service && (
-              <div className={`mt-6 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg ${isChildService === null ? 'shake-animation' : ''}`}>
-                <label className="block text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
-                  <span className="text-red-500 text-2xl">⚠️</span>
-                  <span>Serviço infantil? <span className="text-red-500 text-xl">*</span></span>
+              <div
+                className={`mt-6 p-4 rounded-2xl ${isChildService === null ? 'shake-animation' : ''}`}
+                style={{
+                  background: 'rgba(230,199,139,0.08)',
+                  border: '1px solid rgba(230,199,139,0.18)'
+                }}
+              >
+                <label className="block text-lg font-extrabold text-white mb-3 flex items-center gap-2">
+                  <span style={{ color: '#E6C78B' }} className="text-2xl">⚠️</span>
+                  <span>Serviço infantil? <span style={{ color: '#E6C78B' }} className="text-xl">*</span></span>
                 </label>
                 <div className="flex gap-4 mb-2">
                   <label className="flex items-center cursor-pointer">
@@ -2684,7 +2787,7 @@ export function AppointmentForm({
                       onChange={() => setIsChildService(true)}
                       className="mr-2 w-5 h-5 cursor-pointer"
                     />
-                    <span className="text-base font-medium text-gray-700">Sim</span>
+                    <span className="text-base font-semibold" style={{ color: '#A1A1A1' }}>Sim</span>
                   </label>
                   <label className="flex items-center cursor-pointer">
                     <input
@@ -2695,10 +2798,10 @@ export function AppointmentForm({
                       onChange={() => setIsChildService(false)}
                       className="mr-2 w-5 h-5 cursor-pointer"
                     />
-                    <span className="text-base font-medium text-gray-700">Não</span>
+                    <span className="text-base font-semibold" style={{ color: '#A1A1A1' }}>Não</span>
                   </label>
                 </div>
-                <p className="text-sm font-semibold text-red-600 mt-2">
+                <p className="text-sm font-semibold mt-2" style={{ color: '#E6C78B' }}>
                   ⚠️ (Obrigatório) Informe se é um serviço para criança
                 </p>
               </div>
@@ -2708,12 +2811,19 @@ export function AppointmentForm({
             {(selectedPaymentMethod || requireAdvancePayment) && ((selectedService && selectedProfessional && selectedTime) ||
               (useMultiService && selectedServices.length > 0 && selectedProfessional && selectedTime) ||
               (useCategoryService && ((selectedSubcategory && selectedProfessional && selectedTime) || (useMultiCategoryService && selectedCategoryServices.length > 0 && selectedProfessional && selectedTime)))) && (
-                <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h3 className="font-medium text-primary mb-2">📋 Resumo do Agendamento:</h3>
-                  <div className="text-sm text-gray-700 space-y-1">
-                    <div><strong>Cliente:</strong> {clientName || 'Não informado'}</div>
-                    <div><strong>WhatsApp:</strong> {clientWhatsapp || 'Não informado'}</div>
-                    <div><strong>Serviço:</strong> {
+                <div
+                  className="mt-6 p-4 rounded-2xl"
+                  style={{
+                    background: '#151515',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                  }}
+                >
+                  <h3 className="font-extrabold mb-2" style={{ color: '#E6C78B' }}>📋 Resumo do Agendamento:</h3>
+                  <div className="text-sm space-y-1" style={{ color: '#A1A1A1' }}>
+                    <div><strong className="text-white">Cliente:</strong> {clientName || 'Não informado'}</div>
+                    <div><strong className="text-white">WhatsApp:</strong> {clientWhatsapp || 'Não informado'}</div>
+                    <div><strong className="text-white">Serviço:</strong> {
                       useMultiService && selectedServices.length > 0
                         ? `${selectedServices.map(s => s.name).join(' + ')} - R$ ${selectedServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
                         : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
@@ -2722,17 +2832,17 @@ export function AppointmentForm({
                             ? `${selectedSubcategory.name} - R$ ${selectedSubcategory.price.toFixed(2).replace('.', ',')}`
                             : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
                     }</div>
-                    <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
-                    <div><strong>Pagamento:</strong> {requireAdvancePayment
+                    <div><strong className="text-white">Profissional:</strong> {selectedProfessional?.name || ''}</div>
+                    <div><strong className="text-white">Pagamento:</strong> {requireAdvancePayment
                       ? 'Pagamento antecipado (Pagar.me)'
                       : (selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
                         selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
                           selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
                             selectedPaymentMethod === 'dinheiro' ? 'Dinheiro' : selectedPaymentMethod)
                     }</div>
-                    <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
-                    <div><strong>Horário:</strong> {selectedTime}</div>
-                    <div><strong>Duração:</strong> {
+                    <div><strong className="text-white">Data:</strong> {format(selectedDate, 'dd/MM/yyyy')}</div>
+                    <div><strong className="text-white">Horário:</strong> {selectedTime}</div>
+                    <div><strong className="text-white">Duração:</strong> {
                       useMultiService && selectedServices.length > 0
                         ? `${selectedServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
                         : useCategoryService && useMultiCategoryService && selectedCategoryServices.length > 0
@@ -2742,10 +2852,10 @@ export function AppointmentForm({
                             : `${selectedService?.duration || 30} minutos`
                     }</div>
                     {observation && (
-                      <div><strong>Observação:</strong> <em>"{observation}"</em></div>
+                      <div><strong className="text-white">Observação:</strong> <em>"{observation}"</em></div>
                     )}
                     {selectedProfessional && selectedProfessional.offers_child_service && (
-                      <div><strong>Serviço infantil:</strong> {isChildService === null ? 'Não informado' : (isChildService ? 'Sim' : 'Não')}</div>
+                      <div><strong className="text-white">Serviço infantil:</strong> {isChildService === null ? 'Não informado' : (isChildService ? 'Sim' : 'Não')}</div>
                     )}
                   </div>
                 </div>
@@ -2757,10 +2867,13 @@ export function AppointmentForm({
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className={`w-full px-4 py-3 rounded-lg font-medium transition-colors ${isLoading
-                    ? 'bg-gray-400 cursor-not-allowed text-white'
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                    }`}
+                  className="w-full px-4 py-3 rounded-xl font-extrabold transition-colors active:scale-[0.99]"
+                  style={{
+                    background: isLoading ? '#3a3a3a' : '#E6C78B',
+                    color: isLoading ? '#FFFFFF' : '#0B0B0B',
+                    opacity: isLoading ? 0.7 : 1,
+                    cursor: isLoading ? 'not-allowed' : 'pointer'
+                  }}
                 >
                   {isLoading ? 'Agendando...' : (requireAdvancePayment ? 'FINALIZAR E PAGAR' : 'FINALIZAR AGENDAMENTO')}
                 </button>

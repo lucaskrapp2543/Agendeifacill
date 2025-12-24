@@ -1020,13 +1020,19 @@ export default function BookingPage() {
     close2: null
   } : null;
 
-  return (
-    <div className="min-h-screen" style={{ backgroundColor: '#ffffff' }}>
+    return (
+     <div
+       className="app-background relative overflow-x-hidden text-white"
+       style={{
+         background:
+           'radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.42) 100%), radial-gradient(circle at top center, #262626 0%, #161616 35%, #0B0B0B 70%), #0B0B0B'
+       }}
+     >
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex flex-col space-y-6">
           {/* Cabeçalho */}
           <div className="flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 text-gray-700 hover:text-gray-900">
+            <Link to="/" className="flex items-center gap-2 text-white/80 hover:text-[#e6d7b1] transition-colors">
               <ChevronLeft className="w-5 h-5" />
               <span>Voltar</span>
             </Link>
@@ -1042,14 +1048,14 @@ export default function BookingPage() {
                   }
                   navigate('/view-appointments');
                 }}
-                className="text-blue-600 hover:text-blue-800 font-medium text-sm transition-colors"
+                className="text-[#e6d7b1] hover:text-[#f3e7c7] font-semibold text-sm transition-colors"
               >
                 Meus Agendamentos
               </button>
               {user && (
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-2 text-gray-700 hover:text-gray-900"
+                  className="flex items-center gap-2 text-white/80 hover:text-white transition-colors"
                 >
                   <LogOut className="w-5 h-5" />
                   <span>Sair</span>
@@ -1060,7 +1066,7 @@ export default function BookingPage() {
 
           {/* Mensagem de Demonstração (apenas para IDs 3814 e 3315) */}
           {(id === '3814' || id === '3315') && (
-            <div className="bg-yellow-400 text-yellow-900 p-4 rounded-lg flex flex-col items-center justify-center gap-1 mb-4 sm:flex-row sm:gap-2">
+            <div className="bg-[#1b160b] text-[#f3e7c7] p-4 rounded-2xl flex flex-col items-center justify-center gap-1 mb-4 sm:flex-row sm:gap-2 border border-[#3b2a16]">
               <AlertCircle className="h-8 w-8 sm:h-5 sm:w-5" />
               <p className="font-semibold text-sm sm:text-base text-center animate-pulse-custom-slow">
                 Essa é a pagina que seu cliente ira ver ao acessar o seu link, porem com as suas proprias fotos e links personalizados.
@@ -1152,7 +1158,7 @@ export default function BookingPage() {
           {/* Logo do Estabelecimento - Só aparece quando carrossel não está atrás */}
           {establishment?.carousel_position !== 'behind' && (
             <div className="flex justify-center mb-6">
-              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-gray-300 shadow-2xl">
+              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white/15 shadow-2xl bg-black/30">
                 <img
                   src={establishment?.logo_url || '/fotopessoa.png'}
                   alt={establishment?.name || 'Logo'}
@@ -1168,13 +1174,13 @@ export default function BookingPage() {
 
           {/* Informações do Estabelecimento */}
           <div className="text-center space-y-2 relative z-30" style={{ marginTop: establishment?.carousel_position === 'behind' ? '80px' : '20px' }}>
-            <h1 className="text-2xl font-bold text-gray-900">{establishment?.name}</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight text-white">{establishment?.name}</h1>
             {establishment?.description && (
-              <p className="text-gray-600">
+              <p className="text-white/70">
                 <ReadMore
                   text={establishment.description}
                   maxLength={60}
-                  className="text-gray-600"
+                  className="text-white/70"
                 />
               </p>
             )}
@@ -1184,21 +1190,11 @@ export default function BookingPage() {
               {/* Botão AGENDAR - Pill com Sombra Interna */}
               <button
                 onClick={handleAgendarClick}
-                className="w-full font-bold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-gray-700"
-                style={{
-                  background: '#f8f9fa',
-                  borderRadius: '12px',
-                  boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
-                  border: '0.5px solid #e0e0e0',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
+                className="w-full font-extrabold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-black rounded-2xl border border-[#f3e7c7] bg-gradient-to-r from-[#e6d7b1] to-[#d9c08c] shadow-[0_10px_30px_rgba(0,0,0,0.35)] hover:brightness-105"
               >
-                <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                 <img src="/calendario.png" alt="Calendário" className="h-6 w-6 relative z-10" />
                 <span className="relative z-10">QUERO AGENDAR</span>
-                <ChevronRight className="h-5 w-5 relative z-10 opacity-70" />
+                <ChevronRight className="h-5 w-5 relative z-10 opacity-80" />
               </button>
 
               {/* Dropdown SER ASSINANTE */}
@@ -1211,37 +1207,27 @@ export default function BookingPage() {
                       e.stopPropagation();
                       setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
                     }}
-                    className="w-full font-bold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-gray-700"
-                    style={{
-                      background: '#f8f9fa',
-                      borderRadius: '12px',
-                      boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
-                      border: '0.5px solid #e0e0e0',
-                      position: 'relative',
-                      overflow: 'hidden'
-                    }}
+                    className="w-full font-extrabold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-black rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
                   >
-                    <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                     <img src="/coroa.png" alt="Coroa" className="h-6 w-6 relative z-10" />
-                    <span className="relative z-10">SER ASSINANTE</span>
+                    <span className="relative z-10 text-white/70">SER ASSINANTE</span>
                     <ChevronRight className="h-5 w-5 relative z-10 opacity-70" />
                   </button>
 
                   {showSubscriptionsDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto" style={{ zIndex: 100 }}>
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-[#0f0f10] border border-white/10 rounded-xl shadow-2xl max-h-60 overflow-y-auto" style={{ zIndex: 100 }}>
                       {subscriptions.map((subscription) => (
                         <div
                           key={subscription.id}
-                          className="flex items-center justify-between p-3 hover:bg-gray-50 border-b border-gray-200 last:border-b-0"
+                          className="flex items-center justify-between p-3 hover:bg-white/5 border-b border-white/10 last:border-b-0"
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-gray-900 truncate">{subscription.name || 'Assinatura'}</div>
-                            <div className="text-sm text-gray-500">
+                            <div className="font-semibold text-white truncate">{subscription.name || 'Assinatura'}</div>
+                            <div className="text-sm text-white/60">
                               R$ {(subscription.value || 0).toFixed(2).replace('.', ',')} / {subscription.duration_months || 1} {subscription.duration_months === 1 ? 'mês' : 'meses'}
                             </div>
                             {subscription.weekdays && subscription.weekdays.length > 0 && (
-                              <div className="text-xs text-blue-600 mt-1">
+                              <div className="text-xs text-[#e6d7b1] mt-1">
                                 📅 {subscription.weekdays.map((day: string) => {
                                   const dayNames = {
                                     'monday': 'Seg',
@@ -1264,7 +1250,7 @@ export default function BookingPage() {
                                   // Mostrar tooltip com descrição
                                   alert(`📋 ${subscription.name}\n\n${subscription.description}`);
                                 }}
-                                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded text-sm font-medium transition-colors border border-gray-300"
+                                className="bg-white/10 hover:bg-white/15 text-white px-3 py-1 rounded-lg text-sm font-medium transition-colors border border-white/10"
                                 title="Ver informações sobre esta assinatura"
                               >
                                 Sobre
@@ -1274,7 +1260,7 @@ export default function BookingPage() {
                               onClick={() => {
                                 handleSubscribeClick(subscription.name);
                               }}
-                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors"
+                              className="bg-[#e6d7b1] hover:bg-[#f3e7c7] text-black px-3 py-1 rounded-lg text-sm font-extrabold transition-colors"
                             >
                               Assinar
                             </button>
@@ -1283,12 +1269,12 @@ export default function BookingPage() {
                       ))}
 
                       {/* Item fixo SABER MAIS */}
-                      <div className="p-3 border-t border-gray-200 bg-gray-50">
+                      <div className="p-3 border-t border-white/10 bg-black/30">
                         <button
                           onClick={() => {
                             handleSaberMaisClick();
                           }}
-                          className="w-full text-center text-blue-600 hover:text-blue-800 font-medium text-sm transition-colors"
+                          className="w-full text-center text-[#e6d7b1] hover:text-[#f3e7c7] font-semibold text-sm transition-colors"
                         >
                           📞 SABER MAIS
                         </button>
@@ -1302,21 +1288,27 @@ export default function BookingPage() {
               {/* Imagens INSTAGRAM, PIX e WHATSAPP lado a lado */}
               <div className="flex items-center justify-center gap-6 relative my-10">
                 {/* Linha esquerda - vai da borda até antes do Instagram com distância */}
-                <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{ width: 'calc(50% - 120px)' }}></div>
+                <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-px bg-white/10" style={{ width: 'calc(50% - 120px)' }}></div>
 
                 {/* Linha direita - vai depois do WhatsApp até a borda com distância */}
-                <div className="absolute right-0 top-1/2 transform -translate-y-1/2 h-0.5 bg-gray-400" style={{ width: 'calc(50% - 120px)' }}></div>
+                <div className="absolute right-0 top-1/2 transform -translate-y-1/2 h-px bg-white/10" style={{ width: 'calc(50% - 120px)' }}></div>
                 {/* Instagram */}
                 <a
                   href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`transition-all duration-200 ${establishment?.social_media_link
-                    ? 'hover:opacity-80 cursor-pointer'
+                  className={`group transition-all duration-200 ${establishment?.social_media_link
+                    ? 'cursor-pointer'
                     : 'opacity-50 cursor-not-allowed'
                     }`}
                 >
-                  <img src="/INST.png" alt="Instagram" className="h-12 w-12" />
+                  <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
+                    <img
+                      src="/INST.png"
+                      alt="Instagram"
+                      className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                    />
+                  </div>
                 </a>
 
                 {/* PIX */}
@@ -1364,12 +1356,18 @@ export default function BookingPage() {
                     }
                   }}
                   disabled={!establishment?.pix_key}
-                  className={`transition-all duration-200 ${establishment?.pix_key
-                    ? 'hover:opacity-80 cursor-pointer'
+                  className={`group transition-all duration-200 ${establishment?.pix_key
+                    ? 'cursor-pointer'
                     : 'opacity-50 cursor-not-allowed'
                     }`}
                 >
-                  <img src="/PIX.png" alt="PIX" className="h-12 w-12" />
+                  <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
+                    <img
+                      src="/PIX.png"
+                      alt="PIX"
+                      className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                    />
+                  </div>
                 </button>
 
                 {/* WhatsApp */}
@@ -1404,12 +1402,18 @@ export default function BookingPage() {
                   })() : '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`transition-all duration-200 ${establishment?.whatsapp
-                    ? 'hover:opacity-80 cursor-pointer'
+                  className={`group transition-all duration-200 ${establishment?.whatsapp
+                    ? 'cursor-pointer'
                     : 'opacity-50 cursor-not-allowed'
                     }`}
                 >
-                  <img src="/wppicon.png" alt="WhatsApp" className="h-12 w-12" />
+                  <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
+                    <img
+                      src="/wppicon.png"
+                      alt="WhatsApp"
+                      className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                    />
+                  </div>
                 </a>
               </div>
 
@@ -1420,28 +1424,14 @@ export default function BookingPage() {
                   href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.review_link
-                    ? 'text-gray-700'
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                  className={`flex-1 font-extrabold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group rounded-2xl border shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${establishment?.review_link
+                    ? 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+                    : 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed opacity-60'
                     }`}
-                  style={establishment?.review_link ? {
-                    background: '#f8f9fa',
-                    borderRadius: '12px',
-                    boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
-                    border: '0.5px solid #e0e0e0',
-                    position: 'relative',
-                    overflow: 'hidden'
-                  } : {}}
                 >
-                  {establishment?.review_link && (
-                    <>
-                      <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    </>
-                  )}
                   <img src="/google.png" alt="Google" className="h-5 w-5 relative z-10" />
-                  <span className="relative z-10 whitespace-nowrap">AVALIE-NOS</span>
-                  {establishment?.review_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-70 flex-shrink-0" />}
+                  <span className="relative z-10 whitespace-nowrap text-[#e6d7b1]">AVALIE-NOS</span>
+                  {establishment?.review_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-80 flex-shrink-0 text-white/70" />}
                 </a>
 
                 {/* Botão LOCAL */}
@@ -1449,42 +1439,28 @@ export default function BookingPage() {
                   href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex-1 font-bold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group ${establishment?.location_link
-                    ? 'text-gray-700'
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                  className={`flex-1 font-extrabold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group rounded-2xl border shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${establishment?.location_link
+                    ? 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+                    : 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed opacity-60'
                     }`}
-                  style={establishment?.location_link ? {
-                    background: '#f8f9fa',
-                    borderRadius: '12px',
-                    boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
-                    border: '0.5px solid #e0e0e0',
-                    position: 'relative',
-                    overflow: 'hidden'
-                  } : {}}
                 >
-                  {establishment?.location_link && (
-                    <>
-                      <div className="absolute inset-0 bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    </>
-                  )}
                   <img src="/LOCAL.png" alt="Localização" className="h-5 w-5 relative z-10" />
-                  <span className="relative z-10 whitespace-nowrap">LOCAL</span>
-                  {establishment?.location_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-70 flex-shrink-0" />}
+                  <span className="relative z-10 whitespace-nowrap text-[#e6d7b1]">LOCAL</span>
+                  {establishment?.location_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-80 flex-shrink-0 text-white/70" />}
                 </a>
               </div>
 
               {/* Tela de Agendamento Assinante - Posicionada após os botões */}
               {showSubscriberBooking && (
-                <div data-subscriber-booking className="bg-white rounded-lg shadow-md p-6 text-gray-900 mt-4 z-50 relative">
+                <div data-subscriber-booking className="bg-white/5 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.45)] border border-white/10 p-6 text-white mt-4 z-50 relative">
                   <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold">Agendamento Assinante</h2>
+                    <h2 className="text-xl font-extrabold">Agendamento Assinante</h2>
                     <button
                       onClick={() => {
                         setShowSubscriberBooking(false);
                         setSelectedSubscriberService(null);
                       }}
-                      className="text-gray-500 hover:text-gray-700 text-2xl"
+                      className="text-white/60 hover:text-white text-2xl"
                     >
                       ×
                     </button>
@@ -1493,18 +1469,18 @@ export default function BookingPage() {
                   {!selectedSubscriberService ? (
                     // Tela de seleção de serviços
                     <div>
-                      <p className="text-lg text-gray-700 mb-6">Selecione qual é o seu:</p>
+                      <p className="text-lg text-white/75 mb-6">Selecione qual é o seu:</p>
                       <div className="space-y-4">
                         {subscriptions.map((subscription) => (
-                          <div key={subscription.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                          <div key={subscription.id} className="border border-white/10 rounded-2xl p-4 bg-black/30 hover:bg-white/5 transition-colors">
                             <div className="flex items-center justify-between">
                               <div>
-                                <h3 className="font-semibold text-gray-900">{subscription.name}</h3>
-                                <p className="text-sm text-gray-600">
+                                <h3 className="font-extrabold text-white">{subscription.name}</h3>
+                                <p className="text-sm text-white/60">
                                   R$ {subscription.value.toFixed(2).replace('.', ',')}
                                 </p>
                                 {subscription.weekdays && subscription.weekdays.length > 0 && (
-                                  <p className="text-xs text-blue-600 mt-1">
+                                  <p className="text-xs text-[#e6d7b1] mt-1">
                                     📅 {subscription.weekdays.map((day: string) => {
                                       const dayNames = {
                                         'monday': 'Seg',
@@ -1641,41 +1617,29 @@ export default function BookingPage() {
               {/* Seção de Profissionais */}
               {establishment?.professionals && establishment.professionals.filter((p: any) => !p.hidden_from_booking).length > 0 && (
                 <div className="mt-8 mb-6">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Profissionais</h3>
-                  {establishment.professionals.filter((p: any) => !p.hidden_from_booking).length <= 3 ? (
-                    // Layout normal para 3 ou menos profissionais
-                    <div className={`flex flex-wrap gap-4 ${establishment.professionals.filter((p: any) => !p.hidden_from_booking).length === 1
-                      ? 'justify-center'
-                      : establishment.professionals.filter((p: any) => !p.hidden_from_booking).length === 2
-                        ? 'justify-center'
-                        : ''
-                      }`}>
-                      {establishment.professionals.filter((p: any) => !p.hidden_from_booking).map((professional: any) => (
-                        <div key={professional.id} className="flex flex-col items-center">
-                          <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-gray-200 shadow-md">
-                            <img
-                              src={(professional as any).photo_url || '/fotopessoa.png'}
-                              alt={professional.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.src = '/fotopessoa.png';
+                  <h3 className="text-center text-xl font-semibold" style={{ color: '#E6C78B' }}>
+                    Profissionais
+                  </h3>
+
+                  <div className="mt-4 overflow-x-auto scrollbar-hide">
+                    <div className="flex items-start justify-center gap-5 px-2 pb-2">
+                      {establishment.professionals
+                        .filter((p: any) => !p.hidden_from_booking)
+                        .map((professional: any) => (
+                          <button
+                            key={professional.id}
+                            type="button"
+                            className="flex flex-col items-center flex-shrink-0 active:scale-[0.97] transition-transform"
+                            aria-label={`Profissional ${professional.name}`}
+                          >
+                            <div
+                              className="w-16 h-16 rounded-full overflow-hidden"
+                              style={{
+                                border: '2px solid rgba(230,199,139,0.55)',
+                                boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+                                transition: 'transform 200ms ease, box-shadow 200ms ease'
                               }}
-                            />
-                          </div>
-                          <span className="text-sm font-medium text-gray-700 mt-2 text-center max-w-20">
-                            {professional.name}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    // Carrossel horizontal para 4+ profissionais
-                    <div className="overflow-hidden">
-                      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
-                        {establishment.professionals.filter((p: any) => !p.hidden_from_booking).map((professional: any) => (
-                          <div key={professional.id} className="flex flex-col items-center flex-shrink-0">
-                            <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-gray-200 shadow-md">
+                            >
                               <img
                                 src={(professional as any).photo_url || '/fotopessoa.png'}
                                 alt={professional.name}
@@ -1686,66 +1650,133 @@ export default function BookingPage() {
                                 }}
                               />
                             </div>
-                            <span className="text-sm font-medium text-gray-700 mt-2 text-center max-w-20">
+                            <span className="mt-2 text-sm font-semibold text-white text-center max-w-24">
                               {professional.name}
                             </span>
-                          </div>
+                          </button>
                         ))}
-                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
 
               {/* Seção de Comodidades - Só mostra se houver pelo menos 1 ativa */}
               {(establishment?.has_wifi || establishment?.has_parking || establishment?.has_accessibility || establishment?.has_air_conditioning) && (
-                <div className="mt-8 mb-6 bg-white rounded-lg p-6 border border-gray-200">
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">Comodidades</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Clique no item para obter informações
+                <div
+                  className="mt-8 mb-6 p-6"
+                  style={{
+                    background: '#1A1A1A',
+                    borderRadius: '20px',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                  }}
+                >
+                  <h3 className="text-center text-xl font-semibold" style={{ color: '#E6C78B' }}>
+                    Comodidades
+                  </h3>
+                  <p className="text-center text-sm mt-2" style={{ color: '#A1A1A1' }}>
+                    Selecione uma comodidade para saber mais.
                   </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {/* Wi-fi - Só mostra se estiver ativo */}
+
+                  <div className="mt-6 grid grid-cols-2 gap-4">
+                    {/* Wi-Fi */}
                     {establishment?.has_wifi && (
-                      <div
+                      <button
+                        type="button"
                         onClick={() => {
                           if (establishment?.wifi_password) {
                             navigator.clipboard.writeText(establishment.wifi_password);
                             toast.success('Senha do Wi-Fi copiada!');
                           }
                         }}
-                        className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-pointer bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50"
-                        title={establishment?.wifi_password ? "Clique para copiar a senha do Wi-Fi" : "Wi-Fi disponível"}
+                        className="flex flex-col items-center justify-center py-6 px-4 active:scale-[0.97] transition-transform"
+                        style={{
+                          background: '#151515',
+                          borderRadius: '16px',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                        }}
+                        title={establishment?.wifi_password ? 'Clique para copiar a senha do Wi-Fi' : 'Wi-Fi disponível'}
                       >
                         {establishment?.wifi_network_name && (
-                          <span className="text-xs font-semibold text-blue-600 mb-1 text-center">{establishment.wifi_network_name}</span>
+                          <span className="text-xs font-semibold mb-2" style={{ color: '#E6C78B' }}>
+                            {establishment.wifi_network_name}
+                          </span>
                         )}
-                        <img src={`/wifi.png?v=${Date.now()}`} alt="Wi-fi" className="h-8 w-8 mb-2 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900">Wi-fi</span>
-                      </div>
+                        <img
+                          src={`/wifi.png?v=${Date.now()}`}
+                          alt="Wi-Fi"
+                          className="amenity-icon-gold h-8 w-8"
+                        />
+                        <span className="mt-3 text-base font-semibold" style={{ color: '#A1A1A1' }}>
+                          Wi-Fi
+                        </span>
+                      </button>
                     )}
 
-                    {/* Estacionamento - Só mostra se estiver ativo */}
+                    {/* Estacionamento */}
                     {establishment?.has_parking && (
-                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
-                        <img src={`/car.png?v=${Date.now()}`} alt="Estacionamento" className="h-8 w-8 mb-2 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900">Estacion.</span>
+                      <div
+                        className="flex flex-col items-center justify-center py-6 px-4"
+                        style={{
+                          background: '#151515',
+                          borderRadius: '16px',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                        }}
+                      >
+                        <img
+                          src={`/car.png?v=${Date.now()}`}
+                          alt="Estacionamento"
+                          className="amenity-icon-gold h-8 w-8"
+                        />
+                        <span className="mt-3 text-base font-semibold" style={{ color: '#A1A1A1' }}>
+                          Estacionamento
+                        </span>
                       </div>
                     )}
 
-                    {/* Acessibilidade - Só mostra se estiver ativo */}
+                    {/* Acessibilidade */}
                     {establishment?.has_accessibility && (
-                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
-                        <img src={`/wheelchair.png?v=${Date.now()}`} alt="Acessibilidade" className="h-8 w-8 mb-2 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900">Acessib.</span>
+                      <div
+                        className="flex flex-col items-center justify-center py-6 px-4"
+                        style={{
+                          background: '#151515',
+                          borderRadius: '16px',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                        }}
+                      >
+                        <img
+                          src={`/wheelchair.png?v=${Date.now()}`}
+                          alt="Acessibilidade"
+                          className="amenity-icon-gold h-8 w-8"
+                        />
+                        <span className="mt-3 text-base font-semibold" style={{ color: '#A1A1A1' }}>
+                          Acessibilidade
+                        </span>
                       </div>
                     )}
 
-                    {/* Local Climatizado (Ar-Condicionado) - Só mostra se estiver ativo */}
+                    {/* Climatizado */}
                     {establishment?.has_air_conditioning && (
-                      <div className="flex flex-col items-center justify-center p-4 rounded-lg transition-all duration-200 cursor-default bg-white shadow-md hover:shadow-lg border border-gray-200 hover:bg-gray-50">
-                        <img src={`/arcondicionado.png?v=${Date.now()}`} alt="Local Climatizado" className="h-8 w-8 mb-2 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900 text-center">Climatizado</span>
+                      <div
+                        className="flex flex-col items-center justify-center py-6 px-4"
+                        style={{
+                          background: '#151515',
+                          borderRadius: '16px',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                        }}
+                      >
+                        <img
+                          src={`/arcondicionado.png?v=${Date.now()}`}
+                          alt="Climatizado"
+                          className="amenity-icon-gold h-8 w-8"
+                        />
+                        <span className="mt-3 text-base font-semibold" style={{ color: '#A1A1A1' }}>
+                          Climatizado
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1753,24 +1784,24 @@ export default function BookingPage() {
               )}
 
               {/* Seção de Horário de Atendimento */}
-              <div className="mt-8 mb-6 bg-white rounded-lg p-6 shadow-md border border-gray-200">
+              <div className="mt-8 mb-6 bg-white/5 rounded-2xl p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)] border border-white/10">
                 <button
                   onClick={() => setShowBusinessHours(!showBusinessHours)}
-                  className="w-full flex items-center justify-between gap-3 mb-4 hover:bg-gray-50 p-2 rounded-lg transition-colors"
+                  className="w-full flex items-center justify-between gap-3 mb-4 hover:bg-white/5 p-2 rounded-xl transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-6 h-6 bg-gray-500 rounded-full flex items-center justify-center">
+                    <div className="w-6 h-6 bg-white/10 rounded-full flex items-center justify-center border border-white/10">
                       <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
                       </svg>
                     </div>
                     <div className="text-left">
-                      <h3 className="text-lg font-medium text-gray-900">Horário de atendimento</h3>
-                      <p className="text-sm text-gray-500">Clique para ver os horários</p>
+                      <h3 className="text-lg font-extrabold text-white">Horário de atendimento</h3>
+                      <p className="text-sm text-white/60">Clique para ver os horários</p>
                     </div>
                   </div>
                   <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${showBusinessHours ? 'rotate-180' : ''
+                    className={`w-5 h-5 text-white/60 transition-transform duration-200 ${showBusinessHours ? 'rotate-180' : ''
                       }`}
                   />
                 </button>
@@ -1813,20 +1844,20 @@ export default function BookingPage() {
                       return (
                         <div
                           key={dia}
-                          className={`flex justify-between items-center p-3 rounded-lg ${isOpen ? 'bg-green-50' : 'bg-gray-50'
+                          className={`flex justify-between items-center p-3 rounded-xl border border-white/10 ${isOpen ? 'bg-emerald-500/10' : 'bg-white/5'
                             }`}
                         >
                           <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full ${isOpen ? 'bg-green-500' : 'bg-gray-400'
+                            <div className={`w-2 h-2 rounded-full ${isOpen ? 'bg-emerald-400' : 'bg-white/30'
                               }`}></div>
-                            <span className="text-sm font-medium text-gray-900">{dia}</span>
+                            <span className="text-sm font-semibold text-white">{dia}</span>
                             {isHoje && (
-                              <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                              <span className="text-xs px-2 py-1 bg-emerald-500/15 text-emerald-200 rounded-full border border-emerald-400/20">
                                 Hoje
                               </span>
                             )}
                           </div>
-                          <span className={`text-sm font-medium ${isOpen ? 'text-green-600' : 'text-gray-500'
+                          <span className={`text-sm font-semibold ${isOpen ? 'text-emerald-200' : 'text-white/60'
                             }`}>
                             {horarioText}
                           </span>
@@ -1850,7 +1881,7 @@ export default function BookingPage() {
                     <div className="mt-3">
                       <button
                         onClick={handleDownloadApp}
-                        className="w-full sm:w-auto inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        className="w-full sm:w-auto inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-xl hover:bg-white/15 transition-colors font-semibold border border-white/10"
                       >
                         <Download className="w-4 h-4" />
                         Baixar app
@@ -1862,15 +1893,15 @@ export default function BookingPage() {
 
               {/* Modal bonito com instruções de instalação */}
               {showInstallGuide && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5">
-                      <h3 className="text-white text-lg font-bold flex items-center gap-2">
+                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+                  <div className="bg-[#0f0f10] rounded-2xl border border-white/10 shadow-[0_30px_100px_rgba(0,0,0,0.7)] w-full max-w-md overflow-hidden">
+                    <div className="bg-gradient-to-r from-[#e6d7b1] to-[#d9c08c] p-5">
+                      <h3 className="text-black text-lg font-extrabold flex items-center gap-2">
                         📲 {installGuideTitle}
                       </h3>
-                      <p className="text-blue-100 text-sm mt-1">Instale o app do Agendei Fácil e tenha acesso rápido aos seus agendamentos.</p>
+                      <p className="text-black/70 text-sm mt-1">Instale o app do Agendei Fácil e tenha acesso rápido aos seus agendamentos.</p>
                     </div>
-                    <div className="p-5 space-y-3 text-gray-800">
+                    <div className="p-5 space-y-3 text-white">
                       <div className="flex items-start gap-3">
                         <span className="text-xl">✅</span>
                         <p className="text-sm">{installGuideSteps[0]}</p>
@@ -1883,20 +1914,20 @@ export default function BookingPage() {
                         <span className="text-xl">✅</span>
                         <p className="text-sm">{installGuideSteps[2]}</p>
                       </div>
-                      <div className="mt-2 rounded-lg bg-blue-50 p-3 text-xs text-blue-700">
+                      <div className="mt-2 rounded-xl bg-white/5 border border-white/10 p-3 text-xs text-white/70">
                         Dica: após instalar, o app abre em tela cheia e fica no seu menu de apps 📱
                       </div>
                     </div>
-                    <div className="p-4 bg-gray-50 flex justify-end gap-2">
+                    <div className="p-4 bg-black/30 flex justify-end gap-2 border-t border-white/10">
                       <button
                         onClick={() => setShowInstallGuide(false)}
-                        className="px-4 py-2 text-gray-700 hover:text-gray-900"
+                        className="px-4 py-2 text-white/80 hover:text-white"
                       >
                         Fechar
                       </button>
                       <button
                         onClick={() => setShowInstallGuide(false)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        className="px-4 py-2 bg-[#e6d7b1] text-black rounded-xl hover:bg-[#f3e7c7] font-extrabold"
                       >
                         Entendi
                       </button>
@@ -1911,7 +1942,7 @@ export default function BookingPage() {
                   href={id === '8160' ? '/conhecerv4' : 'https://agendeifacil.com'}
                   target={id === '8160' ? '_self' : '_blank'}
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors underline"
+                  className="text-[#e6d7b1] hover:text-[#f3e7c7] text-sm font-semibold transition-colors underline"
                 >
                   Quero Agendei Fácil no meu estabelecimento
                 </a>
@@ -1923,9 +1954,9 @@ export default function BookingPage() {
           {showBookingForm && (
             <div
               ref={bookingFormRef}
-              className="bg-white rounded-lg shadow-md p-6 text-gray-900"
+              className="rounded-2xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.45)] p-6 text-white"
             >
-              <h2 className="text-xl font-bold mb-4">Fazer Agendamento</h2>
+              <h2 className="text-xl font-extrabold mb-4 text-white">Fazer Agendamento</h2>
               <AppointmentForm
                 establishment={establishment}
                 onSubmit={handleSubmit}

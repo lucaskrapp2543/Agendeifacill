@@ -528,7 +528,27 @@ export function TimeSlotSelector({
   }
 
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-white/70">
+        <div className="inline-flex items-center gap-2">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />
+          DISPONÍVEL
+        </div>
+        <div className="inline-flex items-center gap-2">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-600" />
+          BLOQUEADO
+        </div>
+        <div className="inline-flex items-center gap-2">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400" />
+          RESERVADO
+        </div>
+        <div className="inline-flex items-center gap-2">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-orange-500" />
+          RESERVA
+        </div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-2">
       {timeSlots.map(({ time, isAvailable, reason }) => {
         const isSelected = selectedTime === time;
         const isReserved = reason === 'Horário Reservado';
@@ -538,6 +558,7 @@ export function TimeSlotSelector({
         const isUltrapassedTime = reason === 'Serviço ultrapassaria horário';
         const isPastTime = reason === 'Horário já passou';
         const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isIntervalTime || isUltrapassedTime || isPastTime;
+        const isBlockedGroup = isDisabled && !isReserved && !isAvulso;
 
         return (
           <button
@@ -546,45 +567,45 @@ export function TimeSlotSelector({
             onClick={() => !isDisabled && onTimeSelect(time)}
             disabled={isDisabled}
             className={`
-              px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
+              px-3 py-2 rounded-xl text-[13px] font-extrabold transition-all duration-200
+              shadow-[0_1px_0_rgba(255,255,255,0.10)_inset] border
               ${isSelected
-                ? 'bg-primary text-white shadow-lg scale-105'
+                ? 'bg-emerald-500 text-white border-emerald-300/40 scale-105'
                 : isAvulso
-                  ? 'bg-orange-100 text-orange-800 cursor-not-allowed'
-                  : isDisabled
-                    ? 'bg-red-600 text-white cursor-not-allowed'
-                    : 'bg-green-600 text-white hover:bg-green-700 hover:scale-105'
+                  ? 'bg-orange-500 text-black border-orange-300/40 cursor-not-allowed'
+                  : isReserved
+                    ? 'bg-amber-400 text-black border-amber-200/50 cursor-not-allowed'
+                    : isBlockedGroup
+                      ? 'bg-red-600 text-white border-red-400/40 cursor-not-allowed'
+                      : 'bg-emerald-600 text-white border-emerald-300/30 hover:bg-emerald-500 hover:scale-105'
               }
             `}
           >
             <div className="flex flex-col items-center">
               <span>{time}</span>
               {isAvulso && (
-                <span className="text-xs mt-1 text-orange-600">
-                  RESERVA
-                </span>
+                <span className="text-[10px] mt-1 font-extrabold text-black/70">RESERVA</span>
               )}
               {isReserved && !isAvulso && (
-                <span className="text-xs mt-1 text-white">
-                  Horário Reservado
-                </span>
+                <span className="text-[10px] mt-1 font-extrabold text-black/70">RESERVADO</span>
               )}
               {isBlocked && (
-                <span className="text-xs mt-1 text-white">Horário Fechado</span>
+                <span className="text-[10px] mt-1 font-extrabold text-white/80">BLOQUEADO</span>
               )}
               {isIntervalTime && (
-                <span className="text-xs mt-1 text-white">Horário de Intervalo</span>
+                <span className="text-[10px] mt-1 font-extrabold text-white/80">BLOQUEADO</span>
               )}
               {isUltrapassedTime && (
-                <span className="text-xs mt-1 text-white">Serviço ultrapassaria horário</span>
+                <span className="text-[10px] mt-1 font-extrabold text-white/80">BLOQUEADO</span>
               )}
               {isPastTime && (
-                <span className="text-xs mt-1 text-white">Horário já passou</span>
+                <span className="text-[10px] mt-1 font-extrabold text-white/80">BLOQUEADO</span>
               )}
             </div>
           </button>
         );
       })}
+      </div>
     </div>
   );
 } 

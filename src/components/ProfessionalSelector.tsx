@@ -315,6 +315,60 @@ export function ProfessionalSelector({
     return (professional as any).photo_url || '/fotopessoa.png';
   };
 
+  const isBookingUI = showGoalProgress === false;
+
+  // UI premium no Booking (mobile-first) — sem mudar lógica
+  if (isBookingUI) {
+    return (
+      <div className="space-y-3">
+        <div className="overflow-x-auto scrollbar-hide">
+          <div className="flex items-start justify-center gap-5 px-2 pb-2">
+            {professionals.map((professional) => {
+              const isSelected = selectedProfessional === professional.id;
+              return (
+                <button
+                  key={professional.id}
+                  type="button"
+                  onClick={() => onSelectProfessional(professional.id)}
+                  className="flex flex-col items-center flex-shrink-0 transition-transform active:scale-[0.97]"
+                  aria-label={`Profissional ${professional.name}`}
+                >
+                  <div
+                    className={`relative w-16 h-16 rounded-full overflow-hidden transition-all duration-200`}
+                    style={{
+                      border: '2px solid rgba(230,199,139,0.55)',
+                      boxShadow: isSelected
+                        ? '0 0 18px rgba(230,199,139,0.22), 0 10px 30px rgba(0,0,0,0.45)'
+                        : '0 10px 30px rgba(0,0,0,0.45)'
+                    }}
+                  >
+                    <img
+                      src={getPhotoUrl(professional)}
+                      alt={professional.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = '/fotopessoa.png';
+                      }}
+                    />
+                    {uploadingPhoto === professional.id && (
+                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                      </div>
+                    )}
+                  </div>
+                  <span className="mt-2 text-sm font-semibold text-white text-center max-w-24">
+                    {professional.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Função para verificar se o profissional pode editar sua foto
   const canEditPhoto = (professionalId: string): boolean => {
     // Pode editar se:

@@ -166,19 +166,28 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div
+        className="w-full max-w-md mx-auto overflow-hidden"
+        style={{
+          background: '#1A1A1A',
+          borderRadius: '20px',
+          border: '1px solid rgba(255,255,255,0.06)',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+        }}
+      >
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-200">
+        <div className="flex justify-between items-center p-6" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-              <Phone className="w-5 h-5 text-blue-600" />
+            <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <Phone className="w-5 h-5" style={{ color: '#E6C78B' }} />
             </div>
-            <h2 className="text-xl font-bold text-gray-900">Ver Meus Agendamentos</h2>
+            <h2 className="text-xl font-extrabold" style={{ color: '#E6C78B' }}>Ver Meus Agendamentos</h2>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 transition-colors"
+            className="transition-colors"
+            style={{ color: '#A1A1A1' }}
           >
             <X className="h-5 w-5" />
           </button>
@@ -186,17 +195,15 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
 
         {/* Content */}
         <div className="p-6 space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-blue-800">
-              <strong>Acesso Rápido</strong>
-            </p>
-            <p className="text-xs text-blue-600 mt-1">
+          <div className="rounded-2xl p-4" style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <p className="text-sm font-extrabold" style={{ color: '#E6C78B' }}>Acesso Rápido</p>
+            <p className="text-xs mt-1" style={{ color: '#A1A1A1' }}>
               Informe apenas seu telefone para ver seus agendamentos
             </p>
           </div>
 
           <div>
-            <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="phone" className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
               Telefone com DDD *
             </label>
             <input
@@ -205,7 +212,8 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
               value={phone}
               onChange={handlePhoneChange}
               placeholder={getPlaceholder()}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-3 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#E6C78B]/25"
+              style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}
               required
               maxLength={countryCode === '351' ? 18 : 15}
               onKeyPress={(e) => {
@@ -216,24 +224,24 @@ export const PhoneLoginModal: React.FC<PhoneLoginModalProps> = ({
             />
           </div>
 
-          <div className="bg-gray-50 rounded-lg p-3 mt-4">
-            <p className="text-xs text-gray-600">
-              💡 O mesmo telefone usado no agendamento
-            </p>
+          <div className="rounded-2xl p-4 mt-4" style={{ background: 'rgba(230,199,139,0.06)', border: '1px solid rgba(230,199,139,0.16)' }}>
+            <p className="text-xs" style={{ color: '#A1A1A1' }}>💡 O mesmo telefone usado no agendamento</p>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex gap-3 p-6 border-t border-gray-200">
+        <div className="flex gap-3 p-6" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex-1 px-4 py-3 rounded-xl transition-colors font-semibold hover:bg-white/5"
+            style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)', color: '#A1A1A1' }}
           >
             Cancelar
           </button>
           <button
             onClick={handleLogin}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            className="flex-1 px-4 py-3 rounded-xl transition-colors font-extrabold active:scale-[0.99]"
+            style={{ background: '#E6C78B', color: '#0B0B0B' }}
           >
             Ver Agendamentos
           </button>
