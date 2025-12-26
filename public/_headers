@@ -34,7 +34,3 @@
 
 *.svg
   Cache-Control: public, max-age=604800
-
-# Fallback: permitir revalidação (não “mata” cache do navegador/CDN)
-/*
-  Cache-Control: public, max-age=0, must-revalidate
