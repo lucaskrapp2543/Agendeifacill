@@ -1,42 +1,40 @@
-# Headers para forçar atualização de imagens
-*.png
+# Netlify caching strategy (Vite + React Router):
+# - index.html sem cache (evita problema de chunk antigo / 404 após deploy)
+# - assets versionados (/assets/* com hash) com cache longo e immutable (economiza bandwidth/créditos)
+# - service worker sem cache (sempre pegar a versão mais nova)
+
+/index.html
   Cache-Control: no-cache, no-store, must-revalidate
-  Pragma: no-cache
-  Expires: 0
+
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/manifest.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Caso exista JS/CSS na raiz (menos comum no Vite), também cachear
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  Cache-Control: public, max-age=31536000, immutable
+
+# Imagens estáticas podem cachear por 7 dias (se você trocar a imagem, o navegador revalida depois)
+*.png
+  Cache-Control: public, max-age=604800
 
 *.jpg
-  Cache-Control: no-cache, no-store, must-revalidate
-  Pragma: no-cache
-  Expires: 0
+  Cache-Control: public, max-age=604800
 
 *.jpeg
-  Cache-Control: no-cache, no-store, must-revalidate
-  Pragma: no-cache
-  Expires: 0
+  Cache-Control: public, max-age=604800
 
 *.svg
-  Cache-Control: no-cache, no-store, must-revalidate
-  Pragma: no-cache
-  Expires: 0
+  Cache-Control: public, max-age=604800
 
-# Headers para arquivos estáticos - SEM CACHE
-*.js
-  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
-  Pragma: no-cache
-  Expires: 0
-
-*.css
-  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
-  Pragma: no-cache
-  Expires: 0
-
-*.html
-  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
-  Pragma: no-cache
-  Expires: 0
-
-# Headers para todos os arquivos
+# Fallback: permitir revalidação (não “mata” cache do navegador/CDN)
 /*
-  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
-  Pragma: no-cache
-  Expires: 0 
+  Cache-Control: public, max-age=0, must-revalidate
