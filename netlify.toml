@@ -47,6 +47,29 @@
   NPM_VERSION = "9.6.7"
   NPM_FLAGS = "--include=dev"
 
+# Headers (prioridade alta no Netlify) para reduzir Bandwidth/credits
+# - HTML sem cache (evita index antigo apontando pra assets antigos)
+# - Assets versionados em /assets/* com cache longo e immutable
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
 # Force usando uma versão LTS do Node.js
 [context.production.environment]
   NODE_VERSION = "18.17.0"
