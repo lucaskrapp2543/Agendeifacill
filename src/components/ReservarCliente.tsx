@@ -105,6 +105,13 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string>('');
 
+  // ✅ Evita bug de timezone: new Date('YYYY-MM-DD') pode mostrar dia anterior no Brasil
+  const formatarDataPtBr = (yyyyMmDd: string): string => {
+    const [y, m, d] = (yyyyMmDd || '').split('-').map(Number);
+    if (!y || !m || !d) return '';
+    return new Date(y, m - 1, d, 12, 0, 0).toLocaleDateString('pt-BR');
+  };
+
   // Função para carregar clientes do estabelecimento
   const loadClients = async () => {
     if (!establishmentId) return;
@@ -1479,7 +1486,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                     </>
                   )}
 
-                  <p><strong>Data:</strong> {new Date(selectedDate).toLocaleDateString('pt-BR')}</p>
+                  <p><strong>Data:</strong> {formatarDataPtBr(selectedDate)}</p>
                   <p><strong>Horário:</strong> {selectedTime}</p>
                   <p><strong>Cliente:</strong> {
                     selectedSubscription ? (
