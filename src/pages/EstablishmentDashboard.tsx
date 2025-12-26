@@ -11106,6 +11106,29 @@ Estamos te aguardando! 😎✂️`;
               {activeTab === 'passo-a-passo' && (
                 <div className="space-y-6 w-full">
                   <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
+                    {/* Vídeo importante (aparece ao clicar em "Como funciona o Sistema" no sidebar) */}
+                    <div className="mb-5 sm:mb-7">
+                      <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-3 sm:p-4 mb-3">
+                        <p className="text-amber-900 font-extrabold text-sm sm:text-base">
+                          🎥 VÍDEO IMPORTANTE — conheça o sistema
+                        </p>
+                        <p className="text-amber-800 text-xs sm:text-sm mt-1">
+                          Assista antes de começar para entender o fluxo completo.
+                        </p>
+                      </div>
+
+                      <div className="aspect-video w-full overflow-hidden rounded-xl border border-gray-200 shadow-md">
+                        <iframe
+                          src="https://www.youtube.com/embed/lLM5KM6NavU"
+                          title="Vídeo importante — conheça o sistema"
+                          className="w-full h-full"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          referrerPolicy="strict-origin-when-cross-origin"
+                          allowFullScreen
+                        />
+                      </div>
+                    </div>
+
                     {/* Header */}
                     <div className="flex items-center gap-3 mb-4 sm:mb-6">
                       <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-gray-800 to-black rounded-full flex items-center justify-center">
