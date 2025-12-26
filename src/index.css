@@ -239,3 +239,5 @@ body {
 .animate-red-blink {
   animation: red-blink 1.5s ease-in-out infinite;
 }
+
+/* cache-bust: força novo hash do CSS para o Netlify aplicar os novos headers de cache */
