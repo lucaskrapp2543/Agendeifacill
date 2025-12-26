@@ -66,7 +66,7 @@
     Cache-Control = "no-cache, no-store, must-revalidate"
 
 [[headers]]
-  for = "/*"
+  for = "/booking/*"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
 
