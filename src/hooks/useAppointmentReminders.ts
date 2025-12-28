@@ -9,7 +9,7 @@ interface Appointment {
   establishment_name: string;
   service_name: string;
   professional_name?: string;
-  status: 'pending' | 'confirmed' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
 }
 
 interface ReminderData {
@@ -67,7 +67,7 @@ export function useAppointmentReminders(appointments: Appointment[]) {
 
   // Função para agendar lembrete
   const scheduleReminder = (appointment: Appointment) => {
-    if (appointment.status === 'cancelled') {
+    if (appointment.status === 'cancelled' || appointment.status === 'completed') {
       return;
     }
 

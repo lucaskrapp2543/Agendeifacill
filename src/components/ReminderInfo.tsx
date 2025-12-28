@@ -10,7 +10,7 @@ interface Appointment {
   establishment_name: string;
   service_name: string;
   professional_name?: string;
-  status: 'pending' | 'confirmed' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
 }
 
 interface ReminderInfoProps {
@@ -20,7 +20,7 @@ interface ReminderInfoProps {
 export function ReminderInfo({ appointments }: ReminderInfoProps) {
   // Filtrar apenas agendamentos futuros e não cancelados
   const futureAppointments = appointments.filter(appointment => {
-    if (appointment.status === 'cancelled') return false;
+    if (appointment.status === 'cancelled' || appointment.status === 'completed') return false;
     
     const appointmentDateTime = parseISO(`${appointment.appointment_date}T${appointment.appointment_time}`);
     const now = new Date();

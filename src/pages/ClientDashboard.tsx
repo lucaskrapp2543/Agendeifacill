@@ -15,18 +15,25 @@ import { useAuth } from '../context/AuthContext';
 import { useAppointmentReminders } from '../hooks/useAppointmentReminders';
 import { useNotifications } from '../hooks/useNotifications';
 import { cancelAppointment, getClientAppointments, supabase } from '../lib/supabase';
+import { podeCancelarAgendamento } from '../utils/regrasCancelamento';
 
-type Appointment = {
+type AgendamentoCliente = {
   id: string;
   created_at: string;
   establishment_name: string;
+  establishment_id?: string;
   service_name: string;
+  service?: string;
   service_price: number;
   appointment_date: string;
   appointment_time: string;
   professional_name?: string;
+  professional?: string;
   duration?: number;
   status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  client_name?: string;
+  client_whatsapp?: string;
+  is_subscriber?: boolean;
   payment_method?: string;
   pix_payment_status?: string;
   pix_proof_url?: string;
@@ -35,9 +42,9 @@ type Appointment = {
 const ClientDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
+  const { notifyCancelledAppointment } = useNotifications();
 
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [appointments, setAppointments] = useState<AgendamentoCliente[]>([]);
 
   // Sistema de lembretes automáticos
   const { notificationPermission } = useAppointmentReminders(appointments);
@@ -59,22 +66,56 @@ const ClientDashboard = () => {
   // Estados para modal de edição de dados do usuário
   const [showEditUserModal, setShowEditUserModal] = useState(false);
 
-  // Função para buscar dados do último agendamento do cliente
-  const getClientDataFromLastAppointment = async () => {
-    if (!user?.id || appointments.length === 0) {
-      return { name: user?.user_metadata?.name || '', phone: '' };
-    }
+  const getAppointmentDateTime = (appointment: AgendamentoCliente): Date | null => {
+    try {
+      const [year, month, day] = String(appointment.appointment_date || '').split('-').map(Number);
+      if (!year || !month || !day) return null;
 
-    // Buscar o último agendamento do cliente
-    const lastAppointment = appointments[0]; // appointments já está ordenado por data de criação
-    return {
-      name: lastAppointment.client_name || user?.user_metadata?.name || '',
-      phone: lastAppointment.client_whatsapp || ''
-    };
+      const [hours, minutes] = String(appointment.appointment_time || '00:00').split(':').map(Number);
+      const safeHours = Number.isFinite(hours) ? hours : 0;
+      const safeMinutes = Number.isFinite(minutes) ? minutes : 0;
+
+      // Usa timezone local (evita parsing ambíguo de string)
+      return new Date(year, month - 1, day, safeHours, safeMinutes, 0, 0);
+    } catch {
+      return null;
+    }
+  };
+
+  const sortAppointmentsByProximidade = (list: AgendamentoCliente[]) => {
+    const now = new Date();
+    return [...list].sort((a, b) => {
+      const dateA = getAppointmentDateTime(a);
+      const dateB = getAppointmentDateTime(b);
+
+      // Empurrar inválidos para o final
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+
+      const isPastA = dateA.getTime() < now.getTime();
+      const isPastB = dateB.getTime() < now.getTime();
+
+      // Próximos primeiro, depois passados
+      if (isPastA !== isPastB) return isPastA ? 1 : -1;
+
+      // Próximos: crescente (mais perto primeiro). Passados: decrescente (mais recente primeiro)
+      if (!isPastA && !isPastB) {
+        const diff = dateA.getTime() - dateB.getTime();
+        if (diff !== 0) return diff;
+      } else {
+        const diff = dateB.getTime() - dateA.getTime();
+        if (diff !== 0) return diff;
+      }
+
+      // Desempate: criação mais recente primeiro
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
   };
 
   // Função para atualizar dados do usuário
   const handleUserDataUpdate = (newName: string, newPhone: string) => {
+    console.log('✅ Dados atualizados:', { newName, newPhone });
     // Recarregar os agendamentos para mostrar os dados atualizados
     fetchAppointments();
     setShowEditUserModal(false);
@@ -132,7 +173,7 @@ const ClientDashboard = () => {
     ];
 
     // Verificar se o número já começa com algum código de país
-    const hasCountryCode = countryCodes.some(({ code, minLength }) => 
+    const hasCountryCode = countryCodes.some(({ code, minLength }) =>
       cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength
     );
 
@@ -304,7 +345,7 @@ const ClientDashboard = () => {
       // Abrir o calendário como no botão normal
       window.open(calendarUrl, '_blank');
 
-      toast('Lembrete criado! Abrindo calendário...', 'success');
+      toast.success('Lembrete criado! Abrindo calendário...');
 
       // Limpar dados pendentes
       setShouldShowReminderIndicator(false);
@@ -368,9 +409,7 @@ const ClientDashboard = () => {
         const localAppointments = JSON.parse(localStorage.getItem(`appointments_${user.id}`) || '[]');
 
         if (localAppointments.length > 0) {
-          const sortedAppointments = localAppointments.sort((a: Appointment, b: Appointment) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          );
+          const sortedAppointments = sortAppointmentsByProximidade(localAppointments);
           setAppointments(sortedAppointments);
           toast('⚠️ Usando dados locais');
           console.log('💾 Usando dados locais:', localAppointments.length, 'agendamentos');
@@ -379,9 +418,7 @@ const ClientDashboard = () => {
           console.log('📭 Nenhum agendamento encontrado');
         }
       } else {
-        const sortedAppointments = data.sort((a: Appointment, b: Appointment) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
+        const sortedAppointments = sortAppointmentsByProximidade(data);
         setAppointments(sortedAppointments);
         console.log('✅ Agendamentos carregados do banco:', sortedAppointments.length);
       }
@@ -392,9 +429,7 @@ const ClientDashboard = () => {
       const localAppointments = JSON.parse(localStorage.getItem(`appointments_${user.id}`) || '[]');
 
       if (localAppointments.length > 0) {
-        const sortedAppointments = localAppointments.sort((a: Appointment, b: Appointment) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
+        const sortedAppointments = sortAppointmentsByProximidade(localAppointments);
         setAppointments(sortedAppointments);
         toast('⚠️ Usando dados locais (problema de conexão)');
         console.log('💾 Fallback para dados locais:', localAppointments.length, 'agendamentos');
@@ -417,6 +452,16 @@ const ClientDashboard = () => {
 
       if (!appointmentToCancel) {
         toast.error('Agendamento não encontrado');
+        return;
+      }
+
+      const { permitido, motivo } = podeCancelarAgendamento({
+        appointment_date: appointmentToCancel.appointment_date,
+        appointment_time: appointmentToCancel.appointment_time
+      });
+
+      if (!permitido) {
+        toast.error(motivo || 'Cancelamento indisponível para este agendamento.');
         return;
       }
 
@@ -507,7 +552,7 @@ const ClientDashboard = () => {
             {/* Versão Desktop */}
             <div className="hidden md:flex items-center gap-4">
               <NotificationPermission />
-              <span className="text-gray-400">{user?.name || user?.email}</span>
+              <span className="text-gray-400">{user?.user_metadata?.name || user?.email}</span>
               <button
                 onClick={() => setShowEditUserModal(true)}
                 className="text-blue-400 hover:text-blue-300 text-sm font-medium"
@@ -522,7 +567,7 @@ const ClientDashboard = () => {
 
             {/* Versão Mobile */}
             <div className="flex md:hidden items-center gap-2">
-              <span className="text-gray-400 text-sm truncate max-w-[120px]">{user?.name || user?.email}</span>
+              <span className="text-gray-400 text-sm truncate max-w-[120px]">{user?.user_metadata?.name || user?.email}</span>
               <button
                 onClick={() => setShowEditUserModal(true)}
                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1 rounded-lg font-medium"
@@ -561,7 +606,7 @@ const ClientDashboard = () => {
                 <button
                   onClick={() => {
                     // Pegar o estabelecimento do último agendamento
-                    const lastAppointment = appointments[0]; // Já está ordenado por data de criação (mais recente primeiro)
+                    const lastAppointment = appointments[0]; // Ordenado por proximidade (mais próximo primeiro)
 
                     // Extrair o establishment_id do appointment
                     // Buscar no Supabase para pegar o código do estabelecimento
@@ -660,7 +705,7 @@ const ClientDashboard = () => {
                                     const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(reminderTitle)}&dates=${startDate}/${endDate}&details=${encodeURIComponent(reminderDescription)}&location=${encodeURIComponent(appointment.establishment_name)}`;
 
                                     window.open(calendarUrl, '_blank');
-                                    toast('Lembrete criado! Abrindo calendário...', 'success');
+                                    toast.success('Lembrete criado! Abrindo calendário...');
                                   } else {
                                     // Se não confirmou ainda, mostrar modal de confirmação
                                     setPendingReminderData({

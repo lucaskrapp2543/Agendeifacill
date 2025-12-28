@@ -2,6 +2,7 @@ import { useState } from "react";
 import { toast } from "react-hot-toast";
 import { supabase } from "../lib/supabase";
 import { CancellationWhatsAppModal } from "./CancellationWhatsAppModal";
+import { podeCancelarAgendamento } from "../utils/regrasCancelamento";
 
 export function CancelAppointmentButton({ appointmentId, onCancelled, appointment }) {
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -11,6 +12,16 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
 
 
   const handleCancelClick = async () => {
+    const { permitido, motivo } = podeCancelarAgendamento({
+      appointment_date: appointment?.appointment_date,
+      appointment_time: appointment?.appointment_time
+    });
+
+    if (!permitido) {
+      toast.error(motivo || 'Cancelamento indisponível para este agendamento.');
+      return;
+    }
+
     console.log('🔍 DEBUG - Iniciando cancelamento para appointment:', appointment);
     console.log('🔍 DEBUG - Establishment ID:', appointment?.establishment_id);
 

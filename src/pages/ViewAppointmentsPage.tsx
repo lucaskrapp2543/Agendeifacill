@@ -7,6 +7,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneLoginModal } from '../components/PhoneLoginModal';
 import { SuccessBookingModal } from '../components/SuccessBookingModal';
 import { getAppointmentsByPhone, supabase } from '../lib/supabase';
+import { podeCancelarAgendamento } from '../utils/regrasCancelamento';
 
 export default function ViewAppointmentsPage() {
   const navigate = useNavigate();
@@ -98,11 +99,49 @@ export default function ViewAppointmentsPage() {
       console.log('✅ Agendamentos encontrados:', data.length);
       console.log('  - Primeiro agendamento:', data[0]);
 
-      // Ordenar agendamentos: mais recentes primeiro (por data e horário)
-      const sortedAppointments = data.sort((a: any, b: any) => {
-        const dateA = new Date(`${a.appointment_date}T${a.appointment_time}`);
-        const dateB = new Date(`${b.appointment_date}T${b.appointment_time}`);
-        return dateB.getTime() - dateA.getTime(); // Mais recente primeiro
+      const getAppointmentDateTime = (appointment: any): Date | null => {
+        try {
+          const [year, month, day] = String(appointment?.appointment_date || '').split('-').map(Number);
+          if (!year || !month || !day) return null;
+
+          const [hours, minutes] = String(appointment?.appointment_time || '00:00').split(':').map(Number);
+          const safeHours = Number.isFinite(hours) ? hours : 0;
+          const safeMinutes = Number.isFinite(minutes) ? minutes : 0;
+
+          // Usa timezone local (evita parsing ambíguo de string)
+          return new Date(year, month - 1, day, safeHours, safeMinutes, 0, 0);
+        } catch {
+          return null;
+        }
+      };
+
+      // Ordenar agendamentos por proximidade:
+      // - próximos (>= agora): do mais próximo para o mais distante
+      // - passados (< agora): do mais recente para o mais antigo
+      const now = new Date();
+      const sortedAppointments = [...data].sort((a: any, b: any) => {
+        const dateA = getAppointmentDateTime(a);
+        const dateB = getAppointmentDateTime(b);
+
+        if (!dateA && !dateB) return 0;
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+
+        const isPastA = dateA.getTime() < now.getTime();
+        const isPastB = dateB.getTime() < now.getTime();
+
+        if (isPastA !== isPastB) return isPastA ? 1 : -1;
+
+        if (!isPastA && !isPastB) {
+          const diff = dateA.getTime() - dateB.getTime();
+          if (diff !== 0) return diff;
+        } else {
+          const diff = dateB.getTime() - dateA.getTime();
+          if (diff !== 0) return diff;
+        }
+
+        // Desempate: criado mais recente primeiro
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
 
       console.log('📊 Agendamentos ordenados:', sortedAppointments);
@@ -163,6 +202,16 @@ export default function ViewAppointmentsPage() {
     const appointment = appointments.find(apt => apt.id === appointmentId);
     if (!appointment) {
       toast.error('Agendamento não encontrado');
+      return;
+    }
+
+    const { permitido, motivo } = podeCancelarAgendamento({
+      appointment_date: appointment.appointment_date,
+      appointment_time: appointment.appointment_time
+    });
+
+    if (!permitido) {
+      toast.error(motivo || 'Cancelamento indisponível para este agendamento.');
       return;
     }
 

@@ -36,8 +36,15 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
   // Estado para controlar se o campo de data está vazio ou preenchido
   const [localDate, setLocalDate] = useState('');
 
-  // Não pré-selecionar data - deixar o usuário escolher manualmente
-  // Removido o useEffect que pré-selecionava a data
+  // Se o booking já vier com uma data pré-selecionada (ex.: hoje),
+  // refletir isso visualmente e no painel de informação.
+  useEffect(() => {
+    if (selectedDate && !Number.isNaN(selectedDate.getTime())) {
+      setLocalDate(format(selectedDate, 'yyyy-MM-dd'));
+      setCurrentMonth(startOfMonth(selectedDate));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
 
   const isDayEnabled = (date: Date) => {
     // Para agendamento de assinante, sempre permitir seleção de datas
@@ -116,40 +123,42 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
           type="button"
           onClick={goToPreviousMonth}
           disabled={currentMonth <= startOfMonth(today)}
-          className="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-700"
+          className="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed text-white/80 transition-colors"
         >
           ←
         </button>
-        <h3 className="text-lg font-semibold text-gray-900">
+        <h3 className="text-lg font-extrabold tracking-wide text-[#E6C78B]">
           {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
         </h3>
         <button
           type="button"
           onClick={goToNextMonth}
           disabled={addDays(monthEnd, 1) > maxDate}
-          className="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-700"
+          className="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed text-white/80 transition-colors"
         >
           →
         </button>
       </div>
 
       {/* Calendário visual */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        {/* Cabeçalho dos dias da semana */}
-        <div className="grid grid-cols-7 gap-1 mb-2">
+      <div className="bg-[#0b0c0f] border border-white/12 rounded-xl sm:rounded-2xl p-2 sm:p-4 shadow-[0_20px_70px_rgba(0,0,0,0.55)]">
+        {/* Cabeçalho dos dias da semana (desktop) */}
+        <div className="hidden sm:grid grid-cols-7 gap-1 mb-2">
           {weekDays.map((day) => (
-            <div key={day} className="text-center text-xs font-semibold text-gray-600 py-2">
+            <div key={day} className="text-center text-xs font-extrabold text-white/75 py-2 tracking-wide">
               {day}
             </div>
           ))}
         </div>
 
-        {/* Dias do calendário */}
-        <div className="grid grid-cols-7 gap-1">
+        {/* Grade do calendário:
+            - mobile: 5 colunas (botões maiores, sem arrastar pro lado)
+            - desktop: 7 colunas (padrão) */}
+        <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 sm:gap-1.5">
           {allDays.map((date, index) => {
             const isCurrentMonth = isSameMonth(date, currentMonth);
             const isToday = isSameDay(date, today);
-            const isSelected = localDate && isSameDay(date, new Date(localDate + 'T12:00:00'));
+            const isSelected = isSameDay(date, selectedDate);
             const isPast = date < today;
             const isEnabled = isDayEnabled(date) && !isPast && date <= maxDate;
             const isFutureLimit = date > maxDate;
@@ -161,17 +170,32 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
                 onClick={() => isEnabled && handleDateClick(date)}
                 disabled={!isEnabled}
                 className={`
-                  aspect-square p-2 rounded-lg text-sm font-medium transition-all
-                  ${!isCurrentMonth ? 'text-gray-300' : ''}
-                  ${isPast || isFutureLimit ? 'text-gray-300 cursor-not-allowed' : ''}
-                  ${isToday && !isSelected ? 'bg-blue-50 text-blue-600 border-2 border-blue-300' : ''}
-                  ${isSelected ? 'bg-blue-600 text-white font-bold' : ''}
-                  ${isEnabled && !isSelected && !isToday ? 'hover:bg-gray-100 text-gray-700' : ''}
-                  ${!isEnabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-                  ${!isDayEnabled(date) && isCurrentMonth && !isPast ? 'bg-red-50 text-red-400' : ''}
+                  relative rounded-xl border transition-all duration-150
+                  flex items-center justify-center
+                  h-12 px-3 py-2 sm:h-auto sm:aspect-square sm:p-2
+                  text-[13px] sm:text-sm font-extrabold
+                  ${!isCurrentMonth ? 'bg-black/30 border-white/5 text-white/20' : 'bg-white/5 border-white/10 text-white'}
+
+                  ${isEnabled && !isSelected ? 'hover:bg-white/10 hover:border-white/20 active:scale-[0.99] cursor-pointer' : 'cursor-not-allowed'}
+
+                  ${isPast || isFutureLimit ? 'bg-black/40 border-white/5 text-white/20 opacity-70 line-through' : ''}
+
+                  ${isToday && !isSelected ? 'ring-2 ring-emerald-400 bg-emerald-500/15 border-emerald-400/40' : ''}
+                  ${isSelected ? 'z-10 bg-[#E6C78B] text-black border-[#f3e7c7] ring-4 ring-[#E6C78B] shadow-[0_18px_45px_rgba(230,199,139,0.55)]' : ''}
+
+                  ${!isDayEnabled(date) && isCurrentMonth && !isPast ? 'bg-red-500/10 text-red-200 border-red-400/25' : ''}
                 `}
               >
-                {format(date, 'd')}
+                <span className="relative z-10 leading-none">{format(date, 'd')}</span>
+
+                {/* pontinho de hoje (pra ficar simples e óbvio sem quebrar layout) */}
+                {isToday && (
+                  <span
+                    className={`absolute bottom-1 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full ${
+                      isSelected ? 'bg-black/60' : 'bg-emerald-300'
+                    }`}
+                  />
+                )}
               </button>
             );
           })}
@@ -179,17 +203,17 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
       </div>
 
       {/* Informação sobre o dia selecionado */}
-      {localDate && (() => {
-        const dateObj = new Date(localDate + 'T12:00:00');
+      {selectedDate && (() => {
+        const dateObj = selectedDate;
         return (
-          <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg border border-gray-200">
+          <div className="text-sm text-white/80 bg-white/5 p-3 rounded-2xl border border-white/10">
             <div className="flex items-center justify-between">
               <span className="font-medium">
                 📅 {format(dateObj, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
               </span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${isDayEnabled(dateObj)
-                ? 'bg-green-100 text-green-700'
-                : 'bg-red-100 text-red-700'
+                ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/25'
+                : 'bg-red-500/15 text-red-200 border border-red-400/25'
                 }`}>
                 {isDayEnabled(dateObj) ? '✅ Aberto' : '❌ Fechado'}
               </span>
@@ -199,7 +223,7 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
       })()}
 
       {/* Dica para o usuário */}
-      <div className="text-xs text-gray-500 text-center">
+      <div className="text-xs text-white/50 text-center">
         💡 Você pode agendar até {format(maxDate, 'dd/MM/yyyy')}
       </div>
     </div>
