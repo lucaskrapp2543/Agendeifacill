@@ -321,48 +321,73 @@ export function ProfessionalSelector({
   if (isBookingUI) {
     return (
       <div className="space-y-3">
-        <div className="overflow-x-auto scrollbar-hide">
-          <div className="flex items-start justify-center gap-5 px-2 pb-2">
-            {professionals.map((professional) => {
-              const isSelected = selectedProfessional === professional.id;
-              return (
-                <button
-                  key={professional.id}
-                  type="button"
-                  onClick={() => onSelectProfessional(professional.id)}
-                  className="flex flex-col items-center flex-shrink-0 transition-transform active:scale-[0.97]"
-                  aria-label={`Profissional ${professional.name}`}
-                >
-                  <div
-                    className={`relative w-16 h-16 rounded-full overflow-hidden transition-all duration-200`}
-                    style={{
-                      border: '2px solid rgba(230,199,139,0.55)',
-                      boxShadow: isSelected
-                        ? '0 0 18px rgba(230,199,139,0.22), 0 10px 30px rgba(0,0,0,0.45)'
-                        : '0 10px 30px rgba(0,0,0,0.45)'
-                    }}
+        {/* Faixa premium estilo “NOSSOS PROFISSIONAIS” */}
+        <div
+          className="rounded-2xl px-4 py-4 border shadow-[0_18px_55px_rgba(0,0,0,0.55)]"
+          style={{
+            background:
+              'radial-gradient(120% 140% at 50% 0%, rgba(230,199,139,0.10) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.55) 100%)',
+            borderColor: 'rgba(230,199,139,0.22)'
+          }}
+        >
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="h-px w-10 bg-[#E6C78B]/40" />
+            <div className="text-center">
+              <div className="text-[12px] font-extrabold tracking-[0.22em] text-[#E6C78B] drop-shadow">
+                NOSSOS PROFISSIONAIS
+              </div>
+            </div>
+            <div className="h-px w-10 bg-[#E6C78B]/40" />
+          </div>
+
+          <div className="overflow-x-auto scrollbar-hide">
+            <div className="flex items-start justify-center gap-5 pb-1 min-w-max">
+              {professionals.map((professional) => {
+                const isSelected = selectedProfessional === professional.id;
+                return (
+                  <button
+                    key={professional.id}
+                    type="button"
+                    onClick={() => onSelectProfessional(professional.id)}
+                    className="flex flex-col items-center flex-shrink-0 transition-transform active:scale-[0.97]"
+                    aria-label={`Profissional ${professional.name}`}
                   >
-                    <img
-                      src={getPhotoUrl(professional)}
-                      alt={professional.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = '/fotopessoa.png';
+                    <div
+                      className="relative w-[68px] h-[68px] rounded-full overflow-hidden"
+                      style={{
+                        border: isSelected ? '3px solid rgba(243,231,199,0.95)' : '2px solid rgba(230,199,139,0.60)',
+                        boxShadow: isSelected
+                          ? '0 0 0 4px rgba(230,199,139,0.14), 0 0 22px rgba(230,199,139,0.25), 0 14px 35px rgba(0,0,0,0.55)'
+                          : '0 14px 35px rgba(0,0,0,0.55)'
                       }}
-                    />
-                    {uploadingPhoto === professional.id && (
-                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
-                      </div>
-                    )}
-                  </div>
-                  <span className="mt-2 text-sm font-semibold text-white text-center max-w-24">
-                    {professional.name}
-                  </span>
-                </button>
-              );
-            })}
+                    >
+                      <img
+                        src={getPhotoUrl(professional)}
+                        alt={professional.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = '/fotopessoa.png';
+                        }}
+                      />
+
+                      {/* overlay sutil premium */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
+
+                      {uploadingPhoto === professional.id && (
+                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                        </div>
+                      )}
+                    </div>
+
+                    <span className="mt-2 text-sm font-semibold text-white/90 text-center max-w-[90px] truncate">
+                      {professional.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

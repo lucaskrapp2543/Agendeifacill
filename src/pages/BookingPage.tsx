@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Download, LogOut } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Download, Home, LogOut, ThumbsUp, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -195,6 +195,21 @@ export default function BookingPage() {
         transform: scale(1);
         box-shadow: 0 0 0 0 rgba(255, 204, 0, 0);
       }
+    }
+
+    /* Batimento (não pisca): escala + glow suave */
+    @keyframes agf-heartbeat {
+      0%   { transform: scale(1);    box-shadow: 0 16px 40px rgba(0,0,0,0.65), 0 0 0 rgba(230,199,139,0.0); }
+      18%  { transform: scale(1.045); box-shadow: 0 18px 46px rgba(0,0,0,0.72), 0 0 18px rgba(230,199,139,0.25); }
+      35%  { transform: scale(1);    box-shadow: 0 16px 40px rgba(0,0,0,0.65), 0 0 0 rgba(230,199,139,0.0); }
+      52%  { transform: scale(1.03); box-shadow: 0 18px 44px rgba(0,0,0,0.70), 0 0 14px rgba(230,199,139,0.18); }
+      70%  { transform: scale(1);    box-shadow: 0 16px 40px rgba(0,0,0,0.65), 0 0 0 rgba(230,199,139,0.0); }
+      100% { transform: scale(1);    box-shadow: 0 16px 40px rgba(0,0,0,0.65), 0 0 0 rgba(230,199,139,0.0); }
+    }
+
+    .agf-heartbeat-cta {
+      animation: agf-heartbeat 1.9s ease-in-out infinite;
+      will-change: transform, box-shadow;
     }
   `;
 
@@ -1255,15 +1270,90 @@ export default function BookingPage() {
 
             {/* Botões de Ação Principal */}
             <div className="mt-6 flex flex-col space-y-6 relative z-10">
-              {/* Botão AGENDAR - Pill com Sombra Interna */}
-              <button
-                onClick={handleAgendarClick}
-                className="w-full font-extrabold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-black rounded-2xl border border-[#f3e7c7] bg-gradient-to-r from-[#e6d7b1] to-[#d9c08c] shadow-[0_10px_30px_rgba(0,0,0,0.35)] hover:brightness-105"
+              {/* Card premium (estilo do exemplo) */}
+              <div
+                className="w-full rounded-2xl overflow-hidden border shadow-[0_18px_55px_rgba(0,0,0,0.55)]"
+                style={{
+                  borderColor: 'rgba(230,199,139,0.20)',
+                  background:
+                    'radial-gradient(140% 140% at 50% 0%, rgba(230,199,139,0.14) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.65) 100%)',
+                }}
               >
-                <img src="/calendario.png" alt="Calendário" className="h-6 w-6 relative z-10" />
-                <span className="relative z-10">QUERO AGENDAR</span>
-                <ChevronRight className="h-5 w-5 relative z-10 opacity-80" />
-              </button>
+                <div className="px-4 pt-5 pb-4 text-center">
+                  <div
+                    className="text-base text-white/80"
+                    style={{ fontFamily: "'Segoe Script','Brush Script MT',cursive" }}
+                  >
+                    Bem-vindo ao nosso
+                  </div>
+                  <div className="mt-1 text-3xl sm:text-4xl font-extrabold tracking-wide text-[#E6C78B] drop-shadow">
+                    ESTABELECIMENTO
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {/* Item 1 */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                        <div className="-rotate-45">
+                          <Home className="w-6 h-6 text-[#E6C78B]" />
+                        </div>
+                      </div>
+                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                        Ambiente<br />Aconchegante
+                      </div>
+                    </div>
+
+                    {/* Item 2 */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                        <div className="-rotate-45">
+                          <Users className="w-6 h-6 text-[#E6C78B]" />
+                        </div>
+                      </div>
+                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                        Profissionais<br />Experientes
+                      </div>
+                    </div>
+
+                    {/* Item 3 */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                        <div className="-rotate-45">
+                          <ThumbsUp className="w-6 h-6 text-[#E6C78B]" />
+                        </div>
+                      </div>
+                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                        Atendimento<br />de Qualidade
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="-mt-2">
+                  {/* CTA igual ao exemplo: tarja grande + botão menor escuro "encaixado" */}
+                  <div className="px-6 pt-3 pb-7 flex justify-center">
+                    <div className="w-full max-w-[520px]">
+                      {/* Tarja grande dourada */}
+                      <button
+                        onClick={handleAgendarClick}
+                        className="w-full font-extrabold py-4 px-6 text-base sm:text-lg uppercase tracking-wide transition-all duration-300 flex items-center justify-center text-black rounded-2xl border border-[#f3e7c7]/60 bg-gradient-to-r from-[#e6d7b1] to-[#d9c08c] shadow-[0_18px_45px_rgba(0,0,0,0.40)] hover:brightness-105 active:scale-[0.99]"
+                      >
+                        AGENDE SEU HORÁRIO
+                      </button>
+
+                      {/* Botão menor escuro "encaixado" (SEM cortar no rodapé do card) */}
+                      <div className="flex justify-center -mt-4">
+                        <button
+                          onClick={handleAgendarClick}
+                          className="w-[230px] sm:w-[260px] font-extrabold py-2.5 px-4 text-sm uppercase tracking-[0.18em] rounded-2xl transition-all duration-300 border border-[#f3e7c7]/60 bg-[#0b0c0f] text-[#E6C78B] hover:bg-black/70 active:scale-[0.99] agf-heartbeat-cta"
+                        >
+                          RESERVAR AGORA
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {/* Dropdown SER ASSINANTE */}
               {subscriptions.length > 0 && (
@@ -1277,8 +1367,8 @@ export default function BookingPage() {
                     }}
                     className="w-full font-extrabold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-black rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
                   >
-                    <img src="/coroa.png" alt="Coroa" className="h-6 w-6 relative z-10" />
-                    <span className="relative z-10 text-white/70">SER ASSINANTE</span>
+                    <img src="/coroa.png" alt="Coroa" className="h-10 w-10 relative z-10" />
+                    <span className="relative z-10 text-white/70">PLANOS MENSAIS</span>
                     <ChevronRight className="h-5 w-5 relative z-10 opacity-70" />
                   </button>
 
@@ -1682,47 +1772,61 @@ export default function BookingPage() {
                 </div>
               )}
 
-              {/* Seção de Profissionais */}
+              {/* Seção de Profissionais (premium) - acima de Comodidades */}
               {establishment?.professionals && establishment.professionals.filter((p: any) => !p.hidden_from_booking).length > 0 && (
                 <div className="mt-8 mb-6">
-                  <h3 className="text-center text-xl font-semibold" style={{ color: '#E6C78B' }}>
-                    Profissionais
-                  </h3>
+                  <div
+                    className="rounded-2xl px-4 py-4 border shadow-[0_18px_55px_rgba(0,0,0,0.55)]"
+                    style={{
+                      background:
+                        'radial-gradient(120% 140% at 50% 0%, rgba(230,199,139,0.10) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.55) 100%)',
+                      borderColor: 'rgba(230,199,139,0.22)'
+                    }}
+                  >
+                    <div className="flex items-center justify-center gap-3 mb-4">
+                      <div className="h-px w-10 bg-[#E6C78B]/40" />
+                      <div className="text-center">
+                        <div className="text-[12px] font-extrabold tracking-[0.22em] text-[#E6C78B] drop-shadow">
+                          NOSSOS PROFISSIONAIS
+                        </div>
+                      </div>
+                      <div className="h-px w-10 bg-[#E6C78B]/40" />
+                    </div>
 
-                  <div className="mt-4 overflow-x-auto scrollbar-hide">
-                    <div className="flex items-start justify-center gap-5 px-2 pb-2">
-                      {establishment.professionals
-                        .filter((p: any) => !p.hidden_from_booking)
-                        .map((professional: any) => (
-                          <button
-                            key={professional.id}
-                            type="button"
-                            className="flex flex-col items-center flex-shrink-0 active:scale-[0.97] transition-transform"
-                            aria-label={`Profissional ${professional.name}`}
-                          >
+                    <div className="overflow-x-auto scrollbar-hide">
+                      <div className="flex items-start justify-center gap-5 pb-1 min-w-max px-1">
+                        {establishment.professionals
+                          .filter((p: any) => !p.hidden_from_booking)
+                          .map((professional: any) => (
                             <div
-                              className="w-16 h-16 rounded-full overflow-hidden"
-                              style={{
-                                border: '2px solid rgba(230,199,139,0.55)',
-                                boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
-                                transition: 'transform 200ms ease, box-shadow 200ms ease'
-                              }}
+                              key={professional.id}
+                              className="flex flex-col items-center flex-shrink-0 select-none"
+                              aria-label={`Profissional ${professional.name}`}
                             >
-                              <img
-                                src={(professional as any).photo_url || '/fotopessoa.png'}
-                                alt={professional.name}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.src = '/fotopessoa.png';
+                              <div
+                                className="relative w-[68px] h-[68px] rounded-full overflow-hidden"
+                                style={{
+                                  border: '2px solid rgba(230,199,139,0.60)',
+                                  boxShadow: '0 14px 35px rgba(0,0,0,0.55)'
                                 }}
-                              />
+                              >
+                                <img
+                                  src={(professional as any).photo_url || '/fotopessoa.png'}
+                                  alt={professional.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.src = '/fotopessoa.png';
+                                  }}
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
+                              </div>
+                              <span className="mt-2 text-sm font-semibold text-white/90 text-center max-w-[90px] truncate">
+                                {professional.name}
+                              </span>
                             </div>
-                            <span className="mt-2 text-sm font-semibold text-white text-center max-w-24">
-                              {professional.name}
-                            </span>
-                          </button>
-                        ))}
+                          ))}
+                      </div>
                     </div>
                   </div>
                 </div>
