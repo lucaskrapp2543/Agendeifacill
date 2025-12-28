@@ -25,7 +25,8 @@ export default function ViewAppointmentsPage() {
   const [showWhatsAppConfirmationModal, setShowWhatsAppConfirmationModal] = useState(false);
   const [selectedAppointmentForWhatsApp, setSelectedAppointmentForWhatsApp] = useState<any>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [cancelledAppointment, setCancelledAppointment] = useState<any>(null); // Para mostrar botão de enviar mensagem após cancelar
+  // Mantido apenas por compatibilidade (evitar 2 cliques). Agora o WhatsApp abre automaticamente após cancelar.
+  const [cancelledAppointment, setCancelledAppointment] = useState<any>(null);
 
 
   // Buscar telefone da URL, localStorage ou carregar agendamentos automaticamente
@@ -325,10 +326,51 @@ Por favor, confirme o cancelamento. Obrigado!`;
       setAppointments(updatedAppointments);
 
       toast.success('Agendamento cancelado com sucesso!');
-      setCancelledAppointment({
-        ...appointment,
-        establishment: establishment
-      });
+
+      // ✅ 1 clique: já abrir WhatsApp automaticamente com a mensagem "Cancelei..."
+      if (establishment?.whatsapp) {
+        // Limpar e formatar o número do WhatsApp
+        let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
+
+        // Lista de códigos de países comuns
+        const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+        const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
+
+        if (!hasCountryCode) {
+          if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+            cleanWhatsapp = '55' + cleanWhatsapp;
+          }
+        }
+
+        // Formatar data
+        const appointmentDate = formatDate(appointment.appointment_date);
+
+        const message = `Cancelei
+
+*Data:* ${appointmentDate}
+*Horário:* ${appointment.appointment_time}
+*Serviço:* ${appointment.service_name || appointment.service || 'Não especificado'}
+*Profissional:* ${appointment.professional_name || 'Não especificado'}
+*Forma de Pagamento:* ${appointment.payment_method || 'Não especificada'}`;
+
+        const encodedMessage = encodeURIComponent(message);
+        const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
+
+        // Em mobile, usar location.href é mais confiável (evita bloqueio de popup)
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          window.location.href = whatsappUrl;
+        } else {
+          window.open(whatsappUrl, '_blank');
+        }
+        toast.success('Abrindo WhatsApp...');
+      } else {
+        // fallback: se não tiver whatsapp, não travar o usuário
+        toast('Cancelado. WhatsApp do estabelecimento não configurado.', { duration: 4000 });
+      }
+
+      // Limpar estado antigo (não usamos mais botão de confirmar)
+      setCancelledAppointment(null);
     } catch (error: any) {
       console.error('❌ Erro ao processar cancelamento:', error);
       toast.error('Erro ao processar cancelamento. Tente novamente.');
@@ -1130,65 +1172,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
                   </div>
                 )}
 
-                {/* Botão de Confirmar Cancelamento (quando opção está DESMARCADA) */}
-                {appointment.status === 'cancelled' && cancelledAppointment && cancelledAppointment.id === appointment.id && (
-                  <div className="pt-4 border-t border-gray-200">
-                    <button
-                      onClick={async () => {
-                        try {
-                          if (!cancelledAppointment.establishment?.whatsapp) {
-                            toast.error('Configuração de WhatsApp não encontrada');
-                            return;
-                          }
-
-                          // Limpar e formatar o número do WhatsApp
-                          let cleanWhatsapp = cancelledAppointment.establishment.whatsapp.replace(/\D/g, '');
-
-                          // Lista de códigos de países comuns
-                          const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-                          const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
-
-                          if (!hasCountryCode) {
-                            if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
-                              cleanWhatsapp = '55' + cleanWhatsapp;
-                            } else if (cleanWhatsapp.length < 10) {
-                              toast.error('Número de WhatsApp inválido');
-                              return;
-                            }
-                          }
-
-                          // Formatar data
-                          const appointmentDate = formatDate(cancelledAppointment.appointment_date);
-
-                          // Mensagem quando opção está DESMARCADA: "Cancelei" (informando que já cancelou)
-                          const message = `Cancelei
-
-*Data:* ${appointmentDate}
-*Horário:* ${cancelledAppointment.appointment_time}
-*Serviço:* ${cancelledAppointment.service_name || cancelledAppointment.service || 'Não especificado'}
-*Profissional:* ${cancelledAppointment.professional_name || 'Não especificado'}
-*Forma de Pagamento:* ${cancelledAppointment.payment_method || 'Não especificada'}`;
-
-                          const encodedMessage = encodeURIComponent(message);
-                          const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
-
-                          window.open(whatsappUrl, '_blank');
-                          toast.success('Abrindo WhatsApp...');
-
-                          // Limpar o estado após enviar
-                          setCancelledAppointment(null);
-                        } catch (error: any) {
-                          console.error('❌ Erro ao enviar mensagem:', error);
-                          toast.error('Erro ao processar. Tente novamente.');
-                        }
-                      }}
-                      className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center gap-2"
-                    >
-                      <Phone className="w-4 h-4" />
-                      Confirmar cancelamento
-                    </button>
-                  </div>
-                )}
+                {/* Removido: 2º clique "Confirmar cancelamento". Agora abre WhatsApp automaticamente ao cancelar. */}
               </div>
             ))}
           </div>

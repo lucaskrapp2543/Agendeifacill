@@ -97,6 +97,33 @@ export default function BookingPage() {
   const [showOptionalPayPrompt, setShowOptionalPayPrompt] = useState(false);
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
+  const retryFetchEstablishmentRef = useRef(0);
+
+  // Persistência leve do fluxo "QUERO AGENDAR" (evita voltar pro início se houver remount/reload no mobile)
+  const QUICK_BOOKING_FLOW_KEY = 'agf_quick_booking_flow'; // 'modal' | 'form'
+  const QUICK_BOOKING_DATA_KEY = 'agf_quick_booking_data'; // { name, phone }
+
+  const safeSessionGet = (key: string) => {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+  const safeSessionSet = (key: string, value: string) => {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch {
+      // ignore
+    }
+  };
+  const safeSessionRemove = (key: string) => {
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  };
 
   // Função para converter agendamento normal para assinante OU de volta para cliente normal
   const handleConvertToSubscriber = (subscriberData: any | false) => {
@@ -185,6 +212,48 @@ export default function BookingPage() {
   useEffect(() => {
     fetchEstablishment();
   }, [id]);
+
+  // ✅ Recuperar fluxo do "quero agendar" se a página remountar (piscadas/reloads em mobile)
+  useEffect(() => {
+    const flow = safeSessionGet(QUICK_BOOKING_FLOW_KEY);
+    if (flow === 'modal') {
+      setShowQuickBookingModal(true);
+      return;
+    }
+    if (flow === 'form') {
+      const raw = safeSessionGet(QUICK_BOOKING_DATA_KEY);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.name && parsed?.phone) {
+            setGuestClientData({ name: String(parsed.name), phone: String(parsed.phone) });
+          }
+        } catch {
+          // ignore
+        }
+      }
+      setShowBookingForm(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ Retry controlado: evita setTimeout/fetch durante render (isso causa flicker e resets em celular)
+  useEffect(() => {
+    if (isLoading) return;
+    if (establishment) return;
+    if (!id) return;
+
+    if (retryFetchEstablishmentRef.current >= 2) return;
+    retryFetchEstablishmentRef.current += 1;
+    console.log('🔄 Retry controlado: tentando buscar estabelecimento novamente...', retryFetchEstablishmentRef.current);
+
+    const t = setTimeout(() => {
+      fetchEstablishment();
+    }, 250);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, establishment, id]);
 
   useEffect(() => {
     if (establishment) {
@@ -872,11 +941,13 @@ export default function BookingPage() {
   const handleAgendarClick = () => {
     if (id === '3814' || id === '3315') {
       setShowBookingForm(true);
+      safeSessionSet(QUICK_BOOKING_FLOW_KEY, 'form');
       return;
     }
 
     // NOVO FLUXO: Sempre usar modal de agendamento rápido (sem login)
     setShowQuickBookingModal(true);
+    safeSessionSet(QUICK_BOOKING_FLOW_KEY, 'modal');
   };
 
   // Função para continuar após preencher nome e telefone
@@ -884,6 +955,9 @@ export default function BookingPage() {
     setGuestClientData({ name, phone });
     setShowQuickBookingModal(false);
     setShowBookingForm(true);
+
+    safeSessionSet(QUICK_BOOKING_FLOW_KEY, 'form');
+    safeSessionSet(QUICK_BOOKING_DATA_KEY, JSON.stringify({ name, phone }));
   };
 
   console.log('🔍 RENDER - Estados atuais:');
@@ -893,13 +967,7 @@ export default function BookingPage() {
   console.log('  - forceRender:', forceRender);
   console.log('  - showBookingForm:', showBookingForm);
 
-  // SOLUÇÃO ALTERNATIVA: Se temos dados mas establishment é null, tentar buscar novamente
-  if (!isLoading && !establishment && id) {
-    console.log('🔄 TENTATIVA DE RECUPERAÇÃO: Dados perdidos, tentando buscar novamente...');
-    setTimeout(() => {
-      fetchEstablishment();
-    }, 100);
-  }
+  // ⛔ Removido retry durante render (causava flicker/instabilidade em mobile)
 
   if (isLoading) {
     return (
@@ -2100,7 +2168,11 @@ export default function BookingPage() {
       {/* Modal de Agendamento Rápido */}
       <QuickBookingModal
         isOpen={showQuickBookingModal}
-        onClose={() => setShowQuickBookingModal(false)}
+        onClose={() => {
+          setShowQuickBookingModal(false);
+          // Se o usuário fechou, não manter o fluxo preso em "modal"
+          safeSessionRemove(QUICK_BOOKING_FLOW_KEY);
+        }}
         onContinue={handleContinueQuickBooking}
         establishmentName={establishment?.name || 'este estabelecimento'}
         establishmentWhatsapp={establishment?.whatsapp}

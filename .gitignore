@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Backups locais (não subir pro GitHub / Netlify)
+backup-projeto-*.zip
