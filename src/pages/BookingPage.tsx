@@ -98,6 +98,7 @@ export default function BookingPage() {
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
   const retryFetchEstablishmentRef = useRef(0);
+  const isReloadingRef = useRef(false); // ✅ Proteção contra reload loops
 
   // Persistência leve do fluxo "QUERO AGENDAR" (evita voltar pro início se houver remount/reload no mobile)
   const QUICK_BOOKING_FLOW_KEY = 'agf_quick_booking_flow'; // 'modal' | 'form'
@@ -224,7 +225,31 @@ export default function BookingPage() {
     };
   }, []);
 
+  // ✅ SOLUÇÃO DEFINITIVA: Limpar cache e Service Worker ao entrar no booking
   useEffect(() => {
+    // Limpar Service Workers existentes (especialmente em mobile)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        registrations.forEach(registration => {
+          console.log('🗑️ Removendo Service Worker no booking:', registration.scope);
+          registration.unregister().catch(() => {});
+        });
+      });
+    }
+
+    // Limpar caches do navegador
+    if ('caches' in window) {
+      caches.keys().then(cacheNames => {
+        cacheNames.forEach(cacheName => {
+          if (cacheName.includes('agendafacil') || cacheName.includes('booking')) {
+            console.log('🗑️ Limpando cache:', cacheName);
+            caches.delete(cacheName).catch(() => {});
+          }
+        });
+      });
+    }
+
+    // Forçar busca sem cache
     fetchEstablishment();
   }, [id]);
 
@@ -363,6 +388,7 @@ export default function BookingPage() {
       }
 
       console.log('🎯 Buscando especificamente pelo código:', id);
+      // ✅ FORÇAR busca sem cache (evita dados antigos)
       const { data, error } = await supabase
         .from('establishments')
         .select(`
@@ -380,6 +406,10 @@ export default function BookingPage() {
           `)
         .eq('code', id)
         .single();
+      
+      // ✅ Adicionar timestamp para evitar cache do navegador
+      const fetchTimestamp = Date.now();
+      console.log('⏰ Timestamp da busca:', fetchTimestamp);
 
       if (error) {
         console.error('❌ Erro ao buscar estabelecimento:', error);
@@ -934,6 +964,9 @@ export default function BookingPage() {
       toast.success('Redirecionando para seus agendamentos...');
       setTimeout(() => {
         const cleanPhone = phoneForViewAppointments ? phoneForViewAppointments.replace(/\D/g, '') : '';
+        // ✅ Proteção contra múltiplos redirects
+        if (isReloadingRef.current) return;
+        isReloadingRef.current = true;
         window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
       }, 1000);
     } catch (error: any) {
@@ -2313,6 +2346,9 @@ export default function BookingPage() {
             if (clientPhone) {
               const cleanPhone = clientPhone.replace(/\D/g, '');
               localStorage.setItem('last_booking_phone', cleanPhone);
+              // ✅ Proteção contra múltiplos redirects
+              if (isReloadingRef.current) return;
+              isReloadingRef.current = true;
               window.location.href = `/view-appointments?phone=${encodeURIComponent(cleanPhone)}`;
               return;
             }
@@ -2320,6 +2356,9 @@ export default function BookingPage() {
             // Redirecionar para a página de agendamentos
             toast.success('Pagamento confirmado! Redirecionando para seus agendamentos...');
             setTimeout(() => {
+              // ✅ Proteção contra múltiplos redirects
+              if (isReloadingRef.current) return;
+              isReloadingRef.current = true;
               window.location.href = '/view-appointments';
             }, 800);
           }}
@@ -2376,7 +2415,10 @@ export default function BookingPage() {
                     const phone =
                       (pendingCustomerData?.phone || guestClientData?.phone || localStorage.getItem('last_booking_phone') || '').toString();
                     const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
-                    window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
+                    // ✅ Proteção contra múltiplos redirects
+        if (isReloadingRef.current) return;
+        isReloadingRef.current = true;
+        window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
                   }, 800);
                 }}
                 className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors"
