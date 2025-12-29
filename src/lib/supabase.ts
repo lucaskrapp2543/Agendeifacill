@@ -1150,21 +1150,31 @@ export const getAppointmentsByPhone = async (phone: string) => {
     // Remover duplicatas E filtrar cancelados (segurança extra)
     const uniqueAppointments = Array.from(
       new Map(allAppointments.map(apt => [apt.id, apt])).values()
-    ).filter(apt => apt.status !== 'cancelled'); // ✅ Filtro extra de segurança
+    );
+
+    // ✅ DEBUG: Log dos status antes do filtro
+    console.log('🔍 DEBUG - Status dos agendamentos ANTES do filtro:');
+    uniqueAppointments.forEach((apt, idx) => {
+      console.log(`  ${idx + 1}. ID: ${apt.id}, Status: "${apt.status}", Data: ${apt.appointment_date}, Hora: ${apt.appointment_time}`);
+    });
+
+    // ✅ Filtrar cancelados
+    const filteredAppointments = uniqueAppointments.filter(apt => apt.status !== 'cancelled');
 
     console.log('📊 getAppointmentsByPhone - Resultado:');
     console.log('  - Resultados da busca número completo:', data1?.length || 0);
     console.log('  - Resultados da busca número local:', data2?.length || 0);
     console.log('  - Resultados da busca formato:', data3?.length || 0);
-    console.log('  - Total único:', uniqueAppointments.length);
+    console.log('  - Total único (antes do filtro):', uniqueAppointments.length);
+    console.log('  - Total único (DEPOIS do filtro de cancelados):', filteredAppointments.length);
 
     if (error1 || error2 || error3) {
       console.error('⚠️ Erros na busca:', error1, error2, error3);
     }
 
     // Resolver nomes dos profissionais se necessário
-    if (uniqueAppointments && uniqueAppointments.length > 0) {
-      for (let appointment of uniqueAppointments) {
+    if (filteredAppointments && filteredAppointments.length > 0) {
+      for (let appointment of filteredAppointments) {
         if (appointment.professional && appointment.professional.length > 10 && !appointment.professional_name) {
           try {
             if (appointment.establishments && appointment.establishments.professionals) {
@@ -1183,7 +1193,7 @@ export const getAppointmentsByPhone = async (phone: string) => {
       }
     }
 
-    return { data: uniqueAppointments || [], error: null };
+    return { data: filteredAppointments || [], error: null };
   } catch (err) {
     console.error('❌ Erro ao buscar agendamentos por telefone:', err);
     return { data: [], error: err };

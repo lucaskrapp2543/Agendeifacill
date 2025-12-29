@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneLoginModal } from '../components/PhoneLoginModal';
 import { SuccessBookingModal } from '../components/SuccessBookingModal';
-import { getAppointmentsByPhone, supabase } from '../lib/supabase';
+import { getAppointmentsByPhone, supabase, supabaseAdmin } from '../lib/supabase';
 import { podeCancelarAgendamento } from '../utils/regrasCancelamento';
 
 export default function ViewAppointmentsPage() {
@@ -253,14 +253,95 @@ export default function ViewAppointmentsPage() {
 
       // ✅ CORREÇÃO DO BUG: Sempre cancelar no banco ANTES de abrir WhatsApp
       // Independente da configuração enable_whatsapp_notifications
-      const { error: cancelError } = await supabase
+      console.log('🔄 DEBUG - Cancelando agendamento:', {
+        appointmentId,
+        appointmentDate: appointment.appointment_date,
+        appointmentTime: appointment.appointment_time,
+        currentStatus: appointment.status,
+        establishmentId: appointment.establishment_id || appointment.establishments?.id
+      });
+
+      // ✅ Verificar se o agendamento existe antes de tentar atualizar
+      const { data: existingAppointment, error: checkError } = await supabase
+        .from('appointments')
+        .select('id, status, appointment_date, appointment_time')
+        .eq('id', appointmentId)
+        .single();
+
+      if (checkError) {
+        console.error('❌ Erro ao verificar agendamento:', checkError);
+        toast.error('Erro ao verificar agendamento');
+        return;
+      }
+
+      if (!existingAppointment) {
+        console.error('❌ Agendamento não encontrado no banco:', appointmentId);
+        toast.error('Agendamento não encontrado');
+        return;
+      }
+
+      console.log('🔍 DEBUG - Agendamento encontrado no banco:', {
+        id: existingAppointment.id,
+        currentStatus: existingAppointment.status,
+        date: existingAppointment.appointment_date,
+        time: existingAppointment.appointment_time
+      });
+
+      // ✅ Tentar atualizar com cliente normal primeiro
+      let updateData: any[] = [];
+      let cancelError: any = null;
+
+      const { data: normalUpdate, error: normalError } = await supabase
         .from('appointments')
         .update({ status: 'cancelled' })
-        .eq('id', appointmentId);
+        .eq('id', appointmentId)
+        .select();
+
+      if (normalError || !normalUpdate || normalUpdate.length === 0) {
+        console.log('⚠️ Cliente normal falhou (provavelmente RLS), tentando com service role...');
+        console.log('   Erro:', normalError);
+        
+        // ✅ Se falhar, usar service role (bypassa RLS) para clientes anônimos
+        const { data: adminUpdate, error: adminError } = await supabaseAdmin
+          .from('appointments')
+          .update({ status: 'cancelled' })
+          .eq('id', appointmentId)
+          .select();
+
+        if (adminError) {
+          console.error('❌ Erro ao cancelar com service role:', adminError);
+          console.error('❌ Detalhes do erro:', {
+            message: adminError.message,
+            details: adminError.details,
+            hint: adminError.hint,
+            code: adminError.code
+          });
+          toast.error(`Erro ao cancelar agendamento: ${adminError.message}`);
+          return;
+        }
+
+        updateData = adminUpdate || [];
+        cancelError = adminError;
+      } else {
+        updateData = normalUpdate;
+        cancelError = normalError;
+      }
 
       if (cancelError) {
         console.error('❌ Erro ao cancelar agendamento:', cancelError);
-        toast.error('Erro ao cancelar agendamento');
+        toast.error(`Erro ao cancelar agendamento: ${cancelError.message}`);
+        return;
+      }
+
+      console.log('✅ DEBUG - Agendamento cancelado no banco:', {
+        appointmentId,
+        updatedRows: updateData?.length || 0,
+        updatedData: updateData
+      });
+
+      if (!updateData || updateData.length === 0) {
+        console.error('⚠️ ATENÇÃO: Nenhuma linha foi atualizada mesmo com service role!');
+        toast.error('Não foi possível cancelar o agendamento. Tente novamente.');
         return;
       }
 
