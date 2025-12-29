@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneLoginModal } from '../components/PhoneLoginModal';
 import { SuccessBookingModal } from '../components/SuccessBookingModal';
-import { getAppointmentsByPhone, supabase, supabaseAdmin } from '../lib/supabase';
+import { getAppointmentsByPhone, supabase } from '../lib/supabase';
 import { podeCancelarAgendamento } from '../utils/regrasCancelamento';
 
 export default function ViewAppointmentsPage() {
@@ -287,61 +287,30 @@ export default function ViewAppointmentsPage() {
         time: existingAppointment.appointment_time
       });
 
-      // ✅ Tentar atualizar com cliente normal primeiro
-      let updateData: any[] = [];
-      let cancelError: any = null;
+      // ✅ Usar Netlify Function (server-side) para cancelar de forma segura
+      console.log('🔄 Cancelando agendamento via API segura...');
+      
+      try {
+        const response = await fetch('/api/cancel-appointment', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ appointmentId }),
+        });
 
-      const { data: normalUpdate, error: normalError } = await supabase
-        .from('appointments')
-        .update({ status: 'cancelled' })
-        .eq('id', appointmentId)
-        .select();
+        const result = await response.json();
 
-      if (normalError || !normalUpdate || normalUpdate.length === 0) {
-        console.log('⚠️ Cliente normal falhou (provavelmente RLS), tentando com service role...');
-        console.log('   Erro:', normalError);
-        
-        // ✅ Se falhar, usar service role (bypassa RLS) para clientes anônimos
-        const { data: adminUpdate, error: adminError } = await supabaseAdmin
-          .from('appointments')
-          .update({ status: 'cancelled' })
-          .eq('id', appointmentId)
-          .select();
-
-        if (adminError) {
-          console.error('❌ Erro ao cancelar com service role:', adminError);
-          console.error('❌ Detalhes do erro:', {
-            message: adminError.message,
-            details: adminError.details,
-            hint: adminError.hint,
-            code: adminError.code
-          });
-          toast.error(`Erro ao cancelar agendamento: ${adminError.message}`);
+        if (!response.ok) {
+          console.error('❌ Erro ao cancelar via API:', result);
+          toast.error(result.error || 'Erro ao cancelar agendamento');
           return;
         }
 
-        updateData = adminUpdate || [];
-        cancelError = adminError;
-      } else {
-        updateData = normalUpdate;
-        cancelError = normalError;
-      }
-
-      if (cancelError) {
-        console.error('❌ Erro ao cancelar agendamento:', cancelError);
-        toast.error(`Erro ao cancelar agendamento: ${cancelError.message}`);
-        return;
-      }
-
-      console.log('✅ DEBUG - Agendamento cancelado no banco:', {
-        appointmentId,
-        updatedRows: updateData?.length || 0,
-        updatedData: updateData
-      });
-
-      if (!updateData || updateData.length === 0) {
-        console.error('⚠️ ATENÇÃO: Nenhuma linha foi atualizada mesmo com service role!');
-        toast.error('Não foi possível cancelar o agendamento. Tente novamente.');
+        console.log('✅ Agendamento cancelado com sucesso via API:', result);
+      } catch (error: any) {
+        console.error('❌ Erro ao chamar API de cancelamento:', error);
+        toast.error('Erro ao cancelar agendamento. Tente novamente.');
         return;
       }
 

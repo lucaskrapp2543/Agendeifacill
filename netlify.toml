@@ -38,6 +38,13 @@
   methods = ["GET", "POST", "OPTIONS"]
 
 [[redirects]]
+  from = "/api/cancel-appointment"
+  to = "/.netlify/functions/cancel-appointment"
+  status = 200
+  force = true
+  methods = ["POST", "OPTIONS"]
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
