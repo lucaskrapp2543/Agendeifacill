@@ -145,7 +145,14 @@ Por favor, confirme o cancelamento. Obrigado!`;
     console.log('🔍 DEBUG - Mensagem original:', message);
     console.log('🔍 DEBUG - Mensagem codificada:', encodedMessage);
     console.log('🔍 DEBUG - URL final:', whatsappUrl);
-    window.open(whatsappUrl, '_blank');
+    
+    // Em iOS, usar location.href é mais confiável (evita bloqueio de popup)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      window.location.href = whatsappUrl;
+    } else {
+      window.open(whatsappUrl, '_blank');
+    }
 
     // Fechar o modal após enviar
     setShowWhatsAppModal(false);
