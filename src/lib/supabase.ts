@@ -1069,7 +1069,8 @@ export const getAppointmentsByPhone = async (phone: string) => {
       const result1 = await supabase
         .from('appointments')
         .select(`*, establishments (*)`)
-        .ilike('client_whatsapp', `%${cleanPhone}%`);
+        .ilike('client_whatsapp', `%${cleanPhone}%`)
+        .neq('status', 'cancelled'); // ✅ Excluir agendamentos cancelados
       data1 = result1.data || [];
       error1 = result1.error;
       console.log('🔍 Primeira busca (número completo):', data1?.length || 0, 'resultados');
@@ -1087,7 +1088,8 @@ export const getAppointmentsByPhone = async (phone: string) => {
         const result2 = await supabase
           .from('appointments')
           .select(`*, establishments (*)`)
-          .ilike('client_whatsapp', `%${localNumber}%`);
+          .ilike('client_whatsapp', `%${localNumber}%`)
+          .neq('status', 'cancelled'); // ✅ Excluir agendamentos cancelados
         data2 = result2.data || [];
         error2 = result2.error;
         console.log('🔍 Segunda busca (número local):', data2?.length || 0, 'resultados');
@@ -1116,7 +1118,8 @@ export const getAppointmentsByPhone = async (phone: string) => {
       const result3 = await supabase
         .from('appointments')
         .select(`*, establishments (*)`)
-        .ilike('client_whatsapp', `%${formattedPhone}%`);
+        .ilike('client_whatsapp', `%${formattedPhone}%`)
+        .neq('status', 'cancelled'); // ✅ Excluir agendamentos cancelados
       data3 = result3.data || [];
       error3 = result3.error;
       console.log('🔍 Terceira busca (formato com caracteres):', data3?.length || 0, 'resultados');
@@ -1144,10 +1147,10 @@ export const getAppointmentsByPhone = async (phone: string) => {
     // 5. Combinar resultados de todas as buscas
     const allAppointments = [...(data1 || []), ...(data2 || []), ...(data3 || [])];
 
-    // Remover duplicatas
+    // Remover duplicatas E filtrar cancelados (segurança extra)
     const uniqueAppointments = Array.from(
       new Map(allAppointments.map(apt => [apt.id, apt])).values()
-    );
+    ).filter(apt => apt.status !== 'cancelled'); // ✅ Filtro extra de segurança
 
     console.log('📊 getAppointmentsByPhone - Resultado:');
     console.log('  - Resultados da busca número completo:', data1?.length || 0);
