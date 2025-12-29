@@ -2021,6 +2021,23 @@ export function AppointmentForm({
                     Escolha 1 ou mais serviços
                   </button>
                 </div>
+                
+                {/* ✅ MENSAGEM INFORMATIVA - Pode selecionar serviços de diferentes categorias */}
+                <div
+                  className="rounded-2xl p-3 mb-4"
+                  style={{
+                    background: 'rgba(34, 197, 94, 0.1)',
+                    border: '1px solid rgba(34, 197, 94, 0.3)'
+                  }}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">💡</span>
+                    <p className="text-sm font-medium" style={{ color: '#22c55e' }}>
+                      Você pode selecionar 1 ou mais serviços de diferentes categorias. 
+                      Selecione uma categoria, escolha seus serviços, depois volte e selecione outra categoria para adicionar mais serviços!
+                    </p>
+                  </div>
+                </div>
 
                 {serviceCategories.length === 0 ? (
                   <div
@@ -2071,7 +2088,7 @@ export function AppointmentForm({
                             onClick={() => {
                               setSelectedCategory(category.id);
                               setSelectedSubcategory(null);
-                              setSelectedCategoryServices([]);
+                              // ✅ NÃO LIMPAR selectedCategoryServices - permite selecionar serviços de diferentes categorias
                               // Scroll automático para mostrar os serviços da categoria - DESCE, NÃO SOBE
                               setTimeout(() => {
                                 const servicesSection = document.querySelector('[data-services-section]');
