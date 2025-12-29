@@ -26,3 +26,7 @@ dist-ssr
 
 # Backups locais (não subir pro GitHub / Netlify)
 backup-projeto-*.zip
+
+# Arquivos de debug (podem conter keys)
+debug-*.js
+debug_*.sql
