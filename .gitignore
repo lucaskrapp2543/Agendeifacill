@@ -30,3 +30,6 @@ backup-projeto-*.zip
 # Arquivos de debug (podem conter keys)
 debug-*.js
 debug_*.sql
+
+# Local Netlify folder
+.netlify

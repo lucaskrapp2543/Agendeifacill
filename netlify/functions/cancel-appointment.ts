@@ -25,8 +25,9 @@ export const handler: Handler = async (event) => {
   }
 
   // Tentar ambas as variáveis (VITE_ para compatibilidade, SUPABASE_ para consistência)
+  // O Netlify CLI lê variáveis de .env automaticamente
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     console.error('❌ Variáveis de ambiente do Supabase não configuradas');

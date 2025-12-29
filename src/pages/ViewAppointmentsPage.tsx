@@ -287,31 +287,61 @@ export default function ViewAppointmentsPage() {
         time: existingAppointment.appointment_time
       });
 
-      // ✅ Usar Netlify Function (server-side) para cancelar de forma segura
-      console.log('🔄 Cancelando agendamento via API segura...');
+      // ✅ Tentar cancelar direto primeiro (mais rápido)
+      // Se falhar por RLS, tentar via API server-side
+      console.log('🔄 Cancelando agendamento...');
       
-      try {
-        const response = await fetch('/api/cancel-appointment', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ appointmentId }),
-        });
+      const { data: updateData, error: cancelError } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelled' })
+        .eq('id', appointmentId)
+        .select();
 
-        const result = await response.json();
+      console.log('🔍 DEBUG - Resultado do cancelamento direto:', {
+        hasError: !!cancelError,
+        error: cancelError,
+        hasData: !!updateData,
+        dataLength: updateData?.length || 0,
+        data: updateData
+      });
 
-        if (!response.ok) {
-          console.error('❌ Erro ao cancelar via API:', result);
-          toast.error(result.error || 'Erro ao cancelar agendamento');
+      // Se falhar (provavelmente RLS), tentar via API server-side
+      if (cancelError || !updateData || updateData.length === 0) {
+        console.log('⚠️ Método direto falhou, tentando via API server-side...');
+        console.log('   Erro:', cancelError);
+        console.log('   UpdateData:', updateData);
+        
+        try {
+          const response = await fetch('/api/cancel-appointment', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ appointmentId }),
+          });
+
+          if (response.status === 404) {
+            console.error('❌ API não encontrada (404). A função ainda não foi deployada.');
+            toast.error('Função de cancelamento ainda não está disponível. Aguarde alguns minutos após o deploy e tente novamente.');
+            return;
+          }
+
+          const result = await response.json();
+
+          if (!response.ok) {
+            console.error('❌ Erro ao cancelar via API:', result);
+            toast.error(result.error || 'Erro ao cancelar agendamento');
+            return;
+          }
+
+          console.log('✅ Agendamento cancelado via API:', result);
+        } catch (apiError: any) {
+          console.error('❌ Erro ao chamar API:', apiError);
+          toast.error('Erro ao cancelar agendamento. Tente novamente.');
           return;
         }
-
-        console.log('✅ Agendamento cancelado com sucesso via API:', result);
-      } catch (error: any) {
-        console.error('❌ Erro ao chamar API de cancelamento:', error);
-        toast.error('Erro ao cancelar agendamento. Tente novamente.');
-        return;
+      } else {
+        console.log('✅ Agendamento cancelado diretamente:', updateData);
       }
 
       // Atualizar a lista de agendamentos
