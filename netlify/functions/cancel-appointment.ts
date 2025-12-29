@@ -3,6 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import { json, parseJsonBody } from './_utils';
 
 export const handler: Handler = async (event) => {
+  console.log('🔍 cancel-appointment function called:', {
+    method: event.httpMethod,
+    path: event.path,
+    hasBody: !!event.body
+  });
+  
   // Permitir CORS
   if (event.httpMethod === 'OPTIONS') {
     return json(200, {}, {

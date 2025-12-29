@@ -312,7 +312,13 @@ export default function ViewAppointmentsPage() {
         console.log('   UpdateData:', updateData);
         
         try {
-          const response = await fetch('/api/cancel-appointment', {
+          // Em produção, chamar diretamente a função Netlify
+          // Em desenvolvimento, usar o redirect /api/...
+          const cancelUrl = import.meta.env.PROD
+            ? '/.netlify/functions/cancel-appointment'
+            : '/api/cancel-appointment';
+          
+          const response = await fetch(cancelUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

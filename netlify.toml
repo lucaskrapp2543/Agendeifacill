@@ -37,6 +37,7 @@
   force = true
   methods = ["GET", "POST", "OPTIONS"]
 
+# API Routes - DEVEM VIR ANTES do catch-all
 [[redirects]]
   from = "/api/cancel-appointment"
   to = "/.netlify/functions/cancel-appointment"
@@ -44,6 +45,7 @@
   force = true
   methods = ["POST", "OPTIONS"]
 
+# Catch-all - DEVE VIR POR ÚLTIMO
 [[redirects]]
   from = "/*"
   to = "/index.html"
