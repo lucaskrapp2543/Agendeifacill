@@ -251,14 +251,29 @@ export default function ViewAppointmentsPage() {
         return;
       }
 
-      // Se a opção de WhatsApp estiver MARCADA, apenas abrir WhatsApp (NÃO cancela no banco)
-      if (establishment?.enable_whatsapp_notifications) {
-        if (!establishment?.whatsapp) {
-          console.error('❌ WhatsApp não configurado');
-          toast.error('Configuração de WhatsApp não encontrada');
-          return;
-        }
+      // ✅ CORREÇÃO DO BUG: Sempre cancelar no banco ANTES de abrir WhatsApp
+      // Independente da configuração enable_whatsapp_notifications
+      const { error: cancelError } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelled' })
+        .eq('id', appointmentId);
 
+      if (cancelError) {
+        console.error('❌ Erro ao cancelar agendamento:', cancelError);
+        toast.error('Erro ao cancelar agendamento');
+        return;
+      }
+
+      // Atualizar a lista de agendamentos
+      const updatedAppointments = appointments.map(apt =>
+        apt.id === appointmentId ? { ...apt, status: 'cancelled' } : apt
+      );
+      setAppointments(updatedAppointments);
+
+      toast.success('Agendamento cancelado com sucesso!');
+
+      // Abrir WhatsApp com mensagem apropriada baseada na configuração
+      if (establishment?.whatsapp) {
         // Limpar e formatar o número do WhatsApp
         let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
 
@@ -288,8 +303,11 @@ export default function ViewAppointmentsPage() {
         // Formatar data
         const appointmentDate = formatDate(appointment.appointment_date);
 
-        // Mensagem quando opção está MARCADA: "Quero cancelar..." (pedindo para o barbeiro cancelar)
-        const message = `Quero cancelar meu agendamento pelo Agendei Fácil:
+        // Mensagem diferente baseada na configuração
+        let message;
+        if (establishment?.enable_whatsapp_notifications) {
+          // Se opção está MARCADA: mensagem pedindo confirmação
+          message = `Quero cancelar meu agendamento pelo Agendei Fácil:
 
 *Data:* ${appointmentDate}
 *Horário:* ${appointment.appointment_time}
@@ -298,60 +316,16 @@ export default function ViewAppointmentsPage() {
 *Forma de Pagamento:* ${appointment.payment_method || 'Não especificada'}
 
 Por favor, confirme o cancelamento. Obrigado!`;
-
-        const encodedMessage = encodeURIComponent(message);
-        const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
-
-        window.open(whatsappUrl, '_blank');
-        toast.success('Abrindo WhatsApp para solicitar cancelamento...');
-        return;
-      }
-
-      // Se a opção estiver DESMARCADA, cancelar direto no banco
-      const { error: cancelError } = await supabase
-        .from('appointments')
-        .update({ status: 'cancelled' })
-        .eq('id', appointmentId);
-
-      if (cancelError) {
-        console.error('❌ Erro ao cancelar agendamento:', cancelError);
-        toast.error('Erro ao cancelar agendamento');
-        return;
-      }
-
-      // Atualizar a lista de agendamentos
-      const updatedAppointments = appointments.map(apt =>
-        apt.id === appointmentId ? { ...apt, status: 'cancelled' } : apt
-      );
-      setAppointments(updatedAppointments);
-
-      toast.success('Agendamento cancelado com sucesso!');
-
-      // ✅ 1 clique: já abrir WhatsApp automaticamente com a mensagem "Cancelei..."
-      if (establishment?.whatsapp) {
-        // Limpar e formatar o número do WhatsApp
-        let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
-
-        // Lista de códigos de países comuns
-        const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-        const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
-
-        if (!hasCountryCode) {
-          if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
-            cleanWhatsapp = '55' + cleanWhatsapp;
-          }
-        }
-
-        // Formatar data
-        const appointmentDate = formatDate(appointment.appointment_date);
-
-        const message = `Cancelei
+        } else {
+          // Se opção está DESMARCADA: mensagem informando que já cancelou
+          message = `Cancelei
 
 *Data:* ${appointmentDate}
 *Horário:* ${appointment.appointment_time}
 *Serviço:* ${appointment.service_name || appointment.service || 'Não especificado'}
 *Profissional:* ${appointment.professional_name || 'Não especificado'}
 *Forma de Pagamento:* ${appointment.payment_method || 'Não especificada'}`;
+        }
 
         const encodedMessage = encodeURIComponent(message);
         const whatsappUrl = `https://wa.me/${cleanWhatsapp}?text=${encodedMessage}`;
