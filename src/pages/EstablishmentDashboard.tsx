@@ -15200,17 +15200,23 @@ Estamos te aguardando! 😎✂️`;
                     <div className="mb-6">
                       <h4 className="text-lg font-medium text-white mb-3">Dias de Ausência Selecionados:</h4>
                       <div className="flex flex-wrap gap-2">
-                        {professionalAbsences[selectedProfessionalForAbsence].map(date => (
-                          <div key={date} className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded-lg text-sm">
-                            <span>{new Date(date).toLocaleDateString('pt-BR')}</span>
-                            <button
-                              onClick={() => handleToggleAbsenceDate(date)}
-                              className="hover:text-red-200 transition-colors"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
+                        {professionalAbsences[selectedProfessionalForAbsence].map(date => {
+                          // Formata a data diretamente da string "YYYY-MM-DD" para "DD/MM/YYYY"
+                          // Evita problemas de fuso horário com new Date()
+                          const [year, month, day] = date.split('-');
+                          const formattedDate = `${day}/${month}/${year}`;
+                          return (
+                            <div key={date} className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded-lg text-sm">
+                              <span>{formattedDate}</span>
+                              <button
+                                onClick={() => handleToggleAbsenceDate(date)}
+                                className="hover:text-red-200 transition-colors"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

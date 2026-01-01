@@ -1,6 +1,6 @@
 // Sistema de gerenciamento de versão e atualização forçada
 
-const APP_VERSION = '2.4.0'; // Versão com sistema automático de limpeza de cache - ATUALIZAÇÃO OBRIGATÓRIA
+const APP_VERSION = '2.4.1'; // ✅ Correção crítica: Loop infinito no AppointmentForm resolvido - ATUALIZAÇÃO OBRIGATÓRIA
 const VERSION_KEY = 'agendafacil_app_version';
 const LAST_UPDATE_CHECK_KEY = 'agendafacil_last_update_check';
 const UPDATING_FLAG_KEY = 'agendafacil_is_updating'; // Flag para evitar reloads múltiplos
@@ -128,10 +128,11 @@ const shouldForceUpdate = (oldVersion: string, newVersion: string): boolean => {
     '2.1.0', // Versão com correções de RLS
     '2.2.0', // ⚠️ CORREÇÃO CRÍTICA: Tela branca e erros de cache - OBRIGATÓRIA
     '2.3.0', // ⚠️ CORREÇÃO CRÍTICA: Bugs de login e cache - OBRIGATÓRIA
-    '2.4.0'  // ⚠️ CORREÇÃO CRÍTICA: Sistema automático de limpeza de cache - OBRIGATÓRIA
+    '2.4.0',  // ⚠️ CORREÇÃO CRÍTICA: Sistema automático de limpeza de cache - OBRIGATÓRIA
+    '2.4.1'  // ✅ CORREÇÃO CRÍTICA: Loop infinito no AppointmentForm resolvido - OBRIGATÓRIA
   ];
 
-  // Se a versão antiga for menor que 2.4.0, FORÇAR atualização
+  // Se a versão antiga for menor que 2.4.1, FORÇAR atualização
   const oldVersionNum = parseFloat(oldVersion);
   const newVersionNum = parseFloat(newVersion);
 

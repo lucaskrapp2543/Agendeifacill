@@ -1,7 +1,7 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Phone } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
@@ -156,6 +156,9 @@ export function AppointmentForm({
   const [clientProfileData, setClientProfileData] = useState<any>(null);
   const [isNewClientUser, setIsNewClientUser] = useState(false);
   const [profileDataLoaded, setProfileDataLoaded] = useState(false);
+  
+  // ✅ Ref para rastrear o último userId que foi processado (evita loops e garante execução correta)
+  const lastProcessedUserIdRef = useRef<string | undefined>(undefined);
 
   // Função para forçar atualização dos dados do usuário
   const forceUpdateUserData = async () => {
@@ -212,8 +215,14 @@ export function AppointmentForm({
 
   // Reset profileDataLoaded quando o usuário muda
   useEffect(() => {
-    if (user) {
-      console.log('🔍 DEBUG - Usuário mudou, resetando profileDataLoaded');
+    const currentUserId = user?.id;
+    // ✅ Se o userId mudou, resetar o flag e atualizar a ref
+    if (currentUserId !== lastProcessedUserIdRef.current) {
+      console.log('🔍 DEBUG - Usuário mudou, resetando profileDataLoaded', {
+        previous: lastProcessedUserIdRef.current,
+        current: currentUserId
+      });
+      lastProcessedUserIdRef.current = currentUserId;
       setProfileDataLoaded(false);
     }
   }, [user?.id]);
@@ -230,7 +239,27 @@ export function AppointmentForm({
   // Carregar dados do perfil do cliente
   useEffect(() => {
     const loadClientProfile = async () => {
-      console.log('🔍 DEBUG - loadClientProfile iniciado:', { user: !!user, profileDataLoaded, userId: user?.id, guestClientData });
+      const currentUserId = user?.id;
+      console.log('🔍 DEBUG - loadClientProfile iniciado:', { 
+        user: !!user, 
+        profileDataLoaded, 
+        userId: currentUserId, 
+        lastProcessed: lastProcessedUserIdRef.current,
+        guestClientData 
+      });
+
+      // ✅ CRÍTICO: Evitar loop infinito - não executar se já carregou para este usuário
+      if (profileDataLoaded && user && currentUserId === lastProcessedUserIdRef.current) {
+        console.log('🔍 DEBUG - Dados já carregados para este usuário, pulando execução');
+        return;
+      }
+      
+      // ✅ Se o usuário mudou, precisamos processar novamente
+      if (currentUserId && currentUserId !== lastProcessedUserIdRef.current) {
+        console.log('🔍 DEBUG - Novo usuário detectado, resetando profileDataLoaded');
+        setProfileDataLoaded(false);
+        lastProcessedUserIdRef.current = currentUserId;
+      }
 
       // Se temos dados do convidado, não buscar dados do perfil
       if (guestClientData) {
@@ -241,7 +270,7 @@ export function AppointmentForm({
         return;
       }
 
-      if (user) { // Removido o !profileDataLoaded para sempre buscar dados atualizados
+      if (user && !profileDataLoaded) { // ✅ Adicionar verificação !profileDataLoaded para evitar loop
         console.log('🔍 DEBUG - Entrando no bloco de carregamento de perfil');
         try {
           console.log('🔍 DEBUG - Verificando se é novo cliente para user:', user.id);
@@ -288,6 +317,8 @@ export function AppointmentForm({
             setClientName(clientName);
             setClientWhatsapp(clientWhatsapp);
             setProfileDataLoaded(true);
+            // ✅ Marcar que processamos este userId
+            lastProcessedUserIdRef.current = currentUserId;
             return;
           }
 
@@ -303,6 +334,8 @@ export function AppointmentForm({
             setClientName(fullName);
             setClientWhatsapp(authData.whatsapp || '');
             setProfileDataLoaded(true);
+            // ✅ Marcar que processamos este userId
+            lastProcessedUserIdRef.current = currentUserId;
             return;
           }
 
@@ -341,9 +374,13 @@ export function AppointmentForm({
             }
           }
           setProfileDataLoaded(true);
+          // ✅ Marcar que processamos este userId
+          lastProcessedUserIdRef.current = currentUserId;
         } catch (error) {
           console.error('Erro ao carregar perfil do cliente:', error);
           setProfileDataLoaded(true);
+          // ✅ Mesmo em erro, marcar que tentamos processar
+          lastProcessedUserIdRef.current = currentUserId;
         }
       } else {
         console.log('🔍 DEBUG - Condições não atendidas:', { user: !!user, profileDataLoaded });
@@ -353,7 +390,14 @@ export function AppointmentForm({
 
     console.log('🔍 DEBUG - Executando loadClientProfile...');
     loadClientProfile();
-  }, [user, profileDataLoaded, guestClientData]);
+    // ✅ CORREÇÃO CRÍTICA: Usar user?.id em vez de user para evitar re-execuções desnecessárias
+    // E usar useRef para rastrear o último userId processado, garantindo que:
+    // - Quando user muda de null para objeto: funciona (user?.id muda de undefined para id)
+    // - Quando user muda de objeto para null: funciona (user?.id muda de id para undefined)  
+    // - Quando user.id muda: funciona (user?.id muda)
+    // - Quando user objeto muda mas id é o mesmo: não re-executa (correto, dados já carregados)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, guestClientData]);
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [useMultiService, setUseMultiService] = useState(true);
