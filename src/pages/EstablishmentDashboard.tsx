@@ -6174,6 +6174,36 @@ Estamos te aguardando! 😎✂️`;
     return `https://wa.me/${cleanNumber}`;
   };
 
+  const handleDeleteLoyalCustomer = async (customerId: string) => {
+    if (!confirm('Tem certeza que deseja apagar este cliente do sorteio?')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('loyal_customers')
+        .delete()
+        .eq('id', customerId);
+
+      if (error) {
+        console.error('Erro ao deletar cliente fiel:', error);
+        toast('Erro ao deletar cliente. Por favor, tente novamente.', 'error');
+        return;
+      }
+
+      toast('Cliente removido com sucesso!', 'success');
+      await loadLoyalCustomers();
+      
+      // Limpar cliente sorteado se for o que foi deletado
+      if (selectedLoyalCustomer?.id === customerId) {
+        setSelectedLoyalCustomer(null);
+      }
+    } catch (error) {
+      console.error('Erro ao deletar cliente fiel:', error);
+      toast('Erro ao deletar cliente. Por favor, tente novamente.', 'error');
+    }
+  };
+
   // Carregar clientes fiéis quando o modal abrir
   useEffect(() => {
     if (showDrawModal) {
@@ -16122,7 +16152,16 @@ Estamos te aguardando! 😎✂️`;
                             </a>
                           </div>
                         </div>
-                        <Star className="w-5 h-5 text-yellow-500" />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleDeleteLoyalCustomer(customer.id)}
+                            className="text-red-500 hover:text-red-400 transition-colors p-1"
+                            title="Apagar cliente do sorteio"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                          <Star className="w-5 h-5 text-yellow-500" />
+                        </div>
                       </div>
                     ))}
                     {loyalCustomers.length === 0 && (
