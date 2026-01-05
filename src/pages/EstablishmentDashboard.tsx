@@ -3346,13 +3346,18 @@ const EstablishmentDashboard = () => {
       const serviceName = appointmentForReminder.service;
 
       // Montar mensagem do lembrete
-      const reminderMessage = `💈 Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName} ✂️
+      let reminderMessage = `💈 Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName} ✂️
 
 📅 Data e horário: ${appointmentDate} às ${appointmentTime}
 💇‍♂️ Profissional: ${professionalName}
 💼 Serviço: ${serviceName}
 
 Estamos te aguardando! 😎✂️`;
+
+      // Adicionar endereço apenas para o estabelecimento com código 2851
+      if (establishment?.code === '2851') {
+        reminderMessage += `\nShopping central park , sub solo loja 8 . ( primeira loja na entrada do estacionamento térreo ))`;
+      }
 
       // Formatar número do WhatsApp
       let phoneNumber = clientWhatsapp.replace(/\D/g, '');
@@ -5900,6 +5905,9 @@ Estamos te aguardando! 😎✂️`;
     }
 
     try {
+      // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone)
+      await supabase.auth.refreshSession();
+      
       // Salvar cliente manual no Supabase (banco de dados)
       // Primeiro verificar se já existe
       const { data: existingClient } = await supabase
@@ -5988,6 +5996,36 @@ Estamos te aguardando! 😎✂️`;
 
     } catch (error: any) {
       console.error('❌ Erro ao adicionar cliente:', error);
+      
+      // Se for erro de RLS, tentar salvar apenas no localStorage como fallback
+      if (error?.code === '42501' || error?.message?.includes('row-level security') || error?.message?.includes('violates row-level security')) {
+        console.warn('⚠️ Erro de RLS detectado, salvando apenas no localStorage como fallback');
+        
+        // Salvar no localStorage mesmo assim
+        const storageKey = `manual_clients_${establishment.id}`;
+        const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        manualClients[cleanWhatsapp] = {
+          name: newClientName.trim(),
+          whatsapp: cleanWhatsapp,
+          birthday: newClientBirthday || null,
+          addedAt: new Date().toISOString(),
+          appointmentCount: 0
+        };
+        localStorage.setItem(storageKey, JSON.stringify(manualClients));
+        
+        toast('Cliente salvo localmente. Tente novamente mais tarde para sincronizar com o servidor.', 'warning');
+        
+        // Limpar form e fechar modal
+        setNewClientName('');
+        setNewClientWhatsapp('');
+        setNewClientBirthday('');
+        setShowAddClientModal(false);
+        
+        // Recarregar lista de clientes
+        fetchClients();
+        return;
+      }
+      
       toast(error.message || 'Erro ao adicionar cliente', 'error');
     }
   };
