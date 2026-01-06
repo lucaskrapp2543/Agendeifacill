@@ -1,9 +1,14 @@
 import React from 'react';
 
 const WhatsAppButton = () => {
+  // Número do WhatsApp (48991484275) - adicionar código do país 55
+  const whatsappNumber = '5548991484275';
+  const message = 'Quero saber melhor sobre agendei facil vim pelo site';
+  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+
   return (
     <a
-      href="https://wa.link/efg2cj"
+      href={whatsappUrl}
       target="_blank"
       rel="noopener noreferrer"
       className="fixed bottom-20 right-3 sm:bottom-6 sm:right-6 z-[9999] transform hover:scale-110 transition-transform duration-300 shadow-lg rounded-full block"
