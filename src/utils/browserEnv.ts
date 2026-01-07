@@ -40,6 +40,18 @@ export const isBraveBrowser = (): boolean => {
 };
 
 /**
+ * Proteção global: Bloquear reloads automáticos no Brave
+ * Substitui window.location.reload() para evitar loops infinitos
+ */
+export const safeReload = (): void => {
+  if (isBraveBrowser()) {
+    console.warn('🛡️ Brave detectado - Reload bloqueado (evita loops infinitos)');
+    return; // NÃO recarregar no Brave
+  }
+  window.location.reload();
+};
+
+/**
  * Em WebView/mobile/Brave, evitar lógicas agressivas de cache/SW/reload automático que geram "piscaceira"
  */
 export const shouldDisableAggressiveReloads = (): boolean => {

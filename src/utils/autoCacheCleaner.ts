@@ -336,10 +336,19 @@ export const startAutoMonitoring = (): void => {
     sessionStorage.setItem('agendafacil_last_cleanup', now.toString());
     
     autoCleanup().then(() => {
-      // Recarregar após limpeza
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
+      // ⚠️ PROTEÇÃO: Não recarregar no Brave
+      const isBrave = navigator.userAgent.includes('Brave') || 
+                      (navigator.userAgentData && navigator.userAgentData.brands && 
+                       navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+      
+      if (!isBrave) {
+        // Recarregar após limpeza
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      } else {
+        console.warn('🛡️ Brave detectado - Reload após limpeza bloqueado');
+      }
     });
     return;
   }
@@ -382,10 +391,19 @@ export const startAutoMonitoring = (): void => {
           sessionStorage.setItem('agendafacil_last_cleanup', now.toString());
           
           autoCleanup().then(() => {
-            // Recarregar após limpeza
-            setTimeout(() => {
-              window.location.reload();
-            }, 1000);
+            // ⚠️ PROTEÇÃO: Não recarregar no Brave
+            const isBrave = navigator.userAgent.includes('Brave') || 
+                            (navigator.userAgentData && navigator.userAgentData.brands && 
+                             navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+            
+            if (!isBrave) {
+              // Recarregar após limpeza
+              setTimeout(() => {
+                window.location.reload();
+              }, 1000);
+            } else {
+              console.warn('🛡️ Brave detectado - Reload após limpeza bloqueado');
+            }
           });
         }
       } else {
@@ -436,6 +454,16 @@ export const aggressiveInitialCheck = (): boolean => {
     // 1. Verificar se há problemas de carregamento anteriores
     const failedAttempts = parseInt(localStorage.getItem(FAILED_LOAD_ATTEMPTS) || '0');
     if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
+      // ⚠️ PROTEÇÃO: Não recarregar no Brave
+      const isBrave = navigator.userAgent.includes('Brave') || 
+                      (navigator.userAgentData && navigator.userAgentData.brands && 
+                       navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+      
+      if (isBrave) {
+        console.warn('🛡️ Brave detectado - Limpeza e reload bloqueados (evita loops)');
+        return false; // Não limpar no Brave
+      }
+      
       console.warn('⚠️ Múltiplas tentativas falhadas detectadas, limpando imediatamente...');
       
       // Incrementar contador de limpezas
@@ -472,9 +500,18 @@ export const aggressiveInitialCheck = (): boolean => {
         sessionStorage.setItem('agendafacil_cleanup_count', (cleanupCount + 1).toString());
         sessionStorage.setItem('agendafacil_last_cleanup', now.toString());
         
-        autoCleanup().then(() => {
-          window.location.reload();
-        });
+        // ⚠️ PROTEÇÃO: Não recarregar no Brave
+        const isBrave = navigator.userAgent.includes('Brave') || 
+                        (navigator.userAgentData && navigator.userAgentData.brands && 
+                         navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+        
+        if (!isBrave) {
+          autoCleanup().then(() => {
+            window.location.reload();
+          });
+        } else {
+          console.warn('🛡️ Brave detectado - Reload após limpeza bloqueado');
+        }
         return true;
       }
     } catch (error) {

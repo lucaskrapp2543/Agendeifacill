@@ -44,8 +44,13 @@ const handleChunkErrors = () => {
         console.error('❌ Erro 404 detectado em chunk:', src);
         console.log('🔄 Tentando recuperar...');
 
+        // ⚠️ PROTEÇÃO: Verificar se é Brave antes de fazer reload
+        const isBraveForReload = navigator.userAgent.includes('Brave') || 
+                                 (navigator.userAgentData && navigator.userAgentData.brands && 
+                                  navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+        
         // Evitar loops infinitos
-        if (!disableAggressiveReloads && reloadAttempts < maxReloadAttempts) {
+        if (!disableAggressiveReloads && !isBraveForReload && reloadAttempts < maxReloadAttempts) {
           reloadAttempts++;
 
           // Limpar cache e recarregar
@@ -69,11 +74,17 @@ const handleChunkErrors = () => {
               window.location.reload();
             } catch (error) {
               console.error('❌ Erro ao limpar cache:', error);
-              window.location.reload();
+              if (!isBraveForReload) {
+                window.location.reload();
+              }
             }
           }, 1000);
         } else {
-          console.error('❌ Muitas tentativas de reload (ou modo seguro em mobile/in-app), parando...');
+          if (isBraveForReload) {
+            console.warn('🛡️ Brave detectado - Reload automático desabilitado (evita loops infinitos)');
+          } else {
+            console.error('❌ Muitas tentativas de reload (ou modo seguro em mobile/in-app), parando...');
+          }
           // Mostrar mensagem ao usuário
           const root = document.getElementById('root');
           if (root) {
@@ -117,22 +128,16 @@ const handleChunkErrors = () => {
 // Inicializar detecção de erros
 handleChunkErrors();
 
-// Inicializar sistema automático de limpeza de cache
-if (
-  window.location.hostname !== 'localhost' &&
-  window.location.hostname !== '127.0.0.1' &&
-  !shouldDisableAggressiveReloads()
-) {
-  import('./utils/autoCacheCleaner').then(({ initializeAutoCleanup }) => {
-    initializeAutoCleanup();
-  });
-}
+// ⚠️ REMOVIDO: autoCacheCleaner causava loops infinitos
+// Não é necessário - cacheCleaner.ts já detecta loops e Service Worker gerencia cache
+// console.log('✅ AutoCacheCleaner removido (causava loops infinitos)');
 
 // ⚠️ DETECÇÃO DE LOOP DE RELOAD: Verificar primeiro se há loop antes de qualquer coisa
 if (
   window.location.hostname !== 'localhost' &&
   window.location.hostname !== '127.0.0.1' &&
-  !shouldDisableAggressiveReloads()
+  !shouldDisableAggressiveReloads() &&
+  !isBrave // ⚠️ NÃO rodar no Brave de jeito nenhum
 ) {
   import('./utils/cacheCleaner').then(({ detectAndCleanReloadLoop, checkAndCleanCorruptedData }) => {
     // Verificar e limpar dados corrompidos preventivamente
@@ -169,6 +174,8 @@ if (
       });
     }
   });
+} else if (isBrave) {
+  console.log('🛡️ Brave detectado - Detecção de loops desabilitada (evita reloads infinitos)');
 }
 
 // Verificar se o root existe antes de renderizar

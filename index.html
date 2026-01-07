@@ -134,40 +134,49 @@
 
         // Listener para quando o service worker assume controle
         // ⚠️ PROTEÇÃO: Adicionar flag para evitar múltiplos reloads
-        let isReloading = false;
-        let controllerChangeTimeout = null;
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          // ⚠️ PROTEÇÃO: Evitar reload se já está recarregando
-          if (isReloading) {
-            console.log('🔄 Já está recarregando, ignorando controllerchange...');
-            return;
-          }
-
-          // ⚠️ PROTEÇÃO: Limpar timeout anterior se existir (evita múltiplos reloads)
-          if (controllerChangeTimeout) {
-            clearTimeout(controllerChangeTimeout);
-          }
-
-          console.log('🔄 Service Worker assumiu controle, aguardando antes de recarregar...');
-          isReloading = true;
-
-          if (updateCheckInterval) {
-            clearInterval(updateCheckInterval);
-          }
-
-          // ⚠️ PROTEÇÃO: Aguardar mais tempo e verificar se realmente precisa recarregar
-          controllerChangeTimeout = setTimeout(() => {
-            // Verificar se a página já está carregada corretamente antes de recarregar
-            if (document.readyState === 'complete' && !document.querySelector('[data-reload-needed]')) {
-              console.log('✅ Página já carregada corretamente, não precisa recarregar');
-              isReloading = false;
+        // ⚠️ PROTEÇÃO: Desabilitar controllerchange em Brave (causa loops infinitos)
+        const isBraveInHTML = navigator.userAgent.includes('Brave') || 
+                              (navigator.userAgentData && navigator.userAgentData.brands && 
+                               navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+        
+        if (!isBraveInHTML) {
+          let isReloading = false;
+          let controllerChangeTimeout = null;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            // ⚠️ PROTEÇÃO: Evitar reload se já está recarregando
+            if (isReloading) {
+              console.log('🔄 Já está recarregando, ignorando controllerchange...');
               return;
             }
-            
-            console.log('🔄 Recarregando página...');
-            window.location.reload();
-          }, 2000); // Aumentado para 2 segundos para dar tempo da página carregar
-        });
+
+            // ⚠️ PROTEÇÃO: Limpar timeout anterior se existir (evita múltiplos reloads)
+            if (controllerChangeTimeout) {
+              clearTimeout(controllerChangeTimeout);
+            }
+
+            console.log('🔄 Service Worker assumiu controle, aguardando antes de recarregar...');
+            isReloading = true;
+
+            if (updateCheckInterval) {
+              clearInterval(updateCheckInterval);
+            }
+
+            // ⚠️ PROTEÇÃO: Aguardar mais tempo e verificar se realmente precisa recarregar
+            controllerChangeTimeout = setTimeout(() => {
+              // Verificar se a página já está carregada corretamente antes de recarregar
+              if (document.readyState === 'complete' && !document.querySelector('[data-reload-needed]')) {
+                console.log('✅ Página já carregada corretamente, não precisa recarregar');
+                isReloading = false;
+                return;
+              }
+              
+              console.log('🔄 Recarregando página...');
+              window.location.reload();
+            }, 2000); // Aumentado para 2 segundos para dar tempo da página carregar
+          });
+        } else {
+          console.log('🛡️ Brave detectado - controllerchange desabilitado (evita loops infinitos)');
+        }
 
       }).catch(function (error) {
         console.log('Service Worker registration failed:', error);
