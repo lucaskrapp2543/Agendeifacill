@@ -40,22 +40,63 @@ export const isBraveBrowser = (): boolean => {
 };
 
 /**
- * Proteção global: Bloquear reloads automáticos no Brave
+ * Detectar navegadores com proteções agressivas que causam loops de reload
+ * Inclui: Brave, Edge com proteções, Firefox com extensões de privacidade, etc.
+ */
+export const hasAggressiveProtections = (): boolean => {
+  const ua = getUserAgent();
+  
+  // Detectar Brave
+  if (ua.includes('Brave') || 
+      (navigator.userAgentData && navigator.userAgentData.brands && 
+       navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')))) {
+    return true;
+  }
+  
+  // Detectar Edge com proteções (Edge geralmente tem proteções similares)
+  if (ua.includes('Edg/') && (ua.includes('Shields') || ua.includes('Privacy'))) {
+    return true;
+  }
+  
+  // Detectar Firefox com extensões de privacidade comuns
+  if (ua.includes('Firefox') && (
+      localStorage.getItem('privacy_protection') === 'true' ||
+      sessionStorage.getItem('aggressive_protection') === 'true'
+    )) {
+    return true;
+  }
+  
+  // Verificar se há bloqueadores de conteúdo ativos (detecta extensões)
+  // Isso é uma heurística - se muitos recursos estão sendo bloqueados, pode ser navegador com proteções
+  try {
+    const blockedCount = parseInt(sessionStorage.getItem('blocked_resources_count') || '0');
+    if (blockedCount > 5) { // Se mais de 5 recursos foram bloqueados, pode ser navegador com proteções
+      return true;
+    }
+  } catch {
+    // Ignorar erros
+  }
+  
+  return false;
+};
+
+/**
+ * Proteção global: Bloquear reloads automáticos em navegadores com proteções
  * Substitui window.location.reload() para evitar loops infinitos
  */
 export const safeReload = (): void => {
-  if (isBraveBrowser()) {
-    console.warn('🛡️ Brave detectado - Reload bloqueado (evita loops infinitos)');
-    return; // NÃO recarregar no Brave
+  if (hasAggressiveProtections()) {
+    console.warn('🛡️ Navegador com proteções detectado - Reload bloqueado (evita loops infinitos)');
+    return; // NÃO recarregar em navegadores com proteções
   }
   window.location.reload();
 };
 
 /**
- * Em WebView/mobile/Brave, evitar lógicas agressivas de cache/SW/reload automático que geram "piscaceira"
+ * Em WebView/mobile/navegadores com proteções, evitar lógicas agressivas de cache/SW/reload automático que geram "piscaceira"
  */
 export const shouldDisableAggressiveReloads = (): boolean => {
-  return isMobileBrowser() || isInAppBrowser() || isBraveBrowser();
+  return isMobileBrowser() || isInAppBrowser() || isBraveBrowser() || hasAggressiveProtections();
 };
 
 

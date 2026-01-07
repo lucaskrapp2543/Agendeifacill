@@ -2,6 +2,18 @@
 (function() {
   'use strict';
   
+  // ⚠️ DESABILITAR EM NAVEGADORES COM PROTEÇÕES (causa loops infinitos)
+  const hasProtections = navigator.userAgent.includes('Brave') || 
+                          (navigator.userAgentData && navigator.userAgentData.brands && 
+                           navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
+                          (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
+                          (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
+  
+  if (hasProtections) {
+    console.log('🛡️ Navegador com proteções detectado - Script de atualização forçada DESABILITADO (evita loops)');
+    return; // NÃO EXECUTAR NADA em navegadores com proteções
+  }
+  
   console.log('🔄 Script de atualização forçada carregado');
   
   // Função para forçar atualização

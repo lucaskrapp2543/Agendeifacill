@@ -229,7 +229,7 @@ self.addEventListener('fetch', (event) => {
                   }
                   setTimeout(function() {
                     // Recarregar sem parâmetros (Service Worker já busca da rede sempre)
-                    window.location.reload(true);
+                    window.location.reload();
                   }, 2000);
                 </script>
               </body>

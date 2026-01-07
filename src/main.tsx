@@ -44,13 +44,11 @@ const handleChunkErrors = () => {
         console.error('❌ Erro 404 detectado em chunk:', src);
         console.log('🔄 Tentando recuperar...');
 
-        // ⚠️ PROTEÇÃO: Verificar se é Brave antes de fazer reload
-        const isBraveForReload = navigator.userAgent.includes('Brave') || 
-                                 (navigator.userAgentData && navigator.userAgentData.brands && 
-                                  navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+        // ⚠️ PROTEÇÃO: Verificar se navegador tem proteções agressivas antes de fazer reload
+        const hasProtections = disableAggressiveReloads; // Já inclui detecção de navegadores com proteções
         
         // Evitar loops infinitos
-        if (!disableAggressiveReloads && !isBraveForReload && reloadAttempts < maxReloadAttempts) {
+        if (!hasProtections && reloadAttempts < maxReloadAttempts) {
           reloadAttempts++;
 
           // Limpar cache e recarregar
@@ -74,14 +72,14 @@ const handleChunkErrors = () => {
               window.location.reload();
             } catch (error) {
               console.error('❌ Erro ao limpar cache:', error);
-              if (!isBraveForReload) {
+              if (!hasProtections) {
                 window.location.reload();
               }
             }
           }, 1000);
         } else {
-          if (isBraveForReload) {
-            console.warn('🛡️ Brave detectado - Reload automático desabilitado (evita loops infinitos)');
+          if (hasProtections) {
+            console.warn('🛡️ Navegador com proteções detectado - Reload automático desabilitado (evita loops infinitos)');
           } else {
             console.error('❌ Muitas tentativas de reload (ou modo seguro em mobile/in-app), parando...');
           }
@@ -136,8 +134,7 @@ handleChunkErrors();
 if (
   window.location.hostname !== 'localhost' &&
   window.location.hostname !== '127.0.0.1' &&
-  !shouldDisableAggressiveReloads() &&
-  !isBrave // ⚠️ NÃO rodar no Brave de jeito nenhum
+  !shouldDisableAggressiveReloads() // ⚠️ Já inclui detecção de navegadores com proteções
 ) {
   import('./utils/cacheCleaner').then(({ detectAndCleanReloadLoop, checkAndCleanCorruptedData }) => {
     // Verificar e limpar dados corrompidos preventivamente
@@ -174,8 +171,8 @@ if (
       });
     }
   });
-} else if (isBrave) {
-  console.log('🛡️ Brave detectado - Detecção de loops desabilitada (evita reloads infinitos)');
+} else if (shouldDisableAggressiveReloads()) {
+  console.log('🛡️ Navegador com proteções/mobile detectado - Detecção de loops desabilitada (evita reloads infinitos)');
 }
 
 // Verificar se o root existe antes de renderizar
@@ -237,7 +234,7 @@ if (!rootElement) {
       }
 
       setTimeout(() => {
-        window.location.reload(true);
+        window.location.reload();
       }, 500);
     }
   }, renderTimeoutMs);

@@ -65,14 +65,16 @@
     // ✅ SOLUÇÃO DEFINITIVA: NÃO registrar Service Worker em páginas de booking
     const isBookingPage = window.location.pathname.includes('/booking/');
     
-    // ⚠️ DETECTAR BRAVE (navegador com proteções que causam loops)
-    // Detectar pelo userAgent (método síncrono e confiável)
-    const isBrave = navigator.userAgent.includes('Brave') || 
-                    (navigator.userAgentData && navigator.userAgentData.brands && 
-                     navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+    // ⚠️ DETECTAR NAVEGADORES COM PROTEÇÕES (causam loops)
+    // Detecta Brave, Edge com proteções, Firefox com extensões, etc.
+    const hasProtections = navigator.userAgent.includes('Brave') || 
+                           (navigator.userAgentData && navigator.userAgentData.brands && 
+                            navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
+                           (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
+                           (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
     
-    if (isBrave) {
-      console.log('🛡️ Brave detectado - Service Worker desabilitado (evita loops com proteções)');
+    if (hasProtections) {
+      console.log('🛡️ Navegador com proteções detectado - Service Worker desabilitado (evita loops)');
     }
     
     // ⚠️ VERIFICAR se SW foi desabilitado por detecção de loop (qualquer navegador)
@@ -89,7 +91,7 @@
       !window.location.hostname.includes('127.0.0.1') &&
       !isMobile && // ⚠️ NÃO registrar em mobile
       !isBookingPage && // ⚠️ NÃO registrar em booking (evita cache problemático)
-      !isBrave && // ⚠️ NÃO registrar no Brave (evita loops com proteções)
+      !hasProtections && // ⚠️ NÃO registrar em navegadores com proteções (evita loops)
       !swDisabledByLoop) { // ⚠️ NÃO registrar se foi desabilitado por loop detectado
 
       const swPath = '/sw.js';
@@ -134,12 +136,14 @@
 
         // Listener para quando o service worker assume controle
         // ⚠️ PROTEÇÃO: Adicionar flag para evitar múltiplos reloads
-        // ⚠️ PROTEÇÃO: Desabilitar controllerchange em Brave (causa loops infinitos)
-        const isBraveInHTML = navigator.userAgent.includes('Brave') || 
-                              (navigator.userAgentData && navigator.userAgentData.brands && 
-                               navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+        // ⚠️ PROTEÇÃO: Desabilitar controllerchange em navegadores com proteções (causa loops infinitos)
+        const hasProtectionsInHTML = navigator.userAgent.includes('Brave') || 
+                                      (navigator.userAgentData && navigator.userAgentData.brands && 
+                                       navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
+                                      (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
+                                      (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
         
-        if (!isBraveInHTML) {
+        if (!hasProtectionsInHTML) {
           let isReloading = false;
           let controllerChangeTimeout = null;
           navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -175,22 +179,24 @@
             }, 2000); // Aumentado para 2 segundos para dar tempo da página carregar
           });
         } else {
-          console.log('🛡️ Brave detectado - controllerchange desabilitado (evita loops infinitos)');
+          console.log('🛡️ Navegador com proteções detectado - controllerchange desabilitado (evita loops infinitos)');
         }
 
       }).catch(function (error) {
         console.log('Service Worker registration failed:', error);
       });
     } else {
-      // ✅ SOLUÇÃO DEFINITIVA: Remover Service Worker em mobile, booking E Brave
-      // Detectar Brave de forma síncrona (fallback)
-      const isBraveSync = navigator.userAgent.includes('Brave') || 
-                          (navigator.userAgentData && navigator.userAgentData.brands && 
-                           navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+      // ✅ SOLUÇÃO DEFINITIVA: Remover Service Worker em mobile, booking E navegadores com proteções
+      // Detectar navegadores com proteções de forma síncrona (fallback)
+      const hasProtectionsSync = navigator.userAgent.includes('Brave') || 
+                                  (navigator.userAgentData && navigator.userAgentData.brands && 
+                                   navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
+                                  (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
+                                  (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
       
-      if (isMobile || isBookingPage || isBraveSync) {
-        if (isBraveSync) {
-          console.log('🛡️ Brave detectado - Service Worker desabilitado (evita loops com proteções)');
+      if (isMobile || isBookingPage || hasProtectionsSync) {
+        if (hasProtectionsSync) {
+          console.log('🛡️ Navegador com proteções detectado - Service Worker desabilitado (evita loops)');
         } else {
           console.log('📱 Service Worker desabilitado em mobile/booking (evita página branca e cache problemático)');
         }
@@ -312,56 +318,10 @@
       // Detectar se é mobile
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-      // Se for mobile, fazer limpeza AGRESSIVA e forçar reload se necessário
+      // ⚠️ DESABILITADO: Limpeza agressiva em mobile causava loops e erros
+      // Service Worker já está desabilitado em mobile, não precisa de limpeza agressiva
       if (isMobile) {
-        console.log('📱 Mobile detectado - Aplicando limpeza agressiva...');
-
-        // ⚠️ LIMPAR TUDO IMEDIATAMENTE (não esperar)
-        (async function () {
-          try {
-            // Limpar TODOS os caches
-            if ('caches' in window) {
-              const cacheNames = await caches.keys();
-              await Promise.all(cacheNames.map(name => caches.delete(name)));
-              console.log('✅ Caches limpos');
-            }
-
-            // Remover TODOS os Service Workers
-            if ('serviceWorker' in navigator) {
-              const registrations = await navigator.serviceWorker.getRegistrations();
-              await Promise.all(registrations.map(reg => reg.unregister()));
-              console.log('✅ Service Workers removidos');
-            }
-          } catch (e) {
-            console.warn('⚠️ Erro ao limpar:', e);
-          }
-        })();
-
-        // ⚠️ DETECÇÃO IMEDIATA DE PÁGINA BRANCA (2 segundos)
-        setTimeout(function () {
-          const root = document.getElementById('root');
-          if (root && root.children.length === 0) {
-            console.warn('⚠️ Página branca detectada após 2 segundos! Forçando reload...');
-
-            // Limpar novamente e recarregar
-            if ('caches' in window) {
-              caches.keys().then(names => {
-                names.forEach(name => caches.delete(name));
-              });
-            }
-
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.getRegistrations().then(regs => {
-                regs.forEach(reg => reg.unregister());
-              });
-            }
-
-            // Recarregar com bypass de cache
-            setTimeout(() => {
-              window.location.reload(true);
-            }, 500);
-          }
-        }, 2000); // 2 segundos (muito rápido para mobile)
+        console.log('📱 Mobile detectado - Service Worker já desabilitado (sem limpeza agressiva para evitar loops)');
       }
     })();
   </script>
@@ -371,6 +331,19 @@
     // Este script detecta se a página não carregou corretamente e força reload
     (function () {
       'use strict';
+
+      // ⚠️ DESABILITAR COMPLETAMENTE EM NAVEGADORES COM PROTEÇÕES (causa loops infinitos)
+      // Detecta Brave, Edge com proteções, Firefox com extensões, etc.
+      const hasProtectionsForWhiteScreen = navigator.userAgent.includes('Brave') || 
+                                            (navigator.userAgentData && navigator.userAgentData.brands && 
+                                             navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
+                                            (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
+                                            (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
+      
+      if (hasProtectionsForWhiteScreen) {
+        console.log('🛡️ Navegador com proteções detectado - Detecção de página branca DESABILITADA (evita loops infinitos)');
+        return; // NÃO EXECUTAR NADA em navegadores com proteções
+      }
 
       let whiteScreenDetected = false;
       let reloadAttempts = 0;
@@ -387,7 +360,7 @@
                 <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">
                   Por favor, use os 3 pontinhos do navegador e clique em "Atualizar" ou limpe o cache do navegador.
                 </p>
-                <button onclick="window.location.reload(true)" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
+                <button onclick="window.location.reload()" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
                   Tentar Novamente
                 </button>
               </div>
@@ -454,7 +427,7 @@
                   <p style="margin-bottom: 24px; color: #666; line-height: 1.6;">
                     A página não está carregando corretamente. Por favor, atualize manualmente usando os 3 pontinhos do navegador.
                   </p>
-                  <button onclick="window.location.reload(true)" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
+                  <button onclick="window.location.reload()" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
                     Tentar Novamente
                   </button>
                 </div>
@@ -501,40 +474,44 @@
 
           // Recarregar (Service Worker já busca da rede sempre)
           setTimeout(function () {
-            window.location.reload(true);
+            window.location.reload();
           }, 300); // Reduzido para 300ms (mais rápido)
         });
       }
 
-      // Iniciar detecção quando DOM estiver pronto
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', detectWhiteScreen);
-      } else {
-        detectWhiteScreen();
+      // Iniciar detecção quando DOM estiver pronto (mas NÃO em navegadores com proteções)
+      if (!hasProtectionsForWhiteScreen) {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', detectWhiteScreen);
+        } else {
+          detectWhiteScreen();
+        }
       }
 
-      // Detectar erros de carregamento de scripts
-      window.addEventListener('error', function (event) {
-        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) {
-          console.error('❌ Erro ao carregar recurso:', event.target.src || event.target.href);
-          if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
-            whiteScreenDetected = true;
-            setTimeout(forceReload, 2000);
+      // Detectar erros de carregamento de scripts (mas NÃO em navegadores com proteções)
+      if (!hasProtectionsForWhiteScreen) {
+        window.addEventListener('error', function (event) {
+          if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) {
+            console.error('❌ Erro ao carregar recurso:', event.target.src || event.target.href);
+            if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
+              whiteScreenDetected = true;
+              setTimeout(forceReload, 2000);
+            }
           }
-        }
-      }, true);
+        }, true);
 
-      // Detectar erros não tratados
-      window.addEventListener('unhandledrejection', function (event) {
-        console.error('❌ Erro não tratado:', event.reason);
-        if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
-          const errorMsg = String(event.reason || '');
-          if (errorMsg.includes('chunk') || errorMsg.includes('404') || errorMsg.includes('Failed to load')) {
-            whiteScreenDetected = true;
-            setTimeout(forceReload, 2000);
+        // Detectar erros não tratados (mas NÃO em navegadores com proteções)
+        window.addEventListener('unhandledrejection', function (event) {
+          console.error('❌ Erro não tratado:', event.reason);
+          if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
+            const errorMsg = String(event.reason || '');
+            if (errorMsg.includes('chunk') || errorMsg.includes('404') || errorMsg.includes('Failed to load')) {
+              whiteScreenDetected = true;
+              setTimeout(forceReload, 2000);
+            }
           }
-        }
-      });
+        });
+      }
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>

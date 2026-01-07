@@ -56,13 +56,22 @@
         } catch (error) {
             console.log('Erro ao forçar reload:', error);
             // Fallback: reload simples
-            window.location.reload(true);
+            window.location.reload();
         }
     }
     
-    // Auto-executar se detectar parâmetro de força
-    if (window.location.search.includes('force=1')) {
+    // ⚠️ DESABILITAR EM NAVEGADORES COM PROTEÇÕES (causa loops infinitos)
+    const hasProtections = navigator.userAgent.includes('Brave') || 
+                           (navigator.userAgentData && navigator.userAgentData.brands && 
+                            navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
+                           (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
+                           (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
+    
+    // Auto-executar se detectar parâmetro de força (mas NÃO em navegadores com proteções)
+    if (!hasProtections && window.location.search.includes('force=1')) {
         forceReload();
+    } else if (hasProtections && window.location.search.includes('force=1')) {
+        console.log('🛡️ Navegador com proteções detectado - forceReload desabilitado (evita loops)');
     }
     
     // Expor função globalmente
