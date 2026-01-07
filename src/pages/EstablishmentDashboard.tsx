@@ -1910,6 +1910,9 @@ const EstablishmentDashboard = () => {
     }
 
     try {
+      // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone/mobile)
+      await supabase.auth.refreshSession();
+      
       // Incrementar o display_order de todas as categorias existentes em 1
       // para que a nova categoria apareça primeiro (com display_order: 0)
       if (serviceCategories.length > 0) {
@@ -1960,6 +1963,9 @@ const EstablishmentDashboard = () => {
     }
 
     try {
+      // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone/mobile)
+      await supabase.auth.refreshSession();
+      
       const { error } = await supabase
         .from('service_subcategories')
         .insert({

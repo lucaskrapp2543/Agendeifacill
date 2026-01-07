@@ -83,7 +83,14 @@ self.addEventListener('activate', (event) => {
       }
       
       // Continuar com ativação normal
-      return self.clients.claim();
+      // ⚠️ PROTEÇÃO: Não fazer claim() se houver erro (evita loops no Brave)
+      try {
+        return self.clients.claim();
+      } catch (error) {
+        console.warn('⚠️ Erro ao fazer claim (pode ser navegador com proteções):', error.message);
+        // Não falhar se claim() der erro (Brave e outros navegadores com proteções)
+        return Promise.resolve();
+      }
     })()
   );
 });

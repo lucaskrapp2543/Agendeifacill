@@ -45,6 +45,22 @@ export const detectAndCleanReloadLoop = (): boolean => {
       // Limpar tudo que pode estar causando o loop
       performEmergencyCleanup();
 
+      // ⚠️ DESABILITAR SERVICE WORKER AUTOMATICAMENTE quando detecta loop
+      // Isso protege QUALQUER navegador com problemas (Brave, Edge com proteções, etc)
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          registrations.forEach((registration) => {
+            registration.unregister().then(() => {
+              console.log('🛡️ Service Worker desabilitado automaticamente (loop detectado)');
+              // Marcar no localStorage para não registrar novamente nesta sessão
+              localStorage.setItem('sw_disabled_loop_detection', 'true');
+            }).catch((error) => {
+              console.warn('⚠️ Erro ao desabilitar Service Worker:', error);
+            });
+          });
+        });
+      }
+
       // Limpar histórico de reloads
       sessionStorage.removeItem(RELOAD_TIMESTAMP_KEY);
       sessionStorage.removeItem(RELOAD_DETECTION_KEY);

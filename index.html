@@ -65,13 +65,32 @@
     // ✅ SOLUÇÃO DEFINITIVA: NÃO registrar Service Worker em páginas de booking
     const isBookingPage = window.location.pathname.includes('/booking/');
     
+    // ⚠️ DETECTAR BRAVE (navegador com proteções que causam loops)
+    // Detectar pelo userAgent (método síncrono e confiável)
+    const isBrave = navigator.userAgent.includes('Brave') || 
+                    (navigator.userAgentData && navigator.userAgentData.brands && 
+                     navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+    
+    if (isBrave) {
+      console.log('🛡️ Brave detectado - Service Worker desabilitado (evita loops com proteções)');
+    }
+    
+    // ⚠️ VERIFICAR se SW foi desabilitado por detecção de loop (qualquer navegador)
+    const swDisabledByLoop = localStorage.getItem('sw_disabled_loop_detection') === 'true';
+    
+    if (swDisabledByLoop) {
+      console.log('🛡️ Service Worker desabilitado (loop detectado anteriormente)');
+    }
+    
     if ('serviceWorker' in navigator &&
       window.location.hostname !== 'localhost' &&
       window.location.hostname !== '127.0.0.1' &&
       !window.location.hostname.includes('localhost') &&
       !window.location.hostname.includes('127.0.0.1') &&
       !isMobile && // ⚠️ NÃO registrar em mobile
-      !isBookingPage) { // ⚠️ NÃO registrar em booking (evita cache problemático)
+      !isBookingPage && // ⚠️ NÃO registrar em booking (evita cache problemático)
+      !isBrave && // ⚠️ NÃO registrar no Brave (evita loops com proteções)
+      !swDisabledByLoop) { // ⚠️ NÃO registrar se foi desabilitado por loop detectado
 
       const swPath = '/sw.js';
 
@@ -116,6 +135,7 @@
         // Listener para quando o service worker assume controle
         // ⚠️ PROTEÇÃO: Adicionar flag para evitar múltiplos reloads
         let isReloading = false;
+        let controllerChangeTimeout = null;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
           // ⚠️ PROTEÇÃO: Evitar reload se já está recarregando
           if (isReloading) {
@@ -123,26 +143,48 @@
             return;
           }
 
-          console.log('🔄 Service Worker assumiu controle, recarregando...');
+          // ⚠️ PROTEÇÃO: Limpar timeout anterior se existir (evita múltiplos reloads)
+          if (controllerChangeTimeout) {
+            clearTimeout(controllerChangeTimeout);
+          }
+
+          console.log('🔄 Service Worker assumiu controle, aguardando antes de recarregar...');
           isReloading = true;
 
           if (updateCheckInterval) {
             clearInterval(updateCheckInterval);
           }
 
-          // Aguardar um pouco antes de recarregar para evitar loops
-          setTimeout(() => {
+          // ⚠️ PROTEÇÃO: Aguardar mais tempo e verificar se realmente precisa recarregar
+          controllerChangeTimeout = setTimeout(() => {
+            // Verificar se a página já está carregada corretamente antes de recarregar
+            if (document.readyState === 'complete' && !document.querySelector('[data-reload-needed]')) {
+              console.log('✅ Página já carregada corretamente, não precisa recarregar');
+              isReloading = false;
+              return;
+            }
+            
+            console.log('🔄 Recarregando página...');
             window.location.reload();
-          }, 1000);
+          }, 2000); // Aumentado para 2 segundos para dar tempo da página carregar
         });
 
       }).catch(function (error) {
         console.log('Service Worker registration failed:', error);
       });
     } else {
-      // ✅ SOLUÇÃO DEFINITIVA: Remover Service Worker em mobile E booking
-      if (isMobile || isBookingPage) {
-        console.log('📱 Service Worker desabilitado em mobile/booking (evita página branca e cache problemático)');
+      // ✅ SOLUÇÃO DEFINITIVA: Remover Service Worker em mobile, booking E Brave
+      // Detectar Brave de forma síncrona (fallback)
+      const isBraveSync = navigator.userAgent.includes('Brave') || 
+                          (navigator.userAgentData && navigator.userAgentData.brands && 
+                           navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+      
+      if (isMobile || isBookingPage || isBraveSync) {
+        if (isBraveSync) {
+          console.log('🛡️ Brave detectado - Service Worker desabilitado (evita loops com proteções)');
+        } else {
+          console.log('📱 Service Worker desabilitado em mobile/booking (evita página branca e cache problemático)');
+        }
 
         // ⚠️ REMOVER Service Workers existentes em mobile/booking E remover listeners
         if ('serviceWorker' in navigator) {
