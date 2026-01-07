@@ -298,10 +298,43 @@ export const detectLoadProblems = (): boolean => {
 
 // Iniciar monitoramento automático
 export const startAutoMonitoring = (): void => {
+  // ⚠️ PROTEÇÃO: Não rodar em navegadores com proteções (Brave, etc)
+  const isBrave = navigator.userAgent.includes('Brave') || 
+                  (navigator.userAgentData && navigator.userAgentData.brands && 
+                   navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+  
+  if (isBrave) {
+    console.log('🛡️ Brave detectado - AutoCacheCleaner desabilitado (evita loops)');
+    return; // Não rodar no Brave
+  }
+  
+  // ⚠️ PROTEÇÃO: Verificar se já está em loop de limpeza
+  const cleanupCount = parseInt(sessionStorage.getItem('agendafacil_cleanup_count') || '0');
+  const lastCleanup = parseInt(sessionStorage.getItem('agendafacil_last_cleanup') || '0');
+  const now = Date.now();
+  
+  // Se limpou mais de 2 vezes nos últimos 5 minutos, PARAR
+  if (cleanupCount >= 2 && (now - lastCleanup) < (5 * 60 * 1000)) {
+    console.warn('🚨 Muitas limpezas detectadas, desabilitando autoCacheCleaner para evitar loop');
+    sessionStorage.setItem('agendafacil_cleanup_disabled', 'true');
+    return;
+  }
+  
+  // Verificar se está desabilitado
+  if (sessionStorage.getItem('agendafacil_cleanup_disabled') === 'true') {
+    console.log('🛡️ AutoCacheCleaner desabilitado (loop detectado anteriormente)');
+    return;
+  }
+  
   // Verificar imediatamente ao iniciar
   const healthCheck = performHealthCheck();
   if (!healthCheck.isHealthy || detectLoadProblems()) {
     console.warn('⚠️ Problemas detectados, iniciando limpeza automática...');
+    
+    // Incrementar contador de limpezas
+    sessionStorage.setItem('agendafacil_cleanup_count', (cleanupCount + 1).toString());
+    sessionStorage.setItem('agendafacil_last_cleanup', now.toString());
+    
     autoCleanup().then(() => {
       // Recarregar após limpeza
       setTimeout(() => {
@@ -330,7 +363,24 @@ export const startAutoMonitoring = (): void => {
 
         // Se atingiu o limite, limpar automaticamente
         if (failedAttempts >= MAX_FAILED_ATTEMPTS || healthCheck.needsCleanup) {
+          // ⚠️ PROTEÇÃO: Verificar se não está em loop de limpeza
+          const cleanupCount = parseInt(sessionStorage.getItem('agendafacil_cleanup_count') || '0');
+          const lastCleanup = parseInt(sessionStorage.getItem('agendafacil_last_cleanup') || '0');
+          const now = Date.now();
+          
+          // Se limpou mais de 2 vezes nos últimos 5 minutos, PARAR
+          if (cleanupCount >= 2 && (now - lastCleanup) < (5 * 60 * 1000)) {
+            console.warn('🚨 Loop de limpeza detectado! Desabilitando autoCacheCleaner.');
+            sessionStorage.setItem('agendafacil_cleanup_disabled', 'true');
+            return; // Não limpar mais
+          }
+          
           console.log('🧹 Limpando cache automaticamente...');
+          
+          // Incrementar contador de limpezas
+          sessionStorage.setItem('agendafacil_cleanup_count', (cleanupCount + 1).toString());
+          sessionStorage.setItem('agendafacil_last_cleanup', now.toString());
+          
           autoCleanup().then(() => {
             // Recarregar após limpeza
             setTimeout(() => {
@@ -352,6 +402,32 @@ export const startAutoMonitoring = (): void => {
 // Verificação agressiva na inicialização - detecta problemas ANTES de carregar
 export const aggressiveInitialCheck = (): boolean => {
   try {
+    // ⚠️ PROTEÇÃO: Não rodar em navegadores com proteções (Brave, etc)
+    const isBrave = navigator.userAgent.includes('Brave') || 
+                    (navigator.userAgentData && navigator.userAgentData.brands && 
+                     navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+    
+    if (isBrave) {
+      return false; // Não rodar no Brave
+    }
+    
+    // ⚠️ PROTEÇÃO: Verificar se está desabilitado por loop anterior
+    if (sessionStorage.getItem('agendafacil_cleanup_disabled') === 'true') {
+      return false; // Não rodar se desabilitado
+    }
+    
+    // ⚠️ PROTEÇÃO: Verificar se não está em loop de limpeza
+    const cleanupCount = parseInt(sessionStorage.getItem('agendafacil_cleanup_count') || '0');
+    const lastCleanup = parseInt(sessionStorage.getItem('agendafacil_last_cleanup') || '0');
+    const now = Date.now();
+    
+    // Se limpou mais de 2 vezes nos últimos 5 minutos, PARAR
+    if (cleanupCount >= 2 && (now - lastCleanup) < (5 * 60 * 1000)) {
+      console.warn('🚨 Loop de limpeza detectado! Desabilitando verificação agressiva.');
+      sessionStorage.setItem('agendafacil_cleanup_disabled', 'true');
+      return false; // Não limpar mais
+    }
+    
     // Se não dá pra usar storage, não rodar lógica agressiva (evita piscaceira).
     if (!canUseStorage('local') || !canUseStorage('session')) {
       return false;
@@ -361,6 +437,11 @@ export const aggressiveInitialCheck = (): boolean => {
     const failedAttempts = parseInt(localStorage.getItem(FAILED_LOAD_ATTEMPTS) || '0');
     if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
       console.warn('⚠️ Múltiplas tentativas falhadas detectadas, limpando imediatamente...');
+      
+      // Incrementar contador de limpezas
+      sessionStorage.setItem('agendafacil_cleanup_count', (cleanupCount + 1).toString());
+      sessionStorage.setItem('agendafacil_last_cleanup', now.toString());
+      
       autoCleanup().then(() => {
         window.location.reload();
       });
@@ -374,7 +455,23 @@ export const aggressiveInitialCheck = (): boolean => {
       const value = localStorage.getItem(testKey);
       localStorage.removeItem(testKey);
       if (value !== 'ok') {
+        // ⚠️ PROTEÇÃO: Verificar se não está em loop antes de limpar
+        const cleanupCount = parseInt(sessionStorage.getItem('agendafacil_cleanup_count') || '0');
+        const lastCleanup = parseInt(sessionStorage.getItem('agendafacil_last_cleanup') || '0');
+        const now = Date.now();
+        
+        if (cleanupCount >= 2 && (now - lastCleanup) < (5 * 60 * 1000)) {
+          console.warn('🚨 Loop de limpeza detectado! Não limpando novamente.');
+          sessionStorage.setItem('agendafacil_cleanup_disabled', 'true');
+          return false; // Não limpar mais
+        }
+        
         console.warn('⚠️ localStorage não está funcionando, limpando...');
+        
+        // Incrementar contador de limpezas
+        sessionStorage.setItem('agendafacil_cleanup_count', (cleanupCount + 1).toString());
+        sessionStorage.setItem('agendafacil_last_cleanup', now.toString());
+        
         autoCleanup().then(() => {
           window.location.reload();
         });
@@ -410,6 +507,22 @@ export const aggressiveInitialCheck = (): boolean => {
 
 // Verificar e limpar na inicialização
 export const initializeAutoCleanup = (): void => {
+  // ⚠️ PROTEÇÃO: Não rodar em navegadores com proteções (Brave, etc)
+  const isBrave = navigator.userAgent.includes('Brave') || 
+                  (navigator.userAgentData && navigator.userAgentData.brands && 
+                   navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+  
+  if (isBrave) {
+    console.log('🛡️ Brave detectado - AutoCacheCleaner desabilitado (evita loops)');
+    return; // Não rodar no Brave
+  }
+  
+  // ⚠️ PROTEÇÃO: Verificar se está desabilitado por loop anterior
+  if (sessionStorage.getItem('agendafacil_cleanup_disabled') === 'true') {
+    console.log('🛡️ AutoCacheCleaner desabilitado (loop detectado anteriormente)');
+    return;
+  }
+  
   // Verificação agressiva IMEDIATA (antes de qualquer coisa)
   if (aggressiveInitialCheck()) {
     return; // Já está limpando, não precisa continuar

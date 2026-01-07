@@ -30,10 +30,20 @@ export const isInAppBrowser = (): boolean => {
 };
 
 /**
- * Em WebView/mobile, evitar lógicas agressivas de cache/SW/reload automático que geram "piscaceira"
+ * Detectar Brave (navegador com proteções que causam loops)
+ */
+export const isBraveBrowser = (): boolean => {
+  const ua = getUserAgent();
+  return ua.includes('Brave') || 
+         (navigator.userAgentData && navigator.userAgentData.brands && 
+          navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+};
+
+/**
+ * Em WebView/mobile/Brave, evitar lógicas agressivas de cache/SW/reload automático que geram "piscaceira"
  */
 export const shouldDisableAggressiveReloads = (): boolean => {
-  return isMobileBrowser() || isInAppBrowser();
+  return isMobileBrowser() || isInAppBrowser() || isBraveBrowser();
 };
 
 
