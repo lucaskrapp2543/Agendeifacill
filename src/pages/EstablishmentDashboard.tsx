@@ -1911,7 +1911,18 @@ const EstablishmentDashboard = () => {
 
     try {
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone/mobile)
-      await supabase.auth.refreshSession();
+      try {
+        const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) {
+          console.warn('⚠️ Erro ao atualizar sessão:', refreshError);
+          // Continuar mesmo assim
+        } else {
+          console.log('✅ Sessão atualizada com sucesso');
+        }
+      } catch (refreshErr) {
+        console.warn('⚠️ Erro ao atualizar sessão:', refreshErr);
+        // Continuar mesmo assim
+      }
       
       // Incrementar o display_order de todas as categorias existentes em 1
       // para que a nova categoria apareça primeiro (com display_order: 0)
@@ -1936,18 +1947,70 @@ const EstablishmentDashboard = () => {
         });
 
       if (error) {
-        console.error('Erro ao adicionar categoria:', error);
-        toast('Erro ao adicionar categoria', 'error');
-        return;
+        console.error('❌ Erro ao adicionar categoria:', error);
+        console.error('❌ Detalhes do erro:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
+        
+        // ⚠️ MOSTRAR ERRO COMPLETO NA TELA para debug
+        const errorMsg = error.message || 'Erro desconhecido';
+        const errorCode = error.code || 'SEM_CODIGO';
+        console.error(`🚨 ERRO VISÍVEL: ${errorCode} - ${errorMsg}`);
+        
+        // Se for erro de RLS, tentar novamente após refresh mais agressivo
+        if (error.code === '42501' || error.message?.includes('row-level security') || error.message?.includes('violates row-level security')) {
+          console.warn('⚠️ Erro de RLS detectado, tentando refresh mais agressivo...');
+          
+          // Tentar fazer login novamente silenciosamente
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            // Forçar refresh do token
+            await supabase.auth.setSession(session);
+            
+            // Tentar inserir novamente
+            const { error: retryError } = await supabase
+              .from('service_categories')
+              .insert({
+                establishment_id: establishment.id,
+                name: newCategory.name.trim().toUpperCase(),
+                display_order: 0
+              });
+            
+            if (retryError) {
+              // ⚠️ MOSTRAR ERRO COMPLETO
+              toast(`Erro: ${retryError.code || 'RLS'} - ${retryError.message || 'Tente fazer logout e login novamente'}`, 'error');
+              console.error('🚨 ERRO NO RETRY:', retryError);
+              return;
+            }
+          } else {
+            toast('Sessão expirada. Faça login novamente.', 'error');
+            return;
+          }
+        } else {
+          // ⚠️ MOSTRAR ERRO COMPLETO NA TELA
+          toast(`Erro: ${errorCode} - ${errorMsg}`, 'error');
+          return;
+        }
       }
 
       setNewCategory({ name: '' });
       setShowAddCategoryModal(false);
       fetchServiceCategories();
       toast(`Categoria "${newCategory.name.toUpperCase()}" adicionada com sucesso!`, 'success');
-    } catch (error) {
-      console.error('Erro ao adicionar categoria:', error);
-      toast('Erro ao adicionar categoria', 'error');
+    } catch (error: any) {
+      console.error('❌ Erro ao adicionar categoria (catch):', error);
+      
+      // ⚠️ MOSTRAR ERRO COMPLETO NA TELA
+      const errorMsg = error?.message || error?.toString() || 'Erro desconhecido';
+      const errorCode = error?.code || 'SEM_CODIGO';
+      
+      console.error(`🚨 ERRO VISÍVEL NO CATCH: ${errorCode} - ${errorMsg}`);
+      
+      // Mostrar erro completo na tela
+      toast(`Erro: ${errorCode} - ${errorMsg}`, 'error');
     }
   };
 
@@ -1964,7 +2027,18 @@ const EstablishmentDashboard = () => {
 
     try {
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone/mobile)
-      await supabase.auth.refreshSession();
+      try {
+        const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) {
+          console.warn('⚠️ Erro ao atualizar sessão:', refreshError);
+          // Continuar mesmo assim
+        } else {
+          console.log('✅ Sessão atualizada com sucesso');
+        }
+      } catch (refreshErr) {
+        console.warn('⚠️ Erro ao atualizar sessão:', refreshErr);
+        // Continuar mesmo assim
+      }
       
       const { error } = await supabase
         .from('service_subcategories')
@@ -1977,9 +2051,55 @@ const EstablishmentDashboard = () => {
         });
 
       if (error) {
-        console.error('Erro ao adicionar subcategoria:', error);
-        toast('Erro ao adicionar subcategoria', 'error');
-        return;
+        console.error('❌ Erro ao adicionar subcategoria:', error);
+        console.error('❌ Detalhes do erro:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
+        
+        // ⚠️ MOSTRAR ERRO COMPLETO NA TELA para debug
+        const errorMsg = error.message || 'Erro desconhecido';
+        const errorCode = error.code || 'SEM_CODIGO';
+        console.error(`🚨 ERRO VISÍVEL: ${errorCode} - ${errorMsg}`);
+        
+        // Se for erro de RLS, tentar novamente após refresh mais agressivo
+        if (error.code === '42501' || error.message?.includes('row-level security') || error.message?.includes('violates row-level security')) {
+          console.warn('⚠️ Erro de RLS detectado, tentando refresh mais agressivo...');
+          
+          // Tentar fazer login novamente silenciosamente
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            // Forçar refresh do token
+            await supabase.auth.setSession(session);
+            
+            // Tentar inserir novamente
+            const { error: retryError } = await supabase
+              .from('service_subcategories')
+              .insert({
+                category_id: selectedCategoryForSubcategory,
+                name: newSubcategory.name.trim(),
+                price: price,
+                duration: duration,
+                display_order: serviceSubcategories.filter(sub => sub.category_id === selectedCategoryForSubcategory).length
+              });
+            
+            if (retryError) {
+              // ⚠️ MOSTRAR ERRO COMPLETO
+              toast(`Erro: ${retryError.code || 'RLS'} - ${retryError.message || 'Tente fazer logout e login novamente'}`, 'error');
+              console.error('🚨 ERRO NO RETRY:', retryError);
+              return;
+            }
+          } else {
+            toast('Sessão expirada. Faça login novamente.', 'error');
+            return;
+          }
+        } else {
+          // ⚠️ MOSTRAR ERRO COMPLETO NA TELA
+          toast(`Erro: ${errorCode} - ${errorMsg}`, 'error');
+          return;
+        }
       }
 
       setNewSubcategory({ name: '', price: '', duration: '30' });
@@ -1987,9 +2107,17 @@ const EstablishmentDashboard = () => {
       setSelectedCategoryForSubcategory(null);
       fetchServiceSubcategories();
       toast(`Serviço "${newSubcategory.name}" adicionado com sucesso!`, 'success');
-    } catch (error) {
-      console.error('Erro ao adicionar subcategoria:', error);
-      toast('Erro ao adicionar subcategoria', 'error');
+    } catch (error: any) {
+      console.error('❌ Erro ao adicionar subcategoria (catch):', error);
+      
+      // ⚠️ MOSTRAR ERRO COMPLETO NA TELA
+      const errorMsg = error?.message || error?.toString() || 'Erro desconhecido';
+      const errorCode = error?.code || 'SEM_CODIGO';
+      
+      console.error(`🚨 ERRO VISÍVEL NO CATCH: ${errorCode} - ${errorMsg}`);
+      
+      // Mostrar erro completo na tela
+      toast(`Erro: ${errorCode} - ${errorMsg}`, 'error');
     }
   };
 
