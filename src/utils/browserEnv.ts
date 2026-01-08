@@ -34,9 +34,16 @@ export const isInAppBrowser = (): boolean => {
  */
 export const isBraveBrowser = (): boolean => {
   const ua = getUserAgent();
-  return ua.includes('Brave') || 
-         (navigator.userAgentData && navigator.userAgentData.brands && 
-          navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')));
+  // No Brave, o UA pode não expor "Brave". A detecção mais confiável é navigator.brave.
+  // (Em emulação de device, o UA pode parecer iPhone/Safari, mas navigator.brave continua existindo.)
+  const isBraveRuntime = !!(navigator && (navigator as any).brave);
+  return (
+    isBraveRuntime ||
+    ua.includes('Brave') ||
+    (navigator.userAgentData &&
+      navigator.userAgentData.brands &&
+      navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')))
+  );
 };
 
 /**
@@ -47,9 +54,13 @@ export const hasAggressiveProtections = (): boolean => {
   const ua = getUserAgent();
   
   // Detectar Brave
-  if (ua.includes('Brave') || 
-      (navigator.userAgentData && navigator.userAgentData.brands && 
-       navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')))) {
+  if (
+    isBraveBrowser() ||
+    ua.includes('Brave') ||
+    (navigator.userAgentData &&
+      navigator.userAgentData.brands &&
+      navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave')))
+  ) {
     return true;
   }
   

@@ -66,8 +66,12 @@
     const isBookingPage = window.location.pathname.includes('/booking/');
     
     // ⚠️ DETECTAR NAVEGADORES COM PROTEÇÕES (causam loops)
+    // IMPORTANTE: no Brave o user-agent pode NÃO conter "Brave" (e pode ser alterado em emulação).
+    // Por isso usamos também navigator.brave (detecção confiável em runtime).
+    const isBraveRuntime = !!(navigator && navigator.brave);
     // Detecta Brave, Edge com proteções, Firefox com extensões, etc.
-    const hasProtections = navigator.userAgent.includes('Brave') || 
+    const hasProtections = isBraveRuntime ||
+                           navigator.userAgent.includes('Brave') || 
                            (navigator.userAgentData && navigator.userAgentData.brands && 
                             navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
                            (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
@@ -137,7 +141,9 @@
         // Listener para quando o service worker assume controle
         // ⚠️ PROTEÇÃO: Adicionar flag para evitar múltiplos reloads
         // ⚠️ PROTEÇÃO: Desabilitar controllerchange em navegadores com proteções (causa loops infinitos)
-        const hasProtectionsInHTML = navigator.userAgent.includes('Brave') || 
+        const isBraveRuntimeInner = !!(navigator && navigator.brave);
+        const hasProtectionsInHTML = isBraveRuntimeInner ||
+                                      navigator.userAgent.includes('Brave') || 
                                       (navigator.userAgentData && navigator.userAgentData.brands && 
                                        navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
                                       (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
@@ -188,7 +194,9 @@
     } else {
       // ✅ SOLUÇÃO DEFINITIVA: Remover Service Worker em mobile, booking E navegadores com proteções
       // Detectar navegadores com proteções de forma síncrona (fallback)
-      const hasProtectionsSync = navigator.userAgent.includes('Brave') || 
+      const isBraveRuntimeSync = !!(navigator && navigator.brave);
+      const hasProtectionsSync = isBraveRuntimeSync ||
+                                  navigator.userAgent.includes('Brave') || 
                                   (navigator.userAgentData && navigator.userAgentData.brands && 
                                    navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
                                   (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
@@ -334,7 +342,9 @@
 
       // ⚠️ DESABILITAR COMPLETAMENTE EM NAVEGADORES COM PROTEÇÕES (causa loops infinitos)
       // Detecta Brave, Edge com proteções, Firefox com extensões, etc.
-      const hasProtectionsForWhiteScreen = navigator.userAgent.includes('Brave') || 
+      const isBraveRuntimeForWhiteScreen = !!(navigator && navigator.brave);
+      const hasProtectionsForWhiteScreen = isBraveRuntimeForWhiteScreen ||
+                                            navigator.userAgent.includes('Brave') || 
                                             (navigator.userAgentData && navigator.userAgentData.brands && 
                                              navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
                                             (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
@@ -492,7 +502,31 @@
       if (!hasProtectionsForWhiteScreen) {
         window.addEventListener('error', function (event) {
           if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) {
-            console.error('❌ Erro ao carregar recurso:', event.target.src || event.target.href);
+            const resourceUrl = event.target.src || event.target.href || '';
+            console.error('❌ Erro ao carregar recurso:', resourceUrl);
+
+            // ✅ PROTEÇÃO IMPORTANTE:
+            // Bloqueadores/Proteções (ex: Brave Shields/AdBlock) bloqueiam muitos scripts de terceiros
+            // (doubleclick, gtm, etc). Isso NÃO deve disparar reload.
+            try {
+              const parsed = new URL(resourceUrl, window.location.href);
+              const isSameOrigin = parsed.origin === window.location.origin;
+              const isAppAsset =
+                parsed.pathname.startsWith('/assets/') ||
+                parsed.pathname === '/src/main.tsx' ||
+                parsed.pathname.endsWith('/src/main.tsx');
+
+              if (!isSameOrigin || !isAppAsset) {
+                console.warn('🛡️ Recurso de terceiro/bloqueado ignorado (sem reload):', parsed.href);
+                return;
+              }
+            } catch (e) {
+              // Se não conseguimos parsear, não vamos arriscar reload
+              console.warn('🛡️ URL inválida/bloqueada ignorada (sem reload).');
+              return;
+            }
+
+            // Só chega aqui se for recurso do app (mesma origem) e crítico
             if (!whiteScreenDetected && reloadAttempts < maxReloadAttempts) {
               whiteScreenDetected = true;
               setTimeout(forceReload, 2000);
