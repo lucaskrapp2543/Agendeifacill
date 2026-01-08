@@ -98,6 +98,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedProfessionalForHistory, setSelectedProfessionalForHistory] = useState<string>('');
+  
+  // Estado para controlar o mês/ano selecionado (padrão: mês atual)
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+
+  // Nome do mês em português
+  const monthNames = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
   const [professionalPaymentHistory, setProfessionalPaymentHistory] = useState<any[]>([]);
 
   // Estados para modal de visualizar atendimentos
@@ -283,13 +293,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // Função para buscar atendimentos de assinantes (apenas do mês atual)
-  const fetchSubscriberAttendances = async () => {
+  // Função para buscar atendimentos de assinantes (do mês selecionado)
+  const fetchSubscriberAttendances = async (month?: number, year?: number) => {
     try {
-      // Filtrar apenas atendimentos do mês atual
-      const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      // Usar mês/ano selecionado ou mês atual como padrão
+      const targetMonth = month !== undefined ? month : selectedMonth;
+      const targetYear = year !== undefined ? year : selectedYear;
+      const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
+      const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
 
       const { data, error } = await supabase
         .from('subscriber_attendances')
@@ -318,12 +329,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // Função para buscar pagamentos de profissionais do mês atual
-  const fetchProfessionalPayments = async () => {
+  // Função para buscar pagamentos de profissionais (do mês selecionado)
+  const fetchProfessionalPayments = async (month?: number, year?: number) => {
     try {
-      const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      // Usar mês/ano selecionado ou mês atual como padrão
+      const targetMonth = month !== undefined ? month : selectedMonth;
+      const targetYear = year !== undefined ? year : selectedYear;
+      const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
+      const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
 
       // IMPORTANTE: Buscar apenas pagamentos via assinatura (payment_source = 'subscription')
       // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem entrar aqui
@@ -380,8 +393,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       toast.success(`Pagamento de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount)} registrado para ${professionalName}!`);
 
       // Recarregar pagamentos e atendimentos para atualizar o cálculo
-      await fetchProfessionalPayments();
-      await fetchSubscriberAttendances();
+      await fetchProfessionalPayments(selectedMonth, selectedYear);
+      await fetchSubscriberAttendances(selectedMonth, selectedYear);
       // Nota: O valor será zerado automaticamente no cálculo porque agora há um pagamento registrado
     } catch (error) {
       console.error('Erro ao pagar profissional:', error);
@@ -478,7 +491,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setSelectedClientForAttendance(null);
 
       // Recarregar dados
-      await fetchSubscriberAttendances();
+      await fetchSubscriberAttendances(selectedMonth, selectedYear);
 
     } catch (error: any) {
       console.error('Erro ao adicionar atendimento:', error);
@@ -507,7 +520,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       toast.success('Atendimento removido com sucesso!');
 
       // Recarregar dados
-      await fetchSubscriberAttendances();
+      await fetchSubscriberAttendances(selectedMonth, selectedYear);
 
     } catch (error: any) {
       console.error('Erro ao remover atendimento:', error);
@@ -587,9 +600,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       fetchSubscriptions();
       fetchClientSubscriptions();
       fetchProfessionals();
-      fetchSubscriberAttendances();
-      fetchProfessionalPayments();
-      // fetchClients(); // REMOVIDO
+      fetchSubscriberAttendances(selectedMonth, selectedYear);
+      fetchProfessionalPayments(selectedMonth, selectedYear);
 
       // Recuperação automática de clientes na inicialização
       const autoRecover = async () => {
@@ -613,6 +625,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       return () => clearTimeout(timeoutId);
     }
   }, [establishmentId]);
+
+  // Recarregar dados quando o mês/ano selecionado mudar
+  useEffect(() => {
+    if (establishmentId) {
+      fetchSubscriberAttendances(selectedMonth, selectedYear);
+      fetchProfessionalPayments(selectedMonth, selectedYear);
+    }
+  }, [selectedMonth, selectedYear, establishmentId]);
 
 
   // Handlers para criação de assinatura
@@ -848,26 +868,22 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // Handler para deletar/limpar profissional do controle
   const handleDeleteProfessionalFromControl = async (professionalName: string) => {
-    if (window.confirm(`Tem certeza que deseja LIMPAR todos os registros de atendimento do profissional "${professionalName}" do mês atual?\n\nIsso irá ZERAR o valor acumulado e apagar o histórico de atendimentos deste profissional no mês.\n\nEsta ação NÃO PODE ser desfeita!`)) {
+    const monthName = monthNames[selectedMonth];
+    if (window.confirm(`Tem certeza que deseja LIMPAR todos os registros de atendimento do profissional "${professionalName}" de ${monthName} ${selectedYear}?\n\nIsso irá ZERAR o valor acumulado e apagar o histórico de atendimentos deste profissional no mês.\n\nEsta ação NÃO PODE ser desfeita!`)) {
       try {
         console.log('🗑️ Deletando atendimentos do profissional:', professionalName);
 
-        // Calcular período do mês atual dinamicamente
-        const now = new Date();
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth(); // 0-11
-
-        // Primeiro dia do mês atual
-        const firstDay = new Date(currentYear, currentMonth, 1);
+        // Calcular período do mês selecionado
+        const firstDay = new Date(selectedYear, selectedMonth, 1);
         const firstDayStr = firstDay.toISOString().split('T')[0]; // YYYY-MM-DD
 
-        // Último dia do mês atual
-        const lastDay = new Date(currentYear, currentMonth + 1, 0);
+        // Último dia do mês selecionado
+        const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
         const lastDayStr = lastDay.toISOString().split('T')[0]; // YYYY-MM-DD
 
-        console.log('📅 Período calculado:', { firstDayStr, lastDayStr });
+        console.log('📅 Período calculado:', { firstDayStr, lastDayStr, month: selectedMonth, year: selectedYear });
 
-        // Deletar todos os subscriber_attendances deste profissional no mês atual
+        // Deletar todos os subscriber_attendances deste profissional no mês selecionado
         const { error } = await supabase
           .from('subscriber_attendances')
           .delete()
@@ -884,7 +900,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         toast.success(`Profissional "${professionalName}" removido do controle com sucesso!`);
 
         // Recarregar dados
-        fetchSubscriberAttendances();
+        fetchSubscriberAttendances(selectedMonth, selectedYear);
       } catch (error: any) {
         console.error('Erro ao deletar profissional do controle:', error);
         toast.error(error.message || 'Erro ao limpar profissional do controle.');
@@ -1253,10 +1269,78 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   });
 
 
+  // Função para mudar o mês selecionado
+  const handleMonthChange = async (month: number, year: number) => {
+    setSelectedMonth(month);
+    setSelectedYear(year);
+    await fetchSubscriberAttendances(month, year);
+    await fetchProfessionalPayments(month, year);
+  };
+
+  // Função para ir para o mês anterior
+  const goToPreviousMonth = () => {
+    const newMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
+    const newYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
+    handleMonthChange(newMonth, newYear);
+  };
+
+  // Função para ir para o mês seguinte
+  const goToNextMonth = () => {
+    const newMonth = selectedMonth === 11 ? 0 : selectedMonth + 1;
+    const newYear = selectedMonth === 11 ? selectedYear + 1 : selectedYear;
+    handleMonthChange(newMonth, newYear);
+  };
+
+  // Função para voltar ao mês atual
+  const goToCurrentMonth = () => {
+    const now = new Date();
+    handleMonthChange(now.getMonth(), now.getFullYear());
+  };
+
+  const isCurrentMonth = selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear();
+
   return (
     <div className="space-y-6">
       <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
-        <h2 className="text-lg sm:text-xl font-semibold mb-4">Resumo de Assinaturas</h2>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+          <h2 className="text-lg sm:text-xl font-semibold">Resumo de Assinaturas</h2>
+          
+          {/* Seletor de Mês/Ano */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={goToPreviousMonth}
+              className="px-3 py-1.5 bg-[#2a2b2c] hover:bg-[#3a3b3c] text-white rounded-lg transition-colors text-sm font-medium"
+              title="Mês anterior"
+            >
+              ←
+            </button>
+            
+            <div className="flex items-center gap-2 bg-[#2a2b2c] px-3 py-1.5 rounded-lg">
+              <span className="text-sm sm:text-base font-medium text-white">
+                {monthNames[selectedMonth]} {selectedYear}
+              </span>
+            </div>
+            
+            <button
+              onClick={goToNextMonth}
+              className="px-3 py-1.5 bg-[#2a2b2c] hover:bg-[#3a3b3c] text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Próximo mês"
+              disabled={selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear()}
+            >
+              →
+            </button>
+            
+            {!isCurrentMonth && (
+              <button
+                onClick={goToCurrentMonth}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-xs sm:text-sm font-medium"
+                title="Voltar ao mês atual"
+              >
+                Hoje
+              </button>
+            )}
+          </div>
+        </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="text-center sm:text-left">
             <p className="text-xs sm:text-sm text-gray-400">Lucro Bruto:</p>
@@ -1308,7 +1392,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <div key={professional} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
                     <div className="flex-1">
                       <p className="text-sm font-medium text-white">{professional}</p>
-                      <p className="text-xs text-gray-400">Valor total acumulado do mês</p>
+                      <p className="text-xs text-gray-400">Valor total acumulado de {monthNames[selectedMonth]} {selectedYear}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
@@ -1345,7 +1429,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <button
                         onClick={() => handleDeleteProfessionalFromControl(professional)}
                         className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white text-sm font-medium rounded transition-colors flex items-center gap-1"
-                        title="Apagar todos os registros deste profissional do mês atual"
+                        title={`Apagar todos os registros deste profissional de ${monthNames[selectedMonth]} ${selectedYear}`}
                       >
                         <Trash2 className="h-4 w-4" />
                         Apagar
