@@ -250,8 +250,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         console.log('✅ Pagamento antecipado:', (data as any)?.exigir_pagamento_antecipado);
 
         // Converter profissionais do formato JSON para o formato esperado
-        // Filtrar profissionais ocultos do booking
-        const establishmentProfessionals = (data?.professionals || []).filter((prof: any) => !prof.hidden_from_booking);
+        // NÃO filtrar profissionais ocultos aqui - "Reservar Cliente" é funcionalidade interna
+        // Profissionais ocultos devem aparecer na reserva interna, apenas não no booking público
+        const establishmentProfessionals = data?.professionals || [];
         const formattedProfessionals = establishmentProfessionals.map((prof: any) => ({
           id: prof.id,
           name: prof.name,
