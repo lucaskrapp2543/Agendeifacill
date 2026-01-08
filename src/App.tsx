@@ -6,6 +6,7 @@ import { ConnectionStatus } from './components/ConnectionStatus';
 import { ConnectivityChecker } from './components/ConnectivityChecker';
 import { EnvironmentError } from './components/EnvironmentError';
 import ErrorBoundary from './components/ErrorBoundary';
+import { RefreshButton } from './components/RefreshButton';
 import { UpdateNotification } from './components/UpdateNotification';
 import { AuthProvider } from './context/AuthContext';
 import { SupabaseProvider } from './context/SupabaseContext';
@@ -86,6 +87,7 @@ function App() {
         <CacheBuster />
         <ConnectionStatus />
         <UpdateNotification />
+        <RefreshButton />
         <Toaster
           position="top-center"
           toastOptions={{
