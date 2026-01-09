@@ -39,6 +39,11 @@ const LandingVendas = () => {
 
   const images = ['/feedback.png', '/VS1.png', '/s1.png', '/s2.png'];
 
+  // WhatsApp (mesmo do botão flutuante)
+  const whatsappNumber = '5548991484275';
+  const whatsappMessage = 'Quero saber melhor sobre agendei facil vim pelo site';
+  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappMessage)}`;
+
   const nextImage = () => {
     setCurrentImageIndex((prev) => (prev + 1) % images.length);
   };
@@ -73,42 +78,42 @@ const LandingVendas = () => {
 
   const features = [
     {
-      icon: <Calendar className="w-8 h-8 text-blue-600" />,
+      icon: <Calendar className="w-8 h-8 text-blue-300" />,
       title: "Agendamento Online 24/7",
       description: "Seus clientes agendam a qualquer hora, de qualquer lugar. Nunca mais perca uma venda por estar fechado!"
     },
     {
-      icon: <Sparkles className="w-8 h-8 text-orange-600" />,
+      icon: <Sparkles className="w-8 h-8 text-amber-300" />,
       title: "Página de Agendamentos",
       description: "Você ganha uma página EXCLUSIVA SUA de agendamentos, com fotos, suas redes sociais, seus links do Google (se tiver), Wi-Fi, comodidades e outras informações importantes."
     },
     {
-      icon: <Users className="w-8 h-8 text-green-600" />,
+      icon: <Users className="w-8 h-8 text-emerald-300" />,
       title: "Múltiplos Profissionais",
       description: "Gerencie toda sua equipe em uma única plataforma. Sem custos extras por profissional!"
     },
     {
-      icon: <MessageCircle className="w-8 h-8 text-purple-600" />,
+      icon: <MessageCircle className="w-8 h-8 text-purple-300" />,
       title: "Lembretes Automáticos",
       description: "Reduza faltas em 80% com lembretes automáticos, que lembra seu cliente uma hora antes de ir pro compromisso com você"
     },
     {
-      icon: <BarChart3 className="w-8 h-8 text-orange-600" />,
+      icon: <BarChart3 className="w-8 h-8 text-orange-300" />,
       title: "Dashboard Financeiro",
       description: "Controle total de vendas, comissões e faturamento de cada profissional"
     },
     {
-      icon: <Target className="w-8 h-8 text-red-600" />,
+      icon: <Target className="w-8 h-8 text-red-300" />,
       title: "Sistema de Metas",
       description: "Defina metas para seus profissionais e acompanhe o progresso em tempo real"
     },
     {
-      icon: <BarChart3 className="w-8 h-8 text-teal-600" />,
+      icon: <BarChart3 className="w-8 h-8 text-teal-300" />,
       title: "Controle de Estoque",
       description: "Tenha controle de todos seus produtos vendidos/pomadas, Bebidas, e etc, e o retorno sobre"
     },
     {
-      icon: <Shield className="w-8 h-8 text-indigo-600" />,
+      icon: <Shield className="w-8 h-8 text-indigo-300" />,
       title: "100% Seguro",
       description: "Seus dados protegidos com criptografia de nível bancário"
     }
@@ -127,11 +132,16 @@ const LandingVendas = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#101112] text-white">
       <WhatsAppButton />
       {/* Header */}
-      <header className={`fixed w-full z-50 transition-all duration-300 ${isScrolled ? 'bg-white shadow-lg' : 'bg-transparent'
-        }`}>
+      <header
+        className={`fixed w-full z-50 transition-all duration-300 ${
+          isScrolled
+            ? 'bg-[#101112]/90 backdrop-blur border-b border-gray-800 shadow-[0_10px_30px_rgba(0,0,0,0.45)]'
+            : 'bg-transparent'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
@@ -143,15 +153,15 @@ const LandingVendas = () => {
             </div>
 
             <nav className="hidden md:flex space-x-8">
-              <a href="#features" className="text-gray-700 hover:text-blue-600 transition-colors">Funcionalidades</a>
-              <a href="#pricing" className="text-gray-700 hover:text-blue-600 transition-colors">Preços</a>
-              <a href="#testimonials" className="text-gray-700 hover:text-blue-600 transition-colors">Depoimentos</a>
-              <a href="#contact" className="text-gray-700 hover:text-blue-600 transition-colors">Contato</a>
+              <a href="#features" className="text-gray-300 hover:text-white transition-colors">Funcionalidades</a>
+              <a href="#pricing" className="text-gray-300 hover:text-white transition-colors">Planos</a>
+              <a href="#testimonials" className="text-gray-300 hover:text-white transition-colors">Demonstrações</a>
+              <a href="#contact" className="text-gray-300 hover:text-white transition-colors">Contato</a>
             </nav>
 
             <button
               onClick={handleLogin}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-blue-600/20"
             >
               Login
             </button>
@@ -160,77 +170,83 @@ const LandingVendas = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="pt-0 sm:pt-10 pb-16 bg-gradient-to-br from-blue-50 to-white">
+      <section className="pt-0 sm:pt-10 pb-16 bg-gradient-to-br from-[#0b0c0d] via-[#101112] to-[#0b0c0d]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             {/* Imagem do sistema - aparece logo abaixo do cabeçalho */}
             <div className="-mx-4 sm:mx-auto sm:max-w-4xl mb-6">
-              <img
-                src="/ppp.png"
-                alt="Sistema de Agendamentos AgendaFácil"
-                className="w-full h-auto object-cover sm:hidden"
-                style={{ maxHeight: '500px', maxWidth: '100%' }}
-              />
-              <img
-                src="/pclanding.png"
-                alt="Sistema de Agendamentos AgendaFácil"
-                className="hidden sm:block w-full h-auto mx-auto object-contain md:max-w-4xl"
-                style={{ maxHeight: '500px', maxWidth: '100%' }}
-              />
-            </div>
-
-            <div className="flex justify-center mb-4">
-              <div className="inline-flex items-center bg-green-100 text-green-800 px-3 py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap">
-                <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 mr-2 flex-shrink-0" />
-                Sistema mais completo para barbearias e salões de beleza
+              <div className="relative overflow-hidden rounded-2xl border border-gray-800 bg-[#0f1011] shadow-[0_30px_70px_rgba(0,0,0,0.65)]">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent pointer-events-none" />
+                <img
+                  src="/ppp.png"
+                  alt="Sistema de Agendamentos AgendaFácil"
+                  className="w-full h-auto object-cover sm:hidden opacity-95"
+                  style={{ maxHeight: '500px', maxWidth: '100%' }}
+                />
+                <img
+                  src="/pclanding.png"
+                  alt="Sistema de Agendamentos AgendaFácil"
+                  className="hidden sm:block w-full h-auto mx-auto object-contain md:max-w-4xl opacity-95"
+                  style={{ maxHeight: '500px', maxWidth: '100%' }}
+                />
               </div>
             </div>
 
+            {/* Badge vira imagem (clientesk) */}
+            <div className="flex justify-center mb-4 px-4">
+              <img
+                src="/clientesk.png"
+                alt="Clientes"
+                className="h-24 w-[96vw] max-w-none sm:h-12 sm:w-auto object-contain"
+              />
+            </div>
+
             <div className="mx-auto mb-8 max-w-4xl px-4">
-              <div className="overflow-hidden rounded-3xl border border-blue-100 shadow-lg sm:shadow-[0_30px_60px_rgba(59,130,246,0.15)]">
+              <div className="relative overflow-hidden rounded-3xl border border-gray-800 bg-[#0f1011] shadow-[0_30px_60px_rgba(0,0,0,0.65)]">
+                <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/15 to-transparent pointer-events-none" />
                 <img
-                  src="/praia.png"
-                  alt="Curta a praia enquanto o Agendei Fácil trabalha por você"
-                  className="w-full h-auto object-cover"
+                  src="/toptop.png"
+                  alt="Demonstração do sistema Agendei Fácil"
+                  className="w-full h-auto object-cover opacity-90"
                 />
               </div>
             </div>
 
             {/* Como Funciona */}
             <div className="mx-auto mb-10 max-w-5xl px-4">
-              <div className="rounded-3xl border border-gray-100 bg-white/90 shadow-xl backdrop-blur-sm p-6 sm:p-10">
-                <h2 className="text-center text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900 mb-8 sm:mb-10 uppercase">
+              <div className="rounded-3xl border border-gray-800 bg-[#1a1b1c]/90 shadow-[0_30px_80px_rgba(0,0,0,0.55)] backdrop-blur-sm p-6 sm:p-10">
+                <h2 className="text-center text-2xl sm:text-3xl font-extrabold tracking-tight text-white mb-8 sm:mb-10 uppercase">
                   Como Funciona?
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 text-left">
-                  <div className="space-y-3 rounded-2xl bg-white border border-gray-200 shadow-md p-6 sm:p-7">
-                    <h3 className="text-lg sm:text-xl font-semibold text-blue-600 sm:text-gray-900 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Link</h3>
-                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                  <div className="space-y-3 rounded-2xl bg-[#101112] border border-gray-800 shadow-[0_12px_30px_rgba(0,0,0,0.45)] p-6 sm:p-7">
+                    <h3 className="text-lg sm:text-xl font-semibold text-blue-300 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Link</h3>
+                    <p className="text-sm sm:text-base text-gray-300 leading-relaxed">
                       Primeiro você vai <strong>disponibilizar o link Agendei Fácil</strong> para o seu cliente (através do WhatsApp, Redes Sociais ou pelo seu site).
                     </p>
-                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                    <p className="text-sm sm:text-base text-gray-300 leading-relaxed">
                       <strong>O melhor de tudo:</strong> seu cliente não precisa baixar nenhum aplicativo. Tudo acontece online, rápido e fácil.
                     </p>
                   </div>
-                  <div className="space-y-3 rounded-2xl bg-white border border-gray-200 shadow-md p-6 sm:p-7">
-                    <h3 className="text-lg sm:text-xl font-semibold text-blue-600 sm:text-gray-900 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Agendamento</h3>
-                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                  <div className="space-y-3 rounded-2xl bg-[#101112] border border-gray-800 shadow-[0_12px_30px_rgba(0,0,0,0.45)] p-6 sm:p-7">
+                    <h3 className="text-lg sm:text-xl font-semibold text-blue-300 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Agendamento</h3>
+                    <p className="text-sm sm:text-base text-gray-300 leading-relaxed">
                       Depois, o seu cliente acessa o link, preenche <strong>nome e telefone</strong>, escolhe o <strong>serviço</strong>, a <strong>data</strong>, o <strong>horário</strong> e o <strong>profissional</strong> de preferência, além da forma de pagamento.
                     </p>
                   </div>
-                  <div className="space-y-3 rounded-2xl bg-white border border-gray-200 shadow-md p-6 sm:p-7">
-                    <h3 className="text-lg sm:text-xl font-semibold text-blue-600 sm:text-gray-900 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Notificação</h3>
-                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                  <div className="space-y-3 rounded-2xl bg-[#101112] border border-gray-800 shadow-[0_12px_30px_rgba(0,0,0,0.45)] p-6 sm:p-7">
+                    <h3 className="text-lg sm:text-xl font-semibold text-blue-300 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Notificação</h3>
+                    <p className="text-sm sm:text-base text-gray-300 leading-relaxed">
                       Assim que o cliente agenda, você recebe uma notificação <strong>dentro do sistema</strong> e no <strong>seu WhatsApp</strong>. E pode relaxar: nós <strong>lembramos o cliente</strong> do compromisso no dia certo.
                     </p>
                   </div>
-                  <div className="space-y-3 rounded-2xl bg-white border border-gray-200 shadow-md p-6 sm:p-7">
-                    <h3 className="text-lg sm:text-xl font-semibold text-blue-600 sm:text-gray-900 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Área do profissional</h3>
-                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                  <div className="space-y-3 rounded-2xl bg-[#101112] border border-gray-800 shadow-[0_12px_30px_rgba(0,0,0,0.45)] p-6 sm:p-7">
+                    <h3 className="text-lg sm:text-xl font-semibold text-blue-300 text-center sm:text-left uppercase sm:normal-case tracking-wide sm:tracking-normal">Área do profissional</h3>
+                    <p className="text-sm sm:text-base text-gray-300 leading-relaxed">
                       Dentro do sistema, você tem <strong>controle total</strong> de tudo: financeiro (entradas e saídas), estoque de produtos,
                       agendamentos, assinaturas, profissionais e <strong>comissões (%)</strong>.
                     </p>
-                    <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+                    <p className="text-sm sm:text-base text-gray-300 leading-relaxed">
                       Continue explorando o site — ainda tem <strong>muita funcionalidade poderosa</strong> pra descobrir por aqui.
                     </p>
                   </div>
@@ -241,55 +257,55 @@ const LandingVendas = () => {
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12 px-4">
               <a
                 href="#pricing"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold transition-all transform hover:scale-105 flex items-center justify-center"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-bold transition-all transform hover:scale-105 flex items-center justify-center shadow-lg shadow-blue-600/20"
               >
                 <Rocket className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                 Começar Agora
               </a>
               <a
-                href="https://wa.me/5548991265320?text=Quero%20falar%20com%20especialista%20Agendei%20Fácil"
+                href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="border-2 border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold transition-all flex items-center justify-center"
+                className="border border-gray-700 text-gray-100 hover:bg-white hover:text-black px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold transition-all flex items-center justify-center bg-white/5"
               >
                 <Phone className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                 Falar com Especialista
               </a>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-8 text-sm text-gray-500 px-4 mb-12">
+            <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-8 text-sm text-gray-400 px-4 mb-12">
               <div className="flex items-center">
-                <CheckCircle className="w-4 h-4 text-green-500 mr-1" />
+                <CheckCircle className="w-4 h-4 text-emerald-400 mr-1" />
                 Sem taxa de setup
               </div>
               <div className="flex items-center">
-                <CheckCircle className="w-4 h-4 text-green-500 mr-1" />
+                <CheckCircle className="w-4 h-4 text-emerald-400 mr-1" />
                 Cancele quando quiser
               </div>
               <div className="flex items-center">
-                <CheckCircle className="w-4 h-4 text-green-500 mr-1" />
+                <CheckCircle className="w-4 h-4 text-emerald-400 mr-1" />
                 Suporte 24/7
               </div>
             </div>
 
             {/* Seção de Benefícios - Estilo Quiz V3 */}
-            <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 max-w-4xl mx-auto">
+            <div className="bg-[#1a1b1c] rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.55)] border border-gray-800 p-6 sm:p-8 max-w-4xl mx-auto">
               {/* Imagem do banner */}
               <div className="mb-6">
                 <div className="flex justify-center items-center">
                   <img
                     src="/A1.png"
                     alt="Banner AgendeiFácil"
-                    className="w-[90vw] max-w-[500px] object-contain rounded-xl"
+                    className="w-[90vw] max-w-[500px] object-contain rounded-xl opacity-95"
                   />
                 </div>
               </div>
 
               <div className="text-center mb-6">
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4">
+                <h2 className="text-xl sm:text-2xl font-bold text-white mb-4">
                   Somos o sistema de agendamento e gestão mais completo de todos
                 </h2>
-                <p className="text-sm text-gray-600 mb-4">
+                <p className="text-sm text-gray-400 mb-4">
                   Olha abaixo o que oferecemos
                 </p>
               </div>
@@ -313,21 +329,24 @@ const LandingVendas = () => {
                   'Você recebe notificações quando alguém agenda ou cancela com você',
                   'Você tem sistema totalmente intuitivo e fácil de usar'
                 ].map((feature) => (
-                  <div key={feature} className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
-                    <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
+                  <div
+                    key={feature}
+                    className="flex items-center gap-3 p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20"
+                  >
+                    <div className="w-5 h-5 bg-emerald-400 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-white text-xs font-bold">✓</span>
                     </div>
-                    <span className="text-sm text-green-800 font-medium">{feature}</span>
+                    <span className="text-sm text-emerald-100 font-semibold">{feature}</span>
                   </div>
                 ))}
               </div>
 
               <div className="mb-6">
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 p-4 rounded-lg mb-4">
-                  <p className="text-base sm:text-lg font-bold text-center text-gray-900 leading-relaxed">
-                    <span className="text-green-600">Gostou?</span> Isso é só{' '}
-                    <span className="text-red-600 font-extrabold">40%</span> do que oferecemos{' '}
-                    <span className="text-green-600 font-extrabold">tem muito mais</span>.
+                <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-l-4 border-blue-500 p-4 rounded-lg mb-4">
+                  <p className="text-base sm:text-lg font-bold text-center text-gray-100 leading-relaxed">
+                    <span className="text-emerald-300">Gostou?</span> Isso é só{' '}
+                    <span className="text-red-300 font-extrabold">40%</span> do que oferecemos{' '}
+                    <span className="text-emerald-300 font-extrabold">tem muito mais</span>.
                   </p>
                 </div>
 
@@ -338,29 +357,29 @@ const LandingVendas = () => {
       </section>
 
       {/* Testimonials Section */}
-      <section id="testimonials" className="py-20 bg-white">
+      <section id="testimonials" className="py-20 bg-[#101112]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Seção Página Exclusiva - Nova composição */}
-          <div className="relative overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-white via-blue-50 to-purple-50 shadow-[0_35px_90px_rgba(37,99,235,0.18)] mb-12">
-            <div className="absolute -top-20 -left-20 h-60 w-60 rounded-full bg-blue-200/40 blur-3xl"></div>
-            <div className="absolute -bottom-24 -right-16 h-72 w-72 rounded-full bg-purple-200/40 blur-3xl"></div>
+          <div className="relative overflow-hidden rounded-3xl border border-gray-800 bg-gradient-to-br from-[#0f1011] via-[#101112] to-[#0f1011] shadow-[0_35px_90px_rgba(0,0,0,0.55)] mb-12">
+            <div className="absolute -top-20 -left-20 h-60 w-60 rounded-full bg-blue-500/20 blur-3xl"></div>
+            <div className="absolute -bottom-24 -right-16 h-72 w-72 rounded-full bg-purple-500/20 blur-3xl"></div>
 
             <div className="relative grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center p-6 sm:p-10 lg:p-14">
               <div className="space-y-6 lg:space-y-8 text-center lg:text-left">
-                <span className="inline-flex items-center gap-2 rounded-full bg-white/70 px-4 py-2 text-xs sm:text-sm font-semibold text-blue-600 shadow-sm backdrop-blur">
-                  <div className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/5 border border-gray-800 px-4 py-2 text-xs sm:text-sm font-semibold text-blue-200 shadow-sm backdrop-blur">
+                  <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
                   Página exclusiva do seu estabelecimento
                 </span>
 
                 <div className="space-y-4">
-                  <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 leading-tight">
+                  <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white leading-tight">
                     Você ganha uma página{' '}
                     <span className="bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600 bg-clip-text text-transparent">
                       EXCLUSIVA
                     </span>{' '}
                     só sua!
                   </h2>
-                  <p className="text-base sm:text-lg text-gray-700 leading-relaxed">
+                  <p className="text-base sm:text-lg text-gray-300 leading-relaxed">
                     Um link único com tudo que seus clientes precisam: agendamentos, fotos, avaliações,
                     redes sociais e benefícios — em um layout moderno pensado para conversão.
                   </p>
@@ -391,31 +410,31 @@ const LandingVendas = () => {
                   ].map((feature) => (
                     <div
                       key={feature.title}
-                      className="group flex items-start gap-4 rounded-2xl border border-white/60 bg-white/80 p-5 shadow-sm backdrop-blur transition-all hover:-translate-y-1 hover:shadow-xl"
+                      className="group flex items-start gap-4 rounded-2xl border border-gray-800 bg-white/5 p-5 shadow-sm backdrop-blur transition-all hover:-translate-y-1 hover:shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
                     >
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-white to-blue-50 shadow-inner">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-white/10 to-white/5 border border-gray-800 shadow-inner">
                         {feature.icon}
                       </div>
                       <div className="space-y-1 text-left">
-                        <h3 className="text-sm font-semibold text-gray-900 sm:text-base">{feature.title}</h3>
-                        <p className="text-xs text-gray-600 sm:text-sm">{feature.description}</p>
+                        <h3 className="text-sm font-semibold text-white sm:text-base">{feature.title}</h3>
+                        <p className="text-xs text-gray-400 sm:text-sm">{feature.description}</p>
                       </div>
                     </div>
                   ))}
                 </div>
 
                 <div className="space-y-4">
-                  <p className="text-base sm:text-lg text-gray-700 leading-relaxed">
+                  <p className="text-base sm:text-lg text-gray-300 leading-relaxed">
                     Chega de vários QR Codes espalhados pelo salão. Seu cliente acessa tudo em um único link elegante
                     e memorável — seja no celular ou no computador.
                   </p>
-                  <div className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2 shadow-lg border border-blue-100">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-white/5 px-5 py-2 shadow-lg border border-gray-800">
                     <div className="flex gap-1">
                       <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
                       <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse delay-150" />
                       <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse delay-300" />
                     </div>
-                    <span className="text-sm font-semibold text-gray-900">Veja um exemplo abaixo</span>
+                    <span className="text-sm font-semibold text-gray-100">Veja um exemplo abaixo</span>
                   </div>
                 </div>
               </div>
@@ -423,11 +442,11 @@ const LandingVendas = () => {
               <div className="relative">
                 <div className="absolute -top-6 -left-6 h-20 w-20 rounded-full bg-blue-300/30 blur-2xl"></div>
                 <div className="absolute -bottom-8 -right-10 h-32 w-32 rounded-full bg-purple-300/30 blur-2xl"></div>
-                <div className="relative overflow-hidden rounded-3xl border border-white/60 bg-white/80 shadow-[0_20px_60px_rgba(79,70,229,0.22)] backdrop-blur">
+                <div className="relative overflow-hidden rounded-3xl border border-gray-800 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur">
                   <img
                     src="/paginaextra.png"
                     alt="Exemplo de página exclusiva"
-                    className="w-full h-auto"
+                    className="w-full h-auto opacity-95"
                   />
                 </div>
               </div>
@@ -441,7 +460,7 @@ const LandingVendas = () => {
                 <img
                   src={images[currentImageIndex]}
                   alt={`Slide ${currentImageIndex + 1}`}
-                  className="w-full h-auto rounded-lg transition-opacity duration-300"
+                  className="w-full h-auto rounded-lg transition-opacity duration-300 border border-gray-800"
                 />
 
                 {/* Botão anterior */}
@@ -467,7 +486,7 @@ const LandingVendas = () => {
                   <button
                     key={index}
                     onClick={() => setCurrentImageIndex(index)}
-                    className={`w-2 h-2 rounded-full transition-colors ${index === currentImageIndex ? 'bg-blue-500' : 'bg-gray-300'}`}
+                    className={`w-2 h-2 rounded-full transition-colors ${index === currentImageIndex ? 'bg-blue-500' : 'bg-gray-700'}`}
                   />
                 ))}
               </div>
@@ -477,27 +496,30 @@ const LandingVendas = () => {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-20 bg-white">
+      <section id="features" className="py-20 bg-[#0f1011]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16 px-4">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-4">
               Tudo que você precisa em um só lugar
             </h2>
-            <p className="text-lg sm:text-xl text-gray-600 max-w-3xl mx-auto">
+            <p className="text-lg sm:text-xl text-gray-400 max-w-3xl mx-auto">
               Funcionalidades poderosas que vão revolucionar a gestão do seu negócio
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
             {features.map((feature, index) => (
-              <div key={index} className="bg-white p-6 sm:p-8 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100">
+              <div
+                key={index}
+                className="bg-[#1a1b1c] p-6 sm:p-8 rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.55)] hover:shadow-[0_30px_80px_rgba(0,0,0,0.65)] transition-all duration-300 border border-gray-800"
+              >
                 <div className="mb-4">
                   {feature.icon}
                 </div>
-                <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-3">
+                <h3 className="text-lg sm:text-xl font-semibold text-white mb-3">
                   {feature.title}
                 </h3>
-                <p className="text-sm sm:text-base text-gray-600">
+                <p className="text-sm sm:text-base text-gray-400">
                   {feature.description}
                 </p>
               </div>
@@ -507,7 +529,7 @@ const LandingVendas = () => {
       </section>
 
       {/* Stats Section */}
-      <section className="py-20 bg-blue-600">
+      <section className="py-20 bg-gradient-to-r from-blue-600 to-indigo-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 text-center text-white">
             <div>
@@ -531,21 +553,21 @@ const LandingVendas = () => {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="py-20 bg-gray-50">
+      <section id="pricing" className="py-20 bg-[#101112]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-8 px-4">
             <div className="max-w-2xl mx-auto mb-4">
               <img
                 src="/pizza.png"
                 alt="Pizza"
-                className="w-full h-auto rounded-lg"
+                className="w-full h-auto rounded-lg border border-gray-800 opacity-95"
               />
             </div>
 
             {/* Texto de garantia */}
             <div className="mb-6">
-              <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 sm:p-6">
-                <p className="text-lg sm:text-xl text-blue-800 font-bold text-center">
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 sm:p-6">
+                <p className="text-lg sm:text-xl text-blue-200 font-bold text-center">
                   Confiamos tanto no nosso sistema que você tem 7 dias de garantia
                 </p>
               </div>
@@ -560,7 +582,7 @@ const LandingVendas = () => {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 bg-blue-600">
+      <section className="py-20 bg-gradient-to-r from-blue-600 to-indigo-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-4">
             Pronto para transformar seu negócio?
@@ -578,7 +600,7 @@ const LandingVendas = () => {
               Começar Agora
             </a>
             <a
-              href="https://wa.me/5548991265320?text=Quero%20falar%20com%20especialista%20Agendei%20Fácil"
+              href={whatsappUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="border-2 border-white text-white hover:bg-white hover:text-blue-600 px-6 sm:px-8 py-3 sm:py-4 rounded-lg text-base sm:text-lg font-semibold transition-all flex items-center justify-center"
@@ -595,7 +617,7 @@ const LandingVendas = () => {
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-white py-12">
+      <footer className="bg-[#0b0c0d] text-white py-12 border-t border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8">
             <div className="sm:col-span-2 md:col-span-1">

@@ -30,8 +30,8 @@ const recursos: ItemRecurso[] = [
   { texto: 'Pagamentos adiantados (Opcional)', inclusoNoOuro: true, inclusoNoDiamante: true },
   // Extras do Diamante (no Ouro ficam como ❌, igual ao exemplo)
   {
-    texto: 'Suporte exclusivo seu | todo dia',
-    inclusoNoOuro: false,
+    texto: 'Suporte (damos suporte)',
+    inclusoNoOuro: true,
     inclusoNoDiamante: true,
     destacado: true
   },
