@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PlanosOuroDiamante from '../components/PlanosOuroDiamante';
 import WhatsAppButton from '../components/WhatsAppButton';
+import { getCurrentVersion } from '../utils/versionManager';
 
 const LandingVendas = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -37,7 +38,12 @@ const LandingVendas = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const images = ['/feedback.png', '/VS1.png', '/s1.png', '/s2.png'];
+  // Cache-buster de imagens para continuar com cache de 1 ano no CDN sem "travar" imagem antiga
+  // Sempre que você trocar imagens mantendo o mesmo nome, basta subir a versão em versionManager.ts
+  const assetVersion = getCurrentVersion();
+  const img = (path: string) => `${path}?v=${assetVersion}`;
+
+  const images = [img('/feedback.png'), img('/VS1.png'), img('/s1.png'), img('/s2.png')];
 
   // WhatsApp (mesmo do botão flutuante)
   const whatsappNumber = '5548991484275';
@@ -146,7 +152,7 @@ const LandingVendas = () => {
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
               <img
-                src="/logosite.png"
+                src={img('/logosite.png')}
                 alt="AgendeiFácil Logo"
                 className="h-8 w-auto"
               />
@@ -178,13 +184,13 @@ const LandingVendas = () => {
               <div className="relative overflow-hidden rounded-2xl border border-gray-800 bg-[#0f1011] shadow-[0_30px_70px_rgba(0,0,0,0.65)]">
                 <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent pointer-events-none" />
                 <img
-                  src="/ppp.png"
+                  src={img('/ppp.png')}
                   alt="Sistema de Agendamentos AgendaFácil"
                   className="w-full h-auto object-cover sm:hidden opacity-95"
                   style={{ maxHeight: '500px', maxWidth: '100%' }}
                 />
                 <img
-                  src="/pclanding.png"
+                  src={img('/pclanding.png')}
                   alt="Sistema de Agendamentos AgendaFácil"
                   className="hidden sm:block w-full h-auto mx-auto object-contain md:max-w-4xl opacity-95"
                   style={{ maxHeight: '500px', maxWidth: '100%' }}
@@ -195,7 +201,7 @@ const LandingVendas = () => {
             {/* Badge vira imagem (clientesk) */}
             <div className="flex justify-center mb-4 px-4">
               <img
-                src="/clientesk.png"
+                src={img('/clientesk.png')}
                 alt="Clientes"
                 className="h-24 w-[96vw] max-w-none sm:h-12 sm:w-auto object-contain"
               />
@@ -205,7 +211,7 @@ const LandingVendas = () => {
               <div className="relative overflow-hidden rounded-3xl border border-gray-800 bg-[#0f1011] shadow-[0_30px_60px_rgba(0,0,0,0.65)]">
                 <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/15 to-transparent pointer-events-none" />
                 <img
-                  src="/toptop.png"
+                  src={img('/toptop.png')}
                   alt="Demonstração do sistema Agendei Fácil"
                   className="w-full h-auto object-cover opacity-90"
                 />
@@ -294,7 +300,7 @@ const LandingVendas = () => {
               <div className="mb-6">
                 <div className="flex justify-center items-center">
                   <img
-                    src="/A1.png"
+                    src={img('/A1.png')}
                     alt="Banner AgendeiFácil"
                     className="w-[90vw] max-w-[500px] object-contain rounded-xl opacity-95"
                   />
@@ -444,7 +450,7 @@ const LandingVendas = () => {
                 <div className="absolute -bottom-8 -right-10 h-32 w-32 rounded-full bg-purple-300/30 blur-2xl"></div>
                 <div className="relative overflow-hidden rounded-3xl border border-gray-800 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur">
                   <img
-                    src="/paginaextra.png"
+                    src={img('/paginaextra.png')}
                     alt="Exemplo de página exclusiva"
                     className="w-full h-auto opacity-95"
                   />
@@ -558,7 +564,7 @@ const LandingVendas = () => {
           <div className="text-center mb-8 px-4">
             <div className="max-w-2xl mx-auto mb-4">
               <img
-                src="/pizza.png"
+                src={img('/pizza.png')}
                 alt="Pizza"
                 className="w-full h-auto rounded-lg border border-gray-800 opacity-95"
               />
@@ -623,7 +629,7 @@ const LandingVendas = () => {
             <div className="sm:col-span-2 md:col-span-1">
               <div className="flex items-center mb-4">
                 <img
-                  src="/logosite.png"
+                src={img('/logosite.png')}
                   alt="AgendeiFácil Logo"
                   className="h-6 sm:h-8 w-auto mr-2"
                 />
