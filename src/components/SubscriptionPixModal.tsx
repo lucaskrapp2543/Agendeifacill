@@ -1,4 +1,4 @@
-import { Loader2, QrCode, X } from 'lucide-react';
+import { CheckCircle2, Loader2, MessageCircle, QrCode, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -7,6 +7,8 @@ type SubscriptionPixModalProps = {
   onClose: () => void;
   establishmentId: string;
   recipientId: string;
+  establishmentName: string;
+  establishmentWhatsapp?: string | null;
   subscription: {
     id: string;
     name: string;
@@ -20,12 +22,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   onClose,
   establishmentId,
   recipientId,
+  establishmentName,
+  establishmentWhatsapp,
   subscription,
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [pixQrCode, setPixQrCode] = useState('');
   const [pixQrCodeUrl, setPixQrCodeUrl] = useState('');
+  const [isPaid, setIsPaid] = useState(false);
   const [cpf, setCpf] = useState('');
   const [nome, setNome] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
@@ -43,6 +48,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setIsCheckingPayment(false);
     setPixQrCode('');
     setPixQrCodeUrl('');
+    setIsPaid(false);
     setExpiresInSeconds(90);
     setRemainingSeconds(0);
   }, [isOpen]);
@@ -125,8 +131,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             return;
           }
 
-          toast.success('Pagamento confirmado! Você já aparece em "Meus Assinantes".');
-          onClose();
+          setIsPaid(true);
         } else if (
           normalized === 'refused' ||
           normalized === 'pending_refund' ||
@@ -281,7 +286,51 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           </p>
         </div>
 
-        {!pixQrCode ? (
+        {isPaid ? (
+          <div className="space-y-4">
+            <div className="bg-green-600/15 border border-green-500/40 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 className="h-6 w-6 text-green-300 mt-0.5" />
+                <div>
+                  <p className="text-green-200 font-extrabold text-base">Parabéns! Você assinou ✅</p>
+                  <p className="text-sm text-gray-200 mt-1">
+                    Plano: <span className="font-semibold">{subscription.name}</span> da barbearia{' '}
+                    <span className="font-semibold">{establishmentName}</span>.
+                  </p>
+                  <p className="text-sm text-gray-300 mt-2">
+                    Agora avise seu barbeiro e pronto.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const phone = String(establishmentWhatsapp || '').replace(/\D/g, '');
+                if (!phone) {
+                  toast.error('WhatsApp do estabelecimento não configurado.');
+                  return;
+                }
+                const phoneWithCountry = phone.startsWith('55') ? phone : `55${phone}`;
+                const message = `Parabéns! Acabei de assinar o plano "${subscription.name}" da barbearia ${establishmentName}. ✅\n\nMeu nome: ${nome || ''}\nMeu WhatsApp: ${whatsapp || ''}\n\nPode confirmar pra mim?`;
+                window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`, '_blank');
+              }}
+              className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors flex items-center justify-center gap-2"
+            >
+              <MessageCircle className="h-5 w-5" />
+              Avisar meu barbeiro no WhatsApp
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full px-4 py-2 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-semibold transition-colors border border-gray-700"
+            >
+              Fechar
+            </button>
+          </div>
+        ) : !pixQrCode ? (
           <div className="space-y-3">
             <div>
               <label className="block text-sm text-gray-300 mb-1">Seu nome</label>

@@ -2417,6 +2417,8 @@ export default function BookingPage() {
           }}
           establishmentId={String(establishment?.id || '')}
           recipientId={String((establishment as any)?.pagarme_recipient_id || '')}
+          establishmentName={String(establishment?.name || 'este estabelecimento')}
+          establishmentWhatsapp={String(establishment?.whatsapp || '')}
           subscription={{
             id: String(selectedSubscriptionForPix.id),
             name: String(selectedSubscriptionForPix.name || 'Assinatura'),
