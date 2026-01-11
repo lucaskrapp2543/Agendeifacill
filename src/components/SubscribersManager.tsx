@@ -1864,11 +1864,29 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
 
           {/* Opção Pagar.me (PIX manual) */}
-          <div className="bg-[#111213] border border-gray-700 rounded-lg p-4 mb-4">
+          <div
+            className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(34,197,94,0.18)]"
+            style={{
+              background:
+                'linear-gradient(135deg, rgba(34,197,94,0.55), rgba(59,130,246,0.35), rgba(34,197,94,0.18))',
+            }}
+          >
+            {/* brilho suave */}
+            <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-green-500/20 blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
+
+            {/* selo recomendado */}
+            <div className="absolute top-3 left-3 z-10">
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase bg-green-500/15 border border-green-500/30 text-green-200">
+                ⭐ Recomendado
+              </span>
+            </div>
+
+            <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
-                <p className="text-white font-semibold">
-                  Usar recorrência pagarme <span className="text-gray-400 font-medium">(taxas mais baixas)</span>
+                <p className="text-white font-extrabold text-base sm:text-lg">
+                  Usar recorrência pagarme <span className="text-green-200/90 font-extrabold">(taxas mais baixas)</span>
                 </p>
                 <p className="text-sm text-gray-300 mt-1">
                   As taxas da Pagar.me é baixa apenas <span className="font-semibold">1,19% + R$0,50</span> apenas diferencial,
@@ -1889,11 +1907,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   isUpdatingPagarmeSubscriptionPix ||
                   (!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim())
                 }
-                className={`shrink-0 px-4 py-2 rounded-lg font-bold transition-colors border ${
+                className={`shrink-0 px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
                   usePagarmeSubscriptionPix
-                    ? 'bg-green-600/20 text-green-300 border-green-600/40 hover:bg-green-600/30'
-                    : 'bg-[#2a2b2c] text-white border-gray-600 hover:bg-[#343536]'
-                } ${isUpdatingPagarmeSubscriptionPix ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
+                    : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
+                } ${
+                  isUpdatingPagarmeSubscriptionPix ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
+                }`}
                 title={
                   !usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()
                     ? 'Configure o Recebedor Pagar.me para ativar'
@@ -1912,6 +1932,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 ⚠️ Para ativar essa opção, configure primeiro o <span className="font-semibold">Recebedor Pagar.me</span> nas Configurações.
               </p>
             )}
+          </div>
           </div>
 
           {/* Mensagem de Atenção */}
