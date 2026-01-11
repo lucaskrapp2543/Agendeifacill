@@ -95,6 +95,8 @@ export const handler: Handler = async (event) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
+      subscription_payment_provider: 'pagarme_pix',
+      subscription_payment_order_id: String(orderId),
     };
 
     let resultRow: any = null;

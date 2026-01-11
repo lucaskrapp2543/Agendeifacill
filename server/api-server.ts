@@ -162,6 +162,9 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
+      // marcar origem do pagamento (para saldo de assinantes)
+      subscription_payment_provider: 'pagarme_pix',
+      subscription_payment_order_id: String(orderId),
     };
 
     let resultRow: any = null;

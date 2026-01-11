@@ -1291,12 +1291,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const lucroBruto = totalArrecadado;
   const lucroLiquido = lucroBruto - totalRepasses;
 
-  // Saldo (assinantes) - seguindo a mesma lógica do "Saldo em vendas" (taxas do PIX)
-  // Regra: soma somente assinaturas ativas e pagas, já descontando 1,19% + R$0,50.
+  // Saldo (assinantes) - SOMENTE assinantes pagos via PIX da Pagar.me (assinatura)
+  // Regra: soma apenas registros com subscription_payment_provider='pagarme_pix' (e pago/ativo),
+  // já descontando 1,19% + R$0,50.
   const saldoAssinantes = clientSubscriptions.reduce((sum, cs) => {
     const endDate = parseISO(cs.end_date);
     if (isPast(endDate)) return sum;
     if (cs.payment_status !== 'paid') return sum;
+
+    const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase();
+    if (provider !== 'pagarme_pix') return sum;
 
     const bruto = Number(cs.subscriptions?.value || cs.subscription_value || 0);
     if (!Number.isFinite(bruto) || bruto <= 0) return sum;
