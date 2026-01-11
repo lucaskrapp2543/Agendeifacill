@@ -79,6 +79,9 @@ Adicione no seu servidor/plataforma:
 
 ```bash
 PAGARME_SECRET_KEY=sua_chave_secreta_aqui
+
+# Necessária para pagamento no CARTÃO (tokenização /tokens)
+PAGARME_ENCRYPTION_KEY=sua_encryption_key_aqui
 ```
 
 **Onde configurar:**
@@ -86,6 +89,8 @@ PAGARME_SECRET_KEY=sua_chave_secreta_aqui
 - **Netlify:** Site settings → Environment variables
 - **Supabase Edge Functions:** Dashboard → Edge Functions → Settings
 - **Servidor próprio:** `.env` no servidor (nunca commitar!)
+
+📌 **Dica:** veja também `docs/ENV_PAGARME_EXEMPLO.md`.
 
 ### 2. Verificar se está funcionando
 

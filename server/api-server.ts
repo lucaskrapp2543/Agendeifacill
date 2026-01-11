@@ -37,6 +37,8 @@ if (process.env.PAGARME_SECRET_KEY) {
 
 import cors from 'cors';
 import express from 'express';
+import { createClient } from '@supabase/supabase-js';
+import { v4 as uuidv4 } from 'uuid';
 import {
   checkPaymentStatus,
   createPayment,
@@ -48,13 +50,160 @@ import {
 const app = express();
 const PORT = process.env.API_PORT || 3001;
 
+// Supabase Admin (bypass RLS) - usado para registrar assinaturas pagas no Booking público
+const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const supabaseAdmin =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : null;
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 
+const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
+const toISODate = (d: Date) => d.toISOString().slice(0, 10);
+const addMonths = (date: Date, months: number) => {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  // Ajuste para meses menores (ex: 31 -> 30/28)
+  if (d.getDate() < day) d.setDate(0);
+  return d;
+};
+
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+/**
+ * POST /api/subscribers/confirm-subscription-pix
+ * Confirma pagamento (Pagar.me) e registra o assinante no Supabase (client_subscriptions)
+ * - Flow: Booking público -> PIX -> pago -> registrar em "Meus Assinantes"
+ */
+app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        error: 'Supabase admin não configurado no servidor',
+        details: {
+          hasUrl: Boolean(SUPABASE_URL),
+          hasServiceRole: Boolean(SUPABASE_SERVICE_ROLE_KEY),
+        },
+      });
+    }
+
+    const { orderId, establishmentId, subscriptionId, customer } = req.body || {};
+    const customerName = String(customer?.name || '').trim();
+    const customerWhatsapp = onlyDigits(String(customer?.whatsapp || customer?.phone || ''));
+    const customerEmail = String(customer?.email || '').trim() || null;
+    const customerDocument = onlyDigits(String(customer?.document || ''));
+
+    if (!orderId || !establishmentId || !subscriptionId || !customerName || !customerWhatsapp) {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        required: ['orderId', 'establishmentId', 'subscriptionId', 'customer.name', 'customer.whatsapp'],
+      });
+    }
+
+    // Validar pagamento na Pagar.me
+    const statusResult = await checkPaymentStatus(String(orderId));
+    const normalizedStatus = String((statusResult as any)?.status || '').toLowerCase();
+    if (normalizedStatus !== 'paid' && normalizedStatus !== 'authorized') {
+      return res.status(400).json({
+        error: 'Pagamento ainda não confirmado',
+        details: { status: normalizedStatus },
+      });
+    }
+
+    // Buscar duração da assinatura
+    const { data: subData, error: subErr } = await supabaseAdmin
+      .from('subscriptions')
+      .select('duration_months')
+      .eq('id', String(subscriptionId))
+      .single();
+    if (subErr) {
+      return res.status(500).json({ error: 'Erro ao buscar assinatura', details: subErr });
+    }
+
+    const durationMonths = Number((subData as any)?.duration_months || 1);
+    const today = new Date();
+    const startDate = toISODate(today);
+    const endDate = toISODate(addMonths(today, Number.isFinite(durationMonths) && durationMonths > 0 ? durationMonths : 1));
+
+    // Se já existir, renovar/atualizar
+    const { data: existing, error: existingErr } = await supabaseAdmin
+      .from('client_subscriptions')
+      .select('id')
+      .eq('establishment_id', String(establishmentId))
+      .eq('subscription_id', String(subscriptionId))
+      // coluna existe no banco (mesmo que types não tenham)
+      // @ts-expect-error
+      .eq('subscriber_whatsapp', customerWhatsapp)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingErr) {
+      // não travar: vamos tentar inserir mesmo assim
+      console.warn('⚠️ Não foi possível checar assinatura existente:', existingErr);
+    }
+
+    const payload: any = {
+      subscription_id: String(subscriptionId),
+      establishment_id: String(establishmentId),
+      start_date: startDate,
+      end_date: endDate,
+      payment_status: 'paid',
+      last_payment_date: startDate,
+      // dados do assinante
+      subscriber_name: customerName,
+      subscriber_whatsapp: customerWhatsapp,
+      subscriber_email: customerEmail,
+      // manter documento para auditoria (se coluna existir)
+      subscriber_document: customerDocument || null,
+    };
+
+    let resultRow: any = null;
+    if (existing?.id) {
+      const { data: upd, error: updErr } = await supabaseAdmin
+        .from('client_subscriptions')
+        .update(payload)
+        .eq('id', String(existing.id))
+        .select()
+        .single();
+      if (updErr) return res.status(500).json({ error: 'Erro ao atualizar assinatura', details: updErr });
+      resultRow = upd;
+    } else {
+      const { data: ins, error: insErr } = await supabaseAdmin
+        .from('client_subscriptions')
+        .insert([
+          {
+            client_id: uuidv4(),
+            ...payload,
+          },
+        ])
+        .select()
+        .single();
+      if (insErr) return res.status(500).json({ error: 'Erro ao criar assinatura', details: insErr });
+      resultRow = ins;
+    }
+
+    return res.status(200).json({
+      ok: true,
+      status: normalizedStatus,
+      subscription: resultRow,
+    });
+  } catch (error: any) {
+    console.error('❌ Erro ao confirmar assinatura via PIX:', error);
+    return res.status(500).json({
+      error: error?.message || 'Erro ao confirmar assinatura via PIX',
+      details: error?.__capturedDetails || undefined,
+    });
+  }
 });
 
 /**
@@ -325,6 +474,7 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       customer,
       split_rules,
       metadata,
+      card,
     } = req.body;
 
     console.log('💳 [create-payment] Requisição recebida:', {
@@ -334,6 +484,7 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       hasCustomerEmail: Boolean(customer?.email),
       hasCustomerPhone: Boolean(customer?.phone),
       hasCustomerDocument: Boolean(customer?.document),
+      hasCard: Boolean(card?.number || card?.holder_name),
       recipientIdPreview: split_rules?.[0]?.recipient_id
         ? `${String(split_rules[0].recipient_id).slice(0, 6)}...${String(split_rules[0].recipient_id).slice(-4)}`
         : null,
@@ -478,6 +629,17 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       },
       split,
       metadata,
+      ...(payment_method === 'credit_card' || payment_method === 'debit_card'
+        ? {
+            card: {
+              number: String(card?.number || '').replace(/\D/g, ''),
+              holder_name: String(card?.holder_name || '').trim(),
+              exp_month: String(card?.exp_month || '').replace(/\D/g, ''),
+              exp_year: String(card?.exp_year || '').replace(/\D/g, ''),
+              cvv: String(card?.cvv || '').replace(/\D/g, ''),
+            },
+          }
+        : {}),
     });
 
     console.log('✅ [create-payment] Resposta Pagar.me (resumo):', {

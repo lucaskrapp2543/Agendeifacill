@@ -8,7 +8,7 @@ export const handler: Handler = async (event) => {
   }
 
   const body = parseJsonBody<any>(event) || {};
-  const { amount, payment_method, customer, split_rules, metadata } = body;
+  const { amount, payment_method, customer, split_rules, metadata, card } = body;
 
   if (!amount || !payment_method || !customer?.name) {
     return json(400, {
@@ -120,6 +120,17 @@ export const handler: Handler = async (event) => {
       },
       split,
       metadata,
+      ...(payment_method === 'credit_card' || payment_method === 'debit_card'
+        ? {
+            card: {
+              number: String(card?.number || '').replace(/\D/g, ''),
+              holder_name: String(card?.holder_name || '').trim(),
+              exp_month: String(card?.exp_month || '').replace(/\D/g, ''),
+              exp_year: String(card?.exp_year || '').replace(/\D/g, ''),
+              cvv: String(card?.cvv || '').replace(/\D/g, ''),
+            },
+          }
+        : {}),
     });
 
     return json(200, result);

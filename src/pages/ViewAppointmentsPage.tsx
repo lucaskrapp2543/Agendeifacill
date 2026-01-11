@@ -638,7 +638,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
       // FALLBACK: buscar por nome (caso não tenha código ou código não encontrado)
       console.log('🔍 DEBUG - Tentando buscar por nome (fallback)...');
-      let { data: establishments, error: errorByName } = await supabase
+      const { data: establishments, error: errorByName } = await supabase
         .from('establishments')
         .select('enable_whatsapp_notifications, whatsapp')
         .eq('name', establishmentName)

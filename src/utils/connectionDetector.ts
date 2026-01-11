@@ -1,16 +1,16 @@
 // Utilitário para detectar tipo de conexão e ajustar timeouts
 
 export const getConnectionType = (): 'wifi' | '4g' | '3g' | 'slow' | 'unknown' => {
-  // @ts-ignore - navigator.connection pode não estar disponível em todos os navegadores
+  // @ts-expect-error - navigator.connection pode não estar disponível em todos os navegadores
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   
   if (!connection) {
     return 'unknown';
   }
   
-  // @ts-ignore
+  // @ts-expect-error - effectiveType pode não existir em alguns navegadores
   const effectiveType = connection.effectiveType;
-  // @ts-ignore
+  // @ts-expect-error - downlink pode não existir em alguns navegadores
   const downlink = connection.downlink;
   
   // Detectar tipo de conexão

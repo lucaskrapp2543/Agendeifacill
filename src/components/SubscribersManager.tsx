@@ -36,6 +36,7 @@ interface SubscribersManagerProps {
     limit_subscriber_bookings?: boolean;
     prevent_same_day_reschedule?: boolean;
     limit_subscribers_one_week?: boolean;
+    use_pagarme_subscription_pix?: boolean;
   };
   onEstablishmentUpdate?: () => void;
 }
@@ -78,6 +79,20 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     establishment?.prevent_same_day_reschedule || false
   );
   const [isUpdatingSameDayLimit, setIsUpdatingSameDayLimit] = useState(false);
+
+  // Recorrência via Pagar.me (PIX manual, sem cobrança automática)
+  const localStoragePagarmeKey = `use_pagarme_subscription_pix_${establishmentId}`;
+  const [usePagarmeSubscriptionPix, setUsePagarmeSubscriptionPix] = useState<boolean>(() => {
+    if (establishment?.use_pagarme_subscription_pix !== undefined) {
+      return Boolean(establishment.use_pagarme_subscription_pix);
+    }
+    try {
+      return localStorage.getItem(localStoragePagarmeKey) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isUpdatingPagarmeSubscriptionPix, setIsUpdatingPagarmeSubscriptionPix] = useState(false);
 
   // Estado para controlar limitação de 1 agendamento por semana
   const [limitSubscribersOneWeek, setLimitSubscribersOneWeek] = useState(
@@ -152,7 +167,51 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (establishment?.limit_subscribers_one_week !== undefined) {
       setLimitSubscribersOneWeek(establishment.limit_subscribers_one_week);
     }
-  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week]);
+    if (establishment?.use_pagarme_subscription_pix !== undefined) {
+      setUsePagarmeSubscriptionPix(Boolean(establishment.use_pagarme_subscription_pix));
+      try {
+        localStorage.setItem(localStoragePagarmeKey, establishment.use_pagarme_subscription_pix ? 'true' : 'false');
+      } catch { }
+    }
+  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week, establishment?.use_pagarme_subscription_pix]);
+
+  const handleUpdateUsePagarmeSubscriptionPix = async (newValue: boolean) => {
+    setIsUpdatingPagarmeSubscriptionPix(true);
+    try {
+      // Sempre persistir localmente (fallback)
+      try {
+        localStorage.setItem(localStoragePagarmeKey, newValue ? 'true' : 'false');
+      } catch { }
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({ use_pagarme_subscription_pix: newValue } as any)
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.warn('⚠️ Não foi possível salvar no banco (coluna pode não existir ainda). Salvando localmente.', error);
+        setUsePagarmeSubscriptionPix(newValue);
+        toast.success(newValue
+          ? 'Recorrência Pagar.me (PIX) ativada (salva localmente).'
+          : 'Recorrência Pagar.me (PIX) desativada (salva localmente).'
+        );
+        return;
+      }
+
+      setUsePagarmeSubscriptionPix(newValue);
+      toast.success(newValue
+        ? 'Recorrência Pagar.me (PIX) ativada.'
+        : 'Recorrência Pagar.me (PIX) desativada.'
+      );
+
+      if (onEstablishmentUpdate) onEstablishmentUpdate();
+    } catch (e) {
+      console.error('Erro ao atualizar recorrência Pagar.me:', e);
+      toast.error('Erro ao atualizar configuração de recorrência Pagar.me.');
+    } finally {
+      setIsUpdatingPagarmeSubscriptionPix(false);
+    }
+  };
 
   // Função para atualizar limitação de agendamentos de assinantes
   const handleUpdateSubscriberBookingLimit = async (newLimit: boolean) => {
@@ -1714,6 +1773,37 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <span className="mr-2">💳</span>
             Criar conta recorrência cakto
           </a>
+
+          {/* Opção Pagar.me (PIX manual) */}
+          <div className="bg-[#111213] border border-gray-700 rounded-lg p-4 mb-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <p className="text-white font-semibold">
+                  Usar recorrência pagarme <span className="text-gray-400 font-medium">(taxas mais baixas)</span>
+                </p>
+                <p className="text-sm text-gray-300 mt-1">
+                  As taxas da Pagar.me é baixa apenas <span className="font-semibold">1,19% + R$0,50</span> apenas diferencial,
+                  não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleUpdateUsePagarmeSubscriptionPix(!usePagarmeSubscriptionPix)}
+                disabled={isUpdatingPagarmeSubscriptionPix}
+                className={`shrink-0 px-4 py-2 rounded-lg font-bold transition-colors border ${
+                  usePagarmeSubscriptionPix
+                    ? 'bg-green-600/20 text-green-300 border-green-600/40 hover:bg-green-600/30'
+                    : 'bg-[#2a2b2c] text-white border-gray-600 hover:bg-[#343536]'
+                } ${isUpdatingPagarmeSubscriptionPix ? 'opacity-60 cursor-not-allowed' : ''}`}
+              >
+                {usePagarmeSubscriptionPix ? 'ATIVADO' : 'ATIVAR'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX da Pagar.me (com CPF).
+              Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
+            </p>
+          </div>
 
           {/* Mensagem de Atenção */}
           <div className="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4 mb-4">

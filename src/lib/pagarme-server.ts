@@ -66,6 +66,105 @@ async function fetchJsonWithTimeout(
 }
 
 /**
+ * Tokenizar cartão (Core v5)
+ * A API de cartão exige card_token/card_id/network_token/card_payment_payload.
+ * Vamos gerar um card_token a partir dos dados do cartão e usá-lo no pedido.
+ */
+async function createCardToken(client: ReturnType<typeof createPagarMeClient>, card: {
+  number: string;
+  holder_name: string;
+  exp_month: string;
+  exp_year: string;
+  cvv: string;
+}): Promise<string> {
+  // A rota /tokens não aceita a mesma auth do Core v5 (secret key) em várias contas.
+  // Normalmente ela exige a ENCRYPTION_KEY (pública) da Pagar.me.
+  const encryptionKey = String(
+    process.env.PAGARME_ENCRYPTION_KEY ||
+      process.env.PAGARME_PUBLIC_KEY ||
+      process.env.VITE_PAGARME_ENCRYPTION_KEY ||
+      ''
+  ).trim();
+
+  if (!encryptionKey) {
+    const error: any = new Error(
+      'Cartão indisponível: configure PAGARME_ENCRYPTION_KEY (chave pública de criptografia) no servidor.'
+    );
+    error.name = 'PagarMeError';
+    error.__capturedDetails = {
+      step: 'tokenize_card',
+      missingEnv: ['PAGARME_ENCRYPTION_KEY'],
+    };
+    throw error;
+  }
+
+  // Guardrail: muita gente confunde e cola a "Chave pública" (pk_) aqui.
+  // Para tokenização (/tokens), a Pagar.me normalmente exige a "Encryption Key" (geralmente ek_).
+  if (encryptionKey.startsWith('pk_')) {
+    const error: any = new Error(
+      'Cartão indisponível: você configurou uma chave pk_ (chave pública). Para tokenizar cartão, configure a Encryption Key (geralmente começa com ek_).'
+    );
+    error.name = 'PagarMeError';
+    error.__capturedDetails = {
+      step: 'tokenize_card',
+      wrongKeyPrefix: 'pk_',
+      expectedPrefixHint: 'ek_',
+    };
+    throw error;
+  }
+
+  // Auth do token: Basic base64(encryptionKey + ":")
+  const tokenAuthHeader = `Basic ${Buffer.from(`${encryptionKey}:`).toString('base64')}`;
+
+  const requestBody: any = {
+    type: 'card',
+    card: {
+      number: card.number,
+      holder_name: card.holder_name,
+      exp_month: card.exp_month,
+      exp_year: card.exp_year,
+      cvv: card.cvv,
+    },
+  };
+
+  const result = await fetchJsonWithTimeout(
+    `${client.baseURL}/tokens`,
+    {
+      method: 'POST',
+      headers: {
+        ...client.headers,
+        Authorization: tokenAuthHeader,
+      },
+      body: JSON.stringify(requestBody),
+    },
+    20000
+  );
+
+  if (!result.ok) {
+    console.error('❌ Erro ao tokenizar cartão na Pagar.me:', result.data);
+    const error: any = new Error(result.data?.message || `Erro ${result.status} ao tokenizar cartão`);
+    error.name = 'PagarMeError';
+    error.__capturedDetails = {
+      status: result.status,
+      response: result.data,
+      requestBody,
+      step: 'tokenize_card',
+    };
+    throw error;
+  }
+
+  const tokenId = result.data?.id || result.data?.token || result.data?.card_token;
+  if (!tokenId) {
+    const error: any = new Error('Token do cartão não retornado pela Pagar.me');
+    error.name = 'PagarMeError';
+    error.__capturedDetails = { response: result.data, step: 'tokenize_card' };
+    throw error;
+  }
+
+  return String(tokenId);
+}
+
+/**
  * Verifica se a chave da API está configurada
  */
 function validateApiKey(): void {
@@ -164,6 +263,14 @@ export interface CreatePaymentRequest {
     charge_remainder_fee?: boolean;
   }>;
   metadata?: Record<string, string>;
+  // Dados do cartão (quando payment_method = credit_card/debit_card)
+  card?: {
+    number: string;
+    holder_name: string;
+    exp_month: string;
+    exp_year: string;
+    cvv: string;
+  };
 }
 
 /**
@@ -668,6 +775,24 @@ export async function createPayment(
         }))
       : undefined;
 
+    // Cartão: gerar token (quando card existir)
+    const normalizeExpYear = (yy: string) => {
+      const digits = String(yy || '').replace(/\D/g, '');
+      if (digits.length === 2) return `20${digits}`;
+      return digits;
+    };
+
+    const cardToken =
+      (paymentData.payment_method === 'credit_card' || paymentData.payment_method === 'debit_card') && paymentData.card
+        ? await createCardToken(client, {
+            number: String(paymentData.card.number || '').replace(/\D/g, ''),
+            holder_name: String(paymentData.card.holder_name || '').trim(),
+            exp_month: String(paymentData.card.exp_month || '').replace(/\D/g, ''),
+            exp_year: normalizeExpYear(String(paymentData.card.exp_year || '')),
+            cvv: String(paymentData.card.cvv || '').replace(/\D/g, ''),
+          })
+        : null;
+
     const requestBody = {
       items: [
         {
@@ -690,11 +815,13 @@ export async function createPayment(
             credit_card: {
               installments: 1,
               statement_descriptor: 'AGENDAMENTO',
+              ...(cardToken ? { card_token: cardToken } : {}),
             },
           }),
           ...(paymentData.payment_method === 'debit_card' && {
             debit_card: {
               statement_descriptor: 'AGENDAMENTO',
+              ...(cardToken ? { card_token: cardToken } : {}),
             },
           }),
           ...(splitForPagarme ? { split: splitForPagarme } : {}),

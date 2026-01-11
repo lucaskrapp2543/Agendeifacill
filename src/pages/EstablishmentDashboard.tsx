@@ -2910,7 +2910,7 @@ const EstablishmentDashboard = () => {
       console.log('🔄 Profissionais mesclados:', updatedProfessionals);
 
       // Garantir que todos os profissionais tenham pins (senha padrão "0000" se não tiver)
-      let updatedPins = establishment.professionals_pins || [];
+      const updatedPins = [...(establishment.professionals_pins || [])];
 
       // Para cada profissional, verificar se tem pin
       professionals.forEach(professional => {
@@ -4404,11 +4404,13 @@ Estamos te aguardando! 😎✂️`;
   const validateQuizStep = (step: number): { isValid: boolean; message: string } => {
     switch (step) {
       case 1: // Comodidades - pelo menos 1 opção
-        const hasAnyAmenity = hasWifi || hasParking || hasAccessibility || hasAirConditioning;
-        return {
-          isValid: hasAnyAmenity,
-          message: hasAnyAmenity ? '' : 'Selecione ao menos 1 comodidade para continuar'
-        };
+        {
+          const hasAnyAmenity = hasWifi || hasParking || hasAccessibility || hasAirConditioning;
+          return {
+            isValid: hasAnyAmenity,
+            message: hasAnyAmenity ? '' : 'Selecione ao menos 1 comodidade para continuar'
+          };
+        }
 
       case 2: // Configuração de horários - sempre válido
         return { isValid: true, message: '' };
@@ -4421,27 +4423,31 @@ Estamos te aguardando! 😎✂️`;
 
       case 5: // PIX - verificar se preencheu (pode ser opcional, mas vamos exigir para o quiz)
         // Verificar se tem PIX configurado OU se digitou "naotenhopix"
-        const hasPix: boolean = !!(
-          (pixKeyType && pixKey && pixKey.trim() !== '' && pixKey.trim().toLowerCase() !== 'naotenhopix') ||
-          (pixKey && pixKey.trim().toLowerCase() === 'naotenhopix') ||
-          (establishment?.pix_key && establishment.pix_key.trim() !== '' && establishment.pix_key.trim().toLowerCase() !== 'naotenhopix')
-        );
-        return {
-          isValid: hasPix,
-          message: hasPix ? '' : 'Preencha os dados do PIX ou digite "naotenhopix" para continuar'
-        };
+        {
+          const hasPix: boolean = !!(
+            (pixKeyType && pixKey && pixKey.trim() !== '' && pixKey.trim().toLowerCase() !== 'naotenhopix') ||
+            (pixKey && pixKey.trim().toLowerCase() === 'naotenhopix') ||
+            (establishment?.pix_key && establishment.pix_key.trim() !== '' && establishment.pix_key.trim().toLowerCase() !== 'naotenhopix')
+          );
+          return {
+            isValid: hasPix,
+            message: hasPix ? '' : 'Preencha os dados do PIX ou digite "naotenhopix" para continuar'
+          };
+        }
 
       case 6: // Links Personalizados - pelo menos 1 link
-        const hasAnyLink: boolean = !!(
-          (reviewLink && reviewLink.trim() !== '') ||
-          (socialMediaLink && socialMediaLink.trim() !== '') ||
-          (pixPaymentLink && pixPaymentLink.trim() !== '') ||
-          (locationLink && locationLink.trim() !== '')
-        );
-        return {
-          isValid: hasAnyLink,
-          message: hasAnyLink ? '' : 'Adicione ao menos 1 link antes de avançar'
-        };
+        {
+          const hasAnyLink: boolean = !!(
+            (reviewLink && reviewLink.trim() !== '') ||
+            (socialMediaLink && socialMediaLink.trim() !== '') ||
+            (pixPaymentLink && pixPaymentLink.trim() !== '') ||
+            (locationLink && locationLink.trim() !== '')
+          );
+          return {
+            isValid: hasAnyLink,
+            message: hasAnyLink ? '' : 'Adicione ao menos 1 link antes de avançar'
+          };
+        }
 
       case 7: // WhatsApp - confirmar
         return { isValid: true, message: '' };
@@ -4451,11 +4457,13 @@ Estamos te aguardando! 😎✂️`;
 
       case 9: // Formas de Pagamento - selecionar ou desmarcar ao menos 1
         // Verificar se há alguma forma de pagamento selecionada
-        const hasPaymentMethods = paymentMethodsEnabled && paymentMethodsEnabled.length > 0;
-        return {
-          isValid: hasPaymentMethods,
-          message: hasPaymentMethods ? '' : 'Selecione ao menos 1 forma de pagamento para continuar'
-        };
+        {
+          const hasPaymentMethods = paymentMethodsEnabled && paymentMethodsEnabled.length > 0;
+          return {
+            isValid: hasPaymentMethods,
+            message: hasPaymentMethods ? '' : 'Selecione ao menos 1 forma de pagamento para continuar'
+          };
+        }
 
       case 10: // Confirmação final
         return { isValid: true, message: '' };
@@ -5340,7 +5348,6 @@ Estamos te aguardando! 😎✂️`;
     };
 
     const addPeriodSlots = (startTime: string, endTime: string) => {
-      let currentMinutes = convertToMinutes(startTime);
       const endMinutes = convertToMinutes(endTime);
 
       // 1. Primeiro, coletar TODOS os horários únicos dos agendamentos
@@ -7333,7 +7340,7 @@ Estamos te aguardando! 😎✂️`;
 
       // Se o profissional já tem uma senha, atualiza
       // Se não tem, adiciona uma nova
-      let updatedPins = establishment.professionals_pins || [];
+      const updatedPins = [...(establishment.professionals_pins || [])];
       const existingPinIndex = updatedPins.findIndex(p => p.professional_id === professionalId);
 
       if (existingPinIndex >= 0) {

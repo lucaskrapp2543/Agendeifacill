@@ -1,3 +1,4 @@
+import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { format } from 'date-fns';
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Download, Home, LogOut, ThumbsUp, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -31,6 +32,8 @@ export default function BookingPage() {
   const [selectedProfessional, setSelectedProfessional] = useState<string | null>(null);
   const [showDemoSuccessModal, setShowDemoSuccessModal] = useState(false); // Novo estado para o modal de demonstração
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [showSubscriptionPixModal, setShowSubscriptionPixModal] = useState(false);
+  const [selectedSubscriptionForPix, setSelectedSubscriptionForPix] = useState<any | null>(null);
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
   const [showBusinessHours, setShowBusinessHours] = useState(false);
   const [duplicateCarouselIndex, setDuplicateCarouselIndex] = useState(0);
@@ -632,6 +635,29 @@ export default function BookingPage() {
   const handleSubscribeClick = (subscriptionName: string) => {
     // Buscar a assinatura completa para verificar se tem link personalizado
     const subscription = subscriptions.find(sub => sub.name === subscriptionName);
+
+    const isPagarmeSubscriptionPixEnabled = (() => {
+      try {
+        const fromDb = Boolean((establishment as any)?.use_pagarme_subscription_pix);
+        if (fromDb) return true;
+        const key = `use_pagarme_subscription_pix_${String((establishment as any)?.id || '')}`;
+        return localStorage.getItem(key) === 'true';
+      } catch {
+        return Boolean((establishment as any)?.use_pagarme_subscription_pix);
+      }
+    })();
+
+    // Se Pagar.me PIX estiver ativado, abrir modal de pagamento (sem cobrança automática)
+    if (isPagarmeSubscriptionPixEnabled) {
+      if (!subscription) {
+        toast.error('Assinatura não encontrada');
+        return;
+      }
+      setSelectedSubscriptionForPix(subscription);
+      setShowSubscriptionPixModal(true);
+      setShowSubscriptionsDropdown(false);
+      return;
+    }
 
     // Se tiver link personalizado, redirecionar para ele
     if (subscription && subscription.custom_link && subscription.custom_link.trim()) {
@@ -2377,6 +2403,25 @@ export default function BookingPage() {
             name: pendingCustomerData?.name || guestClientData?.name || 'Cliente',
             phone: pendingCustomerData?.phone || guestClientData?.phone,
             email: pendingCustomerData?.email || user?.email || undefined
+          }}
+        />
+      )}
+
+      {/* Modal: Assinatura via PIX (Pagar.me) */}
+      {showSubscriptionPixModal && selectedSubscriptionForPix && (
+        <SubscriptionPixModal
+          isOpen={showSubscriptionPixModal}
+          onClose={() => {
+            setShowSubscriptionPixModal(false);
+            setSelectedSubscriptionForPix(null);
+          }}
+          establishmentId={String(establishment?.id || '')}
+          recipientId={String((establishment as any)?.pagarme_recipient_id || '')}
+          subscription={{
+            id: String(selectedSubscriptionForPix.id),
+            name: String(selectedSubscriptionForPix.name || 'Assinatura'),
+            value: Number(selectedSubscriptionForPix.value || 0),
+            duration_months: selectedSubscriptionForPix.duration_months ?? null,
           }}
         />
       )}

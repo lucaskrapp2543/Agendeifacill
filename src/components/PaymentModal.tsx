@@ -45,6 +45,11 @@ export const PaymentModal = ({
   const [pixRemainingSeconds, setPixRemainingSeconds] = useState<number>(0);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [cpfCliente, setCpfCliente] = useState<string>(customerData.document || '');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardHolderName, setCardHolderName] = useState('');
+  const [cardExpMonth, setCardExpMonth] = useState('');
+  const [cardExpYear, setCardExpYear] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
   const { toast } = useToast();
   const pixCountdownIntervalRef = useRef<number | null>(null);
 
@@ -55,10 +60,9 @@ export const PaymentModal = ({
   const handlePayment = async (method: PaymentMethod) => {
     if (!method) return;
 
-    // ⚠️ Cartão (crédito/débito) exige captura segura de dados do cartão (tokenização/checkout).
-    // Hoje o sistema ainda não possui UI + fluxo seguro para cartão, então evitamos travar o usuário.
+    // Cartão desativado temporariamente (até liberação/chaves necessárias)
     if (method === 'credit_card' || method === 'debit_card') {
-      toast('Cartão (crédito/débito) ainda não está disponível. Use PIX para concluir o pagamento.', 'warning');
+      toast('Cartão temporariamente indisponível. Use PIX por enquanto.', 'error');
       return;
     }
 
@@ -136,12 +140,16 @@ export const PaymentModal = ({
       // e permite reconciliação futura.
       try {
         if (paymentResult?.id) {
+          const methodToStore =
+            method === 'pix' ? 'pix' : method === 'credit_card' ? 'credito' : 'debito';
           await supabase
             .from('appointments')
             .update({
               payment_transaction_id: paymentResult.id,
+              // Salvar método escolhido no agendamento para consistência
+              payment_method: methodToStore,
               // se for PIX, deixar explícito que foi iniciado via Pagar.me
-              ...(method === 'pix' ? { payment_method: 'pix', pix_payment_status: 'enviado' } : {}),
+              ...(method === 'pix' ? { pix_payment_status: 'enviado' } : {}),
             })
             .eq('id', appointmentId);
         }
@@ -327,6 +335,15 @@ export const PaymentModal = ({
 
   const confirmAppointment = async (transactionId: string) => {
     try {
+      const methodToStore =
+        selectedMethod === 'pix'
+          ? 'pix'
+          : selectedMethod === 'credit_card'
+            ? 'credito'
+            : selectedMethod === 'debit_card'
+              ? 'debito'
+              : 'pix';
+
       // Atualizar agendamento como confirmado
       const { error } = await supabase
         .from('appointments')
@@ -334,10 +351,8 @@ export const PaymentModal = ({
           status: 'confirmed',
           payment_status: 'paid',
           payment_transaction_id: transactionId,
-          // ✅ Forçar consistência: no fluxo de pagamento adiantado atual só existe PIX
-          // (evita ficar NULL e quebrar o cálculo do saldo)
-          payment_method: 'pix',
-          pix_payment_status: 'confirmado',
+          payment_method: methodToStore,
+          ...(methodToStore === 'pix' ? { pix_payment_status: 'confirmado' } : {}),
         })
         .eq('id', appointmentId);
 
@@ -417,16 +432,16 @@ export const PaymentModal = ({
             </div>
 
             <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-4">
-              <label className="block text-sm text-gray-300 mb-2">CPF do pagador (obrigatório para PIX)</label>
+              <label className="block text-sm text-gray-300 mb-2">CPF/CNPJ do pagador (obrigatório para PIX e cartão)</label>
               <input
                 value={cpfCliente}
                 onChange={(e) => setCpfCliente(e.target.value)}
-                placeholder="Somente números (11 dígitos)"
+                placeholder="Somente números (CPF 11 / CNPJ 14)"
                 className="w-full px-3 py-2 rounded-md bg-[#1a1b1c] border border-gray-600 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 inputMode="numeric"
               />
               <p className="text-xs text-gray-400 mt-2">
-                A Pagar.me costuma exigir CPF para gerar o QR Code do PIX.
+                A Pagar.me costuma exigir CPF/CNPJ para pagamentos (principalmente PIX e cartão).
               </p>
             </div>
 
@@ -496,7 +511,7 @@ export const PaymentModal = ({
         ) : (
           <div className="space-y-4">
             <p className="text-gray-300 text-center">
-              Processando pagamento via {selectedMethod === 'credit_card' ? 'Cartão de Crédito' : 'Cartão de Débito'}...
+              Processando pagamento...
             </p>
             {(isProcessing || isCheckingPayment) && (
               <div className="flex items-center justify-center gap-2 text-blue-400">
