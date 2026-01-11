@@ -37,6 +37,7 @@ interface SubscribersManagerProps {
     prevent_same_day_reschedule?: boolean;
     limit_subscribers_one_week?: boolean;
     use_pagarme_subscription_pix?: boolean;
+    pagarme_recipient_id?: string | null;
   };
   onEstablishmentUpdate?: () => void;
 }
@@ -181,6 +182,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const handleUpdateUsePagarmeSubscriptionPix = async (newValue: boolean) => {
     setIsUpdatingPagarmeSubscriptionPix(true);
     try {
+      // Só permitir ATIVAR se houver recebedor Pagar.me configurado
+      const recipientId = String(establishment?.pagarme_recipient_id || '').trim();
+      if (newValue && !recipientId) {
+        toast.error('Para ativar, configure primeiro o Recebedor Pagar.me nas Configurações.');
+        return;
+      }
+
       // Sempre persistir localmente (fallback)
       try {
         localStorage.setItem(localStoragePagarmeKey, newValue ? 'true' : 'false');
@@ -1851,6 +1859,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <span className="mr-2">💳</span>
             Criar conta recorrência cakto
           </a>
+          <div className="text-xs text-yellow-200/90 mb-4 -mt-2">
+            ⚠️ Taxas altas — recomendado usar opção de baixo.
+          </div>
 
           {/* Opção Pagar.me (PIX manual) */}
           <div className="bg-[#111213] border border-gray-700 rounded-lg p-4 mb-4">
@@ -1866,13 +1877,28 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
               <button
                 type="button"
-                onClick={() => handleUpdateUsePagarmeSubscriptionPix(!usePagarmeSubscriptionPix)}
-                disabled={isUpdatingPagarmeSubscriptionPix}
+                onClick={() => {
+                  const recipientId = String(establishment?.pagarme_recipient_id || '').trim();
+                  if (!usePagarmeSubscriptionPix && !recipientId) {
+                    toast.error('Para ativar, configure primeiro o Recebedor Pagar.me nas Configurações.');
+                    return;
+                  }
+                  handleUpdateUsePagarmeSubscriptionPix(!usePagarmeSubscriptionPix);
+                }}
+                disabled={
+                  isUpdatingPagarmeSubscriptionPix ||
+                  (!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim())
+                }
                 className={`shrink-0 px-4 py-2 rounded-lg font-bold transition-colors border ${
                   usePagarmeSubscriptionPix
                     ? 'bg-green-600/20 text-green-300 border-green-600/40 hover:bg-green-600/30'
                     : 'bg-[#2a2b2c] text-white border-gray-600 hover:bg-[#343536]'
                 } ${isUpdatingPagarmeSubscriptionPix ? 'opacity-60 cursor-not-allowed' : ''}`}
+                title={
+                  !usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()
+                    ? 'Configure o Recebedor Pagar.me para ativar'
+                    : undefined
+                }
               >
                 {usePagarmeSubscriptionPix ? 'ATIVADO' : 'ATIVAR'}
               </button>
@@ -1881,6 +1907,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX da Pagar.me (com CPF).
               Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
             </p>
+            {!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim() && (
+              <p className="text-xs text-yellow-200/90 mt-2">
+                ⚠️ Para ativar essa opção, configure primeiro o <span className="font-semibold">Recebedor Pagar.me</span> nas Configurações.
+              </p>
+            )}
           </div>
 
           {/* Mensagem de Atenção */}
