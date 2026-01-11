@@ -41,7 +41,6 @@ export const handler: Handler = async (event) => {
     const customerName = String(customer?.name || '').trim();
     const customerWhatsapp = onlyDigits(String(customer?.whatsapp || customer?.phone || ''));
     const customerEmail = String(customer?.email || '').trim() || null;
-    const customerDocument = onlyDigits(String(customer?.document || ''));
 
     if (!orderId || !establishmentId || !subscriptionId || !customerName || !customerWhatsapp) {
       return {
@@ -96,7 +95,6 @@ export const handler: Handler = async (event) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
-      subscriber_document: customerDocument || null,
     };
 
     let resultRow: any = null;
@@ -126,7 +124,10 @@ export const handler: Handler = async (event) => {
   } catch (error: any) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error?.message || 'Erro ao confirmar assinatura via PIX' }),
+      body: JSON.stringify({
+        error: error?.message || 'Erro ao confirmar assinatura via PIX',
+        details: error?.details || error?.hint || error?.code || undefined,
+      }),
     };
   }
 };

@@ -101,7 +101,6 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
     const customerName = String(customer?.name || '').trim();
     const customerWhatsapp = onlyDigits(String(customer?.whatsapp || customer?.phone || ''));
     const customerEmail = String(customer?.email || '').trim() || null;
-    const customerDocument = onlyDigits(String(customer?.document || ''));
 
     if (!orderId || !establishmentId || !subscriptionId || !customerName || !customerWhatsapp) {
       return res.status(400).json({
@@ -163,8 +162,6 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
-      // manter documento para auditoria (se coluna existir)
-      subscriber_document: customerDocument || null,
     };
 
     let resultRow: any = null;

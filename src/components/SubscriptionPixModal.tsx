@@ -113,7 +113,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
             if (!resp.ok) {
               const err = await resp.json().catch(() => ({}));
-              throw new Error(err?.error || `Erro ${resp.status}`);
+              const msg = err?.error || `Erro ${resp.status}`;
+              const detailsMsg =
+                typeof err?.details === 'string'
+                  ? err.details
+                  : err?.details?.message || err?.details?.hint || err?.details?.code || '';
+              throw new Error(detailsMsg ? `${msg} (${detailsMsg})` : msg);
             }
           } catch (e: any) {
             toast.error(`Pagamento confirmado, mas não consegui registrar como assinante: ${e?.message || 'erro'}`);
