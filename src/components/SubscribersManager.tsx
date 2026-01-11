@@ -1875,19 +1875,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-green-500/20 blur-3xl pointer-events-none" />
             <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
 
-            {/* selo recomendado */}
-            <div className="absolute top-3 left-3 z-10">
-              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase bg-green-500/15 border border-green-500/30 text-green-200">
-                ⭐ Recomendado
-              </span>
-            </div>
-
             <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <p className="text-white font-extrabold text-base sm:text-lg">
-                  Usar recorrência pagarme <span className="text-green-200/90 font-extrabold">(taxas mais baixas)</span>
-                </p>
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+                  <span className="inline-flex w-fit items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase bg-green-500/15 border border-green-500/30 text-green-200">
+                    ⭐ Recomendado
+                  </span>
+                  <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
+                    Usar recorrência pagarme{' '}
+                    <span className="text-green-200/90 font-extrabold">(taxas mais baixas)</span>
+                  </p>
+                </div>
                 <p className="text-sm text-gray-300 mt-1">
                   As taxas da Pagar.me é baixa apenas <span className="font-semibold">1,19% + R$0,50</span> apenas diferencial,
                   não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
@@ -1907,7 +1906,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   isUpdatingPagarmeSubscriptionPix ||
                   (!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim())
                 }
-                className={`shrink-0 px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
+                className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
                   usePagarmeSubscriptionPix
                     ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
                     : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
