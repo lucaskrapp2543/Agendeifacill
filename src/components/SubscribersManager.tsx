@@ -94,6 +94,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   });
   const [isUpdatingPagarmeSubscriptionPix, setIsUpdatingPagarmeSubscriptionPix] = useState(false);
 
+  const fmtBRL = (v: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v || 0));
+
   // Estado para controlar limitação de 1 agendamento por semana
   const [limitSubscribersOneWeek, setLimitSubscribersOneWeek] = useState(
     establishment?.limit_subscribers_one_week || false
@@ -1288,6 +1291,40 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const lucroBruto = totalArrecadado;
   const lucroLiquido = lucroBruto - totalRepasses;
 
+  // Saldo (assinantes) - seguindo a mesma lógica do "Saldo em vendas" (taxas do PIX)
+  // Regra: soma somente assinaturas ativas e pagas, já descontando 1,19% + R$0,50.
+  const saldoAssinantes = clientSubscriptions.reduce((sum, cs) => {
+    const endDate = parseISO(cs.end_date);
+    if (isPast(endDate)) return sum;
+    if (cs.payment_status !== 'paid') return sum;
+
+    const bruto = Number(cs.subscriptions?.value || cs.subscription_value || 0);
+    if (!Number.isFinite(bruto) || bruto <= 0) return sum;
+
+    const taxaPixPercent = 1.19;
+    const taxaPlataforma = 0.5; // R$ 0,50 (AgendeiFácil)
+    const taxaPercentual = bruto * (taxaPixPercent / 100);
+    const liquido = Math.max(0, Math.round((bruto - taxaPlataforma - taxaPercentual) * 100) / 100);
+    return sum + liquido;
+  }, 0);
+
+  const [isRefreshingSaldoAssinantes, setIsRefreshingSaldoAssinantes] = useState(false);
+  const handleRefreshSaldoAssinantes = async () => {
+    if (isRefreshingSaldoAssinantes) return;
+    setIsRefreshingSaldoAssinantes(true);
+    try {
+      await fetchClientSubscriptions();
+      await fetchSubscriberAttendances(selectedMonth, selectedYear);
+      await fetchProfessionalPayments(selectedMonth, selectedYear);
+      toast.success('Saldo atualizado!');
+    } catch (e) {
+      console.error('Erro ao atualizar saldo de assinantes:', e);
+      toast.error('Não foi possível atualizar agora.');
+    } finally {
+      setIsRefreshingSaldoAssinantes(false);
+    }
+  };
+
   console.log('📊 Resumo calculado:', {
     totalArrecadado,
     totalAssinantes: clientSubscriptions.length,
@@ -1403,11 +1440,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="text-center sm:text-left">
             <p className="text-xs sm:text-sm text-gray-400">Lucro Bruto:</p>
-            <p className="text-lg sm:text-2xl font-bold text-green-400">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lucroBruto)}</p>
+            <p className="text-lg sm:text-2xl font-bold text-green-400">{fmtBRL(lucroBruto)}</p>
           </div>
           <div className="text-center sm:text-left">
             <p className="text-xs sm:text-sm text-gray-400">Lucro Líquido:</p>
-            <p className="text-lg sm:text-2xl font-bold text-blue-400">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lucroLiquido)}</p>
+            <p className="text-lg sm:text-2xl font-bold text-blue-400">{fmtBRL(lucroLiquido)}</p>
           </div>
           <div className="text-center sm:text-left">
             <p className="text-xs sm:text-sm text-gray-400">Total de Assinantes:</p>
@@ -1416,6 +1453,43 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           <div className="text-center sm:text-left">
             <p className="text-xs sm:text-sm text-gray-400">Não Pagos:</p>
             <p className="text-lg sm:text-2xl font-bold text-red-400">{assinantesNaoPagos}</p>
+          </div>
+        </div>
+
+        {/* Saldo + Sacar (assinantes) */}
+        <div className="mt-4 rounded-lg border border-green-500/20 bg-black/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <div className="text-xs text-gray-300">Saldo (assinantes)</div>
+            <div className="text-xl font-extrabold text-green-200">{fmtBRL(saldoAssinantes)}</div>
+            <div className="mt-1 text-[11px] text-gray-300/80">
+              * Soma somente PIX pagos (Pagar.me), já com R$ 0,50 + 1,19% descontados.
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              disabled={isRefreshingSaldoAssinantes}
+              onClick={handleRefreshSaldoAssinantes}
+              className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Atualizar
+            </button>
+            <button
+              type="button"
+              disabled={isRefreshingSaldoAssinantes || saldoAssinantes <= 0}
+              onClick={() => {
+                if (saldoAssinantes <= 0) {
+                  toast.error('Seu saldo de assinantes está zerado.');
+                  return;
+                }
+                const whatsappNumber = '5548991265320';
+                const message = `Quero sacar meu valor (assinantes): ${fmtBRL(saldoAssinantes)}\nEstabelecimento: ${String(establishmentId)}`;
+                window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank');
+              }}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Sacar
+            </button>
           </div>
         </div>
 
