@@ -185,7 +185,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Só permitir ATIVAR se houver recebedor Pagar.me configurado
       const recipientId = String(establishment?.pagarme_recipient_id || '').trim();
       if (newValue && !recipientId) {
-        toast.error('Para ativar, configure primeiro o Recebedor Pagar.me nas Configurações.');
+        toast.error('Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me) nas Configurações.');
         return;
       }
 
@@ -1897,7 +1897,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 onClick={() => {
                   const recipientId = String(establishment?.pagarme_recipient_id || '').trim();
                   if (!usePagarmeSubscriptionPix && !recipientId) {
-                    toast.error('Para ativar, configure primeiro o Recebedor Pagar.me nas Configurações.');
+                    toast.error('Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me) nas Configurações.');
                     return;
                   }
                   handleUpdateUsePagarmeSubscriptionPix(!usePagarmeSubscriptionPix);
@@ -1915,7 +1915,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 }`}
                 title={
                   !usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()
-                    ? 'Configure o Recebedor Pagar.me para ativar'
+                    ? 'Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me)'
                     : undefined
                 }
               >
@@ -1928,7 +1928,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </p>
             {!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim() && (
               <p className="text-xs text-yellow-200/90 mt-2">
-                ⚠️ Para ativar essa opção, configure primeiro o <span className="font-semibold">Recebedor Pagar.me</span> nas Configurações.
+                ⚠️ Para ativar essa opção, você precisa <span className="font-semibold">criar e colocar seus dados de recebimento</span> (Recebedor Pagar.me) nas Configurações.
               </p>
             )}
           </div>
