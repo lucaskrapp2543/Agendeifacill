@@ -1125,6 +1125,10 @@ const EstablishmentDashboard = () => {
   const [commissionDraft, setCommissionDraft] = useState<Record<string, string>>({});
   const [isSavingCommission, setIsSavingCommission] = useState(false);
 
+  // Saldo por produtos (repasse do mês) por profissional
+  const [productSaldoPorProfissional, setProductSaldoPorProfissional] = useState<Record<string, number>>({});
+  const [isLoadingProductSaldoPorProfissional, setIsLoadingProductSaldoPorProfissional] = useState(false);
+
   const handleShowProductSales = async (productId: string) => {
     if (selectedProductForSales === productId) {
       setSelectedProductForSales(null);
@@ -1206,6 +1210,93 @@ const EstablishmentDashboard = () => {
       setIsSavingCommission(false);
     }
   };
+
+  const carregarSaldoProdutosPorProfissional = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    try {
+      setIsLoadingProductSaldoPorProfissional(true);
+
+      const start = startOfMonth(selectedMonth);
+      const end = endOfMonth(selectedMonth);
+
+      // Mapa produtoId -> commission_percentages
+      const productById: Record<string, EstablishmentProduct> = {};
+      (products || []).forEach((p) => {
+        productById[p.id] = p;
+      });
+
+      // Mapa profissionalId -> nome
+      const professionalIdToName: Record<string, string> = {};
+      (establishment.professionals || []).forEach((p: any) => {
+        if (p?.id && p?.name) professionalIdToName[String(p.id)] = String(p.name);
+      });
+
+      // Inicializar com 0 para TODOS os profissionais (para aparecer no UI mesmo sem vendas)
+      const saldoByProfessionalName: Record<string, number> = {};
+      (establishment.professionals || []).forEach((p: any) => {
+        const name = String(p?.name || '').trim();
+        if (name) saldoByProfessionalName[name] = 0;
+      });
+
+      // Buscar vendas de produtos do mês (filtrando pelo establishment via join com appointments)
+      const { data, error } = await supabase
+        .from('appointment_products')
+        .select(
+          `
+          quantity,
+          unit_price,
+          product_id,
+          professional_id,
+          appointments!inner(
+            appointment_date,
+            status,
+            establishment_id
+          )
+        `
+        )
+        .eq('appointments.establishment_id', establishment.id)
+        .gte('appointments.appointment_date', start.toISOString())
+        .lte('appointments.appointment_date', end.toISOString())
+        .neq('appointments.status', 'cancelled');
+
+      if (error) {
+        console.error('Erro ao carregar saldo por produtos dos profissionais:', error);
+        setProductSaldoPorProfissional({});
+        return;
+      }
+
+      (data || []).forEach((row: any) => {
+        const productId = String(row?.product_id || '');
+        const quantity = Number(row?.quantity || 0);
+        const unitPrice = Number(row?.unit_price || 0);
+        if (!productId || !Number.isFinite(quantity) || !Number.isFinite(unitPrice)) return;
+
+        const rawProfessionalId = String(row?.professional_id || '').trim();
+        const professionalName =
+          professionalIdToName[rawProfessionalId] ||
+          (rawProfessionalId && saldoByProfessionalName[rawProfessionalId] !== undefined ? rawProfessionalId : '');
+        if (!professionalName) return;
+
+        const product = productById[productId];
+        const map = (product as any)?.commission_percentages || {};
+        const pct = Number(map?.[professionalName] ?? 0);
+        const safePct = Number.isFinite(pct) ? pct : 0;
+
+        const totalValue = Math.max(0, quantity * unitPrice);
+        const payout = Math.max(0, (totalValue * safePct) / 100);
+
+        saldoByProfessionalName[professionalName] = Math.round((saldoByProfessionalName[professionalName] + payout) * 100) / 100;
+      });
+
+      setProductSaldoPorProfissional(saldoByProfessionalName);
+    } catch (e) {
+      console.error('Erro ao carregar saldo por produtos dos profissionais:', e);
+      setProductSaldoPorProfissional({});
+    } finally {
+      setIsLoadingProductSaldoPorProfissional(false);
+    }
+  }, [establishment?.id, selectedMonth, products, establishment?.professionals]);
   const [showAddProductToAppointmentModal, setShowAddProductToAppointmentModal] = useState(false);
 
   // Estados para categorias de serviços
@@ -4807,6 +4898,12 @@ Estamos te aguardando! 😎✂️`;
       setShowPromotionPopup(false);
     }
   }, [establishment, activeTab]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (activeTab !== 'professionals') return;
+    carregarSaldoProdutosPorProfissional();
+  }, [activeTab, establishment?.id, selectedMonth, carregarSaldoProdutosPorProfissional]);
 
   useEffect(() => {
     if (establishment) {
@@ -18134,6 +18231,29 @@ Estamos te aguardando! 😎✂️`;
                         })()}
                         maxLength={20}
                       />
+                    </div>
+
+                    {/* ✅ Saldo por produtos (repasse do mês) */}
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Saldo por produtos (mês)</label>
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>🧴</span>
+                          <span className="text-white">
+                            {selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-white font-extrabold">
+                            {isLoadingProductSaldoPorProfissional
+                              ? 'Calculando...'
+                              : formatCurrency(productSaldoPorProfissional[String(professional.name || '').trim()] || 0)}
+                          </div>
+                          <div className="text-[11px] text-gray-400">
+                            Baseado nas vendas de produtos e na % configurada em “Meus Produtos”.
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Campo de Meta */}
