@@ -28,6 +28,39 @@ export default function ViewAppointmentsPage() {
   // Mantido apenas por compatibilidade (evitar 2 cliques). Agora o WhatsApp abre automaticamente após cancelar.
   const [cancelledAppointment, setCancelledAppointment] = useState<any>(null);
 
+  const normalizarWhatsappE164 = (raw: string): string => {
+    let cleanWhatsapp = String(raw || '').replace(/\D/g, '');
+    if (!cleanWhatsapp) return '';
+
+    // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
+    const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
+    const hasCountryCode = countryCodes.some((code) => cleanWhatsapp.startsWith(code));
+
+    // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
+    if (!hasCountryCode) {
+      if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
+        cleanWhatsapp = '55' + cleanWhatsapp;
+      } else {
+        return '';
+      }
+    }
+
+    return cleanWhatsapp;
+  };
+
+  const obterWhatsappProfissional = (establishmentRow: any, professionalNameRaw: string | undefined | null): string => {
+    const professionalName = String(professionalNameRaw || '').trim().toLowerCase();
+    if (!professionalName) return '';
+
+    const professionals = Array.isArray(establishmentRow?.professionals) ? establishmentRow.professionals : [];
+    const prof = professionals.find((p: any) => {
+      const n1 = String(p?.name || '').trim().toLowerCase();
+      const n2 = String(p?.full_name || '').trim().toLowerCase();
+      return (n1 && n1 === professionalName) || (n2 && n2 === professionalName);
+    });
+
+    return String(prof?.whatsapp || '').trim();
+  };
 
   // Buscar telefone da URL, localStorage ou carregar agendamentos automaticamente
   useEffect(() => {
@@ -714,7 +747,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         console.log('🔍 DEBUG - Buscando WhatsApp por código:', pendingReminderData.establishmentCode);
         const { data: establishmentsByCode, error: errorByCode } = await supabase
           .from('establishments')
-          .select('whatsapp')
+          .select('whatsapp, professionals')
           .eq('code', pendingReminderData.establishmentCode)
           .limit(1);
 
@@ -730,7 +763,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         console.log('🔍 DEBUG - Buscando WhatsApp por nome (fallback):', pendingReminderData.establishmentName);
         const { data: establishments, error } = await supabase
           .from('establishments')
-          .select('whatsapp')
+          .select('whatsapp, professionals')
           .eq('name', pendingReminderData.establishmentName)
           .limit(1);
 
@@ -743,28 +776,15 @@ Por favor, confirme o cancelamento. Obrigado!`;
         establishment = establishments?.[0];
       }
 
-      if (!establishment?.whatsapp) {
-        toast.error('Número de WhatsApp não configurado');
+      // ✅ NOVA REGRA:
+      // Se o profissional tiver WhatsApp cadastrado, enviar para ele.
+      // Se não tiver, usar WhatsApp padrão do estabelecimento.
+      const whatsappProfissional = obterWhatsappProfissional(establishment, pendingReminderData.professionalName);
+      const destinoRaw = whatsappProfissional || establishment?.whatsapp || '';
+      const cleanWhatsapp = normalizarWhatsappE164(destinoRaw);
+      if (!cleanWhatsapp) {
+        toast.error('WhatsApp do profissional/estabelecimento não está cadastrado corretamente.');
         return;
-      }
-
-      // Limpar e formatar o número do WhatsApp
-      let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
-
-      // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
-      const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-
-      // Verificar se o número já começa com algum código de país
-      const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
-
-      // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
-      if (!hasCountryCode) {
-        if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
-          cleanWhatsapp = '55' + cleanWhatsapp;
-        } else if (cleanWhatsapp.length < 10) {
-          toast.error('Número de WhatsApp inválido');
-          return;
-        }
       }
 
       const message = `Fiz um agendamento pelo Agendei Fácil:
@@ -827,7 +847,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         console.log('🔍 Buscando por código:', establishmentCode);
         const result = await supabase
           .from('establishments')
-          .select('whatsapp')
+          .select('whatsapp, professionals')
           .eq('code', establishmentCode)
           .single();
         establishment = result.data;
@@ -838,7 +858,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         console.log('🔍 Buscando por ID:', establishmentId);
         const result = await supabase
           .from('establishments')
-          .select('whatsapp')
+          .select('whatsapp, professionals')
           .eq('id', establishmentId)
           .single();
         establishment = result.data;
@@ -849,7 +869,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         console.log('🔍 Buscando por nome:', establishmentName);
         const result = await supabase
           .from('establishments')
-          .select('whatsapp')
+          .select('whatsapp, professionals')
           .eq('name', establishmentName)
           .single();
         establishment = result.data;
@@ -859,31 +879,18 @@ Por favor, confirme o cancelamento. Obrigado!`;
         return;
       }
 
-      if (error || !establishment?.whatsapp) {
+      if (error) {
         console.error('❌ Erro ao buscar WhatsApp:', error);
         toast.error('Configuração de WhatsApp não encontrada');
         return;
       }
 
-      console.log('✅ WhatsApp encontrado:', establishment.whatsapp);
-
-      // Limpar e formatar o número do WhatsApp
-      let cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
-
-      // Lista de códigos de países comuns (ordenado por tamanho, maior primeiro)
-      const countryCodes = ['351', '244', '54', '56', '55', '34', '1'];
-
-      // Verificar se o número já começa com algum código de país
-      const hasCountryCode = countryCodes.some(code => cleanWhatsapp.startsWith(code));
-
-      // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
-      if (!hasCountryCode) {
-        if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
-          cleanWhatsapp = '55' + cleanWhatsapp;
-        } else if (cleanWhatsapp.length < 10) {
-          toast.error('Número de WhatsApp inválido');
-          return;
-        }
+      const whatsappProfissional = obterWhatsappProfissional(establishment, appointment.professional_name);
+      const destinoRaw = whatsappProfissional || establishment?.whatsapp || '';
+      const cleanWhatsapp = normalizarWhatsappE164(destinoRaw);
+      if (!cleanWhatsapp) {
+        toast.error('WhatsApp do profissional/estabelecimento não está cadastrado corretamente.');
+        return;
       }
 
       // Formatar data
