@@ -891,6 +891,15 @@ export async function createPayment(
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
+              // Algumas contas/rotas validam "billing" (e não apenas billing_address)
+              ...(billingAddress
+                ? {
+                    billing: {
+                      name: paymentData.customer?.name,
+                      address: billingAddress,
+                    },
+                  }
+                : {}),
             },
           }),
           ...(paymentData.payment_method === 'debit_card' && {
@@ -898,6 +907,14 @@ export async function createPayment(
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
+              ...(billingAddress
+                ? {
+                    billing: {
+                      name: paymentData.customer?.name,
+                      address: billingAddress,
+                    },
+                  }
+                : {}),
             },
           }),
           ...(splitForPagarme ? { split: splitForPagarme } : {}),
