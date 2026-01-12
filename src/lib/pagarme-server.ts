@@ -885,17 +885,16 @@ export async function createPayment(
               expires_in: pixExpiresIn,
             },
           }),
-          // Billing: em algumas integrações, a validação usa billing.value (e não billing_address).
-          // Então enviamos billing nos 2 formatos.
+          // Billing: algumas contas validam billing.value e, em certos cenários,
+          // esperam isso DENTRO de credit_card/debit_card (não no nível do payment).
+          // Para compatibilidade, enviamos nos dois lugares.
           ...(billingAddress
             ? {
                 billing: {
-                  // compat: alguns validadores exigem "value"
                   value: {
                     name: paymentData.customer?.name,
                     address: billingAddress,
                   },
-                  // compat: outros esperam direto em billing.name/billing.address
                   name: paymentData.customer?.name,
                   address: billingAddress,
                 },
@@ -908,6 +907,18 @@ export async function createPayment(
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
+              ...(billingAddress
+                ? {
+                    billing: {
+                      value: {
+                        name: paymentData.customer?.name,
+                        address: billingAddress,
+                      },
+                      name: paymentData.customer?.name,
+                      address: billingAddress,
+                    },
+                  }
+                : {}),
             },
           }),
           ...(paymentData.payment_method === 'debit_card' && {
@@ -915,6 +926,18 @@ export async function createPayment(
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
+              ...(billingAddress
+                ? {
+                    billing: {
+                      value: {
+                        name: paymentData.customer?.name,
+                        address: billingAddress,
+                      },
+                      name: paymentData.customer?.name,
+                      address: billingAddress,
+                    },
+                  }
+                : {}),
             },
           }),
           ...(splitForPagarme ? { split: splitForPagarme } : {}),
@@ -922,6 +945,21 @@ export async function createPayment(
       ],
       metadata: paymentData.metadata || {},
     };
+
+    // Debug seguro (não vaza dados sensíveis do cartão; card_token é mascarado)
+    const maskToken = (t: any) => {
+      const s = String(t || '');
+      if (!s) return s;
+      if (s.length <= 10) return `${s.slice(0, 4)}...`;
+      return `${s.slice(0, 6)}...${s.slice(-4)}`;
+    };
+    if (isCardMethod) {
+      const safeForLog: any = JSON.parse(JSON.stringify(requestBody));
+      const p0 = safeForLog?.payments?.[0];
+      if (p0?.credit_card?.card_token) p0.credit_card.card_token = maskToken(p0.credit_card.card_token);
+      if (p0?.debit_card?.card_token) p0.debit_card.card_token = maskToken(p0.debit_card.card_token);
+      console.log('🧾 [Pagar.me] Payload enviado (cartão) - debug:', JSON.stringify(safeForLog, null, 2));
+    }
 
     const result = await fetchJsonWithTimeout(
       `${client.baseURL}/orders`,
