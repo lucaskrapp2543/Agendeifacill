@@ -98,7 +98,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
         const r = await fetch(checkStatusUrl);
         if (!r.ok) throw new Error('Erro ao verificar status');
-        const { status } = await r.json();
+        const { status, reason } = await r.json();
         const normalized = String(status || '').toLowerCase();
 
         if (normalized === 'paid' || normalized === 'authorized') {
@@ -151,7 +151,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         ) {
           window.clearInterval(interval);
           setIsCheckingPayment(false);
-          toast.error('Pagamento recusado ou cancelado');
+          toast.error(reason ? `Pagamento recusado/cancelado: ${String(reason)}` : 'Pagamento recusado ou cancelado');
         } else if (attempts >= maxAttempts) {
           window.clearInterval(interval);
           setIsCheckingPayment(false);

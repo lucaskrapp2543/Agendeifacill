@@ -309,7 +309,7 @@ export const PaymentModal = ({
           throw new Error('Erro ao verificar status');
         }
 
-        const { status } = await statusResponse.json();
+        const { status, reason } = await statusResponse.json();
 
         const normalized = String(status || '').toLowerCase();
         if (normalized === 'paid' || normalized === 'authorized') {
@@ -326,7 +326,10 @@ export const PaymentModal = ({
         ) {
           clearInterval(checkInterval);
           setIsCheckingPayment(false);
-          toast('Pagamento recusado ou cancelado', 'error');
+          toast(
+            reason ? `Pagamento recusado/cancelado: ${String(reason)}` : 'Pagamento recusado ou cancelado',
+            'error'
+          );
           if (cancelAppointmentOnFailure) {
             await cancelAppointment();
           } else {

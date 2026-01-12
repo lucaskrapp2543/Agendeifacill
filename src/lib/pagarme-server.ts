@@ -805,11 +805,23 @@ export async function createPayment(
             })
           : null;
 
+    const isSubscriptionFlow = Boolean(paymentData.metadata && (paymentData.metadata as any).subscription_id);
+    const subscriptionName = isSubscriptionFlow
+      ? String(((paymentData.metadata as any).subscription_name || 'Assinatura') as any)
+      : '';
+
+    // Pagar.me exige `items[].code` (obrigatório). Usamos códigos estáveis e curtos.
+    const itemCode = isSubscriptionFlow ? 'ASSINATURA' : 'AGENDAMENTO';
+    const itemDescription = isSubscriptionFlow
+      ? `Assinatura - ${subscriptionName || 'Plano'}`
+      : 'Pagamento de agendamento';
+
     const requestBody = {
       items: [
         {
+          code: itemCode,
           amount: paymentData.amount,
-          description: 'Pagamento de agendamento',
+          description: itemDescription,
           quantity: 1,
           // Split fica no payment (payments[0].split). Não enviar split no item para evitar inconsistências.
         },
@@ -913,7 +925,7 @@ export async function createPayment(
  * @param orderId - ID da ordem na Pagar.me
  * @returns Status do pagamento
  */
-export async function checkPaymentStatus(orderId: string): Promise<{ status: string }> {
+export async function checkPaymentStatus(orderId: string): Promise<{ status: string; reason?: string; details?: any }> {
   validateApiKey();
 
   const client = createPagarMeClient();
@@ -932,11 +944,36 @@ export async function checkPaymentStatus(orderId: string): Promise<{ status: str
       throw error;
     }
 
-    const data = result.data;
-    const charge = data.charges?.[0];
-    
-    return { 
-      status: charge?.status || data.status || 'unknown' 
+    const data = result.data || {};
+    const charge = data.charges?.[0] || {};
+    const lastTx = charge?.last_transaction || {};
+
+    const status = String(charge?.status || data.status || 'unknown');
+
+    // Tentar extrair motivo de recusa/cancelamento (quando houver)
+    const reason =
+      lastTx?.acquirer_message ||
+      lastTx?.acquirer_response ||
+      lastTx?.refusal_reason ||
+      lastTx?.refuse_reason ||
+      lastTx?.status_reason ||
+      lastTx?.gateway_response?.errors?.[0]?.message ||
+      undefined;
+
+    const details =
+      reason
+        ? {
+            acquirer_code: lastTx?.acquirer_code || lastTx?.acquirer_return_code || lastTx?.acquirer_return_code?.code,
+            acquirer_message: lastTx?.acquirer_message,
+            type: lastTx?.type,
+            status: lastTx?.status,
+          }
+        : undefined;
+
+    return {
+      status,
+      ...(reason ? { reason: String(reason) } : {}),
+      ...(details ? { details } : {}),
     };
   } catch (error: any) {
     console.error('❌ Erro ao verificar status do pagamento:', error);
