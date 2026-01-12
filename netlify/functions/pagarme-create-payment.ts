@@ -8,7 +8,7 @@ export const handler: Handler = async (event) => {
   }
 
   const body = parseJsonBody<any>(event) || {};
-  const { amount, payment_method, customer, split_rules, metadata, card, card_token } = body;
+  const { amount, payment_method, customer, split_rules, metadata, card, card_token, billing_address } = body;
 
   if (!amount || !payment_method || !customer?.name) {
     return json(400, {
@@ -124,6 +124,7 @@ export const handler: Handler = async (event) => {
         ? {
             // Preferência: token gerado no frontend (pk_ via /tokens?appId=...)
             card_token: String(card_token || '').trim() || undefined,
+            billing_address: billing_address || undefined,
             // Fallback (antigo): dados do cartão (servidor tokeniza via ek_ se configurado)
             ...(card?.number || card?.holder_name
               ? {

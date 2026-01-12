@@ -482,6 +482,7 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       metadata,
       card,
       card_token,
+      billing_address,
     } = req.body;
 
     console.log('💳 [create-payment] Requisição recebida:', {
@@ -641,6 +642,7 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
         ? {
             // Preferência: token gerado no frontend (pk_ via /tokens?appId=...)
             card_token: String(card_token || '').trim() || undefined,
+            billing_address: billing_address || undefined,
             // Fallback (antigo): dados do cartão (servidor tokeniza via ek_ se configurado)
             ...(card?.number || card?.holder_name
               ? {

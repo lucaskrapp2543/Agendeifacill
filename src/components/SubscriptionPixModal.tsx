@@ -42,6 +42,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [cardExpMonth, setCardExpMonth] = useState('');
   const [cardExpYear, setCardExpYear] = useState('');
   const [cardCvv, setCardCvv] = useState('');
+  const [billingCep, setBillingCep] = useState('');
+  const [billingRua, setBillingRua] = useState('');
+  const [billingNumero, setBillingNumero] = useState('');
+  const [billingBairro, setBillingBairro] = useState('');
+  const [billingCidade, setBillingCidade] = useState('');
+  const [billingUf, setBillingUf] = useState('');
   const countdownRef = useRef<number | null>(null);
   const [expiresInSeconds, setExpiresInSeconds] = useState(90);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
@@ -320,6 +326,30 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       return;
     }
 
+    const cepDigits = String(billingCep || '').replace(/\D/g, '');
+    const uf = String(billingUf || '').trim().toUpperCase();
+    const cidade = String(billingCidade || '').trim();
+    const rua = String(billingRua || '').trim();
+    const numero = String(billingNumero || '').trim();
+    const bairro = String(billingBairro || '').trim();
+
+    if (cepDigits.length !== 8) {
+      toast.error('Informe um CEP válido (8 dígitos) para o endereço de cobrança.');
+      return;
+    }
+    if (!rua || !numero) {
+      toast.error('Informe rua e número do endereço de cobrança.');
+      return;
+    }
+    if (!cidade) {
+      toast.error('Informe a cidade do endereço de cobrança.');
+      return;
+    }
+    if (!uf || uf.length !== 2) {
+      toast.error('Informe a UF do endereço de cobrança (2 letras, ex: SC).');
+      return;
+    }
+
     setSelectedMethod('credit_card');
     setIsProcessing(true);
     setPixQrCode('');
@@ -334,6 +364,14 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         cvv: cvvDigits,
         holder_document: cpfDigits,
       });
+
+      const billingAddress = {
+        line_1: bairro ? `${rua}, ${numero} - ${bairro}` : `${rua}, ${numero}`,
+        zip_code: cepDigits,
+        city: cidade,
+        state: uf,
+        country: 'BR',
+      };
 
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 25000);
@@ -350,6 +388,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           amount: amountInCents,
           payment_method: 'credit_card',
           card_token: cardToken,
+          billing_address: billingAddress,
           customer: {
             name: nome.trim(),
             email: email?.trim() || undefined,
@@ -636,6 +675,75 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                       placeholder="123"
                       inputMode="numeric"
                     />
+                  </div>
+                </div>
+
+                <div className="mt-2 border-t border-gray-800 pt-3 space-y-3">
+                  <p className="text-sm text-gray-200 font-semibold">Endereço de cobrança (obrigatório no cartão)</p>
+
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-1">CEP</label>
+                    <input
+                      value={billingCep}
+                      onChange={(e) => setBillingCep(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="Somente números"
+                      inputMode="numeric"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-1">Rua</label>
+                    <input
+                      value={billingRua}
+                      onChange={(e) => setBillingRua(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="Rua/Avenida"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-1">Número</label>
+                      <input
+                        value={billingNumero}
+                        onChange={(e) => setBillingNumero(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="Nº"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-1">Bairro (opcional)</label>
+                      <input
+                        value={billingBairro}
+                        onChange={(e) => setBillingBairro(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="Bairro"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-1">Cidade</label>
+                      <input
+                        value={billingCidade}
+                        onChange={(e) => setBillingCidade(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="Cidade"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-1">Estado (UF)</label>
+                      <input
+                        value={billingUf}
+                        onChange={(e) => setBillingUf(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="Ex: SC / SP / RJ"
+                        maxLength={2}
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">UF = sigla do estado (2 letras).</p>
+                    </div>
                   </div>
                 </div>
 

@@ -270,6 +270,17 @@ export interface CreatePaymentRequest {
    * Quando presente, evita a necessidade de tokenizar no servidor (ek_).
    */
   card_token?: string;
+  /**
+   * Endereço de cobrança (billing) — exigido para cartão em várias contas Pagar.me.
+   * Campos mínimos comuns: line_1, zip_code, city, state, country.
+   */
+  billing_address?: {
+    line_1: string;
+    zip_code: string;
+    city: string;
+    state: string; // UF (2 letras) em BR
+    country: string; // "BR"
+  };
   // Dados do cartão (quando payment_method = credit_card/debit_card)
   card?: {
     number: string;
@@ -805,6 +816,45 @@ export async function createPayment(
             })
           : null;
 
+    // Billing é obrigatório para cartão em muitas integrações (erro: billing.value is required).
+    const billingAddress =
+      isCardMethod && paymentData.billing_address
+        ? {
+            line_1: String(paymentData.billing_address.line_1 || '').trim(),
+            zip_code: String(paymentData.billing_address.zip_code || '').replace(/\D/g, ''),
+            city: String(paymentData.billing_address.city || '').trim(),
+            state: String(paymentData.billing_address.state || '').trim().toUpperCase(),
+            country: String(paymentData.billing_address.country || 'BR').trim().toUpperCase(),
+          }
+        : null;
+
+    if (isCardMethod) {
+      if (!billingAddress?.zip_code || billingAddress.zip_code.length !== 8) {
+        const error: any = new Error('Endereço de cobrança inválido: informe um CEP válido (8 dígitos).');
+        error.name = 'PagarMeError';
+        error.__capturedDetails = { step: 'validate_billing_address', missing: 'zip_code' };
+        throw error;
+      }
+      if (!billingAddress?.line_1) {
+        const error: any = new Error('Endereço de cobrança inválido: informe rua e número.');
+        error.name = 'PagarMeError';
+        error.__capturedDetails = { step: 'validate_billing_address', missing: 'line_1' };
+        throw error;
+      }
+      if (!billingAddress?.city) {
+        const error: any = new Error('Endereço de cobrança inválido: informe a cidade.');
+        error.name = 'PagarMeError';
+        error.__capturedDetails = { step: 'validate_billing_address', missing: 'city' };
+        throw error;
+      }
+      if (!billingAddress?.state || billingAddress.state.length !== 2) {
+        const error: any = new Error('Endereço de cobrança inválido: informe a UF (2 letras, ex: SC).');
+        error.name = 'PagarMeError';
+        error.__capturedDetails = { step: 'validate_billing_address', missing: 'state' };
+        throw error;
+      }
+    }
+
     const isSubscriptionFlow = Boolean(paymentData.metadata && (paymentData.metadata as any).subscription_id);
     const subscriptionName = isSubscriptionFlow
       ? String(((paymentData.metadata as any).subscription_name || 'Assinatura') as any)
@@ -840,12 +890,14 @@ export async function createPayment(
               installments: 1,
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
+              ...(billingAddress ? { billing_address: billingAddress } : {}),
             },
           }),
           ...(paymentData.payment_method === 'debit_card' && {
             debit_card: {
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
+              ...(billingAddress ? { billing_address: billingAddress } : {}),
             },
           }),
           ...(splitForPagarme ? { split: splitForPagarme } : {}),

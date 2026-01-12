@@ -40,6 +40,11 @@ Exemplos:
 
 Sem isso, a tokenização pode falhar.
 
+## Cartão exige endereço de cobrança (billing)
+
+Na Pagar.me, pagamentos com **Cartão** podem exigir **endereço de cobrança**.
+No sistema, isso aparece como campos de **CEP / Rua / Número / Cidade / UF** quando o cliente escolhe “Cartão”.
+
 ## Onde pegar a `VITE_PAGARME_PUBLIC_KEY`
 
 - No painel da Pagar.me, em **Configurações → Chaves**, copie a **Chave pública** que começa com `pk_`.
