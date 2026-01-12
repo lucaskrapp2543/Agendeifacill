@@ -1,6 +1,7 @@
-import { CheckCircle2, Loader2, MessageCircle, QrCode, X } from 'lucide-react';
+import { CheckCircle2, CreditCard, Loader2, MessageCircle, QrCode, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
 
 type SubscriptionPixModalProps = {
   isOpen: boolean;
@@ -26,6 +27,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   establishmentWhatsapp,
   subscription,
 }) => {
+  const [selectedMethod, setSelectedMethod] = useState<'pix' | 'credit_card' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [pixQrCode, setPixQrCode] = useState('');
@@ -35,6 +37,11 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [nome, setNome] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [email, setEmail] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardHolderName, setCardHolderName] = useState('');
+  const [cardExpMonth, setCardExpMonth] = useState('');
+  const [cardExpYear, setCardExpYear] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
   const countdownRef = useRef<number | null>(null);
   const [expiresInSeconds, setExpiresInSeconds] = useState(90);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
@@ -44,6 +51,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     // reset básico ao abrir
+    setSelectedMethod(null);
     setIsProcessing(false);
     setIsCheckingPayment(false);
     setPixQrCode('');
@@ -78,7 +86,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  const checkPaymentStatusPeriodically = async (orderId: string) => {
+  const checkPaymentStatusPeriodically = async (orderId: string, provider: 'pagarme_pix' | 'pagarme_card') => {
     const maxAttempts = 60;
     let attempts = 0;
     const interval = window.setInterval(async () => {
@@ -108,6 +116,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 orderId,
                 establishmentId,
                 subscriptionId: subscription.id,
+                provider,
                 customer: {
                   name: nome.trim(),
                   whatsapp: whatsapp,
@@ -182,6 +191,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       return;
     }
 
+    setSelectedMethod('pix');
     setIsProcessing(true);
     setPixQrCode('');
     setPixQrCodeUrl('');
@@ -244,13 +254,179 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       setExpiresInSeconds(safeExpiresIn);
       setRemainingSeconds(safeExpiresIn);
       setIsCheckingPayment(true);
-      checkPaymentStatusPeriodically(result.id);
+      checkPaymentStatusPeriodically(result.id, 'pagarme_pix');
     } catch (err: any) {
       const isAbort = err?.name === 'AbortError';
       toast.error(
         isAbort
           ? 'O servidor de pagamentos demorou demais para responder. Tente novamente.'
           : `Erro ao gerar PIX: ${err?.message || 'Erro desconhecido'}`
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePayWithCard = async () => {
+    if (!String(recipientId || '').trim()) {
+      toast.error('Este estabelecimento ainda não configurou o recebedor da Pagar.me.');
+      return;
+    }
+    if (!amountInCents || amountInCents <= 0) {
+      toast.error('Valor da assinatura inválido.');
+      return;
+    }
+
+    const cpfDigits = String(cpf || '').replace(/\D/g, '');
+    if (cpfDigits.length !== 11) {
+      toast.error('Informe um CPF válido (11 dígitos).');
+      return;
+    }
+    if (!nome.trim()) {
+      toast.error('Informe seu nome.');
+      return;
+    }
+    const phoneDigits = String(whatsapp || '').replace(/\D/g, '');
+    if (phoneDigits.length < 10) {
+      toast.error('Informe um WhatsApp válido (com DDD).');
+      return;
+    }
+
+    const numberDigits = String(cardNumber || '').replace(/\D/g, '');
+    const expMonthDigits = String(cardExpMonth || '').replace(/\D/g, '');
+    const expYearDigits = String(cardExpYear || '').replace(/\D/g, '');
+    const cvvDigits = String(cardCvv || '').replace(/\D/g, '');
+    const holder = String(cardHolderName || '').trim();
+
+    if (numberDigits.length < 13 || numberDigits.length > 19) {
+      toast.error('Número do cartão inválido.');
+      return;
+    }
+    const monthNum = Number(expMonthDigits);
+    if (!Number.isFinite(monthNum) || monthNum < 1 || monthNum > 12) {
+      toast.error('Mês de validade inválido (1 a 12).');
+      return;
+    }
+    if (!expYearDigits || expYearDigits.length < 2) {
+      toast.error('Ano de validade inválido.');
+      return;
+    }
+    if (cvvDigits.length < 3 || cvvDigits.length > 4) {
+      toast.error('CVV inválido.');
+      return;
+    }
+    if (!holder) {
+      toast.error('Informe o nome do titular do cartão.');
+      return;
+    }
+
+    setSelectedMethod('credit_card');
+    setIsProcessing(true);
+    setPixQrCode('');
+    setPixQrCodeUrl('');
+
+    try {
+      const cardToken = await criarTokenCartaoPagarme({
+        number: numberDigits,
+        holder_name: holder,
+        exp_month: String(monthNum).padStart(2, '0'),
+        exp_year: expYearDigits,
+        cvv: cvvDigits,
+        holder_document: cpfDigits,
+      });
+
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 25000);
+
+      const createPaymentUrl = import.meta.env.PROD
+        ? '/.netlify/functions/pagarme-create-payment'
+        : '/api/pagarme/create-payment';
+
+      const response = await fetch(createPaymentUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          amount: amountInCents,
+          payment_method: 'credit_card',
+          card_token: cardToken,
+          customer: {
+            name: nome.trim(),
+            email: email?.trim() || undefined,
+            document: cpfDigits,
+            phone: phoneDigits,
+          },
+          split_rules: [
+            {
+              recipient_id: recipientId,
+              amount: amountInCents,
+              type: 'flat',
+              liable: true,
+              charge_processing_fee: false,
+            },
+          ],
+          metadata: {
+            establishment_id: establishmentId,
+            subscription_id: subscription.id,
+            subscription_name: subscription.name,
+          },
+        }),
+      });
+
+      window.clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
+        const msg = errorData.userMessage || errorData.error || `Erro ${response.status}`;
+        throw new Error(msg);
+      }
+
+      const result = await response.json();
+
+      // Cartão geralmente não tem QR; confirmamos por status/polling
+      const normalized = String(result?.status || '').toLowerCase();
+      if (normalized === 'paid' || normalized === 'authorized') {
+        await (async () => {
+          const confirmUrl = import.meta.env.PROD
+            ? '/.netlify/functions/subscription-confirm-pix'
+            : '/api/subscribers/confirm-subscription-pix';
+
+          const resp = await fetch(confirmUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: result.id,
+              establishmentId,
+              subscriptionId: subscription.id,
+              provider: 'pagarme_card',
+              customer: {
+                name: nome.trim(),
+                whatsapp: whatsapp,
+                email: email?.trim() || undefined,
+                document: cpfDigits,
+              },
+            }),
+          });
+
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            const msg = err?.error || `Erro ${resp.status}`;
+            throw new Error(msg);
+          }
+        })();
+
+        setIsPaid(true);
+        return;
+      }
+
+      setIsCheckingPayment(true);
+      checkPaymentStatusPeriodically(result.id, 'pagarme_card');
+    } catch (err: any) {
+      const isAbort = err?.name === 'AbortError';
+      toast.error(
+        isAbort
+          ? 'O servidor de pagamentos demorou demais para responder. Tente novamente.'
+          : `Erro ao pagar com cartão: ${err?.message || 'Erro desconhecido'}`
       );
     } finally {
       setIsProcessing(false);
@@ -265,7 +441,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <QrCode className="h-5 w-5" />
-            Assinatura via PIX
+            Assinatura
           </h2>
           {!isProcessing && (
             <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
@@ -372,20 +548,116 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
               />
             </div>
 
-            <button
-              onClick={handleGeneratePix}
-              disabled={isProcessing}
-              className="w-full mt-2 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Gerando PIX...
-                </>
-              ) : (
-                'Gerar PIX'
-              )}
-            </button>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                onClick={handleGeneratePix}
+                disabled={isProcessing}
+                className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isProcessing && selectedMethod === 'pix' ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Gerando...
+                  </>
+                ) : (
+                  <>
+                    <QrCode className="h-5 w-5" />
+                    PIX
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => setSelectedMethod('credit_card')}
+                disabled={isProcessing}
+                className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <CreditCard className="h-5 w-5" />
+                Cartão
+              </button>
+            </div>
+
+            {selectedMethod === 'credit_card' ? (
+              <div className="mt-3 space-y-3 border-t border-gray-800 pt-3">
+                <div className="bg-green-600/10 border border-green-500/30 rounded-lg p-3">
+                  <p className="text-sm text-green-200">
+                    Cartão usa tokenização segura (Pagar.me). O número do cartão não vai para o servidor.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Número do cartão</label>
+                  <input
+                    value={cardNumber}
+                    onChange={(e) => setCardNumber(e.target.value)}
+                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="0000 0000 0000 0000"
+                    inputMode="numeric"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Nome do titular</label>
+                  <input
+                    value={cardHolderName}
+                    onChange={(e) => setCardHolderName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Como está no cartão"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1">
+                    <label className="block text-sm text-gray-300 mb-1">Mês</label>
+                    <input
+                      value={cardExpMonth}
+                      onChange={(e) => setCardExpMonth(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="MM"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-sm text-gray-300 mb-1">Ano</label>
+                    <input
+                      value={cardExpYear}
+                      onChange={(e) => setCardExpYear(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="AA ou AAAA"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-sm text-gray-300 mb-1">CVV</label>
+                    <input
+                      value={cardCvv}
+                      onChange={(e) => setCardCvv(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="123"
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handlePayWithCard}
+                  disabled={isProcessing || isCheckingPayment}
+                  className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isProcessing && selectedMethod === 'credit_card' ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Processando...
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="h-5 w-5" />
+                      Pagar com Cartão
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="space-y-4">

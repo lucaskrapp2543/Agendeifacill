@@ -263,6 +263,13 @@ export interface CreatePaymentRequest {
     charge_remainder_fee?: boolean;
   }>;
   metadata?: Record<string, string>;
+  /**
+   * Token do cartão gerado no FRONTEND (Core v5 /tokens?appId=pk_...).
+   * Ex: "token_xxxxx" (como retorna na doc).
+   *
+   * Quando presente, evita a necessidade de tokenizar no servidor (ek_).
+   */
+  card_token?: string;
   // Dados do cartão (quando payment_method = credit_card/debit_card)
   card?: {
     number: string;
@@ -775,23 +782,28 @@ export async function createPayment(
         }))
       : undefined;
 
-    // Cartão: gerar token (quando card existir)
+    // Cartão: usar token enviado pelo frontend (preferencial) OU gerar token no servidor (fallback)
     const normalizeExpYear = (yy: string) => {
       const digits = String(yy || '').replace(/\D/g, '');
       if (digits.length === 2) return `20${digits}`;
       return digits;
     };
 
+    const isCardMethod = paymentData.payment_method === 'credit_card' || paymentData.payment_method === 'debit_card';
+    const cardTokenFromClient = isCardMethod ? String(paymentData.card_token || '').trim() : '';
+
     const cardToken =
-      (paymentData.payment_method === 'credit_card' || paymentData.payment_method === 'debit_card') && paymentData.card
-        ? await createCardToken(client, {
-            number: String(paymentData.card.number || '').replace(/\D/g, ''),
-            holder_name: String(paymentData.card.holder_name || '').trim(),
-            exp_month: String(paymentData.card.exp_month || '').replace(/\D/g, ''),
-            exp_year: normalizeExpYear(String(paymentData.card.exp_year || '')),
-            cvv: String(paymentData.card.cvv || '').replace(/\D/g, ''),
-          })
-        : null;
+      isCardMethod && cardTokenFromClient
+        ? cardTokenFromClient
+        : isCardMethod && paymentData.card
+          ? await createCardToken(client, {
+              number: String(paymentData.card.number || '').replace(/\D/g, ''),
+              holder_name: String(paymentData.card.holder_name || '').trim(),
+              exp_month: String(paymentData.card.exp_month || '').replace(/\D/g, ''),
+              exp_year: normalizeExpYear(String(paymentData.card.exp_year || '')),
+              cvv: String(paymentData.card.cvv || '').replace(/\D/g, ''),
+            })
+          : null;
 
     const requestBody = {
       items: [

@@ -9,9 +9,10 @@
 # Core v5 (server)
 PAGARME_SECRET_KEY=SUA_PAGARME_SECRET_KEY_AQUI
 
-# Encryption Key (pública) — necessária para tokenizar cartão (/tokens)
-# Sem isso, cartão vai falhar com "The request is invalid" / "Cartão indisponível"
-PAGARME_ENCRYPTION_KEY=SUA_PAGARME_ENCRYPTION_KEY_AQUI
+# (Opcional) Encryption Key — só é necessária se você for tokenizar cartão NO SERVIDOR.
+# Neste projeto, a tokenização do cartão é feita no FRONTEND usando pk_ (appId) e domínio permitido.
+# Se você não quiser usar tokenização no servidor, pode deixar sem.
+#PAGARME_ENCRYPTION_KEY=SUA_PAGARME_ENCRYPTION_KEY_AQUI
 
 # Split (plataforma)
 PAGARME_PLATFORM_RECIPIENT_ID=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -21,8 +22,26 @@ PLATFORM_FEE_CENTS=50
 PIX_EXPIRES_IN_SECONDS=90
 ```
 
-## Onde pegar a `PAGARME_ENCRYPTION_KEY`
+## Frontend (Vite)
 
-- No painel da Pagar.me, procure por **API Keys / Chaves de API** e copie a **Encryption Key** (chave pública).
+```bash
+# Chave pública (pk_) usada para tokenizar cartão no navegador (endpoint /tokens?appId=...)
+VITE_PAGARME_PUBLIC_KEY=pk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+## Domínios permitidos (IMPORTANTE para tokenização)
+
+No painel da Pagar.me, em **Configurações → Conta → Domínios**, cadastre o(s) seu(s) domínio(s) do site.
+
+Exemplos:
+- Produção: `https://agendeifacil.com` e `https://www.agendeifacil.com`
+- Se usar .com.br: `https://agendeifacil.com.br` e `https://www.agendeifacil.com.br`
+- Localhost (para testar): `http://localhost:5173`
+
+Sem isso, a tokenização pode falhar.
+
+## Onde pegar a `VITE_PAGARME_PUBLIC_KEY`
+
+- No painel da Pagar.me, em **Configurações → Chaves**, copie a **Chave pública** que começa com `pk_`.
 
 

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useToast } from './ui/Toaster';
 // Import removido - agora usa API Routes
 import { supabase } from '../lib/supabase';
+import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -60,19 +61,11 @@ export const PaymentModal = ({
   const handlePayment = async (method: PaymentMethod) => {
     if (!method) return;
 
-    // Cartão desativado temporariamente (até liberação/chaves necessárias)
-    if (method === 'credit_card' || method === 'debit_card') {
-      toast('Cartão temporariamente indisponível. Use PIX por enquanto.', 'error');
+    // CPF/CNPJ costuma ser exigido na Pagar.me (PIX e cartão)
+    const docDigits = String(cpfCliente || '').replace(/\D/g, '');
+    if (!(docDigits.length === 11 || docDigits.length === 14)) {
+      toast('Informe um CPF (11) ou CNPJ (14) válido para continuar.', 'error');
       return;
-    }
-
-    // PIX costuma exigir CPF do cliente na Pagar.me
-    if (method === 'pix') {
-      const cpfDigits = String(cpfCliente || '').replace(/\D/g, '');
-      if (cpfDigits.length !== 11) {
-        toast('Informe um CPF válido (11 dígitos) para gerar o PIX.', 'error');
-        return;
-      }
     }
 
     // ✅ IMPORTANTE: sem isso o modal não muda de tela (fica preso na seleção)
@@ -82,6 +75,52 @@ export const PaymentModal = ({
     setPixQrCodeUrl('');
 
     try {
+      // Se for cartão, tokenizar no FRONTEND (pk_ via /tokens?appId=...)
+      let cardToken: string | undefined = undefined;
+      if (method === 'credit_card' || method === 'debit_card') {
+        const numberDigits = String(cardNumber || '').replace(/\D/g, '');
+        const expMonthDigits = String(cardExpMonth || '').replace(/\D/g, '');
+        const expYearDigits = String(cardExpYear || '').replace(/\D/g, '');
+        const cvvDigits = String(cardCvv || '').replace(/\D/g, '');
+        const holder = String(cardHolderName || '').trim();
+
+        if (numberDigits.length < 13 || numberDigits.length > 19) {
+          toast('Número do cartão inválido.', 'error');
+          setIsProcessing(false);
+          return;
+        }
+        const monthNum = Number(expMonthDigits);
+        if (!Number.isFinite(monthNum) || monthNum < 1 || monthNum > 12) {
+          toast('Mês de validade inválido (1 a 12).', 'error');
+          setIsProcessing(false);
+          return;
+        }
+        if (!expYearDigits || expYearDigits.length < 2) {
+          toast('Ano de validade inválido.', 'error');
+          setIsProcessing(false);
+          return;
+        }
+        if (cvvDigits.length < 3 || cvvDigits.length > 4) {
+          toast('CVV inválido.', 'error');
+          setIsProcessing(false);
+          return;
+        }
+        if (!holder) {
+          toast('Informe o nome do titular do cartão.', 'error');
+          setIsProcessing(false);
+          return;
+        }
+
+        cardToken = await criarTokenCartaoPagarme({
+          number: numberDigits,
+          holder_name: holder,
+          exp_month: String(monthNum).padStart(2, '0'),
+          exp_year: expYearDigits,
+          cvv: cvvDigits,
+          holder_document: docDigits,
+        });
+      }
+
       // Timeout no frontend para não ficar preso se o servidor travar
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 25000);
@@ -100,10 +139,11 @@ export const PaymentModal = ({
         body: JSON.stringify({
           amount: amountInCents, // Valor já em centavos
           payment_method: method,
+          ...(cardToken ? { card_token: cardToken } : {}),
           customer: {
             name: customerData.name,
             email: customerData.email,
-            document: String(cpfCliente || customerData.document || '').replace(/\D/g, ''),
+            document: docDigits,
             phone: customerData.phone,
           },
           split_rules: [
@@ -455,6 +495,116 @@ export const PaymentModal = ({
                   <div className="text-white font-medium">PIX</div>
                   <div className="text-sm text-gray-400">Aprovação imediata</div>
                 </div>
+              </button>
+
+              <button
+                onClick={() => setSelectedMethod('credit_card')}
+                className="w-full p-4 bg-[#2a2b2c] border border-gray-600 rounded-lg hover:border-green-500 transition-colors flex items-center gap-3"
+              >
+                <Wallet className="h-6 w-6 text-green-400" />
+                <div className="flex-1 text-left">
+                  <div className="text-white font-medium">Cartão de Crédito</div>
+                  <div className="text-sm text-gray-400">Tokenização segura (Pagar.me)</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        ) : selectedMethod === 'credit_card' && !pixQrCode ? (
+          <div className="space-y-4">
+            <div className="bg-green-600/10 border border-green-500/30 rounded-lg p-3">
+              <p className="text-sm text-green-200">
+                Preencha os dados do cartão. O sistema gera um <strong>token</strong> e não envia o número do cartão para o servidor.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-4">
+                <label className="block text-sm text-gray-300 mb-2">CPF/CNPJ do pagador (obrigatório)</label>
+                <input
+                  value={cpfCliente}
+                  onChange={(e) => setCpfCliente(e.target.value)}
+                  placeholder="Somente números (CPF 11 / CNPJ 14)"
+                  className="w-full px-3 py-2 rounded-md bg-[#1a1b1c] border border-gray-600 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  inputMode="numeric"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Número do cartão</label>
+                <input
+                  value={cardNumber}
+                  onChange={(e) => setCardNumber(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="0000 0000 0000 0000"
+                  inputMode="numeric"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Nome do titular</label>
+                <input
+                  value={cardHolderName}
+                  onChange={(e) => setCardHolderName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Como está no cartão"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-1">
+                  <label className="block text-sm text-gray-300 mb-1">Mês</label>
+                  <input
+                    value={cardExpMonth}
+                    onChange={(e) => setCardExpMonth(e.target.value)}
+                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="MM"
+                    inputMode="numeric"
+                  />
+                </div>
+                <div className="col-span-1">
+                  <label className="block text-sm text-gray-300 mb-1">Ano</label>
+                  <input
+                    value={cardExpYear}
+                    onChange={(e) => setCardExpYear(e.target.value)}
+                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="AA ou AAAA"
+                    inputMode="numeric"
+                  />
+                </div>
+                <div className="col-span-1">
+                  <label className="block text-sm text-gray-300 mb-1">CVV</label>
+                  <input
+                    value={cardCvv}
+                    onChange={(e) => setCardCvv(e.target.value)}
+                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="123"
+                    inputMode="numeric"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={() => handlePayment('credit_card')}
+                disabled={isProcessing || isCheckingPayment}
+                className="w-full mt-1 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Processando...
+                  </>
+                ) : (
+                  `Pagar com Cartão (R$ ${amount.toFixed(2)})`
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMethod(null)}
+                disabled={isProcessing || isCheckingPayment}
+                className="w-full px-4 py-2 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-semibold transition-colors border border-gray-700 disabled:opacity-60"
+              >
+                Voltar
               </button>
             </div>
           </div>

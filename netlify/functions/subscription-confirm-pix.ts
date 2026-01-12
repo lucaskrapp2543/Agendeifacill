@@ -36,7 +36,7 @@ export const handler: Handler = async (event) => {
     });
 
     const body = event.body ? JSON.parse(event.body) : {};
-    const { orderId, establishmentId, subscriptionId, customer } = body || {};
+    const { orderId, establishmentId, subscriptionId, customer, provider } = body || {};
 
     const customerName = String(customer?.name || '').trim();
     const customerWhatsapp = onlyDigits(String(customer?.whatsapp || customer?.phone || ''));
@@ -85,6 +85,12 @@ export const handler: Handler = async (event) => {
       .limit(1)
       .maybeSingle();
 
+    const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
+    const providerFinal =
+      providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix'
+        ? providerNormalized
+        : 'pagarme_pix';
+
     const payload: any = {
       subscription_id: String(subscriptionId),
       establishment_id: String(establishmentId),
@@ -95,7 +101,7 @@ export const handler: Handler = async (event) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
-      subscription_payment_provider: 'pagarme_pix',
+      subscription_payment_provider: providerFinal,
       subscription_payment_order_id: String(orderId),
     };
 

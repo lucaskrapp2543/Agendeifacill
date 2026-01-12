@@ -97,7 +97,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       });
     }
 
-    const { orderId, establishmentId, subscriptionId, customer } = req.body || {};
+    const { orderId, establishmentId, subscriptionId, customer, provider } = req.body || {};
     const customerName = String(customer?.name || '').trim();
     const customerWhatsapp = onlyDigits(String(customer?.whatsapp || customer?.phone || ''));
     const customerEmail = String(customer?.email || '').trim() || null;
@@ -151,6 +151,12 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       console.warn('⚠️ Não foi possível checar assinatura existente:', existingErr);
     }
 
+    const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
+    const providerFinal =
+      providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix'
+        ? providerNormalized
+        : 'pagarme_pix';
+
     const payload: any = {
       subscription_id: String(subscriptionId),
       establishment_id: String(establishmentId),
@@ -163,7 +169,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
       // marcar origem do pagamento (para saldo de assinantes)
-      subscription_payment_provider: 'pagarme_pix',
+      subscription_payment_provider: providerFinal,
       subscription_payment_order_id: String(orderId),
     };
 
@@ -475,6 +481,7 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       split_rules,
       metadata,
       card,
+      card_token,
     } = req.body;
 
     console.log('💳 [create-payment] Requisição recebida:', {
@@ -485,6 +492,7 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       hasCustomerPhone: Boolean(customer?.phone),
       hasCustomerDocument: Boolean(customer?.document),
       hasCard: Boolean(card?.number || card?.holder_name),
+      hasCardToken: Boolean(String(card_token || '').trim()),
       recipientIdPreview: split_rules?.[0]?.recipient_id
         ? `${String(split_rules[0].recipient_id).slice(0, 6)}...${String(split_rules[0].recipient_id).slice(-4)}`
         : null,
@@ -631,13 +639,20 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       metadata,
       ...(payment_method === 'credit_card' || payment_method === 'debit_card'
         ? {
-            card: {
-              number: String(card?.number || '').replace(/\D/g, ''),
-              holder_name: String(card?.holder_name || '').trim(),
-              exp_month: String(card?.exp_month || '').replace(/\D/g, ''),
-              exp_year: String(card?.exp_year || '').replace(/\D/g, ''),
-              cvv: String(card?.cvv || '').replace(/\D/g, ''),
-            },
+            // Preferência: token gerado no frontend (pk_ via /tokens?appId=...)
+            card_token: String(card_token || '').trim() || undefined,
+            // Fallback (antigo): dados do cartão (servidor tokeniza via ek_ se configurado)
+            ...(card?.number || card?.holder_name
+              ? {
+                  card: {
+                    number: String(card?.number || '').replace(/\D/g, ''),
+                    holder_name: String(card?.holder_name || '').trim(),
+                    exp_month: String(card?.exp_month || '').replace(/\D/g, ''),
+                    exp_year: String(card?.exp_year || '').replace(/\D/g, ''),
+                    cvv: String(card?.cvv || '').replace(/\D/g, ''),
+                  },
+                }
+              : {}),
           }
         : {}),
     });
