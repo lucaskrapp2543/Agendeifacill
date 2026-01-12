@@ -885,21 +885,29 @@ export async function createPayment(
               expires_in: pixExpiresIn,
             },
           }),
+          // Billing: em algumas integrações, a validação usa billing.value (e não billing_address).
+          // Então enviamos billing nos 2 formatos.
+          ...(billingAddress
+            ? {
+                billing: {
+                  // compat: alguns validadores exigem "value"
+                  value: {
+                    name: paymentData.customer?.name,
+                    address: billingAddress,
+                  },
+                  // compat: outros esperam direto em billing.name/billing.address
+                  name: paymentData.customer?.name,
+                  address: billingAddress,
+                },
+              }
+            : {}),
+
           ...(paymentData.payment_method === 'credit_card' && {
             credit_card: {
               installments: 1,
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
-              // Algumas contas/rotas validam "billing" (e não apenas billing_address)
-              ...(billingAddress
-                ? {
-                    billing: {
-                      name: paymentData.customer?.name,
-                      address: billingAddress,
-                    },
-                  }
-                : {}),
             },
           }),
           ...(paymentData.payment_method === 'debit_card' && {
@@ -907,14 +915,6 @@ export async function createPayment(
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
-              ...(billingAddress
-                ? {
-                    billing: {
-                      name: paymentData.customer?.name,
-                      address: billingAddress,
-                    },
-                  }
-                : {}),
             },
           }),
           ...(splitForPagarme ? { split: splitForPagarme } : {}),
