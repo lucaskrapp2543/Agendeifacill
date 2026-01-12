@@ -1056,13 +1056,47 @@ export async function checkPaymentStatus(orderId: string): Promise<{ status: str
     const status = String(charge?.status || data.status || 'unknown');
 
     // Tentar extrair motivo de recusa/cancelamento (quando houver)
+    const gatewayMsg: string | undefined = lastTx?.gateway_response?.errors?.[0]?.message;
+    const antifraudRaw = lastTx?.antifraud_response || charge?.antifraud_response || {};
+    const antifraudStatusRaw =
+      antifraudRaw?.status ||
+      antifraudRaw?.antifraud_status ||
+      antifraudRaw?.result ||
+      antifraudRaw?.decision ||
+      '';
+    const antifraudStatus = String(antifraudStatusRaw || '').toLowerCase();
+
+    const acquirerMessage: string | undefined = lastTx?.acquirer_message;
+    const looksApprovedMessage =
+      typeof acquirerMessage === 'string' && acquirerMessage.toLowerCase().includes('aprovad');
+
+    // Se o banco "aprovou", mas o status final é failed/refused/canceled, isso costuma ser Antifraude.
+    const statusLower = status.toLowerCase();
+    const isFailedLike =
+      statusLower === 'failed' ||
+      statusLower === 'refused' ||
+      statusLower === 'canceled' ||
+      statusLower === 'cancelled' ||
+      statusLower === 'voided' ||
+      statusLower === 'not_authorized';
+
+    const antifraudIndicated =
+      Boolean(antifraudStatus) ||
+      (typeof gatewayMsg === 'string' && gatewayMsg.toLowerCase().includes('antifraud'));
+
     const reason =
-      lastTx?.acquirer_message ||
+      (isFailedLike && looksApprovedMessage && antifraudIndicated
+        ? `Recusado pelo antifraude${antifraudStatus ? ` (${antifraudStatus})` : ''}`
+        : undefined) ||
+      (isFailedLike && antifraudIndicated && antifraudStatus
+        ? `Recusado pelo antifraude (${antifraudStatus})`
+        : undefined) ||
+      gatewayMsg ||
+      acquirerMessage ||
       lastTx?.acquirer_response ||
       lastTx?.refusal_reason ||
       lastTx?.refuse_reason ||
       lastTx?.status_reason ||
-      lastTx?.gateway_response?.errors?.[0]?.message ||
       undefined;
 
     const details =
@@ -1072,6 +1106,8 @@ export async function checkPaymentStatus(orderId: string): Promise<{ status: str
             acquirer_message: lastTx?.acquirer_message,
             type: lastTx?.type,
             status: lastTx?.status,
+          antifraud_status: antifraudStatus || undefined,
+          gateway_error: gatewayMsg || undefined,
           }
         : undefined;
 
