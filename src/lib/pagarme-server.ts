@@ -911,6 +911,14 @@ export async function createPayment(
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
               ...(billingPayload ? { billing: billingPayload } : {}),
+              // Compat extra: algumas validações esperam o billing_address dentro de credit_card.card
+              ...(billingAddress
+                ? {
+                    card: {
+                      billing_address: billingAddress,
+                    },
+                  }
+                : {}),
             },
           }),
           ...(paymentData.payment_method === 'debit_card' && {
@@ -919,6 +927,13 @@ export async function createPayment(
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
               ...(billingPayload ? { billing: billingPayload } : {}),
+              ...(billingAddress
+                ? {
+                    card: {
+                      billing_address: billingAddress,
+                    },
+                  }
+                : {}),
             },
           }),
           ...(splitForPagarme ? { split: splitForPagarme } : {}),
@@ -936,6 +951,8 @@ export async function createPayment(
         credit_card_has_billing: Boolean(p0?.credit_card?.billing),
         debit_card_has_billing: Boolean(p0?.debit_card?.billing),
         credit_card_has_billing_address: Boolean(p0?.credit_card?.billing_address),
+        credit_card_has_card_billing_address: Boolean(p0?.credit_card?.card?.billing_address),
+        debit_card_has_card_billing_address: Boolean(p0?.debit_card?.card?.billing_address),
         zip_code: billingAddress?.zip_code,
         state: billingAddress?.state,
         city: billingAddress?.city,
