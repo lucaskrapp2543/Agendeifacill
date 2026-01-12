@@ -23,6 +23,10 @@ export const handler: Handler = async (event) => {
     monthlyIncome,
     professionalOccupation,
     address,
+    // Campos extras para CNPJ (corporation)
+    annualRevenue,
+    mainAddress,
+    managingPartners,
   } = body;
 
   if (!cpfCnpj || !bankName || !agency || !account || !legalName || !email || !phone) {
@@ -47,6 +51,9 @@ export const handler: Handler = async (event) => {
       monthlyIncome,
       professionalOccupation,
       address,
+      annualRevenue,
+      mainAddress,
+      managingPartners,
     });
 
     return json(200, result);

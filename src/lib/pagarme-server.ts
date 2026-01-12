@@ -215,7 +215,7 @@ export interface BankAccountData {
 export interface CreateRecipientRequest {
   bank_account: BankAccountData;
   transfer_enabled?: boolean;
-  transfer_interval?: 'Daily' | 'Weekly' | 'Monthly';
+  transfer_interval?: 'daily' | 'weekly' | 'monthly';
   transfer_day?: number;
   automatic_anticipation_enabled?: boolean;
 }
@@ -343,6 +343,26 @@ export async function createRecipient(
       complementary?: string;
       reference_point?: string;
     };
+    // Campos exigidos pela Pagar.me quando type = corporation (CNPJ)
+    annualRevenue?: number; // em centavos
+    mainAddress?: {
+      zip_code?: string;
+      street?: string;
+      street_number?: string;
+      neighborhood?: string;
+      city?: string;
+      state?: string;
+      country?: string;
+      complementary?: string;
+      reference_point?: string;
+    };
+    managingPartners?: Array<{
+      name: string;
+      email?: string;
+      document: string; // CPF do sócio
+      birthdate?: string; // YYYY-MM-DD ou DD/MM/YYYY
+      phone?: string;
+    }>;
   }
 ): Promise<{ recipient_id: string; errorDetails?: any }> {
   validateApiKey();
@@ -384,7 +404,10 @@ export async function createRecipient(
   }
 
   // Separar agência e dígito
-  const agencyParts = bankData.agency.replace(/\D/g, '');
+  // Preferir parsing explícito quando o usuário informa com hífen (ex: 1234-5)
+  const agencyInput = String(bankData.agency || '').trim();
+  const agencyHyphenMatch = agencyInput.match(/^\s*([0-9]+)\s*-\s*([0-9a-zA-Z])\s*$/);
+  const agencyParts = agencyInput.replace(/\D/g, '');
   let agency = agencyParts;
   let agencyDv: string | undefined = undefined;
   
@@ -392,6 +415,9 @@ export async function createRecipient(
   if (bankCode === '260') {
     agency = '0001';
     agencyDv = undefined;
+  } else if (agencyHyphenMatch) {
+    agency = agencyHyphenMatch[1].replace(/\D/g, '');
+    agencyDv = String(agencyHyphenMatch[2] || '').replace(/\W/g, '').slice(0, 1);
   } else if (agencyParts.length > 4) {
     // Para outros bancos, se tiver mais de 4 dígitos, o último pode ser o DV
     agency = agencyParts.slice(0, -1);
@@ -401,13 +427,19 @@ export async function createRecipient(
   console.log(`🏦 Agência processada: "${agency}" (DV: ${agencyDv || 'não informado'})`);
 
   // Separar conta e dígito
-  const accountParts = bankData.account.replace(/\D/g, '');
+  // Preferir parsing explícito quando o usuário informa com hífen (ex: 5089771-1)
+  const accountInput = String(bankData.account || '').trim();
+  const accountHyphenMatch = accountInput.match(/^\s*([0-9]+)\s*-\s*([0-9a-zA-Z])\s*$/);
+  const accountParts = accountInput.replace(/\D/g, '');
   let account = accountParts;
   let accountDv: string | undefined = undefined;
   
   // A Pagar.me v5 pode exigir o dígito verificador da conta (account_check_digit).
   // Para Nubank (260), normalmente o DV é o ÚLTIMO dígito da conta informada (ex.: 75828718-2).
-  if (bankCode === '260') {
+  if (accountHyphenMatch) {
+    account = accountHyphenMatch[1].replace(/\D/g, '');
+    accountDv = String(accountHyphenMatch[2] || '').replace(/\W/g, '').slice(0, 1);
+  } else if (bankCode === '260') {
     if (accountParts.length >= 2) {
       account = accountParts.slice(0, -1);
       accountDv = accountParts.slice(-1);
@@ -469,17 +501,22 @@ export async function createRecipient(
     );
   }
 
-  // ✅ Pagar.me v5 exige `default_bank_account`
+  // ✅ Pagar.me exige `default_bank_account`
   // Erro real retornado: "recipient.default_bank_account is required"
   //
   // Importante: os nomes dos campos aqui são os usados na API Core v5.
-  const holderType = documentNumber.length === 11 ? 'individual' : 'company';
+  // A Pagar.me valida:
+  // - register_information.type: 'individual' (CPF) | 'corporation' (CNPJ)
+  // - default_bank_account.holder_type: 'individual' (CPF) | 'company' (CNPJ)
+  const isCpf = documentNumber.length === 11;
+  const registerType: 'individual' | 'corporation' = isCpf ? 'individual' : 'corporation';
+  const bankHolderType: 'individual' | 'company' = isCpf ? 'individual' : 'company';
   const accountType =
     (bankData.accountType || 'conta_corrente') === 'conta_poupanca' ? 'savings' : 'checking';
 
   const defaultBankAccount: any = {
     holder_name: bankData.legalName,
-    holder_type: holderType,
+    holder_type: bankHolderType,
     holder_document: documentNumber,
     bank: bankCode,
     branch_number: agency,
@@ -500,7 +537,7 @@ export async function createRecipient(
     email: bankData.email,
     // A Pagar.me exige estes campos dentro de register_information também:
     document: documentNumber,
-    type: holderType,
+    type: registerType,
     phone_numbers: [
       {
         ddd: phoneDdd,
@@ -510,8 +547,100 @@ export async function createRecipient(
     ],
   };
 
+  // ✅ Para CNPJ (corporation), a Pagar.me exige company_name e trading_name em register_information
+  if (registerType === 'corporation') {
+    const legal = String(bankData.legalName || '').trim();
+    if (!legal) throw new Error('Nome do titular (banco) é obrigatório para criar o recebedor.');
+    // Limite visual no frontend já é 30 chars, mas garantimos aqui também.
+    const name30 = legal.slice(0, 30);
+    registerInformation.company_name = name30;
+    registerInformation.trading_name = name30;
+
+    // Campos obrigatórios adicionais para corporation
+    const annualRevenue = Number.isFinite(bankData.annualRevenue) ? Number(bankData.annualRevenue) : NaN;
+    if (!Number.isFinite(annualRevenue) || annualRevenue <= 0) {
+      throw new Error('Faturamento anual (CNPJ) é obrigatório e deve ser um valor válido.');
+    }
+    registerInformation.annual_revenue = annualRevenue;
+
+    const addr = bankData.mainAddress || {};
+    if (!addr.zip_code || !addr.street || !addr.street_number || !addr.neighborhood || !addr.city || !addr.state) {
+      throw new Error('Endereço da empresa é obrigatório (CEP, rua, número, bairro, cidade e UF).');
+    }
+    const uf = String(addr.state || '').trim().toUpperCase();
+    const ufsValidas = new Set([
+      'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO',
+    ]);
+    if (!ufsValidas.has(uf)) {
+      throw new Error('UF inválida (endereço da empresa). Use a sigla do estado (ex: SP, RJ, MG).');
+    }
+    registerInformation.main_address = {
+      country: (addr.country || 'BR').toString(),
+      state: uf,
+      city: addr.city?.toString(),
+      neighborhood: addr.neighborhood?.toString(),
+      street: addr.street?.toString(),
+      street_number: addr.street_number?.toString(),
+      zip_code: addr.zip_code?.toString(),
+      ...(addr.complementary ? { complementary: addr.complementary?.toString() } : {}),
+      ...(addr.reference_point ? { reference_point: addr.reference_point?.toString() } : {}),
+    };
+
+    const partners = Array.isArray(bankData.managingPartners) ? bankData.managingPartners : [];
+    if (!partners.length) {
+      throw new Error('É obrigatório informar pelo menos 1 sócio/administrador (CNPJ).');
+    }
+    const first = partners[0];
+    const partnerName = String(first?.name || '').trim();
+    const partnerDoc = String(first?.document || '').replace(/\D/g, '');
+    if (!partnerName) throw new Error('Nome do sócio/administrador é obrigatório.');
+    if (partnerDoc.length !== 11) throw new Error('CPF do sócio/administrador inválido (deve ter 11 dígitos).');
+
+    let partnerBirth = String(first?.birthdate || '').trim();
+    if (partnerBirth && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(partnerBirth)) {
+      const [yyyy, mm, dd] = partnerBirth.split('-');
+      partnerBirth = `${dd}/${mm}/${yyyy}`;
+    }
+    // Alguns cenários aceitam sem birthdate; se a Pagar.me exigir, ela vai retornar o erro e exibiremos na UI.
+
+    const partnerEmail = String(first?.email || bankData.email || '').trim();
+    const partnerPhoneRaw = String(first?.phone || bankData.phone || '').trim();
+    const partnerPhoneDigitsOriginal = partnerPhoneRaw.replace(/\D/g, '');
+    const partnerPhoneDigits =
+      partnerPhoneDigitsOriginal.startsWith('55') && partnerPhoneDigitsOriginal.length > 11
+        ? partnerPhoneDigitsOriginal.slice(2)
+        : partnerPhoneDigitsOriginal;
+    let pDdd: string | null = null;
+    let pNumber: string | null = null;
+    if (partnerPhoneDigits.length >= 10) {
+      pDdd = partnerPhoneDigits.slice(0, 2);
+      pNumber = partnerPhoneDigits.slice(2);
+    }
+
+    registerInformation.managing_partners = [
+      {
+        name: partnerName,
+        email: partnerEmail || undefined,
+        document: partnerDoc,
+        type: 'individual',
+        ...(partnerBirth ? { birthdate: partnerBirth } : {}),
+        ...(pDdd && pNumber
+          ? {
+              phone_numbers: [
+                {
+                  ddd: pDdd,
+                  number: pNumber,
+                  type: 'mobile',
+                },
+              ],
+            }
+          : {}),
+      },
+    ];
+  }
+
   // Quando o documento é CPF (individual), a Pagar.me exige dados adicionais de cadastro (KYC).
-  if (holderType === 'individual') {
+  if (registerType === 'individual') {
     const registerName = (bankData.registerName || '').trim();
     const birthdateRaw = (bankData.birthdate || '').trim();
     const monthlyIncome = Number.isFinite(bankData.monthlyIncome) ? Number(bankData.monthlyIncome) : NaN;
@@ -564,6 +693,7 @@ export async function createRecipient(
       throw new Error('UF inválida. Use a sigla do estado (ex: SP, RJ, MG).');
     }
 
+    // Para PF, a Pagar.me usa "name" no register_information
     registerInformation.name = registerName;
 
     // Pagar.me exige o formato dd/mm/aaaa para birthdate no register_information
@@ -605,7 +735,8 @@ export async function createRecipient(
       // A Pagar.me v5 valida `transfer_day` em função do intervalo:
       // - Daily  => transfer_day DEVE ser 0
       // - Weekly/Monthly => transfer_day é obrigatório e varia conforme o intervalo
-      transfer_interval: 'Daily',
+      // ⚠️ A API da Pagar.me costuma validar em lowercase: daily/weekly/monthly
+      transfer_interval: 'daily',
       transfer_day: 0,
     },
     automatic_anticipation_settings: {

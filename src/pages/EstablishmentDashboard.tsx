@@ -428,6 +428,11 @@ const EstablishmentDashboard = () => {
   const [pagarmeBirthdate, setPagarmeBirthdate] = useState(''); // YYYY-MM-DD
   const [pagarmeMonthlyIncome, setPagarmeMonthlyIncome] = useState(''); // em reais (input)
   const [pagarmeProfessionalOccupation, setPagarmeProfessionalOccupation] = useState('');
+  // Campos extras exigidos pela Pagar.me quando CNPJ (corporation)
+  const [pagarmeAnnualRevenue, setPagarmeAnnualRevenue] = useState(''); // em reais (input)
+  const [pagarmePartnerName, setPagarmePartnerName] = useState(''); // Sócio/administrador
+  const [pagarmePartnerCpf, setPagarmePartnerCpf] = useState(''); // CPF do sócio/administrador
+  const [pagarmePartnerBirthdate, setPagarmePartnerBirthdate] = useState(''); // YYYY-MM-DD
   // Endereço (Pagar.me)
   const [enderecoCep, setEnderecoCep] = useState('');
   const [enderecoRua, setEnderecoRua] = useState('');
@@ -1128,6 +1133,14 @@ const EstablishmentDashboard = () => {
   const [commissionDraft, setCommissionDraft] = useState<Record<string, string>>({});
   const [isSavingCommission, setIsSavingCommission] = useState(false);
 
+  // Venda avulsa de produto (sem agendamento)
+  const [showSellProductModal, setShowSellProductModal] = useState(false);
+  const [sellingProduct, setSellingProduct] = useState<EstablishmentProduct | null>(null);
+  const [sellProfessionalId, setSellProfessionalId] = useState<string>('');
+  const [sellQuantity, setSellQuantity] = useState<number>(1);
+  const [sellUnitPrice, setSellUnitPrice] = useState<string>(''); // em reais (input)
+  const [sellDate, setSellDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
+
   // Saldo por produtos (repasse do mês) por profissional
   const [productSaldoPorProfissional, setProductSaldoPorProfissional] = useState<Record<string, number>>({});
   const [isLoadingProductSaldoPorProfissional, setIsLoadingProductSaldoPorProfissional] = useState(false);
@@ -1291,6 +1304,42 @@ const EstablishmentDashboard = () => {
 
         saldoByProfessionalName[professionalName] = Math.round((saldoByProfessionalName[professionalName] + payout) * 100) / 100;
       });
+
+      // ✅ Somar também vendas avulsas do mês (product_sales)
+      const { data: avulsoData, error: avulsoError } = await supabase
+        .from('product_sales')
+        .select('product_id, quantity, unit_price, professional_id, professional_name, sold_at')
+        .eq('establishment_id', establishment.id)
+        .gte('sold_at', start.toISOString())
+        .lte('sold_at', end.toISOString());
+
+      if (avulsoError) {
+        console.error('Erro ao carregar vendas avulsas:', avulsoError);
+      } else {
+        (avulsoData || []).forEach((row: any) => {
+          const productId = String(row?.product_id || '');
+          const quantity = Number(row?.quantity || 0);
+          const unitPrice = Number(row?.unit_price || 0);
+          if (!productId || !Number.isFinite(quantity) || !Number.isFinite(unitPrice)) return;
+
+          const rawProfessionalId = String(row?.professional_id || '').trim();
+          const fallbackName = String(row?.professional_name || '').trim();
+          const professionalName =
+            professionalIdToName[rawProfessionalId] ||
+            fallbackName ||
+            (rawProfessionalId && saldoByProfessionalName[rawProfessionalId] !== undefined ? rawProfessionalId : '');
+          if (!professionalName) return;
+
+          const product = productById[productId];
+          const map = (product as any)?.commission_percentages || {};
+          const pct = Number(map?.[professionalName] ?? 0);
+          const safePct = Number.isFinite(pct) ? pct : 0;
+
+          const totalValue = Math.max(0, quantity * unitPrice);
+          const payout = Math.max(0, (totalValue * safePct) / 100);
+          saldoByProfessionalName[professionalName] = Math.round((saldoByProfessionalName[professionalName] + payout) * 100) / 100;
+        });
+      }
 
       setProductSaldoPorProfissional(saldoByProfessionalName);
     } catch (e) {
@@ -1561,6 +1610,25 @@ const EstablishmentDashboard = () => {
         }
       });
 
+      // ✅ Somar também vendas avulsas (product_sales) no período
+      const { data: avulsoSales, error: avulsoError } = await supabase
+        .from('product_sales')
+        .select('product_id, quantity, sold_at')
+        .eq('establishment_id', establishment.id)
+        .gte('sold_at', start.toISOString())
+        .lte('sold_at', end.toISOString());
+
+      if (avulsoError) {
+        console.error('Erro ao buscar vendas avulsas:', avulsoError);
+      } else {
+        (avulsoSales || []).forEach((s: any) => {
+          const pid = String(s?.product_id || '');
+          const qty = Number(s?.quantity || 0);
+          if (!pid || !Number.isFinite(qty) || qty <= 0) return;
+          salesByProduct[pid] = (salesByProduct[pid] || 0) + qty;
+        });
+      }
+
       console.log('📊 Vendas de produtos no período:', {
         month: month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
         salesByProduct
@@ -1628,8 +1696,10 @@ const EstablishmentDashboard = () => {
 
       console.log('🔍 DEBUG - Appointments encontrados (SEM filtro de establishment):', appointments);
 
-      // Filtrar por establishment após buscar
-      const filteredAppointments = appointments?.filter(apt => apt.establishment_id === establishment.id);
+      // Filtrar por establishment e status (só CONCLUÍDO) após buscar
+      const filteredAppointments = appointments?.filter(
+        (apt) => apt.establishment_id === establishment.id && apt.status === 'completed'
+      );
       console.log('🔍 DEBUG - Appointments filtrados por establishment:', filteredAppointments);
 
       if (appointmentsError) {
@@ -1702,6 +1772,40 @@ const EstablishmentDashboard = () => {
           console.log('🔍 DEBUG - Profissional não encontrado:', professionalName);
         }
       });
+
+      // ✅ 7. Somar vendas avulsas (product_sales) no período
+      const { data: avulsoSales, error: avulsoError } = await supabase
+        .from('product_sales')
+        .select('quantity, unit_price, professional_id, professional_name, sold_at')
+        .eq('establishment_id', establishment.id)
+        .eq('product_id', productId)
+        .gte('sold_at', start.toISOString())
+        .lte('sold_at', end.toISOString());
+
+      if (avulsoError) {
+        console.error('Erro ao buscar vendas avulsas por funcionário:', avulsoError);
+      } else {
+        (avulsoSales || []).forEach((sale: any) => {
+          const qty = Number(sale?.quantity || 0);
+          const unit = Number(sale?.unit_price || 0);
+          if (!Number.isFinite(qty) || qty <= 0) return;
+          const pid = String(sale?.professional_id || '').trim();
+          const pnameRaw = String(sale?.professional_name || '').trim();
+          const mappedName = pid && professionalIdToName[pid] ? professionalIdToName[pid] : '';
+          const professionalName = mappedName || pnameRaw || 'Funcionário não identificado';
+          if (!salesByProfessional[professionalName]) {
+            salesByProfessional[professionalName] = {
+              professional_name: professionalName,
+              total_quantity: 0,
+              total_value: 0,
+              sales_count: 0,
+            };
+          }
+          salesByProfessional[professionalName].total_quantity += qty;
+          salesByProfessional[professionalName].total_value += qty * unit;
+          salesByProfessional[professionalName].sales_count += 1;
+        });
+      }
 
       const result = Object.values(salesByProfessional);
       console.log('🔍 DEBUG - Resultado final (TODOS os funcionários):', result);
@@ -2015,6 +2119,116 @@ const EstablishmentDashboard = () => {
       toast('Erro ao remover produto do agendamento', 'error');
     }
   };
+
+  const handleOpenSellProductModal = useCallback(
+    (product: EstablishmentProduct) => {
+      if (!establishment?.id) return;
+      setSellingProduct(product);
+      setSellProfessionalId('');
+      setSellQuantity(1);
+      setSellUnitPrice(String(product.sale_price ?? '').replace('.', ','));
+      setSellDate(format(new Date(), 'yyyy-MM-dd'));
+      setShowSellProductModal(true);
+    },
+    [establishment?.id]
+  );
+
+  const handleConfirmSellProduct = useCallback(async () => {
+    if (!establishment?.id || !sellingProduct) return;
+
+    const profId = String(sellProfessionalId || '').trim();
+    if (!profId) {
+      toast.error('Selecione um profissional.');
+      return;
+    }
+
+    const qty = Number(sellQuantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast.error('Quantidade inválida.');
+      return;
+    }
+
+    if ((sellingProduct.stock_quantity ?? 0) < qty) {
+      toast.error('Estoque insuficiente para essa venda.');
+      return;
+    }
+
+    const rawPrice = String(sellUnitPrice || '').replace(/\./g, '').replace(',', '.');
+    const unit = Number(rawPrice);
+    if (!Number.isFinite(unit) || unit < 0) {
+      toast.error('Preço unitário inválido.');
+      return;
+    }
+
+    const soldAtIso = sellDate ? new Date(`${sellDate}T12:00:00`).toISOString() : new Date().toISOString();
+    const profName =
+      (establishment.professionals || []).find((p: any) => String(p?.id) === profId)?.name || '';
+
+    try {
+      const { error } = await supabase.from('product_sales').insert({
+        establishment_id: establishment.id,
+        product_id: sellingProduct.id,
+        professional_id: profId,
+        professional_name: String(profName || '').trim(),
+        quantity: qty,
+        unit_price: unit,
+        sold_at: soldAtIso,
+      });
+
+      if (error) {
+        console.error('Erro ao registrar venda avulsa:', error);
+        toast.error(`Erro ao vender: ${error.message || 'erro'}`);
+        return;
+      }
+
+      const { error: stockError } = await supabase
+        .from('establishment_products')
+        .update({
+          stock_quantity: Math.max(0, (sellingProduct.stock_quantity || 0) - qty),
+          sold_quantity: (sellingProduct.sold_quantity || 0) + qty,
+        })
+        .eq('id', sellingProduct.id);
+
+      if (stockError) {
+        console.error('Erro ao atualizar estoque após venda avulsa:', stockError);
+        toast.error('Venda registrada, mas falhou ao atualizar estoque. Atualize a página e confira.');
+      } else {
+        toast.success('Venda registrada com sucesso!');
+      }
+
+      setShowSellProductModal(false);
+      setSellingProduct(null);
+
+      // Atualizar listas e cálculos
+      await fetchProducts();
+      await fetchProductSalesByPeriod(selectedProductsMonth);
+      carregarSaldoProdutosPorProfissional();
+
+      // Garantir que o dropdown atual reflita a venda
+      if (selectedProductForSales === sellingProduct.id) {
+        const refreshed = await fetchProductSalesByProfessional(sellingProduct.id);
+        setProductSalesData((prev) => ({ ...prev, [sellingProduct.id]: refreshed }));
+      }
+    } catch (e: any) {
+      console.error('Erro ao vender produto:', e);
+      toast.error('Erro ao vender produto');
+    }
+  }, [
+    establishment?.id,
+    establishment?.professionals,
+    sellingProduct,
+    sellProfessionalId,
+    sellQuantity,
+    sellUnitPrice,
+    sellDate,
+    fetchProducts,
+    fetchProductSalesByPeriod,
+    selectedProductsMonth,
+    carregarSaldoProdutosPorProfissional,
+    fetchProductSalesByProfessional,
+    selectedProductForSales,
+    toast,
+  ]);
 
   // Funções para categorias de serviços
   const fetchServiceCategories = async () => {
@@ -4352,6 +4566,27 @@ Estamos te aguardando! 😎✂️`;
           useDraft && typeof draft?.pagarmeProfessionalOccupation === 'string'
             ? draft.pagarmeProfessionalOccupation
             : (registerInfo?.professional_occupation || '')
+        );
+        setPagarmeAnnualRevenue(() => {
+          if (useDraft && typeof draft?.pagarmeAnnualRevenue === 'string') return draft.pagarmeAnnualRevenue;
+          return typeof (registerInfo as any)?.annual_revenue === 'number'
+            ? String((((registerInfo as any).annual_revenue as number) / 100).toFixed(2)).replace('.', ',')
+            : '';
+        });
+        setPagarmePartnerName(
+          useDraft && typeof draft?.pagarmePartnerName === 'string'
+            ? draft.pagarmePartnerName
+            : (Array.isArray((registerInfo as any)?.managing_partners) ? (registerInfo as any).managing_partners?.[0]?.name || '' : '')
+        );
+        setPagarmePartnerCpf(
+          useDraft && typeof draft?.pagarmePartnerCpf === 'string'
+            ? draft.pagarmePartnerCpf
+            : (Array.isArray((registerInfo as any)?.managing_partners) ? (registerInfo as any).managing_partners?.[0]?.document || '' : '')
+        );
+        setPagarmePartnerBirthdate(
+          useDraft && typeof draft?.pagarmePartnerBirthdate === 'string'
+            ? draft.pagarmePartnerBirthdate
+            : (Array.isArray((registerInfo as any)?.managing_partners) ? (registerInfo as any).managing_partners?.[0]?.birthdateRaw || '' : '')
         );
 
         const addr = registerInfo?.address || {};
@@ -8210,6 +8445,36 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
     }
+    const isCnpj = docDigits.length === 14;
+    if (isCnpj) {
+      if (!pagarmeAnnualRevenue.trim()) {
+        toast.error('Informe o faturamento anual (CNPJ).');
+        return;
+      }
+      if (!pagarmePartnerName.trim()) {
+        toast.error('Informe o nome do sócio/administrador (CNPJ).');
+        return;
+      }
+      const partnerCpfDigits = pagarmePartnerCpf.replace(/\D/g, '');
+      if (partnerCpfDigits.length !== 11) {
+        toast.error('Informe um CPF válido do sócio/administrador (11 dígitos).');
+        return;
+      }
+
+      // Endereço da empresa é obrigatório para CNPJ (Pagar.me)
+      const uf = enderecoUf.trim().toUpperCase();
+      const ufsValidas = new Set([
+        'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO',
+      ]);
+      if (!enderecoCep.trim() || !enderecoRua.trim() || !enderecoNumero.trim() || !enderecoBairro.trim() || !enderecoCidade.trim() || !uf) {
+        toast.error('Preencha o endereço completo da empresa (CEP, rua, número, bairro, cidade e UF).');
+        return;
+      }
+      if (!ufsValidas.has(uf)) {
+        toast.error('UF inválida (endereço da empresa). Use a sigla do estado (ex: SP, RJ, MG).');
+        return;
+      }
+    }
 
     const currentRecipient = String((establishment as any)?.pagarme_recipient_id || '').trim();
     if (currentRecipient) {
@@ -8257,12 +8522,76 @@ Estamos te aguardando! 😎✂️`;
             complementary: enderecoComplemento.trim(),
             reference_point: enderecoPontoReferencia.trim(),
           },
+          // Campos extras (CNPJ)
+          annualRevenue: (() => {
+            const raw = String(pagarmeAnnualRevenue || '').replace(/\./g, '').replace(',', '.');
+            const n = Number(raw);
+            return Number.isFinite(n) ? Math.round(n * 100) : undefined;
+          })(),
+          mainAddress: {
+            zip_code: enderecoCep.trim(),
+            street: enderecoRua.trim(),
+            street_number: enderecoNumero.trim(),
+            neighborhood: enderecoBairro.trim(),
+            city: enderecoCidade.trim(),
+            state: enderecoUf.trim(),
+            country: 'BR',
+            complementary: enderecoComplemento.trim(),
+            reference_point: enderecoPontoReferencia.trim(),
+          },
+          managingPartners: [
+            {
+              name: pagarmePartnerName.trim(),
+              email: user.email,
+              document: pagarmePartnerCpf.trim(),
+              birthdate: pagarmePartnerBirthdate.trim(),
+              phone: establishment.whatsapp,
+            },
+          ],
         }),
       });
 
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        const msg = data?.userMessage || data?.error || 'Erro ao criar recebedor';
+        const details = data?.details;
+        const rawErrors = details?.errors;
+
+        // A API da Pagar.me às vezes retorna errors como:
+        // { "campo": ["mensagem1", "mensagem2"] }
+        const errorsFromObject =
+          rawErrors && typeof rawErrors === 'object' && !Array.isArray(rawErrors)
+            ? Object.entries(rawErrors)
+                .flatMap(([field, msgs]) => {
+                  const list = Array.isArray(msgs) ? msgs : [msgs];
+                  return list.map((m: any) => `${field}: ${String(m)}`);
+                })
+            : [];
+
+        // E em alguns casos retorna errors como array de objetos
+        const errorsFromArray: string[] = Array.isArray(rawErrors)
+          ? rawErrors.map((e: any) => {
+              const field =
+                e?.field ||
+                e?.parameter_name ||
+                e?.path ||
+                e?.param ||
+                e?.name ||
+                'campo';
+              const message = e?.message || e?.description || e?.detail || JSON.stringify(e);
+              return `${field}: ${message}`;
+            })
+          : [];
+
+        const combinedErrors = [...errorsFromObject, ...errorsFromArray].filter(Boolean);
+        const firstDetailMsg = combinedErrors.length ? combinedErrors.slice(0, 3).join(' | ') : undefined;
+
+        const msg =
+          firstDetailMsg ||
+          data?.userMessage ||
+          data?.error ||
+          'Erro ao criar recebedor';
+
+        console.error('❌ Erro ao criar recebedor (detalhes):', { data });
         toast.error(msg);
         return;
       }
@@ -8279,6 +8608,11 @@ Estamos te aguardando! 😎✂️`;
         account_type: bankAccountType,
         name: pagarmeRegisterName.trim(),
         birthdate: pagarmeBirthdate.trim(),
+        annual_revenue: (() => {
+          const raw = String(pagarmeAnnualRevenue || '').replace(/\./g, '').replace(',', '.');
+          const n = Number(raw);
+          return Number.isFinite(n) ? Math.round(n * 100) : undefined;
+        })(),
         monthly_income: (() => {
           const raw = String(pagarmeMonthlyIncome || '').replace(/\./g, '').replace(',', '.');
           const n = Number(raw);
@@ -8296,6 +8630,25 @@ Estamos te aguardando! 😎✂️`;
           complementary: enderecoComplemento.trim(),
           reference_point: enderecoPontoReferencia.trim(),
         },
+        main_address: {
+          zip_code: enderecoCep.trim(),
+          street: enderecoRua.trim(),
+          street_number: enderecoNumero.trim(),
+          neighborhood: enderecoBairro.trim(),
+          city: enderecoCidade.trim(),
+          state: enderecoUf.trim(),
+          country: 'BR',
+          complementary: enderecoComplemento.trim(),
+          reference_point: enderecoPontoReferencia.trim(),
+        },
+        managing_partners: [
+          {
+            name: pagarmePartnerName.trim(),
+            document: pagarmePartnerCpf.trim(),
+            birthdateRaw: pagarmePartnerBirthdate.trim(),
+            email: user.email,
+          },
+        ],
       };
 
       const { error } = await supabase
@@ -12780,6 +13133,72 @@ Estamos te aguardando! 😎✂️`;
                                       placeholder="Opcional"
                                     />
                                   </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Campos extras para CNPJ (corporation) */}
+                            {bankCpfCnpj.replace(/\D/g, '').length === 14 && (
+                              <div className="mt-4 border-t border-gray-700 pt-4">
+                                <div className="text-xs text-yellow-300 mb-3">
+                                  A Pagar.me exige dados adicionais quando o documento é CNPJ (faturamento anual, endereço da empresa e 1 sócio/administrador).
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="text-xs text-gray-300">Faturamento anual (R$)</label>
+                                    <input
+                                      type="text"
+                                      value={pagarmeAnnualRevenue}
+                                      onChange={(e) => {
+                                        setPagarmeAnnualRevenue(e.target.value);
+                                        persistPagarmeDraft({ pagarmeAnnualRevenue: e.target.value });
+                                      }}
+                                      className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                      placeholder="Ex: 120000,00"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-gray-300">Nome do sócio/administrador</label>
+                                    <input
+                                      type="text"
+                                      value={pagarmePartnerName}
+                                      onChange={(e) => {
+                                        setPagarmePartnerName(e.target.value);
+                                        persistPagarmeDraft({ pagarmePartnerName: e.target.value });
+                                      }}
+                                      className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                      placeholder="Ex: João da Silva"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-gray-300">CPF do sócio/administrador</label>
+                                    <input
+                                      type="text"
+                                      value={pagarmePartnerCpf}
+                                      onChange={(e) => {
+                                        setPagarmePartnerCpf(e.target.value);
+                                        persistPagarmeDraft({ pagarmePartnerCpf: e.target.value });
+                                      }}
+                                      className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                      placeholder="Ex: 000.000.000-00"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-gray-300">Nascimento do sócio (opcional)</label>
+                                    <input
+                                      type="date"
+                                      value={pagarmePartnerBirthdate}
+                                      onChange={(e) => {
+                                        setPagarmePartnerBirthdate(e.target.value);
+                                        persistPagarmeDraft({ pagarmePartnerBirthdate: e.target.value });
+                                      }}
+                                      className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 text-xs text-gray-400">
+                                  Endereço abaixo será usado como <span className="text-gray-200 font-semibold">Endereço principal da empresa</span> na Pagar.me.
                                 </div>
                               </div>
                             )}
@@ -18023,9 +18442,18 @@ Estamos te aguardando! 😎✂️`;
                             {/* Dropdown de vendas por funcionário */}
                             {selectedProductForSales === product.id && (
                               <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
-                                <h4 className="text-sm font-medium text-black mb-2">
-                                  Vendas em {selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                                </h4>
+                                <div className="flex items-center justify-between gap-3 mb-2">
+                                  <h4 className="text-sm font-medium text-black">
+                                    Vendas em {selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                                  </h4>
+                                  <button
+                                    onClick={() => handleOpenSellProductModal(product)}
+                                    className="px-3 py-1.5 text-xs font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
+                                    title="Registrar venda avulsa (sem agendamento)"
+                                  >
+                                    VENDER
+                                  </button>
+                                </div>
                                 {productSalesData[product.id] && productSalesData[product.id].length > 0 ? (
                                   <div className="space-y-2">
                                     {productSalesData[product.id].map((sale, index) => (
@@ -18086,6 +18514,102 @@ Estamos te aguardando! 😎✂️`;
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Modal: Venda avulsa de produto */}
+          {showSellProductModal && sellingProduct && (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
+              <div className="w-full max-w-md bg-[#1a1b1c] border border-gray-800 rounded-xl shadow-2xl overflow-hidden">
+                <div className="p-4 border-b border-gray-800">
+                  <div className="flex items-center justify-between">
+                    <div className="text-white font-bold">Vender produto</div>
+                    <button
+                      onClick={() => {
+                        setShowSellProductModal(false);
+                        setSellingProduct(null);
+                      }}
+                      className="text-gray-300 hover:text-white"
+                      title="Fechar"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="text-sm text-gray-400 mt-1">{sellingProduct.name}</div>
+                </div>
+
+                <div className="p-4 space-y-3">
+                  <div>
+                    <label className="text-xs text-gray-300">Profissional</label>
+                    <select
+                      value={sellProfessionalId}
+                      onChange={(e) => setSellProfessionalId(e.target.value)}
+                      className="mt-1 w-full bg-[#2a2b2c] border border-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      <option value="">Selecione</option>
+                      {(establishment?.professionals || []).map((p: any) => (
+                        <option key={p.id || p.name} value={String(p.id)}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-300">Quantidade</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={sellQuantity}
+                        onChange={(e) => setSellQuantity(Math.max(1, parseInt(e.target.value || '1', 10) || 1))}
+                        className="mt-1 w-full bg-[#2a2b2c] border border-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-300">Preço unitário (R$)</label>
+                      <input
+                        type="text"
+                        value={sellUnitPrice}
+                        onChange={(e) => setSellUnitPrice(e.target.value)}
+                        className="mt-1 w-full bg-[#2a2b2c] border border-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                        placeholder="Ex: 10,00"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-300">Data da venda</label>
+                    <input
+                      type="date"
+                      value={sellDate}
+                      onChange={(e) => setSellDate(e.target.value)}
+                      className="mt-1 w-full bg-[#2a2b2c] border border-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <div className="mt-1 text-[11px] text-gray-500">
+                      Essa venda entra direto no “Vendas por funcionário” e no “Saldo por produtos” (sem agendamento).
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 border-t border-gray-800 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setShowSellProductModal(false);
+                      setSellingProduct(null);
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleConfirmSellProduct}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-extrabold"
+                  >
+                    Confirmar venda
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

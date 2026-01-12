@@ -237,6 +237,10 @@ app.post('/api/pagarme/create-recipient', async (req, res) => {
       monthlyIncome,
       professionalOccupation,
       address,
+      // Campos extras para CNPJ (corporation)
+      annualRevenue,
+      mainAddress,
+      managingPartners,
     } = req.body;
 
     console.log('📥 Dados recebidos do frontend:');
@@ -256,6 +260,9 @@ app.post('/api/pagarme/create-recipient', async (req, res) => {
           monthlyIncome,
           professionalOccupation,
           address,
+          annualRevenue,
+          mainAddress,
+          managingPartners,
         },
         null,
         2
@@ -291,6 +298,9 @@ app.post('/api/pagarme/create-recipient', async (req, res) => {
         monthlyIncome,
         professionalOccupation,
         address,
+        annualRevenue,
+        mainAddress,
+        managingPartners,
       });
 
       console.log('✅ Recebedor criado com sucesso:', result);
@@ -617,7 +627,7 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       cleanDocument && cleanDocument.length === 11
         ? 'individual'
         : cleanDocument && cleanDocument.length === 14
-          ? 'company'
+          ? 'corporation'
           : undefined;
 
     const result = await createPayment({
