@@ -866,7 +866,19 @@ export async function createPayment(
       ? `Assinatura - ${subscriptionName || 'Plano'}`
       : 'Pagamento de agendamento';
 
-    const requestBody = {
+    const billingPayload =
+      billingAddress
+        ? {
+            value: {
+              name: paymentData.customer?.name,
+              address: billingAddress,
+            },
+            name: paymentData.customer?.name,
+            address: billingAddress,
+          }
+        : undefined;
+
+    const requestBody: any = {
       items: [
         {
           code: itemCode,
@@ -877,6 +889,8 @@ export async function createPayment(
         },
       ],
       customer: paymentData.customer,
+      // Algumas contas validam billing.value no nível do pedido (order).
+      ...(billingPayload ? { billing: billingPayload } : {}),
       payments: [
         {
           payment_method: paymentData.payment_method,
@@ -888,18 +902,7 @@ export async function createPayment(
           // Billing: algumas contas validam billing.value e, em certos cenários,
           // esperam isso DENTRO de credit_card/debit_card (não no nível do payment).
           // Para compatibilidade, enviamos nos dois lugares.
-          ...(billingAddress
-            ? {
-                billing: {
-                  value: {
-                    name: paymentData.customer?.name,
-                    address: billingAddress,
-                  },
-                  name: paymentData.customer?.name,
-                  address: billingAddress,
-                },
-              }
-            : {}),
+          ...(billingPayload ? { billing: billingPayload } : {}),
 
           ...(paymentData.payment_method === 'credit_card' && {
             credit_card: {
@@ -907,18 +910,7 @@ export async function createPayment(
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
-              ...(billingAddress
-                ? {
-                    billing: {
-                      value: {
-                        name: paymentData.customer?.name,
-                        address: billingAddress,
-                      },
-                      name: paymentData.customer?.name,
-                      address: billingAddress,
-                    },
-                  }
-                : {}),
+              ...(billingPayload ? { billing: billingPayload } : {}),
             },
           }),
           ...(paymentData.payment_method === 'debit_card' && {
@@ -926,18 +918,7 @@ export async function createPayment(
               statement_descriptor: 'AGENDAMENTO',
               ...(cardToken ? { card_token: cardToken } : {}),
               ...(billingAddress ? { billing_address: billingAddress } : {}),
-              ...(billingAddress
-                ? {
-                    billing: {
-                      value: {
-                        name: paymentData.customer?.name,
-                        address: billingAddress,
-                      },
-                      name: paymentData.customer?.name,
-                      address: billingAddress,
-                    },
-                  }
-                : {}),
+              ...(billingPayload ? { billing: billingPayload } : {}),
             },
           }),
           ...(splitForPagarme ? { split: splitForPagarme } : {}),
@@ -946,19 +927,19 @@ export async function createPayment(
       metadata: paymentData.metadata || {},
     };
 
-    // Debug seguro (não vaza dados sensíveis do cartão; card_token é mascarado)
-    const maskToken = (t: any) => {
-      const s = String(t || '');
-      if (!s) return s;
-      if (s.length <= 10) return `${s.slice(0, 4)}...`;
-      return `${s.slice(0, 6)}...${s.slice(-4)}`;
-    };
+    // Debug seguro e curto (pra não ser truncado nos logs do Netlify)
     if (isCardMethod) {
-      const safeForLog: any = JSON.parse(JSON.stringify(requestBody));
-      const p0 = safeForLog?.payments?.[0];
-      if (p0?.credit_card?.card_token) p0.credit_card.card_token = maskToken(p0.credit_card.card_token);
-      if (p0?.debit_card?.card_token) p0.debit_card.card_token = maskToken(p0.debit_card.card_token);
-      console.log('🧾 [Pagar.me] Payload enviado (cartão) - debug:', JSON.stringify(safeForLog, null, 2));
+      const p0 = requestBody?.payments?.[0] || {};
+      console.log('🧾 [Pagar.me] Debug billing (cartão):', {
+        order_has_billing: Boolean(requestBody?.billing),
+        payment_has_billing: Boolean(p0?.billing),
+        credit_card_has_billing: Boolean(p0?.credit_card?.billing),
+        debit_card_has_billing: Boolean(p0?.debit_card?.billing),
+        credit_card_has_billing_address: Boolean(p0?.credit_card?.billing_address),
+        zip_code: billingAddress?.zip_code,
+        state: billingAddress?.state,
+        city: billingAddress?.city,
+      });
     }
 
     const result = await fetchJsonWithTimeout(
