@@ -129,6 +129,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
     console.log('🔍 Appointments:', appointments);
 
     const { toast } = useToast();
+
+    const DEFAULT_PAYMENT_METHODS = ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local'] as const;
+    const defaultPaymentMethodSet = new Set<string>(DEFAULT_PAYMENT_METHODS as unknown as string[]);
+    const getCustomPaymentMethods = (): string[] => {
+      const enabled = Array.isArray(establishment?.payment_methods_enabled)
+        ? (establishment.payment_methods_enabled as any[])
+        : [];
+      return enabled
+        .map((m) => String(m || '').trim())
+        .filter((m) => m.length > 0 && !defaultPaymentMethodSet.has(m));
+    };
     const [expandedAppointments, setExpandedAppointments] = useState<{ [key: string]: boolean }>({});
     const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(
       professionals.length > 0 ? professionals[0].id : ''
@@ -1445,7 +1456,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     >
                                       <div className="flex items-center justify-between mb-1">
                                         <span className="text-white font-bold text-sm">
-                                          {apt.is_squeeze ? apt.appointment_time : slot.time} {apt.is_squeeze && '🟣'}
+                                          {apt.is_squeeze ? apt.appointment_time : slot.time}{' '}
+                                          {apt.is_squeeze && '🟣'}
+                                          {apt.is_squeeze && apt.status === 'completed' && (
+                                            <span className="ml-1" title="Encaixe concluído">
+                                              ✅
+                                            </span>
+                                          )}
                                         </span>
                                         <span className="text-white text-xs font-bold">
                                           R$ {(apt.total_price || apt.price).toFixed(2)}
@@ -1653,6 +1670,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <option value="debito" className="bg-gray-800">Cartão de Débito</option>
                                             <option value="dinheiro" className="bg-gray-800">Dinheiro</option>
                                             <option value="pagar_local" className="bg-gray-800">Pagar no Local</option>
+                                            {getCustomPaymentMethods().map((custom) => (
+                                              <option key={custom} value={custom} className="bg-gray-800">
+                                                ⭐ {custom}
+                                              </option>
+                                            ))}
                                           </select>
 
                                           {(apt.payment_method === 'credito' || apt.payment_method === 'debito') && (
@@ -1717,9 +1739,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 e.stopPropagation();
                                                 handleUpdateAppointmentStatus(apt.id, 'completed');
                                               }}
-                                              className="px-2 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                              className={`px-2 py-1.5 text-xs text-white rounded transition-colors ${
+                                                apt.is_squeeze ? 'bg-gray-700 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'
+                                              }`}
                                             >
-                                              ✅ CONCLUÍDO
+                                              {apt.is_squeeze ? (
+                                                <>
+                                                  {apt.status === 'completed' ? '✅ ' : ''}
+                                                  CONCLUÍDO
+                                                </>
+                                              ) : (
+                                                '✅ CONCLUÍDO'
+                                              )}
                                             </button>
 
                                             <button

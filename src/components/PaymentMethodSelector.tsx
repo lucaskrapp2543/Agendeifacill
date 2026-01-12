@@ -18,17 +18,29 @@ export const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({
   enabledMethods
 }) => {
   const allPaymentMethods = [
-    { value: 'pix', label: 'PIX', icon: '💳', color: 'bg-green-500' },
+    { value: 'pix', label: 'PIX', icon: '💸', color: 'bg-green-500' },
     { value: 'credito', label: 'CRÉDITO', icon: '💳', color: 'bg-blue-500' },
     { value: 'debito', label: 'DÉBITO', icon: '💳', color: 'bg-purple-500' },
     { value: 'dinheiro', label: 'DINHEIRO', icon: '💵', color: 'bg-yellow-500' },
     { value: 'pagar_local', label: 'PAGAR NO LOCAL', icon: '🏪', color: 'bg-orange-500' }
   ];
+  const knownValues = new Set(allPaymentMethods.map((m) => m.value));
+  const customEnabled = (enabledMethods || []).filter((m) => !knownValues.has(String(m || '').trim()));
+  const customPaymentMethods = customEnabled.map((value) => ({
+    value,
+    label: String(value || '').toUpperCase(),
+    icon: '⭐',
+    color: 'bg-gray-500'
+  }));
 
   // Filtrar métodos de pagamento com base nas configurações do estabelecimento
-  const paymentMethods = enabledMethods && enabledMethods.length > 0
-    ? allPaymentMethods.filter(method => enabledMethods.includes(method.value))
-    : allPaymentMethods;
+  const paymentMethods =
+    enabledMethods && enabledMethods.length > 0
+      ? [
+          ...allPaymentMethods.filter((method) => enabledMethods.includes(method.value)),
+          ...customPaymentMethods
+        ]
+      : allPaymentMethods;
 
   return (
     <div className="space-y-4">

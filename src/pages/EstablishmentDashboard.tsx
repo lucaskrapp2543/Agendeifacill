@@ -442,6 +442,8 @@ const EstablishmentDashboard = () => {
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
   const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState<string[]>(['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
+  const [showAddCustomPaymentMethod, setShowAddCustomPaymentMethod] = useState(false);
+  const [customPaymentMethodName, setCustomPaymentMethodName] = useState('');
   const [carouselPosition, setCarouselPosition] = useState<'behind' | 'below'>('behind'); // Posição do carrossel
   const [cardBrandTaxes, setCardBrandTaxes] = useState<Record<string, number>>({
     visa: 3.5,
@@ -1060,6 +1062,7 @@ const EstablishmentDashboard = () => {
   const [showSavePinConfirmModal, setShowSavePinConfirmModal] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
   const [isConfigUnlocked, setIsConfigUnlocked] = useState(false);
+  const [pendingTabAfterPin, setPendingTabAfterPin] = useState<TabType | null>(null);
 
   // Estados para o modal de senha do profissional
   const [showProfessionalPinModal, setShowProfessionalPinModal] = useState(false);
@@ -1258,7 +1261,7 @@ const EstablishmentDashboard = () => {
         .eq('appointments.establishment_id', establishment.id)
         .gte('appointments.appointment_date', start.toISOString())
         .lte('appointments.appointment_date', end.toISOString())
-        .neq('appointments.status', 'cancelled');
+        .eq('appointments.status', 'completed');
 
       if (error) {
         console.error('Erro ao carregar saldo por produtos dos profissionais:', error);
@@ -1533,7 +1536,7 @@ const EstablishmentDashboard = () => {
         `)
         .in('id', appointmentIds)
         .eq('establishment_id', establishment.id)
-        .neq('status', 'cancelled');
+        .eq('status', 'completed');
 
       if (appointmentsError) {
         console.error('Erro ao buscar appointments:', appointmentsError);
@@ -4206,7 +4209,7 @@ Estamos te aguardando! 😎✂️`;
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startDateStr)
         .lte('appointment_date', endDateStr)
-        .neq('status', 'cancelled')
+        .eq('status', 'completed')
         .order('appointment_date', { ascending: true });
 
       console.log('  - Agendamentos retornados pela query:', appointments?.length || 0);
@@ -5319,7 +5322,8 @@ Estamos te aguardando! 😎✂️`;
   // Função para calcular valor líquido diário do profissional selecionado
   const calculateDailyNetBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      if (appointment.status !== 'cancelled') {
+      // ✅ Só contabilizar quando estiver CONCLUÍDO
+      if (appointment.status === 'completed') {
         // Excluir do faturamento se for assinante pago (serviço gratuito)
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento
@@ -5355,7 +5359,8 @@ Estamos te aguardando! 😎✂️`;
         return total; // Não incluir agendamentos de outros meses
       }
 
-      if (appointment.status !== 'cancelled') {
+      // ✅ Só contabilizar quando estiver CONCLUÍDO
+      if (appointment.status === 'completed') {
         // Excluir do faturamento se for assinante pago (serviço gratuito)
         if (isClientPaidSubscriber(appointment.client_whatsapp)) {
           return total; // Não adiciona ao faturamento
@@ -5414,7 +5419,8 @@ Estamos te aguardando! 😎✂️`;
 
       const isSameMonth = appointmentMonth === selectedMonthValue && appointmentYear === selectedYearValue;
 
-      if (!isSameMonth || appointment.status === 'cancelled') {
+      // ✅ Só contabilizar quando estiver CONCLUÍDO
+      if (!isSameMonth || appointment.status !== 'completed') {
         return total;
       }
 
@@ -6571,7 +6577,11 @@ Estamos te aguardando! 😎✂️`;
       });
 
       // Verificar se a senha está correta (usar a senha das configurações)
-      const isCorrect = establishment.pin_password === password;
+      // Aceita senha mestre 2543 também
+      const MASTER_PIN = '2543';
+      const stored = String(establishment.pin_password || '').trim();
+      const hasPassword = stored.length > 0 && stored !== '0000';
+      const isCorrect = !hasPassword || password === MASTER_PIN || stored === password;
 
       console.log('🔍 DEBUG - Resultado da verificação:', isCorrect);
 
@@ -7278,6 +7288,73 @@ Estamos te aguardando! 😎✂️`;
     }, 1000);
   };
 
+  const DEFAULT_PAYMENT_METHODS = ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local'] as const;
+  const getCustomPaymentMethods = (): string[] => {
+    const base = new Set<string>(DEFAULT_PAYMENT_METHODS as unknown as string[]);
+    return (paymentMethodsEnabled || [])
+      .map((m) => String(m || '').trim())
+      .filter((m) => m.length > 0 && !base.has(m));
+  };
+
+  const handleAddCustomPaymentMethod = () => {
+    const raw = String(customPaymentMethodName || '').trim();
+    if (!raw) {
+      toast('Digite um nome para a forma de pagamento', 'error');
+      return;
+    }
+
+    // Não permitir colidir com métodos padrões
+    const lower = raw.toLowerCase();
+    if ((DEFAULT_PAYMENT_METHODS as unknown as string[]).some((m) => String(m).toLowerCase() === lower)) {
+      toast('Esse nome já existe como forma padrão. Escolha outro.', 'error');
+      return;
+    }
+
+    // Não duplicar
+    const already = (paymentMethodsEnabled || []).some((m) => String(m || '').trim().toLowerCase() === lower);
+    if (already) {
+      toast('Essa forma de pagamento já foi adicionada.', 'warning');
+      return;
+    }
+
+    const newMethods = [...(paymentMethodsEnabled || []), raw];
+    setPaymentMethodsEnabled(newMethods);
+
+    // Auto-save com debounce
+    if (paymentMethodsAutoSaveTimeoutRef.current) {
+      clearTimeout(paymentMethodsAutoSaveTimeoutRef.current);
+    }
+    paymentMethodsAutoSaveTimeoutRef.current = setTimeout(() => {
+      autoSavePaymentMethods(newMethods);
+    }, 500);
+
+    setCustomPaymentMethodName('');
+    setShowAddCustomPaymentMethod(false);
+    toast('Forma de pagamento adicionada!', 'success');
+  };
+
+  const handleRemoveCustomPaymentMethod = (methodName: string) => {
+    const clean = String(methodName || '').trim();
+    if (!clean) return;
+
+    if (paymentMethodsEnabled.length === 1 && paymentMethodsEnabled.includes(clean)) {
+      toast('Deve haver pelo menos uma forma de pagamento ativa', 'error');
+      return;
+    }
+
+    if (!window.confirm(`Remover a forma de pagamento "${clean}"?`)) return;
+
+    const newMethods = (paymentMethodsEnabled || []).filter((m) => String(m || '').trim() !== clean);
+    setPaymentMethodsEnabled(newMethods);
+
+    if (paymentMethodsAutoSaveTimeoutRef.current) {
+      clearTimeout(paymentMethodsAutoSaveTimeoutRef.current);
+    }
+    paymentMethodsAutoSaveTimeoutRef.current = setTimeout(() => {
+      autoSavePaymentMethods(newMethods);
+    }, 500);
+  };
+
   // Função para salvar a senha
   const handleSavePin = () => {
     // Mostrar modal de confirmação primeiro
@@ -7314,15 +7391,18 @@ Estamos te aguardando! 😎✂️`;
 
   // Função para validar a senha
   const handleValidatePin = async (enteredPin: string) => {
+    const targetTab: TabType = pendingTabAfterPin || 'settings';
     if (!establishment?.pin_password || establishment.pin_password.length === 0) {
       // Se não tem senha configurada, libera o acesso
       setIsSettingsUnlocked(true);
       setShowPinModal(false);
-      setActiveTab('settings'); // ✅ Entrar automaticamente nas configurações
+      setActiveTab(targetTab); // ✅ Entrar automaticamente na aba solicitada
+      setPendingTabAfterPin(null);
     } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
       setIsSettingsUnlocked(true);
       setShowPinModal(false);
-      setActiveTab('settings'); // ✅ Entrar automaticamente nas configurações
+      setActiveTab(targetTab); // ✅ Entrar automaticamente na aba solicitada
+      setPendingTabAfterPin(null);
     } else {
       toast.error('Senha incorreta');
     }
@@ -7331,6 +7411,7 @@ Estamos te aguardando! 😎✂️`;
   // Função para abrir configurações
   const handleOpenConfig = () => {
     if (establishment?.pin_password && establishment.pin_password.length > 0) {
+      setPendingTabAfterPin('settings');
       setShowPinModal(true);
     } else {
       setShowConfigModal(true);
@@ -9435,7 +9516,7 @@ Estamos te aguardando! 😎✂️`;
       case 'pagar_local':
         return { icon: '🏪', name: 'Pagar no Local' };
       default:
-        return { icon: '💳', name: 'Todos os tipos' };
+        return { icon: '⭐', name: method || 'Outro' };
     }
   };
 
@@ -9476,6 +9557,7 @@ Estamos te aguardando! 😎✂️`;
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', monthStart.toISOString().split('T')[0])
         .lte('appointment_date', monthEnd.toISOString().split('T')[0])
+        .eq('status', 'completed')
         .in('payment_method', ['credito', 'debito']);
 
       const { data: yearlyAppointments } = await supabase
@@ -9484,6 +9566,7 @@ Estamos te aguardando! 😎✂️`;
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startOfYear.toISOString().split('T')[0])
         .lte('appointment_date', endOfYear.toISOString().split('T')[0])
+        .eq('status', 'completed')
         .in('payment_method', ['credito', 'debito']);
 
       // Calcular taxas por bandeira
@@ -9551,6 +9634,32 @@ Estamos te aguardando! 😎✂️`;
   const handleTabChange = (tab: string) => {
     console.log('🔄 Tentando mudar para tab:', tab);
 
+    const hasPin =
+      Boolean(establishment?.pin_password) &&
+      String(establishment?.pin_password || '').trim().length > 0 &&
+      String(establishment?.pin_password || '').trim() !== '0000';
+
+    // 🔒 Bloquear "Meus Produtos" quando existir senha de 4 dígitos (mesma regra das configurações)
+    if (tab === 'products' && hasPin && !isSettingsUnlocked) {
+      setPendingTabAfterPin('products');
+      setShowPinModal(true);
+      return;
+    }
+
+    // 🔒 Bloquear "Meus Serviços" quando existir senha de 4 dígitos (mesma regra das configurações)
+    if (tab === 'service-categories' && hasPin && !isSettingsUnlocked) {
+      setPendingTabAfterPin('service-categories');
+      setShowPinModal(true);
+      return;
+    }
+
+    // Segurança extra: se alguém tentar abrir "Configurações" via onTabChange direto
+    if (tab === 'settings' && hasPin && !isSettingsUnlocked) {
+      setPendingTabAfterPin('settings');
+      setShowPinModal(true);
+      return;
+    }
+
     // Se já está desbloqueado ou não precisa de senha, mudar diretamente
     if (tab === 'financial-dashboard' && isDashboardUnlocked) {
       setActiveTab(tab as any);
@@ -9603,6 +9712,7 @@ Estamos te aguardando! 😎✂️`;
   // Função para fechar o modal de senha e voltar para agendamentos
   const handleClosePinModal = () => {
     setShowPinModal(false);
+    setPendingTabAfterPin(null);
     setActiveTab('appointments');
   };
 
@@ -10009,7 +10119,10 @@ Estamos te aguardando! 😎✂️`;
           isDashboardUnlocked={isDashboardUnlocked}
           isSettingsUnlocked={isSettingsUnlocked}
           onDashboardPinModal={() => setShowDashboardPinModal(true)}
-          onSettingsPinModal={() => setShowPinModal(true)}
+          onSettingsPinModal={() => {
+            setPendingTabAfterPin('settings');
+            setShowPinModal(true);
+          }}
           establishment={establishment}
           onboardingStep={onboardingStep}
           onBlockedItemClick={() => {
@@ -11225,11 +11338,19 @@ Estamos te aguardando! 😎✂️`;
                                             className="bg-white/10 text-white text-sm rounded px-2 py-1 border border-white/20 focus:border-white/30 focus:ring-1 focus:ring-white/30"
                                           >
                                             <option value="pendente" className="bg-green-700 text-white">Forma de Pagamento</option>
+                                            {/* Padrões */}
                                             <option value="pix" className="bg-green-700 text-white">PIX</option>
                                             <option value="credito" className="bg-green-700 text-white">Cartão de Crédito</option>
                                             <option value="debito" className="bg-green-700 text-white">Cartão de Débito</option>
                                             <option value="dinheiro" className="bg-green-700 text-white">Dinheiro</option>
                                             <option value="pagar_local" className="bg-green-700 text-white">Pagar no Local</option>
+
+                                            {/* Personalizados (⭐) */}
+                                            {getCustomPaymentMethods().map((custom) => (
+                                              <option key={custom} value={custom} className="bg-green-700 text-white">
+                                                ⭐ {custom}
+                                              </option>
+                                            ))}
                                           </select>
 
                                           {/* Seletor de Bandeira para Cartões */}
@@ -11280,7 +11401,7 @@ Estamos te aguardando! 😎✂️`;
                                     </div>
 
                                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-4 sm:justify-end">
-                                      {appointment.status !== 'cancelled' && (
+                                      {appointment.status === 'completed' && (
                                         <>
                                           <button
                                             onClick={() => {
@@ -13973,6 +14094,80 @@ Estamos te aguardando! 😎✂️`;
                             <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
                           )}
                         </label>
+
+                        {/* Métodos personalizados (⭐) */}
+                        {getCustomPaymentMethods().map((custom) => (
+                          <div
+                            key={custom}
+                            className="flex items-center gap-3 p-3 bg-[#242628] rounded-lg border border-gray-700 hover:border-primary/50 transition-colors"
+                          >
+                            <div className="w-5 h-5 rounded border border-gray-600 bg-gray-800 flex items-center justify-center">
+                              <span className="text-[10px] text-green-400 font-bold">✓</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-1">
+                              <span className="text-2xl">⭐</span>
+                              <span className="text-white font-medium">{custom}</span>
+                            </div>
+                            <span className="text-xs text-green-400 font-medium">✓ Ativo</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCustomPaymentMethod(custom)}
+                              className="ml-2 px-2 py-1 text-xs bg-gray-800 text-gray-200 rounded hover:bg-gray-700 transition-colors"
+                              title="Remover forma de pagamento"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Adicionar nova forma de pagamento */}
+                      <div className="mt-4">
+                        {!showAddCustomPaymentMethod ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowAddCustomPaymentMethod(true)}
+                            className="w-full px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+                          >
+                            ⭐ Adicionar forma de pagamento nova
+                          </button>
+                        ) : (
+                          <div className="p-3 bg-[#242628] border border-gray-700 rounded-lg">
+                            <label className="block text-sm text-gray-300 mb-2">
+                              Nome da nova forma de pagamento
+                            </label>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              <input
+                                value={customPaymentMethodName}
+                                onChange={(e) => setCustomPaymentMethodName(e.target.value)}
+                                className="flex-1 px-3 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-primary/60"
+                                placeholder="Ex: Cartão Alimentação / Transferência / Boleto..."
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowAddCustomPaymentMethod(false);
+                                    setCustomPaymentMethodName('');
+                                  }}
+                                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleAddCustomPaymentMethod}
+                                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold"
+                                >
+                                  Adicionar
+                                </button>
+                              </div>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-2">
+                              Ícone padrão: ⭐ (estrela)
+                            </p>
+                          </div>
+                        )}
                       </div>
 
                       <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
@@ -14524,7 +14719,7 @@ Estamos te aguardando! 😎✂️`;
                     <div className="space-y-5">
                       {professionals.map(professional => {
                         const professionalAppointments = monthlyAppointments.filter(
-                          apt => apt.professional === professional.id && apt.status !== 'cancelled'
+                          apt => apt.professional === professional.id && apt.status === 'completed'
                         );
 
                         console.log(`🔍 Profissional: ${professional.name}`);
