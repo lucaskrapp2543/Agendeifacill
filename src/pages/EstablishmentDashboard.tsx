@@ -171,6 +171,8 @@ interface EstablishmentProduct {
   cost_price: number;
   stock_quantity: number;
   sold_quantity: number;
+  // % por colaborador (repasse por venda do produto): { "Nome do profissional": percentual }
+  commission_percentages?: Record<string, number>;
   created_at: string;
   updated_at: string;
 }
@@ -1118,6 +1120,11 @@ const EstablishmentDashboard = () => {
   // Estado para armazenar vendas de produtos por período
   const [productSalesByPeriod, setProductSalesByPeriod] = useState<Record<string, number>>({});
 
+  // % por colaborador (comissão por produto)
+  const [selectedProductForCommission, setSelectedProductForCommission] = useState<string | null>(null);
+  const [commissionDraft, setCommissionDraft] = useState<Record<string, string>>({});
+  const [isSavingCommission, setIsSavingCommission] = useState(false);
+
   const handleShowProductSales = async (productId: string) => {
     if (selectedProductForSales === productId) {
       setSelectedProductForSales(null);
@@ -1133,6 +1140,70 @@ const EstablishmentDashboard = () => {
         ...prev,
         [productId]: sales
       }));
+    }
+  };
+
+  const handleToggleCommissionEditor = (product: EstablishmentProduct) => {
+    if (selectedProductForCommission === product.id) {
+      setSelectedProductForCommission(null);
+      setCommissionDraft({});
+      return;
+    }
+
+    setSelectedProductForCommission(product.id);
+
+    // Inicializar draft com base nos profissionais do estabelecimento
+    const mapFromDb = (product as any)?.commission_percentages || {};
+    const professionalsList = (establishment?.professionals || []).map((p) => p.name).filter(Boolean);
+    const nextDraft: Record<string, string> = {};
+    professionalsList.forEach((name) => {
+      const v = Number(mapFromDb?.[name]);
+      nextDraft[name] = Number.isFinite(v) && v >= 0 ? String(v) : '';
+    });
+    setCommissionDraft(nextDraft);
+  };
+
+  const handleSaveCommissionPercentages = async (product: EstablishmentProduct) => {
+    if (!establishment?.id) return;
+    if (isSavingCommission) return;
+
+    try {
+      setIsSavingCommission(true);
+
+      // Sanitizar: apenas 0..100
+      const sanitized: Record<string, number> = {};
+      Object.entries(commissionDraft || {}).forEach(([name, raw]) => {
+        const n = Number(String(raw || '').replace(',', '.'));
+        if (!Number.isFinite(n)) return;
+        const clamped = Math.max(0, Math.min(100, n));
+        sanitized[name] = Math.round(clamped * 100) / 100;
+      });
+
+      const { error } = await supabase
+        .from('establishment_products')
+        .update({ commission_percentages: sanitized })
+        .eq('id', product.id)
+        .eq('establishment_id', establishment.id);
+
+      if (error) {
+        console.error('Erro ao salvar % por colaborador:', error);
+        toast('Erro ao salvar % por colaborador', 'error');
+        return;
+      }
+
+      // Atualizar estado local
+      setProducts((prev) =>
+        prev.map((p) => (p.id === product.id ? { ...p, commission_percentages: sanitized } : p))
+      );
+
+      toast('% por colaborador salvo!', 'success');
+      setSelectedProductForCommission(null);
+      setCommissionDraft({});
+    } catch (e) {
+      console.error('Erro ao salvar % por colaborador:', e);
+      toast('Erro ao salvar % por colaborador', 'error');
+    } finally {
+      setIsSavingCommission(false);
     }
   };
   const [showAddProductToAppointmentModal, setShowAddProductToAppointmentModal] = useState(false);
@@ -17575,6 +17646,79 @@ Estamos te aguardando! 😎✂️`;
 
                           {/* Botão para ver vendas por funcionário */}
                           <div className="border-t pt-2 mt-2">
+                            {/* % por colaborador */}
+                            <button
+                              onClick={() => handleToggleCommissionEditor(product)}
+                              className="w-full flex items-center justify-between px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors mb-2"
+                            >
+                              <span className="text-black">💸 % por colaborador</span>
+                              <ChevronDown
+                                className={`h-4 w-4 text-gray-500 transition-transform ${
+                                  selectedProductForCommission === product.id ? 'rotate-180' : ''
+                                }`}
+                              />
+                            </button>
+
+                            {selectedProductForCommission === product.id && (
+                              <div className="mb-3 p-3 bg-gray-50 rounded-lg border">
+                                <p className="text-xs text-gray-600 mb-2">
+                                  Defina a porcentagem que cada colaborador recebe por venda deste produto.
+                                </p>
+                                {(establishment?.professionals || []).length === 0 ? (
+                                  <p className="text-sm text-gray-500 text-center py-2">
+                                    Nenhum profissional cadastrado.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {(establishment?.professionals || []).map((prof) => {
+                                      const name = String(prof.name || '').trim();
+                                      if (!name) return null;
+                                      return (
+                                        <div key={prof.id || name} className="flex items-center justify-between gap-3">
+                                          <span className="text-sm text-black font-medium">{name}</span>
+                                          <div className="flex items-center gap-2">
+                                            <input
+                                              value={commissionDraft[name] ?? ''}
+                                              onChange={(e) =>
+                                                setCommissionDraft((prev) => ({
+                                                  ...prev,
+                                                  [name]: e.target.value.replace(/[^\d,\.]/g, ''),
+                                                }))
+                                              }
+                                              className="w-20 px-2 py-1 border border-gray-300 rounded text-sm text-gray-900 bg-white"
+                                              placeholder="0"
+                                              inputMode="decimal"
+                                            />
+                                            <span className="text-sm text-gray-600">%</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+
+                                    <div className="pt-2 flex gap-2">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedProductForCommission(null);
+                                          setCommissionDraft({});
+                                        }}
+                                        disabled={isSavingCommission}
+                                        className="flex-1 px-3 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 transition-colors text-sm font-semibold disabled:opacity-60"
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        onClick={() => handleSaveCommissionPercentages(product)}
+                                        disabled={isSavingCommission}
+                                        className="flex-1 px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-bold disabled:opacity-60"
+                                      >
+                                        {isSavingCommission ? 'Salvando...' : 'Salvar'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             <button
                               onClick={() => handleShowProductSales(product.id)}
                               className="w-full flex items-center justify-between px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
@@ -17587,7 +17731,9 @@ Estamos te aguardando! 😎✂️`;
                             {/* Dropdown de vendas por funcionário */}
                             {selectedProductForSales === product.id && (
                               <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
-                                <h4 className="text-sm font-medium text-black mb-2">Vendas no Mês Atual</h4>
+                                <h4 className="text-sm font-medium text-black mb-2">
+                                  Vendas em {selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                                </h4>
                                 {productSalesData[product.id] && productSalesData[product.id].length > 0 ? (
                                   <div className="space-y-2">
                                     {productSalesData[product.id].map((sale, index) => (
@@ -17597,6 +17743,18 @@ Estamos te aguardando! 😎✂️`;
                                             {sale.professional_name || 'Funcionário não identificado'}
                                           </span>
                                           <p className="text-xs text-gray-600">{sale.sales_count} vendas</p>
+                                          {(() => {
+                                            const name = String(sale.professional_name || '').trim();
+                                            const map = (product as any)?.commission_percentages || {};
+                                            const pct = Number(map?.[name] ?? 0);
+                                            const safePct = Number.isFinite(pct) ? pct : 0;
+                                            if (!name) return null;
+                                            return (
+                                              <p className="text-[11px] text-gray-500">
+                                                % repasse: <span className="font-semibold">{safePct}%</span>
+                                              </p>
+                                            );
+                                          })()}
                                         </div>
                                         <div className="text-right">
                                           <span className="text-sm font-bold text-green-600">
@@ -17605,6 +17763,19 @@ Estamos te aguardando! 😎✂️`;
                                           <p className="text-xs text-blue-600">
                                             {formatCurrency(sale.total_value)}
                                           </p>
+                                          {(() => {
+                                            const name = String(sale.professional_name || '').trim();
+                                            const map = (product as any)?.commission_percentages || {};
+                                            const pct = Number(map?.[name] ?? 0);
+                                            const safePct = Number.isFinite(pct) ? pct : 0;
+                                            const payout = Math.max(0, (Number(sale.total_value || 0) * safePct) / 100);
+                                            if (!name) return null;
+                                            return (
+                                              <p className="text-xs text-gray-800 font-bold">
+                                                Recebe: {formatCurrency(payout)}
+                                              </p>
+                                            );
+                                          })()}
                                         </div>
                                       </div>
                                     ))}
