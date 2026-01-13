@@ -21,12 +21,24 @@ const BlockedCheck: React.FC<BlockedCheckProps> = ({ children }) => {
       }
 
       try {
+        // ✅ Fail-open com timeout: evita travar infinito em mobile/PWA ou quando há outra aba aberta
+        // Se a checagem demorar demais, liberamos o app e registramos no console.
+        let timeoutFired = false;
+        const timeoutId = window.setTimeout(() => {
+          timeoutFired = true;
+          console.warn('⚠️ Timeout ao verificar status de bloqueio. Liberando acesso (fail-open).');
+          setIsChecking(false);
+        }, 8000);
+
         // Verificar se o usuário é um estabelecimento
         const { data: establishmentData, error } = await supabase
           .from('establishments')
           .select('is_blocked')
           .eq('owner_id', user.id)
           .single();
+
+        window.clearTimeout(timeoutId);
+        if (timeoutFired) return; // já liberamos o app; não sobrescrever estado
 
         if (error) {
           console.error('Erro ao verificar status de bloqueio:', error);
