@@ -48,6 +48,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [billingBairro, setBillingBairro] = useState('');
   const [billingCidade, setBillingCidade] = useState('');
   const [billingUf, setBillingUf] = useState('');
+  const [cardRefusedReason, setCardRefusedReason] = useState('');
   const countdownRef = useRef<number | null>(null);
   const [expiresInSeconds, setExpiresInSeconds] = useState(90);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
@@ -65,6 +66,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setIsPaid(false);
     setExpiresInSeconds(90);
     setRemainingSeconds(0);
+    setCardRefusedReason('');
   }, [isOpen]);
 
   useEffect(() => {
@@ -157,7 +159,17 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         ) {
           window.clearInterval(interval);
           setIsCheckingPayment(false);
-          toast.error(reason ? `Pagamento recusado/cancelado: ${String(reason)}` : 'Pagamento recusado ou cancelado');
+          const reasonStr = String(reason || '');
+
+          // ✅ Qualquer recusa no cartão -> oferecer PIX sem refazer os dados
+          if (provider === 'pagarme_card') {
+            setCardRefusedReason(reasonStr || 'Pagamento no cartão recusado');
+            toast.error('Pagamento no cartão recusado. Você pode pagar via PIX sem refazer seus dados.');
+            setSelectedMethod(null);
+            return;
+          }
+
+          toast.error(reasonStr ? `Pagamento recusado/cancelado: ${reasonStr}` : 'Pagamento recusado ou cancelado');
         } else if (attempts >= maxAttempts) {
           window.clearInterval(interval);
           setIsCheckingPayment(false);
@@ -201,6 +213,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setIsProcessing(true);
     setPixQrCode('');
     setPixQrCodeUrl('');
+    setCardRefusedReason('');
 
     try {
       const controller = new AbortController();
@@ -354,6 +367,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setIsProcessing(true);
     setPixQrCode('');
     setPixQrCodeUrl('');
+    setCardRefusedReason('');
 
     try {
       const cardToken = await criarTokenCartaoPagarme({
@@ -547,6 +561,20 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           </div>
         ) : !pixQrCode ? (
           <div className="space-y-3">
+            {cardRefusedReason ? (
+              <div className="bg-red-900/30 border border-red-700/60 rounded-lg p-4">
+                <p className="text-sm text-red-200 font-semibold">Pagamento no cartão recusado</p>
+                <p className="text-xs text-red-200/90 mt-1">{cardRefusedReason}</p>
+                <button
+                  type="button"
+                  onClick={handleGeneratePix}
+                  className="w-full mt-3 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors"
+                >
+                  Pagar com PIX agora (sem refazer)
+                </button>
+              </div>
+            ) : null}
+
             <div>
               <label className="block text-sm text-gray-300 mb-1">Seu nome</label>
               <input

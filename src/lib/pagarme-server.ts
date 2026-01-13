@@ -583,7 +583,8 @@ export async function createRecipient(
       street_number: addr.street_number?.toString(),
       zip_code: addr.zip_code?.toString(),
       ...(addr.complementary ? { complementary: addr.complementary?.toString() } : {}),
-      ...(addr.reference_point ? { reference_point: addr.reference_point?.toString() } : {}),
+      // A Pagar.me pode exigir reference_point em alguns cadastros (mesmo quando o UI trata como opcional)
+      reference_point: String(addr.reference_point || '').trim() || 'Sem ponto de referência',
     };
 
     const partners = Array.isArray(bankData.managingPartners) ? bankData.managingPartners : [];
@@ -718,7 +719,8 @@ export async function createRecipient(
       street_number: addr.street_number?.toString(),
       zip_code: addr.zip_code?.toString(),
       ...(addr.complementary ? { complementary: addr.complementary?.toString() } : {}),
-      ...(addr.reference_point ? { reference_point: addr.reference_point?.toString() } : {}),
+      // A Pagar.me pode exigir reference_point em alguns cadastros (mesmo quando o UI trata como opcional)
+      reference_point: String(addr.reference_point || '').trim() || 'Sem ponto de referência',
     };
   }
 

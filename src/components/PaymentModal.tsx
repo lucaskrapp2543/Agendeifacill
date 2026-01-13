@@ -57,6 +57,7 @@ export const PaymentModal = ({
   const [billingBairro, setBillingBairro] = useState('');
   const [billingCidade, setBillingCidade] = useState('');
   const [billingUf, setBillingUf] = useState('');
+  const [cardRefusedReason, setCardRefusedReason] = useState<string>('');
   const { toast } = useToast();
   const pixCountdownIntervalRef = useRef<number | null>(null);
 
@@ -79,6 +80,8 @@ export const PaymentModal = ({
     setIsProcessing(true);
     setPixQrCode('');
     setPixQrCodeUrl('');
+    // limpar banner de fallback quando tentar pagar de novo
+    setCardRefusedReason('');
 
     try {
       // Se for cartão, tokenizar no FRONTEND (pk_ via /tokens?appId=...)
@@ -277,6 +280,7 @@ export const PaymentModal = ({
       setIsProcessing(false);
       setIsCheckingPayment(false);
       setSelectedMethod(null);
+      // Em erro genérico, manter comportamento atual
       onPaymentFailure();
     }
   };
@@ -370,8 +374,20 @@ export const PaymentModal = ({
         ) {
           clearInterval(checkInterval);
           setIsCheckingPayment(false);
+          const reasonStr = String(reason || '');
+
+          // ✅ Qualquer recusa no cartão -> oferecer PIX sem zerar o atendimento
+          if (selectedMethod === 'credit_card' || selectedMethod === 'debit_card') {
+            setCardRefusedReason(reasonStr || 'Pagamento no cartão recusado');
+            toast('Pagamento no cartão recusado. Você pode pagar via PIX sem refazer o agendamento.', 'warning');
+            await markAppointmentPaymentUnpaid(); // nunca cancela aqui
+            setIsProcessing(false);
+            setSelectedMethod(null); // volta para seleção e mostra botão PIX
+            return;
+          }
+
           toast(
-            reason ? `Pagamento recusado/cancelado: ${String(reason)}` : 'Pagamento recusado ou cancelado',
+            reasonStr ? `Pagamento recusado/cancelado: ${reasonStr}` : 'Pagamento recusado ou cancelado',
             'error'
           );
           if (cancelAppointmentOnFailure) {
@@ -509,6 +525,23 @@ export const PaymentModal = ({
 
         {!selectedMethod ? (
           <div className="space-y-4">
+            {cardRefusedReason ? (
+              <div className="bg-red-900/30 border border-red-700/60 rounded-lg p-4">
+                <p className="text-sm text-red-200 font-semibold">
+                  Pagamento no cartão recusado
+                </p>
+                <p className="text-xs text-red-200/90 mt-1">
+                  {cardRefusedReason}
+                </p>
+                <button
+                  onClick={() => handlePayment('pix')}
+                  className="w-full mt-3 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors"
+                >
+                  Pagar com PIX agora (sem refazer)
+                </button>
+              </div>
+            ) : null}
+
             <div className="bg-blue-600/20 border border-blue-500/50 rounded-lg p-4 mb-6">
               <p className="text-sm text-blue-300">
                 💳 {cancelAppointmentOnFailure
