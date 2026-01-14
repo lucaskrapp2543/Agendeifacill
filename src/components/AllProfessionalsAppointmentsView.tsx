@@ -21,6 +21,8 @@ interface ProfessionalPin {
 interface AdditionalProduct {
   name: string;
   price: number;
+  // Duração extra (em minutos) para somar à duração base do agendamento e bloquear horários
+  duration?: number;
 }
 
 interface SoldProduct {
@@ -182,6 +184,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const calculateTotalPrice = (apt: Appointment) => {
+      // Total para COBRAR DO CLIENTE: serviço + serviços extra + produtos (Produto V2)
       let total = apt.price || 0;
       if (apt.additional_products) {
         total += apt.additional_products.reduce((sum, p) => sum + p.price, 0);
@@ -191,6 +194,33 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
       return total;
     };
+
+    const calculateServiceTotal = (apt: Appointment) => {
+      // Total do SERVIÇO (financeiro do barbeiro): serviço base + serviços extras (sem produtos V2)
+      let total = apt.price || 0;
+      if (apt.additional_products) {
+        total += apt.additional_products.reduce((sum, p) => sum + p.price, 0);
+      }
+      return total;
+    };
+
+    const getIntervaloAgendaMinutos = (): number => {
+      // Mesma regra usada no backend do estabelecimento / configs
+      if (establishment?.use_15_minute_interval) return 30;
+      if (establishment?.use_20_minute_schedule) return 20;
+      return 15;
+    };
+
+    const getDuracaoTotalAgendamento = (apt: Appointment, interval: number): number => {
+      const base = Number.isFinite(apt.duration) && apt.duration > 0 ? apt.duration : interval;
+      const extra = (apt.additional_products || []).reduce(
+        (sum, p) => sum + (Number(p?.duration) || 0),
+        0
+      );
+      return Math.max(interval, base + extra);
+    };
+
+    const intervaloAgendaMinutos = getIntervaloAgendaMinutos();
 
     // Gerar todos os horários possíveis do dia com agendamentos mesclados
     const generateTimeSlotsWithAppointments = (professional: Professional): TimeSlot[] => {
@@ -227,17 +257,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const end = parse(endTime, 'HH:mm', selectedDate);
 
       // Determinar o intervalo baseado nas configurações do estabelecimento
-      let interval: number;
-      if (establishment?.use_15_minute_interval) {
-        // Quando ativo, mostra de 30 em 30 min
-        interval = 30;
-      } else if (establishment?.use_20_minute_schedule) {
-        // Quando ativo, mostra de 20 em 20 min
-        interval = 20;
-      } else {
-        // Padrão: 15 em 15 min
-        interval = 15;
-      }
+      const interval = intervaloAgendaMinutos;
 
       console.log('🔥 AllProfessionalsAppointmentsView - Intervalo calculado:', interval, 'min', {
         use_15_minute_interval: establishment?.use_15_minute_interval,
@@ -277,7 +297,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       // Processar agendamentos normais
       normalAppointments.forEach((apt) => {
         const startTime = apt.appointment_time;
-        const duration = apt.duration || interval;
+        const duration = getDuracaoTotalAgendamento(apt, interval);
 
         occupiedSlots.set(startTime, { appointment: apt, isOccupied: false });
 
@@ -320,7 +340,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         }
 
         // Bloquear todos os horários dentro do intervalo do encaixe
-        const squeezeDuration = squeeze.duration || interval;
+      const squeezeDuration = getDuracaoTotalAgendamento(squeeze, interval);
         const squeezeStartDate = parse(squeezeStartTime, 'HH:mm', selectedDate);
 
         allSlots.forEach(slot => {
@@ -735,11 +755,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
       );
 
       const dailyGross = dailyAppointments.reduce(
-        (sum, apt) => sum + (apt.total_price || apt.price),
+        // ✅ No saldo do barbeiro, NÃO contar produtos V2. Apenas serviço + serviços extra.
+        (sum, apt) => sum + calculateServiceTotal(apt),
         0
       );
       const monthlyGross = monthlyAppointmentsForPro.reduce(
-        (sum, apt) => sum + (apt.total_price || apt.price),
+        // ✅ No saldo do barbeiro, NÃO contar produtos V2. Apenas serviço + serviços extra.
+        (sum, apt) => sum + calculateServiceTotal(apt),
         0
       );
 
@@ -1358,14 +1380,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 {squeeze.appointment_time} 🟣 ENCAIXE
                                               </span>
                                               <span className="text-white text-xs font-bold">
-                                                R$ {(squeeze.total_price || squeeze.price).toFixed(2)}
+                                                {formatCurrency(calculateTotalPrice(squeeze))}
                                               </span>
                                             </div>
                                             <div className="text-white font-semibold text-sm mb-1 truncate">
                                               {squeeze.service}
                                             </div>
                                             <div className="text-white/70 text-xs mt-1">
-                                              {squeeze.duration} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
+                                              {getDuracaoTotalAgendamento(squeeze, intervaloAgendaMinutos)} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
                                             </div>
                                           </div>
                                         </div>
@@ -1384,13 +1406,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               </div>
                                               <div className="flex items-center gap-1">
                                                 <Clock className="w-3 h-3" />
-                                                {squeeze.appointment_time} • {formatDuration(squeeze.duration)}
+                                                {squeeze.appointment_time} • {formatDuration(getDuracaoTotalAgendamento(squeeze, intervaloAgendaMinutos))}
                                               </div>
                                             </div>
                                             <div className="bg-white/10 rounded p-2 mb-3">
-                                              <div className="text-xs text-white/80 mb-1">Valor:</div>
-                                              <div className="text-sm font-bold text-white">
-                                                {formatCurrency(squeeze.price)}
+                                              <div className="space-y-1">
+                                                <div className="text-sm font-bold text-white">
+                                                  Cobrar do cliente: {formatCurrency(calculateTotalPrice(squeeze))}
+                                                </div>
+                                                <div className="text-xs text-white/80">
+                                                  Valor do serviço (financeiro): {formatCurrency(calculateServiceTotal(squeeze))}
+                                                </div>
                                               </div>
                                             </div>
                                             {/* Botões de ação para encaixe */}
@@ -1465,7 +1491,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           )}
                                         </span>
                                         <span className="text-white text-xs font-bold">
-                                          R$ {(apt.total_price || apt.price).toFixed(2)}
+                                          {formatCurrency(calculateTotalPrice(apt))}
                                         </span>
                                       </div>
                                       <div className="text-white font-semibold text-sm mb-1 truncate">
@@ -1476,7 +1502,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         {apt.service}
                                       </div>
                                       <div className="text-white/70 text-xs mt-1">
-                                        {apt.duration} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
+                                        {getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
                                       </div>
                                     </div>
 
@@ -1560,7 +1586,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         </div>
                                         <div className="flex items-center gap-1">
                                           <Clock className="w-3 h-3" />
-                                          {apt.appointment_time} • {formatDuration(apt.duration)}
+                                          {apt.appointment_time} • {formatDuration(getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos))}
                                         </div>
                                       </div>
 
@@ -1614,7 +1640,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <div className="flex flex-wrap gap-1">
                                               {apt.additional_products.map((prod, idx) => (
                                                 <div key={idx} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/10 text-white rounded group">
-                                                  <span>{prod.name}: {formatCurrency(prod.price)}</span>
+                                                  <span>
+                                                    {prod.name}: {formatCurrency(prod.price)}
+                                                    {Number(prod.duration) > 0 ? ` • +${prod.duration}min` : ''}
+                                                  </span>
                                                   <button
                                                     onClick={() => handleRemoveAdditionalProduct(apt.id, idx)}
                                                     className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300"
@@ -1650,8 +1679,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         )}
 
                                         <div className="mt-2 pt-2 border-t border-white/20">
-                                          <div className="text-sm font-bold text-white">
-                                            Total: {formatCurrency(calculateTotalPrice(apt))}
+                                          <div className="space-y-1">
+                                            <div className="text-sm font-bold text-white">
+                                              Cobrar do cliente: {formatCurrency(calculateTotalPrice(apt))}
+                                            </div>
+                                            <div className="text-xs text-white/80">
+                                              Valor do serviço (financeiro): {formatCurrency(calculateServiceTotal(apt))}
+                                            </div>
                                           </div>
                                         </div>
                                       </div>

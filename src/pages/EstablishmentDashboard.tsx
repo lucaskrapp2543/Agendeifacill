@@ -161,6 +161,8 @@ type TabType =
 interface AdditionalProduct {
   name: string;
   price: number;
+  // Duração extra (em minutos) para bloquear horários além da duração base
+  duration?: number;
 }
 
 interface EstablishmentProduct {
@@ -16609,6 +16611,8 @@ Estamos te aguardando! 😎✂️`;
               setShowAdditionalProductModal(false);
               setSelectedAppointmentForProduct(null);
             }}
+            intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+            maxDurationMinutes={120}
             onAdd={(product: AdditionalProduct) => {
               if (selectedAppointmentForProduct) {
                 handleAddAdditionalProduct(selectedAppointmentForProduct, product);

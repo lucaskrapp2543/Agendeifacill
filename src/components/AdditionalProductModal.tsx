@@ -4,19 +4,38 @@ import { X } from 'lucide-react';
 interface AdditionalProduct {
   name: string;
   price: number;
+  // Duração extra (em minutos) que será somada à duração base do agendamento para bloquear horários
+  duration?: number;
 }
 
 interface AdditionalProductModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (product: AdditionalProduct) => void;
+  intervalMinutes?: number; // intervalo configurado (15/20/30...)
+  maxDurationMinutes?: number; // padrão: 120
 }
 
-const AdditionalProductModal = ({ isOpen, onClose, onAdd }: AdditionalProductModalProps) => {
+const AdditionalProductModal = ({
+  isOpen,
+  onClose,
+  onAdd,
+  intervalMinutes = 15,
+  maxDurationMinutes = 120
+}: AdditionalProductModalProps) => {
   const [productName, setProductName] = useState('');
   const [productPrice, setProductPrice] = useState('');
+  const [extraDuration, setExtraDuration] = useState<string>(String(intervalMinutes));
 
   if (!isOpen) return null;
+
+  const safeInterval = Number.isFinite(intervalMinutes) && intervalMinutes > 0 ? intervalMinutes : 15;
+  const safeMax = Number.isFinite(maxDurationMinutes) && maxDurationMinutes > 0 ? maxDurationMinutes : 120;
+
+  const durationOptions: number[] = [];
+  for (let m = safeInterval; m <= safeMax; m += safeInterval) {
+    durationOptions.push(m);
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,14 +46,22 @@ const AdditionalProductModal = ({ isOpen, onClose, onAdd }: AdditionalProductMod
       return;
     }
 
+    const duration = parseInt(extraDuration, 10);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      alert('Por favor, selecione um tempo válido');
+      return;
+    }
+
     onAdd({
       name: productName,
-      price: price
+      price: price,
+      duration
     });
 
     // Limpa os campos
     setProductName('');
     setProductPrice('');
+    setExtraDuration(String(safeInterval));
     onClose();
   };
 
@@ -82,6 +109,24 @@ const AdditionalProductModal = ({ isOpen, onClose, onAdd }: AdditionalProductMod
               placeholder="0,00"
               required
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white mb-2">
+              Tempo extra (min)
+            </label>
+            <select
+              value={extraDuration}
+              onChange={(e) => setExtraDuration(e.target.value)}
+              className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              required
+            >
+              {durationOptions.map((m) => (
+                <option key={m} value={String(m)} className="bg-[#1a1b1c]">
+                  {m} min
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex gap-2">
