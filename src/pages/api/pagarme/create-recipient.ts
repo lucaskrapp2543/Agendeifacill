@@ -18,13 +18,32 @@ export default async function handler(
   }
 
   try {
-    const { cpfCnpj, bankName, agency, account, accountType, legalName } = req.body;
+    const {
+      cpfCnpj,
+      bankName,
+      agency,
+      account,
+      accountType,
+      legalName,
+      email,
+      phone,
+      // Campos extras para CPF (individual)
+      registerName,
+      birthdate,
+      monthlyIncome,
+      professionalOccupation,
+      address,
+      // Campos extras para CNPJ (corporation)
+      annualRevenue,
+      mainAddress,
+      managingPartners,
+    } = req.body || {};
 
     // Validação
-    if (!cpfCnpj || !bankName || !agency || !account || !legalName) {
+    if (!cpfCnpj || !bankName || !agency || !account || !legalName || !email || !phone) {
       return res.status(400).json({ 
         error: 'Dados bancários incompletos',
-        required: ['cpfCnpj', 'bankName', 'agency', 'account', 'legalName']
+        required: ['cpfCnpj', 'bankName', 'agency', 'account', 'legalName', 'email', 'phone']
       });
     }
 
@@ -36,13 +55,29 @@ export default async function handler(
       account,
       accountType: accountType || 'conta_corrente',
       legalName,
+      email,
+      phone,
+      registerName,
+      birthdate,
+      monthlyIncome,
+      professionalOccupation,
+      address,
+      annualRevenue,
+      mainAddress,
+      managingPartners,
     });
 
     return res.status(200).json(result);
   } catch (error: any) {
     console.error('❌ Erro ao criar recebedor:', error);
-    return res.status(500).json({ 
-      error: error.message || 'Erro ao criar recebedor na Pagar.me' 
+
+    const rawMessage: string = error?.message || 'Erro ao criar recebedor na Pagar.me';
+    const details =
+      (error as any)?.__capturedDetails || (error as any)?.pagarmeErrorDetails || (error as any)?.response?.data;
+
+    return res.status(500).json({
+      error: rawMessage,
+      details,
     });
   }
 }

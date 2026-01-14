@@ -362,6 +362,21 @@ export async function createRecipient(
       document: string; // CPF do sócio
       birthdate?: string; // YYYY-MM-DD ou DD/MM/YYYY
       phone?: string;
+      // Campos obrigatórios que a Pagar.me pode exigir para o managing_partner (CNPJ)
+      monthlyIncome?: number; // em centavos
+      professionalOccupation?: string;
+      selfDeclaredLegalRepresentative?: boolean;
+      address?: {
+        zip_code?: string;
+        street?: string;
+        street_number?: string;
+        neighborhood?: string;
+        city?: string;
+        state?: string;
+        country?: string;
+        complementary?: string;
+        reference_point?: string;
+      };
     }>;
   }
 ): Promise<{ recipient_id: string; errorDetails?: any }> {
@@ -597,6 +612,20 @@ export async function createRecipient(
     if (!partnerName) throw new Error('Nome do sócio/administrador é obrigatório.');
     if (partnerDoc.length !== 11) throw new Error('CPF do sócio/administrador inválido (deve ter 11 dígitos).');
 
+    const partnerMonthlyIncome = Number.isFinite((first as any)?.monthlyIncome) ? Number((first as any).monthlyIncome) : NaN;
+    const partnerOccupation = String((first as any)?.professionalOccupation || '').trim();
+    const partnerIsLegalRep = (first as any)?.selfDeclaredLegalRepresentative;
+    if (!Number.isFinite(partnerMonthlyIncome) || partnerMonthlyIncome <= 0) {
+      throw new Error('Renda mensal do sócio/administrador é obrigatória e deve ser um valor válido.');
+    }
+    if (!partnerOccupation) {
+      throw new Error('Profissão do sócio/administrador é obrigatória.');
+    }
+    // A Pagar.me exige esse campo — e no nosso fluxo trabalhamos com 1 sócio, então ele deve ser o representante legal.
+    if (partnerIsLegalRep !== true) {
+      throw new Error('Confirme que o sócio/administrador é o representante legal da empresa.');
+    }
+
     let partnerBirth = String(first?.birthdate || '').trim();
     if (partnerBirth && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(partnerBirth)) {
       const [yyyy, mm, dd] = partnerBirth.split('-');
@@ -618,12 +647,43 @@ export async function createRecipient(
       pNumber = partnerPhoneDigits.slice(2);
     }
 
+    // Em alguns cadastros CNPJ, a Pagar.me exige também `managing_partners[0].address`.
+    // Se o frontend mandar um endereço específico do sócio, usar ele; senão, usar o endereço principal da empresa.
+    const partnerAddrRaw = (first as any)?.address || {};
+    const partnerUf = String(partnerAddrRaw?.state || '').trim().toUpperCase();
+    const looksCompletePartnerAddress =
+      Boolean(partnerAddrRaw?.zip_code) &&
+      Boolean(partnerAddrRaw?.street) &&
+      Boolean(partnerAddrRaw?.street_number) &&
+      Boolean(partnerAddrRaw?.neighborhood) &&
+      Boolean(partnerAddrRaw?.city) &&
+      Boolean(partnerUf) &&
+      partnerUf.length === 2;
+
+    const partnerAddress = looksCompletePartnerAddress
+      ? {
+          country: String(partnerAddrRaw?.country || 'BR').trim().toUpperCase(),
+          state: partnerUf,
+          city: String(partnerAddrRaw?.city || '').trim(),
+          neighborhood: String(partnerAddrRaw?.neighborhood || '').trim(),
+          street: String(partnerAddrRaw?.street || '').trim(),
+          street_number: String(partnerAddrRaw?.street_number || '').trim(),
+          zip_code: String(partnerAddrRaw?.zip_code || '').replace(/\D/g, ''),
+          ...(partnerAddrRaw?.complementary ? { complementary: String(partnerAddrRaw.complementary) } : {}),
+          reference_point: String(partnerAddrRaw?.reference_point || '').trim() || 'Sem ponto de referência',
+        }
+      : registerInformation.main_address;
+
     registerInformation.managing_partners = [
       {
         name: partnerName,
         email: partnerEmail || undefined,
         document: partnerDoc,
         type: 'individual',
+        monthly_income: partnerMonthlyIncome,
+        professional_occupation: partnerOccupation,
+        self_declared_legal_representative: true,
+        address: partnerAddress,
         ...(partnerBirth ? { birthdate: partnerBirth } : {}),
         ...(pDdd && pNumber
           ? {

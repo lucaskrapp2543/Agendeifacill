@@ -435,6 +435,18 @@ const EstablishmentDashboard = () => {
   const [pagarmePartnerName, setPagarmePartnerName] = useState(''); // Sócio/administrador
   const [pagarmePartnerCpf, setPagarmePartnerCpf] = useState(''); // CPF do sócio/administrador
   const [pagarmePartnerBirthdate, setPagarmePartnerBirthdate] = useState(''); // YYYY-MM-DD
+  const [pagarmePartnerMonthlyIncome, setPagarmePartnerMonthlyIncome] = useState(''); // em reais (input)
+  const [pagarmePartnerProfessionalOccupation, setPagarmePartnerProfessionalOccupation] = useState('');
+  const [pagarmePartnerIsLegalRepresentative, setPagarmePartnerIsLegalRepresentative] = useState(true);
+  const [pagarmePartnerUseCompanyAddress, setPagarmePartnerUseCompanyAddress] = useState(true);
+  const [pagarmePartnerEnderecoCep, setPagarmePartnerEnderecoCep] = useState('');
+  const [pagarmePartnerEnderecoRua, setPagarmePartnerEnderecoRua] = useState('');
+  const [pagarmePartnerEnderecoNumero, setPagarmePartnerEnderecoNumero] = useState('');
+  const [pagarmePartnerEnderecoBairro, setPagarmePartnerEnderecoBairro] = useState('');
+  const [pagarmePartnerEnderecoCidade, setPagarmePartnerEnderecoCidade] = useState('');
+  const [pagarmePartnerEnderecoUf, setPagarmePartnerEnderecoUf] = useState('');
+  const [pagarmePartnerEnderecoComplemento, setPagarmePartnerEnderecoComplemento] = useState('');
+  const [pagarmePartnerEnderecoPontoReferencia, setPagarmePartnerEnderecoPontoReferencia] = useState('');
   // Endereço (Pagar.me)
   const [enderecoCep, setEnderecoCep] = useState('');
   const [enderecoRua, setEnderecoRua] = useState('');
@@ -487,6 +499,23 @@ const EstablishmentDashboard = () => {
     pagarmeBirthdate: string;
     pagarmeMonthlyIncome: string;
     pagarmeProfessionalOccupation: string;
+    // CNPJ
+    pagarmeAnnualRevenue: string;
+    pagarmePartnerName: string;
+    pagarmePartnerCpf: string;
+    pagarmePartnerBirthdate: string;
+    pagarmePartnerMonthlyIncome: string;
+    pagarmePartnerProfessionalOccupation: string;
+    pagarmePartnerIsLegalRepresentative: boolean;
+    pagarmePartnerUseCompanyAddress: boolean;
+    pagarmePartnerEnderecoCep: string;
+    pagarmePartnerEnderecoRua: string;
+    pagarmePartnerEnderecoNumero: string;
+    pagarmePartnerEnderecoBairro: string;
+    pagarmePartnerEnderecoCidade: string;
+    pagarmePartnerEnderecoUf: string;
+    pagarmePartnerEnderecoComplemento: string;
+    pagarmePartnerEnderecoPontoReferencia: string;
     enderecoCep: string;
     enderecoRua: string;
     enderecoNumero: string;
@@ -653,6 +682,22 @@ const EstablishmentDashboard = () => {
         pagarmeBirthdate,
         pagarmeMonthlyIncome,
         pagarmeProfessionalOccupation,
+        pagarmeAnnualRevenue,
+        pagarmePartnerName,
+        pagarmePartnerCpf,
+        pagarmePartnerBirthdate,
+        pagarmePartnerMonthlyIncome,
+        pagarmePartnerProfessionalOccupation,
+        pagarmePartnerIsLegalRepresentative,
+        pagarmePartnerUseCompanyAddress,
+        pagarmePartnerEnderecoCep,
+        pagarmePartnerEnderecoRua,
+        pagarmePartnerEnderecoNumero,
+        pagarmePartnerEnderecoBairro,
+        pagarmePartnerEnderecoCidade,
+        pagarmePartnerEnderecoUf,
+        pagarmePartnerEnderecoComplemento,
+        pagarmePartnerEnderecoPontoReferencia,
         enderecoCep,
         enderecoRua,
         enderecoNumero,
@@ -681,6 +726,22 @@ const EstablishmentDashboard = () => {
     pagarmeBirthdate,
     pagarmeMonthlyIncome,
     pagarmeProfessionalOccupation,
+    pagarmeAnnualRevenue,
+    pagarmePartnerName,
+    pagarmePartnerCpf,
+    pagarmePartnerBirthdate,
+    pagarmePartnerMonthlyIncome,
+    pagarmePartnerProfessionalOccupation,
+    pagarmePartnerIsLegalRepresentative,
+    pagarmePartnerUseCompanyAddress,
+    pagarmePartnerEnderecoCep,
+    pagarmePartnerEnderecoRua,
+    pagarmePartnerEnderecoNumero,
+    pagarmePartnerEnderecoBairro,
+    pagarmePartnerEnderecoCidade,
+    pagarmePartnerEnderecoUf,
+    pagarmePartnerEnderecoComplemento,
+    pagarmePartnerEnderecoPontoReferencia,
     enderecoCep,
     enderecoRua,
     enderecoNumero,
@@ -4518,9 +4579,9 @@ Estamos te aguardando! 😎✂️`;
         } catch (e) {
           // ignore
         }
-        const updatedAtDb = establishmentData.updated_at ? new Date(establishmentData.updated_at).getTime() : 0;
-        const draftUpdatedAt = typeof draft?.updatedAt === 'number' ? draft.updatedAt : 0;
-        const useDraft = Boolean(draft && draftUpdatedAt && draftUpdatedAt > updatedAtDb);
+        // ✅ Sempre preferir o rascunho local quando existir.
+        // Motivo: o updated_at do banco pode mudar por outras ações e acabar "apagando" o rascunho durante o preenchimento.
+        const useDraft = Boolean(draft);
 
         if (useDraft) {
           pagarmeDraftDirtyRef.current = true; // força persistência e evita perder novamente
@@ -4589,6 +4650,64 @@ Estamos te aguardando! 😎✂️`;
           useDraft && typeof draft?.pagarmePartnerBirthdate === 'string'
             ? draft.pagarmePartnerBirthdate
             : (Array.isArray((registerInfo as any)?.managing_partners) ? (registerInfo as any).managing_partners?.[0]?.birthdateRaw || '' : '')
+        );
+        setPagarmePartnerMonthlyIncome(() => {
+          if (useDraft && typeof draft?.pagarmePartnerMonthlyIncome === 'string') return draft.pagarmePartnerMonthlyIncome;
+          const mi = Array.isArray((registerInfo as any)?.managing_partners)
+            ? (registerInfo as any).managing_partners?.[0]?.monthly_income
+            : undefined;
+          return typeof mi === 'number' ? String((mi / 100).toFixed(2)).replace('.', ',') : '';
+        });
+        setPagarmePartnerProfessionalOccupation(
+          useDraft && typeof draft?.pagarmePartnerProfessionalOccupation === 'string'
+            ? draft.pagarmePartnerProfessionalOccupation
+            : (Array.isArray((registerInfo as any)?.managing_partners) ? (registerInfo as any).managing_partners?.[0]?.professional_occupation || '' : '')
+        );
+        setPagarmePartnerIsLegalRepresentative(() => {
+          if (useDraft && typeof draft?.pagarmePartnerIsLegalRepresentative === 'boolean') return draft.pagarmePartnerIsLegalRepresentative;
+          const v = Array.isArray((registerInfo as any)?.managing_partners)
+            ? (registerInfo as any).managing_partners?.[0]?.self_declared_legal_representative
+            : undefined;
+          return v === false ? false : true;
+        });
+        setPagarmePartnerUseCompanyAddress(() => {
+          if (useDraft && typeof draft?.pagarmePartnerUseCompanyAddress === 'boolean') return draft.pagarmePartnerUseCompanyAddress;
+          const addr = Array.isArray((registerInfo as any)?.managing_partners)
+            ? (registerInfo as any).managing_partners?.[0]?.address
+            : undefined;
+          // Se não tiver endereço salvo pro sócio, assumir que usa o da empresa (padrão)
+          return !addr;
+        });
+        const partnerAddr = Array.isArray((registerInfo as any)?.managing_partners)
+          ? (registerInfo as any).managing_partners?.[0]?.address || {}
+          : {};
+        setPagarmePartnerEnderecoCep(
+          useDraft && typeof draft?.pagarmePartnerEnderecoCep === 'string' ? draft.pagarmePartnerEnderecoCep : (partnerAddr?.zip_code || '')
+        );
+        setPagarmePartnerEnderecoRua(
+          useDraft && typeof draft?.pagarmePartnerEnderecoRua === 'string' ? draft.pagarmePartnerEnderecoRua : (partnerAddr?.street || '')
+        );
+        setPagarmePartnerEnderecoNumero(
+          useDraft && typeof draft?.pagarmePartnerEnderecoNumero === 'string' ? draft.pagarmePartnerEnderecoNumero : (partnerAddr?.street_number || '')
+        );
+        setPagarmePartnerEnderecoBairro(
+          useDraft && typeof draft?.pagarmePartnerEnderecoBairro === 'string' ? draft.pagarmePartnerEnderecoBairro : (partnerAddr?.neighborhood || '')
+        );
+        setPagarmePartnerEnderecoCidade(
+          useDraft && typeof draft?.pagarmePartnerEnderecoCidade === 'string' ? draft.pagarmePartnerEnderecoCidade : (partnerAddr?.city || '')
+        );
+        setPagarmePartnerEnderecoUf(
+          useDraft && typeof draft?.pagarmePartnerEnderecoUf === 'string' ? draft.pagarmePartnerEnderecoUf : (partnerAddr?.state || '')
+        );
+        setPagarmePartnerEnderecoComplemento(
+          useDraft && typeof draft?.pagarmePartnerEnderecoComplemento === 'string'
+            ? draft.pagarmePartnerEnderecoComplemento
+            : (partnerAddr?.complementary || '')
+        );
+        setPagarmePartnerEnderecoPontoReferencia(
+          useDraft && typeof draft?.pagarmePartnerEnderecoPontoReferencia === 'string'
+            ? draft.pagarmePartnerEnderecoPontoReferencia
+            : (partnerAddr?.reference_point || '')
         );
 
         const addr = registerInfo?.address || {};
@@ -8462,6 +8581,37 @@ Estamos te aguardando! 😎✂️`;
         toast.error('Informe um CPF válido do sócio/administrador (11 dígitos).');
         return;
       }
+      if (!pagarmePartnerMonthlyIncome.trim()) {
+        toast.error('Informe a renda mensal do sócio/administrador (CNPJ).');
+        return;
+      }
+      if (!pagarmePartnerProfessionalOccupation.trim()) {
+        toast.error('Informe a profissão do sócio/administrador (CNPJ).');
+        return;
+      }
+      if (pagarmePartnerIsLegalRepresentative !== true) {
+        toast.error('Confirme que o sócio/administrador é o representante legal.');
+        return;
+      }
+
+      if (!pagarmePartnerUseCompanyAddress) {
+        const ufSocio = pagarmePartnerEnderecoUf.trim().toUpperCase();
+        if (
+          !pagarmePartnerEnderecoCep.trim() ||
+          !pagarmePartnerEnderecoRua.trim() ||
+          !pagarmePartnerEnderecoNumero.trim() ||
+          !pagarmePartnerEnderecoBairro.trim() ||
+          !pagarmePartnerEnderecoCidade.trim() ||
+          !ufSocio
+        ) {
+          toast.error('Preencha o endereço completo do sócio (CEP, rua, número, bairro, cidade e UF) ou marque para usar o endereço da empresa.');
+          return;
+        }
+        if (ufSocio.length !== 2) {
+          toast.error('UF inválida no endereço do sócio. Use a sigla (ex: SP).');
+          return;
+        }
+      }
 
       // Endereço da empresa é obrigatório para CNPJ (Pagar.me)
       const uf = enderecoUf.trim().toUpperCase();
@@ -8548,6 +8698,28 @@ Estamos te aguardando! 😎✂️`;
               document: pagarmePartnerCpf.trim(),
               birthdate: pagarmePartnerBirthdate.trim(),
               phone: establishment.whatsapp,
+              monthlyIncome: (() => {
+                const raw = String(pagarmePartnerMonthlyIncome || '').replace(/\./g, '').replace(',', '.');
+                const n = Number(raw);
+                return Number.isFinite(n) ? Math.round(n * 100) : undefined;
+              })(),
+              professionalOccupation: pagarmePartnerProfessionalOccupation.trim(),
+              selfDeclaredLegalRepresentative: pagarmePartnerIsLegalRepresentative,
+              ...(pagarmePartnerUseCompanyAddress
+                ? {}
+                : {
+                    address: {
+                      zip_code: pagarmePartnerEnderecoCep.trim(),
+                      street: pagarmePartnerEnderecoRua.trim(),
+                      street_number: pagarmePartnerEnderecoNumero.trim(),
+                      neighborhood: pagarmePartnerEnderecoBairro.trim(),
+                      city: pagarmePartnerEnderecoCidade.trim(),
+                      state: pagarmePartnerEnderecoUf.trim(),
+                      country: 'BR',
+                      complementary: pagarmePartnerEnderecoComplemento.trim(),
+                      reference_point: pagarmePartnerEnderecoPontoReferencia.trim(),
+                    },
+                  }),
             },
           ],
         }),
@@ -8649,6 +8821,13 @@ Estamos te aguardando! 😎✂️`;
             document: pagarmePartnerCpf.trim(),
             birthdateRaw: pagarmePartnerBirthdate.trim(),
             email: user.email,
+            monthly_income: (() => {
+              const raw = String(pagarmePartnerMonthlyIncome || '').replace(/\./g, '').replace(',', '.');
+              const n = Number(raw);
+              return Number.isFinite(n) ? Math.round(n * 100) : undefined;
+            })(),
+            professional_occupation: pagarmePartnerProfessionalOccupation.trim(),
+            self_declared_legal_representative: pagarmePartnerIsLegalRepresentative,
           },
         ],
       };
@@ -8700,6 +8879,21 @@ Estamos te aguardando! 😎✂️`;
     pagarmeBirthdate,
     pagarmeMonthlyIncome,
     pagarmeProfessionalOccupation,
+    pagarmePartnerName,
+    pagarmePartnerCpf,
+    pagarmePartnerBirthdate,
+    pagarmePartnerMonthlyIncome,
+    pagarmePartnerProfessionalOccupation,
+    pagarmePartnerIsLegalRepresentative,
+    pagarmePartnerUseCompanyAddress,
+    pagarmePartnerEnderecoCep,
+    pagarmePartnerEnderecoRua,
+    pagarmePartnerEnderecoNumero,
+    pagarmePartnerEnderecoBairro,
+    pagarmePartnerEnderecoCidade,
+    pagarmePartnerEnderecoUf,
+    pagarmePartnerEnderecoComplemento,
+    pagarmePartnerEnderecoPontoReferencia,
     enderecoCep,
     enderecoRua,
     enderecoNumero,
@@ -13197,6 +13391,172 @@ Estamos te aguardando! 😎✂️`;
                                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                     />
                                   </div>
+                                  <div>
+                                    <label className="text-xs text-gray-300">Renda mensal do sócio (R$)</label>
+                                    <input
+                                      type="text"
+                                      value={pagarmePartnerMonthlyIncome}
+                                      onChange={(e) => {
+                                        setPagarmePartnerMonthlyIncome(e.target.value);
+                                        persistPagarmeDraft({ pagarmePartnerMonthlyIncome: e.target.value });
+                                      }}
+                                      className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                      placeholder="Ex: 4000,00"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-gray-300">Profissão do sócio</label>
+                                    <input
+                                      type="text"
+                                      value={pagarmePartnerProfessionalOccupation}
+                                      onChange={(e) => {
+                                        setPagarmePartnerProfessionalOccupation(e.target.value);
+                                        persistPagarmeDraft({ pagarmePartnerProfessionalOccupation: e.target.value });
+                                      }}
+                                      className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                      placeholder="Ex: Barbeiro"
+                                    />
+                                  </div>
+                                  <div className="sm:col-span-2">
+                                    <label className="flex items-center gap-2 text-xs text-gray-200 mt-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={pagarmePartnerIsLegalRepresentative}
+                                        onChange={(e) => {
+                                          setPagarmePartnerIsLegalRepresentative(e.target.checked);
+                                          persistPagarmeDraft({ pagarmePartnerIsLegalRepresentative: e.target.checked });
+                                        }}
+                                      />
+                                      Sou o representante legal (declaração do sócio/administrador)
+                                    </label>
+                                    <div className="text-[11px] text-gray-400 mt-1">
+                                      A Pagar.me exige essa confirmação para o cadastro do recebedor (CNPJ).
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="mt-4 border-t border-gray-800 pt-4">
+                                  <div className="text-xs text-gray-200 font-semibold mb-2">Endereço do sócio/administrador</div>
+                                  <label className="flex items-center gap-2 text-xs text-gray-200">
+                                    <input
+                                      type="checkbox"
+                                      checked={pagarmePartnerUseCompanyAddress}
+                                      onChange={(e) => {
+                                        setPagarmePartnerUseCompanyAddress(e.target.checked);
+                                        persistPagarmeDraft({ pagarmePartnerUseCompanyAddress: e.target.checked });
+                                      }}
+                                    />
+                                    Usar o mesmo endereço da empresa
+                                  </label>
+
+                                  {!pagarmePartnerUseCompanyAddress && (
+                                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="text-xs text-gray-300">CEP</label>
+                                        <input
+                                          type="text"
+                                          value={pagarmePartnerEnderecoCep}
+                                          onChange={(e) => {
+                                            setPagarmePartnerEnderecoCep(e.target.value);
+                                            persistPagarmeDraft({ pagarmePartnerEnderecoCep: e.target.value });
+                                          }}
+                                          className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          placeholder="00000-000"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs text-gray-300">UF</label>
+                                        <input
+                                          type="text"
+                                          value={pagarmePartnerEnderecoUf}
+                                          onChange={(e) => {
+                                            setPagarmePartnerEnderecoUf(e.target.value);
+                                            persistPagarmeDraft({ pagarmePartnerEnderecoUf: e.target.value });
+                                          }}
+                                          className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          placeholder="SP"
+                                        />
+                                      </div>
+                                      <div className="sm:col-span-2">
+                                        <label className="text-xs text-gray-300">Rua</label>
+                                        <input
+                                          type="text"
+                                          value={pagarmePartnerEnderecoRua}
+                                          onChange={(e) => {
+                                            setPagarmePartnerEnderecoRua(e.target.value);
+                                            persistPagarmeDraft({ pagarmePartnerEnderecoRua: e.target.value });
+                                          }}
+                                          className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          placeholder="Rua..."
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs text-gray-300">Número</label>
+                                        <input
+                                          type="text"
+                                          value={pagarmePartnerEnderecoNumero}
+                                          onChange={(e) => {
+                                            setPagarmePartnerEnderecoNumero(e.target.value);
+                                            persistPagarmeDraft({ pagarmePartnerEnderecoNumero: e.target.value });
+                                          }}
+                                          className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          placeholder="123"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs text-gray-300">Bairro</label>
+                                        <input
+                                          type="text"
+                                          value={pagarmePartnerEnderecoBairro}
+                                          onChange={(e) => {
+                                            setPagarmePartnerEnderecoBairro(e.target.value);
+                                            persistPagarmeDraft({ pagarmePartnerEnderecoBairro: e.target.value });
+                                          }}
+                                          className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          placeholder="Centro"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs text-gray-300">Cidade</label>
+                                        <input
+                                          type="text"
+                                          value={pagarmePartnerEnderecoCidade}
+                                          onChange={(e) => {
+                                            setPagarmePartnerEnderecoCidade(e.target.value);
+                                            persistPagarmeDraft({ pagarmePartnerEnderecoCidade: e.target.value });
+                                          }}
+                                          className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          placeholder="São Paulo"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs text-gray-300">Complemento</label>
+                                        <input
+                                          type="text"
+                                          value={pagarmePartnerEnderecoComplemento}
+                                          onChange={(e) => {
+                                            setPagarmePartnerEnderecoComplemento(e.target.value);
+                                            persistPagarmeDraft({ pagarmePartnerEnderecoComplemento: e.target.value });
+                                          }}
+                                          className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          placeholder="Apto, casa..."
+                                        />
+                                      </div>
+                                      <div className="sm:col-span-2">
+                                        <label className="text-xs text-gray-300">Ponto de referência</label>
+                                        <input
+                                          type="text"
+                                          value={pagarmePartnerEnderecoPontoReferencia}
+                                          onChange={(e) => {
+                                            setPagarmePartnerEnderecoPontoReferencia(e.target.value);
+                                            persistPagarmeDraft({ pagarmePartnerEnderecoPontoReferencia: e.target.value });
+                                          }}
+                                          className="mt-1 w-full bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          placeholder="Opcional"
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
 
                                 <div className="mt-3 text-xs text-gray-400">
