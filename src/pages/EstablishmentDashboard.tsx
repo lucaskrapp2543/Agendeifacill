@@ -2714,13 +2714,16 @@ const EstablishmentDashboard = () => {
   }, [establishment?.professionals_pins]);
 
   const durationOptions = [
+    { value: 5, label: '5 minutos' },
+    { value: 10, label: '10 minutos' },
     { value: 15, label: '15 minutos' },
     { value: 20, label: '20 minutos' },
     { value: 30, label: '30 minutos' },
     { value: 40, label: '40 minutos' },
     { value: 45, label: '45 minutos' },
-    { value: 60, label: '1 hora' },
-    { value: 90, label: '1 hora e meia' }
+    { value: 60, label: '60 minutos' },
+    { value: 90, label: '90 minutos' },
+    { value: 120, label: '120 minutos' }
   ];
 
   const formatDuration = (minutes: number): string => {
@@ -20114,14 +20117,11 @@ Estamos te aguardando! 😎✂️`;
                     onChange={(e) => setNewSubcategory({ ...newSubcategory, duration: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
                   >
-                    <option value="15">15 minutos</option>
-                    <option value="20">20 minutos</option>
-                    <option value="30">30 minutos</option>
-                    <option value="40">40 minutos</option>
-                    <option value="45">45 minutos</option>
-                    <option value="60">60 minutos</option>
-                    <option value="90">90 minutos</option>
-                    <option value="120">120 minutos</option>
+                    {durationOptions.map((option) => (
+                      <option key={option.value} value={String(option.value)}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

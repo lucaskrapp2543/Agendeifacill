@@ -6,6 +6,8 @@ interface DurationSelectorProps {
 }
 
 const durationOptions = [
+  { value: 5, label: '5 minutos' },
+  { value: 10, label: '10 minutos' },
   { value: 15, label: '15 minutos' },
   { value: 20, label: '20 minutos' },
   { value: 30, label: '30 minutos' },
@@ -75,4 +77,4 @@ export function DurationSelector({ value, onChange, className = '' }: DurationSe
       ))}
     </select>
   );
-} 
+}

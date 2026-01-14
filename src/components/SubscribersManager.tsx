@@ -1772,6 +1772,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               required
             >
+              <option value={5}>5 minutos</option>
+              <option value={10}>10 minutos</option>
               <option value={15}>15 minutos</option>
               <option value={20}>20 minutos</option>
               <option value={30}>30 minutos</option>
