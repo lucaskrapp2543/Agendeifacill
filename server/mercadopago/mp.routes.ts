@@ -12,15 +12,23 @@ import { createMPPayment, checkMPPaymentStatus, CreateMPPaymentRequest } from '.
 
 const router = Router();
 
-// Supabase Admin (bypass RLS)
-const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
-const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-const supabaseAdmin =
-  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      })
-    : null;
+// Função para obter Supabase Admin (carrega variáveis dinamicamente)
+function getSupabaseAdmin() {
+  const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn('⚠️ [MP Routes] Supabase admin não configurado:', {
+      hasUrl: !!SUPABASE_URL,
+      hasKey: !!SUPABASE_SERVICE_ROLE_KEY,
+    });
+    return null;
+  }
+  
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 /**
  * GET /api/mercadopago/oauth/authorize
@@ -40,6 +48,7 @@ router.get('/oauth/authorize', async (req: Request, res: Response) => {
     }
 
     // Verificar se o estabelecimento existe
+    const supabaseAdmin = getSupabaseAdmin();
     if (supabaseAdmin) {
       const { data, error } = await supabaseAdmin
         .from('establishments')
@@ -105,6 +114,7 @@ router.get('/oauth/callback', async (req: Request, res: Response) => {
     const tokenData = await exchangeCodeForToken(code);
 
     // Salvar tokens no banco de dados
+    const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) {
       return res.status(500).json({
         error: 'Supabase admin não configurado',
@@ -184,6 +194,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     }
 
     // Buscar access_token do estabelecimento
+    const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) {
       return res.status(500).json({
         error: 'Supabase admin não configurado',
@@ -273,6 +284,7 @@ router.get('/check-status', async (req: Request, res: Response) => {
     }
 
     // Buscar access_token do estabelecimento
+    const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) {
       return res.status(500).json({
         error: 'Supabase admin não configurado',

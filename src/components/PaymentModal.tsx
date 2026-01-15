@@ -11,7 +11,7 @@ interface PaymentModalProps {
   appointmentId: string;
   amount: number; // Valor em reais
   establishmentId: string;
-  recipientId: string; // ID do recebedor na Pagar.me
+  recipientId?: string; // ID do recebedor na Pagar.me (opcional se usar Mercado Pago)
   onPaymentSuccess: (clientPhone?: string) => void;
   onPaymentFailure: () => void;
   customerData: {
@@ -67,16 +67,21 @@ export const PaymentModal = ({
   const amountInCents = Math.round(amount * 100);
   // O split é montado no BACKEND (Express) para não expor/configurar recipient da plataforma no frontend.
 
-  // Verificar se o estabelecimento tem Mercado Pago conectado
+  // Verificar qual gateway de pagamento está configurado (Pagar.me ou Mercado Pago)
   useEffect(() => {
     if (isOpen && establishmentId) {
       supabase
         .from('establishments')
-        .select('mercadopago_access_token')
+        .select('mercadopago_access_token, pagarme_recipient_id')
         .eq('id', establishmentId)
         .single()
         .then(({ data }) => {
-          setHasMercadoPago(!!data?.mercadopago_access_token);
+          const hasMP = !!data?.mercadopago_access_token;
+          const hasPM = !!data?.pagarme_recipient_id;
+          
+          // Se tem Mercado Pago e NÃO tem Pagar.me, usar apenas Mercado Pago
+          // Se tem Pagar.me, usar Pagar.me (prioridade)
+          setHasMercadoPago(hasMP && !hasPM);
         })
         .catch(() => {
           setHasMercadoPago(false);
@@ -84,8 +89,8 @@ export const PaymentModal = ({
     }
   }, [isOpen, establishmentId]);
 
-  // Função para pagar com Mercado Pago
-  const handleMercadoPagoPayment = async () => {
+  // Função para pagar com Mercado Pago (PIX ou Cartão)
+  const handleMercadoPagoPayment = async (method: 'pix' | 'credit_card' = 'pix') => {
     if (!hasMercadoPago) {
       toast('Estabelecimento não possui conta do Mercado Pago conectada', 'error');
       return;
@@ -95,6 +100,43 @@ export const PaymentModal = ({
     if (!(docDigits.length === 11 || docDigits.length === 14)) {
       toast('Informe um CPF (11) ou CNPJ (14) válido para continuar.', 'error');
       return;
+    }
+
+    // Definir selectedMethod para que confirmAppointment saiba qual método foi usado
+    if (method === 'pix') {
+      setSelectedMethod('pix');
+    } else {
+      setSelectedMethod('credit_card');
+    }
+
+    // Se for cartão, validar dados do cartão
+    if (method === 'credit_card') {
+      const numberDigits = String(cardNumber || '').replace(/\D/g, '');
+      const expMonthDigits = String(cardExpMonth || '').replace(/\D/g, '');
+      const expYearDigits = String(cardExpYear || '').replace(/\D/g, '');
+      const cvvDigits = String(cardCvv || '').replace(/\D/g, '');
+      const holder = String(cardHolderName || '').trim();
+
+      if (numberDigits.length < 13 || numberDigits.length > 19) {
+        toast('Número do cartão inválido.', 'error');
+        return;
+      }
+      if (!expMonthDigits || expMonthDigits.length < 2) {
+        toast('Mês de validade inválido.', 'error');
+        return;
+      }
+      if (!expYearDigits || expYearDigits.length < 2) {
+        toast('Ano de validade inválido.', 'error');
+        return;
+      }
+      if (cvvDigits.length < 3 || cvvDigits.length > 4) {
+        toast('CVV inválido.', 'error');
+        return;
+      }
+      if (!holder) {
+        toast('Informe o nome do titular do cartão.', 'error');
+        return;
+      }
     }
 
     setIsProcessing(true);
@@ -121,7 +163,8 @@ export const PaymentModal = ({
               number: docDigits,
             },
           },
-          payment_method_id: 'pix', // Por enquanto só PIX
+          payment_method_id: method,
+          ...(method === 'credit_card' ? { installments: 1 } : {}),
           metadata: {
             appointment_id: appointmentId,
             establishment_id: establishmentId,
@@ -143,8 +186,8 @@ export const PaymentModal = ({
             .from('appointments')
             .update({
               payment_transaction_id: String(paymentResult.id),
-              payment_method: 'pix',
-              pix_payment_status: 'enviado',
+              payment_method: method === 'pix' ? 'pix' : 'credito',
+              ...(method === 'pix' ? { pix_payment_status: 'enviado' } : {}),
             })
             .eq('id', appointmentId);
         }
@@ -153,25 +196,39 @@ export const PaymentModal = ({
       }
 
       // Se for PIX, mostrar QR Code
-      // Mercado Pago retorna QR code em point_of_interaction.transaction_data
-      const qrCode = (paymentResult as any).point_of_interaction?.transaction_data?.qr_code;
-      const qrCodeBase64 = (paymentResult as any).point_of_interaction?.transaction_data?.qr_code_base64;
-      
-      if (qrCode) {
-        setPixQrCode(qrCode);
-        setPixQrCodeUrl(qrCodeBase64 ? `data:image/png;base64,${qrCodeBase64}` : '');
-        setPixExpiresInSeconds(90);
-        setPixRemainingSeconds(90);
-        setIsCheckingPayment(true);
-        checkMercadoPagoPaymentStatus(paymentResult.id);
-        setIsProcessing(false);
-      } else if (paymentResult.status === 'approved' || paymentResult.status === 'authorized') {
-        await confirmAppointment(String(paymentResult.id));
+      if (method === 'pix') {
+        const qrCode = (paymentResult as any).point_of_interaction?.transaction_data?.qr_code;
+        const qrCodeBase64 = (paymentResult as any).point_of_interaction?.transaction_data?.qr_code_base64;
+        
+        if (qrCode) {
+          setPixQrCode(qrCode);
+          setPixQrCodeUrl(qrCodeBase64 ? `data:image/png;base64,${qrCodeBase64}` : '');
+          setPixExpiresInSeconds(90);
+          setPixRemainingSeconds(90);
+          setIsCheckingPayment(true);
+          checkMercadoPagoPaymentStatus(paymentResult.id);
+          setIsProcessing(false);
+        } else if (paymentResult.status === 'approved' || paymentResult.status === 'authorized') {
+          await confirmAppointment(String(paymentResult.id));
+        } else {
+          toast('Pagamento processado. Aguardando confirmação...', 'warning');
+          setIsCheckingPayment(true);
+          checkMercadoPagoPaymentStatus(paymentResult.id);
+          setIsProcessing(false);
+        }
       } else {
-        toast('Pagamento processado. Aguardando confirmação...', 'warning');
-        setIsCheckingPayment(true);
-        checkMercadoPagoPaymentStatus(paymentResult.id);
-        setIsProcessing(false);
+        // Cartão de crédito: verificar status imediatamente
+        if (paymentResult.status === 'approved' || paymentResult.status === 'authorized') {
+          await confirmAppointment(String(paymentResult.id));
+        } else if (paymentResult.status === 'rejected' || paymentResult.status === 'cancelled') {
+          toast(`Pagamento ${paymentResult.status_detail || 'recusado'}`, 'error');
+          setIsProcessing(false);
+        } else {
+          toast('Pagamento processado. Aguardando confirmação...', 'warning');
+          setIsCheckingPayment(true);
+          checkMercadoPagoPaymentStatus(paymentResult.id);
+          setIsProcessing(false);
+        }
       }
     } catch (error: any) {
       console.error('❌ Erro ao processar pagamento Mercado Pago:', error);
@@ -358,15 +415,17 @@ export const PaymentModal = ({
             document: docDigits,
             phone: customerData.phone,
           },
-          split_rules: [
-            {
-              recipient_id: recipientId,
-              amount: amountInCents, // Backend aplica split (R$ 1,00 plataforma + resto estabelecimento)
-              type: 'flat',
-              liable: true,
-              charge_processing_fee: false
-            }
-          ],
+          ...(recipientId ? {
+            split_rules: [
+              {
+                recipient_id: recipientId,
+                amount: amountInCents, // Backend aplica split (R$ 1,00 plataforma + resto estabelecimento)
+                type: 'flat',
+                liable: true,
+                charge_processing_fee: false
+              }
+            ]
+          } : {}),
           metadata: {
             appointment_id: appointmentId,
             establishment_id: establishmentId
@@ -727,53 +786,77 @@ export const PaymentModal = ({
                 inputMode="numeric"
               />
               <p className="text-xs text-gray-400 mt-2">
-                A Pagar.me costuma exigir CPF/CNPJ para pagamentos (principalmente PIX e cartão).
+                {hasMercadoPago 
+                  ? 'O Mercado Pago exige CPF/CNPJ para pagamentos (principalmente PIX e cartão).'
+                  : 'A Pagar.me costuma exigir CPF/CNPJ para pagamentos (principalmente PIX e cartão).'}
               </p>
             </div>
 
             <div className="space-y-3">
-              <button
-                onClick={() => handlePayment('pix')}
-                className="w-full p-4 bg-[#2a2b2c] border border-gray-600 rounded-lg hover:border-blue-500 transition-colors flex items-center gap-3"
-              >
-                <QrCode className="h-6 w-6 text-blue-400" />
-                <div className="flex-1 text-left">
-                  <div className="text-white font-medium">PIX</div>
-                  <div className="text-sm text-gray-400">Aprovação imediata</div>
-                </div>
-              </button>
+              {/* Mostrar opções do Pagar.me apenas se NÃO tiver Mercado Pago */}
+              {!hasMercadoPago && (
+                <>
+                  <button
+                    onClick={() => handlePayment('pix')}
+                    className="w-full p-4 bg-[#2a2b2c] border border-gray-600 rounded-lg hover:border-blue-500 transition-colors flex items-center gap-3"
+                  >
+                    <QrCode className="h-6 w-6 text-blue-400" />
+                    <div className="flex-1 text-left">
+                      <div className="text-white font-medium">PIX</div>
+                      <div className="text-sm text-gray-400">Aprovação imediata (Pagar.me)</div>
+                    </div>
+                  </button>
 
-              <button
-                onClick={() => setSelectedMethod('credit_card')}
-                className="w-full p-4 bg-[#2a2b2c] border border-gray-600 rounded-lg hover:border-green-500 transition-colors flex items-center gap-3"
-              >
-                <Wallet className="h-6 w-6 text-green-400" />
-                <div className="flex-1 text-left">
-                  <div className="text-white font-medium">Cartão de Crédito</div>
-                  <div className="text-sm text-gray-400">Tokenização segura (Pagar.me)</div>
-                </div>
-              </button>
+                  <button
+                    onClick={() => setSelectedMethod('credit_card')}
+                    className="w-full p-4 bg-[#2a2b2c] border border-gray-600 rounded-lg hover:border-green-500 transition-colors flex items-center gap-3"
+                  >
+                    <Wallet className="h-6 w-6 text-green-400" />
+                    <div className="flex-1 text-left">
+                      <div className="text-white font-medium">Cartão de Crédito</div>
+                      <div className="text-sm text-gray-400">Tokenização segura (Pagar.me)</div>
+                    </div>
+                  </button>
+                </>
+              )}
 
+              {/* Mostrar opções do Mercado Pago apenas se tiver Mercado Pago conectado */}
               {hasMercadoPago && (
-                <button
-                  onClick={handleMercadoPagoPayment}
-                  disabled={isProcessing || isCheckingPayment}
-                  className="w-full p-4 bg-[#2a2b2c] border border-[#009EE3] rounded-lg hover:border-[#0088C7] transition-colors flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  <CreditCard className="h-6 w-6 text-[#009EE3]" />
-                  <div className="flex-1 text-left">
-                    <div className="text-white font-medium">Mercado Pago</div>
-                    <div className="text-sm text-gray-400">PIX via Mercado Pago</div>
-                  </div>
-                </button>
+                <>
+                  <button
+                    onClick={() => handleMercadoPagoPayment('pix')}
+                    disabled={isProcessing || isCheckingPayment}
+                    className="w-full p-4 bg-[#2a2b2c] border border-[#009EE3] rounded-lg hover:border-[#0088C7] transition-colors flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <QrCode className="h-6 w-6 text-[#009EE3]" />
+                    <div className="flex-1 text-left">
+                      <div className="text-white font-medium">PIX</div>
+                      <div className="text-sm text-gray-400">Aprovação imediata (Mercado Pago)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedMethod('credit_card')}
+                    disabled={isProcessing || isCheckingPayment}
+                    className="w-full p-4 bg-[#2a2b2c] border border-[#009EE3] rounded-lg hover:border-[#0088C7] transition-colors flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <CreditCard className="h-6 w-6 text-[#009EE3]" />
+                    <div className="flex-1 text-left">
+                      <div className="text-white font-medium">Cartão de Crédito</div>
+                      <div className="text-sm text-gray-400">Via Mercado Pago</div>
+                    </div>
+                  </button>
+                </>
               )}
             </div>
           </div>
         ) : selectedMethod === 'credit_card' && !pixQrCode ? (
           <div className="space-y-4">
-            <div className="bg-green-600/10 border border-green-500/30 rounded-lg p-3">
-              <p className="text-sm text-green-200">
-                Preencha os dados do cartão. O sistema gera um <strong>token</strong> e não envia o número do cartão para o servidor.
+            <div className={`${hasMercadoPago ? 'bg-[#009EE3]/10 border-[#009EE3]/30' : 'bg-green-600/10 border-green-500/30'} border rounded-lg p-3`}>
+              <p className={`text-sm ${hasMercadoPago ? 'text-[#009EE3]' : 'text-green-200'}`}>
+                {hasMercadoPago 
+                  ? 'Preencha os dados do cartão. O pagamento será processado via Mercado Pago.'
+                  : 'Preencha os dados do cartão. O sistema gera um <strong>token</strong> e não envia o número do cartão para o servidor.'}
               </p>
             </div>
 
@@ -913,9 +996,13 @@ export const PaymentModal = ({
               </div>
 
               <button
-                onClick={() => handlePayment('credit_card')}
+                onClick={() => hasMercadoPago ? handleMercadoPagoPayment('credit_card') : handlePayment('credit_card')}
                 disabled={isProcessing || isCheckingPayment}
-                className="w-full mt-1 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className={`w-full mt-1 px-4 py-3 rounded-lg text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+                  hasMercadoPago 
+                    ? 'bg-[#009EE3] hover:bg-[#0088C7]' 
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
               >
                 {isProcessing ? (
                   <>
@@ -923,7 +1010,7 @@ export const PaymentModal = ({
                     Processando...
                   </>
                 ) : (
-                  `Pagar com Cartão (R$ ${amount.toFixed(2)})`
+                  `Pagar com Cartão (R$ ${amount.toFixed(2)})${hasMercadoPago ? ' - Mercado Pago' : ' - Pagar.me'}`
                 )}
               </button>
 

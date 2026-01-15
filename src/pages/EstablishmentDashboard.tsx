@@ -413,6 +413,8 @@ const EstablishmentDashboard = () => {
   const [requireCpf, setRequireCpf] = useState(false); // Solicitar CPF no agendamento
   const [exigirPagamentoAntecipado, setExigirPagamentoAntecipado] = useState(false); // Exigir pagamento antecipado (Pagar.me)
   const [pagamentoAdiantadoOpcional, setPagamentoAdiantadoOpcional] = useState(false); // Se true, cliente pode agendar sem pagar
+  const [exigirPagamentoAntecipadoMercadoPago, setExigirPagamentoAntecipadoMercadoPago] = useState(false); // Exigir pagamento antecipado (Mercado Pago)
+  const [pagamentoAdiantadoOpcionalMercadoPago, setPagamentoAdiantadoOpcionalMercadoPago] = useState(false); // Se true, cliente pode agendar sem pagar (Mercado Pago)
   // Saldo (vendas PIX via Pagar.me) - líquido já com taxas
   const [saldoEmVendas, setSaldoEmVendas] = useState<number>(0);
   const [isLoadingSaldoEmVendas, setIsLoadingSaldoEmVendas] = useState(false);
@@ -4575,6 +4577,8 @@ Estamos te aguardando! 😎✂️`;
         setRequireCpf(establishmentData.require_cpf ?? false); // Solicitar CPF no agendamento
         setExigirPagamentoAntecipado((establishmentData as any).exigir_pagamento_antecipado ?? false); // Pagamento antecipado
         setPagamentoAdiantadoOpcional((establishmentData as any).pagamento_adiantado_opcional ?? false);
+        setExigirPagamentoAntecipadoMercadoPago((establishmentData as any).exigir_pagamento_antecipado_mercadopago ?? false); // Pagamento antecipado Mercado Pago
+        setPagamentoAdiantadoOpcionalMercadoPago((establishmentData as any).pagamento_adiantado_opcional_mercadopago ?? false);
         // Dados bancários / recebedor Pagar.me
         // ✅ Priorizar rascunho local (draft) caso a página tenha sido recarregada ao sair/voltar do app
         let draft: any = null;
@@ -5267,32 +5271,46 @@ Estamos te aguardando! 😎✂️`;
     }
   }, [establishment, activeTab]);
 
-  // Detectar resultado do OAuth Mercado Pago
+  // Detectar resultado do OAuth Mercado Pago (com proteção contra múltiplas execuções)
+  const mpCallbackProcessedRef = useRef<string>('');
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const mpError = searchParams.get('mp_error');
     const mpConnected = searchParams.get('mp_connected');
 
+    // Evitar processar o mesmo callback múltiplas vezes
+    const callbackKey = `${mpConnected || ''}_${mpError || ''}`;
+    if (callbackKey === mpCallbackProcessedRef.current || (!mpConnected && !mpError)) {
+      return;
+    }
+    mpCallbackProcessedRef.current = callbackKey;
+
     if (mpConnected === 'true') {
       toast.success('✅ Conta do Mercado Pago conectada com sucesso! Pagar.me foi desativado automaticamente.');
-      // Limpar parâmetro da URL
+      // Limpar parâmetro da URL imediatamente
       navigate(location.pathname, { replace: true });
       // Recarregar dados do estabelecimento para atualizar status
       if (establishment?.id) {
-        fetchEstablishment();
+        // Usar setTimeout para evitar conflito com o navigate
+        setTimeout(() => {
+          fetchEstablishment();
+        }, 500);
       }
     }
 
     if (mpError === 'true') {
       toast.error('❌ Erro ao conectar conta do Mercado Pago. Verifique os logs do Netlify para mais detalhes.');
-      // Limpar parâmetro da URL
+      // Limpar parâmetro da URL imediatamente
       navigate(location.pathname, { replace: true });
       // Recarregar dados do estabelecimento para atualizar status (tokens foram limpos no callback)
       if (establishment?.id) {
-        fetchEstablishment();
+        // Usar setTimeout para evitar conflito com o navigate
+        setTimeout(() => {
+          fetchEstablishment();
+        }, 500);
       }
     }
-  }, [location.search, navigate, toast, establishment?.id]);
+  }, [location.search, navigate, toast, establishment?.id, fetchEstablishment]);
 
   useEffect(() => {
     if (!establishment?.id) return;
@@ -8391,6 +8409,8 @@ Estamos te aguardando! 😎✂️`;
           require_cpf: requireCpf,
           exigir_pagamento_antecipado: exigirPagamentoAntecipado,
           pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
+          exigir_pagamento_antecipado_mercadopago: exigirPagamentoAntecipadoMercadoPago,
+          pagamento_adiantado_opcional_mercadopago: pagamentoAdiantadoOpcionalMercadoPago,
           enable_whatsapp_notifications: enableWhatsAppNotifications
           // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
         })
@@ -8426,6 +8446,8 @@ Estamos te aguardando! 😎✂️`;
         require_cpf: requireCpf,
         exigir_pagamento_antecipado: exigirPagamentoAntecipado,
         pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
+        exigir_pagamento_antecipado_mercadopago: exigirPagamentoAntecipadoMercadoPago,
+        pagamento_adiantado_opcional_mercadopago: pagamentoAdiantadoOpcionalMercadoPago,
         enable_whatsapp_notifications: enableWhatsAppNotifications
         // require_cancel_password é salvo imediatamente, não precisa do auto-save
       } as any);
@@ -13798,10 +13820,57 @@ Estamos te aguardando! 😎✂️`;
                           </button>
 
                           {String((establishment as any)?.mercadopago_access_token || '').trim() && (
-                            <div className="mt-2 space-y-2">
+                            <div className="mt-2 space-y-3">
                               <p className="text-xs text-gray-200/80">
                                 ✅ Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.
                               </p>
+                              
+                              {/* Configuração de Pagamento Antecipado Mercado Pago */}
+                              <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-3 space-y-2">
+                                <label className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={exigirPagamentoAntecipadoMercadoPago}
+                                    onChange={(e) => {
+                                      setExigirPagamentoAntecipadoMercadoPago(e.target.checked);
+                                      if (amenitiesAutoSaveTimeoutRef.current) {
+                                        clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                      }
+                                      amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                        autoSaveAmenities();
+                                      }, 1000);
+                                    }}
+                                    className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
+                                  />
+                                  <span className="text-white text-sm font-semibold">Exigir pagamento antecipado via Mercado Pago</span>
+                                </label>
+                                
+                                {exigirPagamentoAntecipadoMercadoPago && (
+                                  <label className="flex items-center space-x-2 ml-6">
+                                    <input
+                                      type="checkbox"
+                                      checked={pagamentoAdiantadoOpcionalMercadoPago}
+                                      onChange={(e) => {
+                                        setPagamentoAdiantadoOpcionalMercadoPago(e.target.checked);
+                                        if (amenitiesAutoSaveTimeoutRef.current) {
+                                          clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                                        }
+                                        amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                          autoSaveAmenities();
+                                        }, 1000);
+                                      }}
+                                      className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
+                                    />
+                                    <div className="flex flex-col">
+                                      <span className="text-white text-xs">Não ser obrigatório cliente pagar para agendar</span>
+                                      <span className="text-xs text-gray-400">
+                                        Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora.
+                                      </span>
+                                    </div>
+                                  </label>
+                                )}
+                              </div>
+
                               <button
                                 type="button"
                                 onClick={async () => {
@@ -13823,6 +13892,8 @@ Estamos te aguardando! 😎✂️`;
                                         mercadopago_access_token: null,
                                         mercadopago_refresh_token: null,
                                         mercadopago_token_expires_at: null,
+                                        exigir_pagamento_antecipado_mercadopago: false,
+                                        pagamento_adiantado_opcional_mercadopago: false,
                                       })
                                       .eq('id', establishment.id);
 
@@ -13837,6 +13908,8 @@ Estamos te aguardando! 😎✂️`;
                                       mercadopago_refresh_token: null,
                                       mercadopago_token_expires_at: null,
                                     } as any);
+                                    setExigirPagamentoAntecipadoMercadoPago(false);
+                                    setPagamentoAdiantadoOpcionalMercadoPago(false);
 
                                     toast.success('Mercado Pago desconectado com sucesso');
                                     fetchEstablishment(); // Recarregar dados

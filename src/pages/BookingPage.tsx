@@ -776,33 +776,54 @@ export default function BookingPage() {
       // Lógica para agendamentos reais
       const isEstablishmentOwner = currentUser?.id === establishment.owner_id;
 
-      // ✅ PAGAMENTO ANTECIPADO (Pagar.me) - Booking público
+      // ✅ PAGAMENTO ANTECIPADO (Pagar.me ou Mercado Pago) - Booking público
       // Regra: se exigir pagamento antecipado, o agendamento só confirma após pagar.
       const exigirPagamentoAntecipado = (establishment as any)?.exigir_pagamento_antecipado === true;
+      const exigirPagamentoAntecipadoMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
       const pagamentoAdiantadoLiberadoAdmin = (establishment as any)?.pagamento_adiantado_liberado_admin === true;
       const pagamentoAdiantadoOpcional = (establishment as any)?.pagamento_adiantado_opcional === true;
+      const pagamentoAdiantadoOpcionalMercadoPago = (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true;
       const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
+      const mercadopagoAccessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
       const isSubscriber = appointmentData?.is_subscriber === true;
       const valorAgendamento = Number(appointmentData?.price || 0);
+      
+      // Verificar se tem Pagar.me ou Mercado Pago configurado
+      const hasPagarMe = !!pagarmeRecipientId;
+      const hasMercadoPago = !!mercadopagoAccessToken;
+      
+      // Determinar qual gateway usar (prioridade: Pagar.me se ambos estiverem configurados)
+      const usarPagarMe = hasPagarMe && exigirPagamentoAntecipado;
+      const usarMercadoPago = !hasPagarMe && hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
+      
       const pagamentoAdiantadoAtivo =
-        pagamentoAdiantadoLiberadoAdmin && exigirPagamentoAntecipado && !isSubscriber && valorAgendamento > 0;
-      const precisaPagamento = pagamentoAdiantadoAtivo && !pagamentoAdiantadoOpcional;
-      const permitePagamentoOpcional = pagamentoAdiantadoAtivo && pagamentoAdiantadoOpcional;
+        pagamentoAdiantadoLiberadoAdmin && (usarPagarMe || usarMercadoPago) && !isSubscriber && valorAgendamento > 0;
+      const precisaPagamento = pagamentoAdiantadoAtivo && !(usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago);
+      const permitePagamentoOpcional = pagamentoAdiantadoAtivo && (usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago);
 
       console.log('💳 DEBUG - BookingPage/handleSubmit pagamento:', {
         exigirPagamentoAntecipado,
+        exigirPagamentoAntecipadoMercadoPago,
         pagamentoAdiantadoLiberadoAdmin,
         pagamentoAdiantadoOpcional,
+        pagamentoAdiantadoOpcionalMercadoPago,
         isSubscriber,
         valorAgendamento,
         precisaPagamento,
+        usarPagarMe,
+        usarMercadoPago,
         hasPagarmeRecipientId: Boolean(pagarmeRecipientId),
+        hasMercadoPagoToken: Boolean(mercadopagoAccessToken),
         pagarmeRecipientIdPreview: pagarmeRecipientId ? `${pagarmeRecipientId.slice(0, 6)}...${pagarmeRecipientId.slice(-4)}` : null
       });
 
       if (precisaPagamento) {
-        if (!pagarmeRecipientId) {
-          toast.error('Este estabelecimento exige pagamento antecipado, mas ainda não configurou o recebedor. Fale com o estabelecimento.');
+        if (usarPagarMe && !pagarmeRecipientId) {
+          toast.error('Este estabelecimento exige pagamento antecipado, mas ainda não configurou o recebedor Pagar.me. Fale com o estabelecimento.');
+          return;
+        }
+        if (usarMercadoPago && !mercadopagoAccessToken) {
+          toast.error('Este estabelecimento exige pagamento antecipado, mas ainda não configurou o Mercado Pago. Fale com o estabelecimento.');
           return;
         }
 
@@ -847,6 +868,8 @@ export default function BookingPage() {
         });
         setPaymentIsOptional(false);
         setShowPaymentModal(true);
+        // Armazenar qual gateway usar (Pagar.me ou Mercado Pago)
+        (window as any).__paymentGateway = usarPagarMe ? 'pagarme' : 'mercadopago';
         return;
       }
 
@@ -968,9 +991,10 @@ export default function BookingPage() {
 
       // Se pagamento é opcional, perguntar se deseja pagar agora (mas já salvamos telefone/reminder acima)
       if (permitePagamentoOpcional) {
-        if (!pagarmeRecipientId) {
-          // Sem recipient configurado: só seguir como normal
-          console.warn('⚠️ Pagamento opcional ativo, mas sem pagarme_recipient_id. Seguindo sem pagamento.');
+        const hasPaymentGateway = (usarPagarMe && pagarmeRecipientId) || (usarMercadoPago && mercadopagoAccessToken);
+        if (!hasPaymentGateway) {
+          // Sem gateway configurado: só seguir como normal
+          console.warn('⚠️ Pagamento opcional ativo, mas sem gateway configurado. Seguindo sem pagamento.');
         } else {
           setPendingAppointmentId(insertedAppointment?.id || null);
           setPendingPaymentAmount(valorAgendamento);
@@ -982,6 +1006,8 @@ export default function BookingPage() {
           });
           setPaymentIsOptional(true);
           setShowOptionalPayPrompt(true);
+          // Armazenar qual gateway usar (Pagar.me ou Mercado Pago)
+          (window as any).__paymentGateway = usarPagarMe ? 'pagarme' : 'mercadopago';
           return;
         }
       }
@@ -2194,10 +2220,30 @@ export default function BookingPage() {
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
                 existingAppointments={existingAppointments}
-                requireAdvancePayment={
-                  (establishment as any)?.exigir_pagamento_antecipado === true &&
-                  !!String((establishment as any)?.pagarme_recipient_id || '').trim()
-                }
+                requireAdvancePayment={(() => {
+                  // Verificar Pagar.me
+                  const hasPagarMe = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
+                  const exigirPagarMe = (establishment as any)?.exigir_pagamento_antecipado === true;
+                  
+                  // Verificar Mercado Pago
+                  const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+                  const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
+                  
+                  // Determinar qual gateway usar (prioridade: Pagar.me se ambos estiverem configurados)
+                  const usarPagarMe = hasPagarMe && exigirPagarMe;
+                  const usarMercadoPago = !hasPagarMe && hasMercadoPago && exigirMercadoPago;
+                  
+                  // Verificar se pagamento é obrigatório (não opcional)
+                  const pagamentoAdiantadoLiberadoAdmin = (establishment as any)?.pagamento_adiantado_liberado_admin === true;
+                  const pagamentoAdiantadoOpcional = usarPagarMe 
+                    ? (establishment as any)?.pagamento_adiantado_opcional === true
+                    : (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true;
+                  
+                  const pagamentoAdiantadoAtivo = pagamentoAdiantadoLiberadoAdmin && (usarPagarMe || usarMercadoPago);
+                  const precisaPagamento = pagamentoAdiantadoAtivo && !pagamentoAdiantadoOpcional;
+                  
+                  return precisaPagamento;
+                })()}
                 onConvertToSubscriber={handleConvertToSubscriber}
                 subscriberDetectionDisabled={subscriberDetectionDisabled}
                 onSubscriberDetectionDisabledChange={setSubscriberDetectionDisabled}
@@ -2363,7 +2409,9 @@ export default function BookingPage() {
           appointmentId={pendingAppointmentId}
           amount={pendingPaymentAmount}
           establishmentId={String(establishment?.id || '')}
-          recipientId={String((establishment as any)?.pagarme_recipient_id || '')}
+          recipientId={(window as any).__paymentGateway === 'pagarme' 
+            ? String((establishment as any)?.pagarme_recipient_id || '') 
+            : undefined}
           onPaymentSuccess={(clientPhone) => {
             setShowPaymentModal(false);
             setPendingAppointmentId(null);
