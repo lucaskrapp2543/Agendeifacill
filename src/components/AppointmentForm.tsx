@@ -2725,7 +2725,21 @@ export function AppointmentForm({
                 }}
               >
                 <p className="text-sm text-white/85">
-                  💳 <strong>Pagamento antecipado obrigatório.</strong> Após clicar em finalizar, você será direcionado para o pagamento (Pagar.me) para confirmar o agendamento.
+                  💳 <strong>Pagamento antecipado obrigatório.</strong> Após clicar em finalizar, você será direcionado para o pagamento {(() => {
+                    // Verificar qual gateway está configurado
+                    const hasMP = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+                    const hasPM = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
+                    const exigirMP = Boolean((establishment as any)?.exigir_pagamento_antecipado_mercadopago === true);
+                    const exigirPM = Boolean((establishment as any)?.exigir_pagamento_antecipado === true);
+                    
+                    // Prioridade: Mercado Pago se marcado
+                    if (hasMP && exigirMP) {
+                      return '(Mercado Pago)';
+                    } else if (hasPM && exigirPM) {
+                      return '(Pagar.me)';
+                    }
+                    return '(Mercado Pago ou Pagar.me)';
+                  })()} para confirmar o agendamento.
                 </p>
               </div>
             ) : (

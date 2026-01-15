@@ -820,8 +820,9 @@ export default function BookingPage() {
       const usarMercadoPago = hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
       const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
       
-      const pagamentoAdiantadoAtivo =
-        pagamentoAdiantadoLiberadoAdmin && (usarPagarMe || usarMercadoPago) && !isSubscriber && valorAgendamento > 0;
+      // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
+      // Se algum gateway está configurado para exigir pagamento, funciona independente
+      const pagamentoAdiantadoAtivo = (usarPagarMe || usarMercadoPago) && !isSubscriber && valorAgendamento > 0;
       const precisaPagamento = pagamentoAdiantadoAtivo && !(usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago);
       const permitePagamentoOpcional = pagamentoAdiantadoAtivo && (usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago);
 
@@ -2266,16 +2267,15 @@ export default function BookingPage() {
                     return false; // Nenhum gateway exige pagamento
                   }
                   
-                  // Verificar se pagamento é obrigatório (não opcional)
-                  const pagamentoAdiantadoLiberadoAdmin = (establishment as any)?.pagamento_adiantado_liberado_admin === true;
-                  
+                  // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
+                  // Cada gateway funciona independente - se está configurado para exigir, funciona
                   // Verificar se é opcional (depende de qual gateway está sendo usado)
                   const pagamentoAdiantadoOpcional = usarMercadoPago
                     ? (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true
                     : (establishment as any)?.pagamento_adiantado_opcional === true;
                   
-                  // Se admin liberou E algum gateway exige E não é opcional → precisa pagamento
-                  const precisaPagamento = pagamentoAdiantadoLiberadoAdmin && algumGatewayExigePagamento && !pagamentoAdiantadoOpcional;
+                  // Se algum gateway exige E não é opcional → precisa pagamento
+                  const precisaPagamento = algumGatewayExigePagamento && !pagamentoAdiantadoOpcional;
                   
                   return precisaPagamento;
                 })()}
