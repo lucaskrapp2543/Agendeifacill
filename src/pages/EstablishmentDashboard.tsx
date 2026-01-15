@@ -5274,7 +5274,7 @@ Estamos te aguardando! 😎✂️`;
     const mpConnected = searchParams.get('mp_connected');
 
     if (mpConnected === 'true') {
-      toast.success('✅ Conta do Mercado Pago conectada com sucesso!');
+      toast.success('✅ Conta do Mercado Pago conectada com sucesso! Pagar.me foi desativado automaticamente.');
       // Limpar parâmetro da URL
       navigate(location.pathname, { replace: true });
       // Recarregar dados do estabelecimento para atualizar status
@@ -8870,6 +8870,7 @@ Estamos te aguardando! 😎✂️`;
         ],
       };
 
+      // Desativar Mercado Pago ao ativar Pagar.me (exclusão mútua)
       const { error } = await supabase
         .from('establishments')
         .update({
@@ -8879,6 +8880,11 @@ Estamos te aguardando! 😎✂️`;
           bank_agency: bankAgency.trim(),
           bank_account: bankAccount.trim(),
           pagarme_register_information: nextRegisterInfo,
+          // Desativar Mercado Pago
+          mercadopago_user_id: null,
+          mercadopago_access_token: null,
+          mercadopago_refresh_token: null,
+          mercadopago_token_expires_at: null,
         })
         .eq('id', establishment.id);
 
@@ -8895,7 +8901,14 @@ Estamos te aguardando! 😎✂️`;
         bank_agency: bankAgency.trim(),
         bank_account: bankAccount.trim(),
         pagarme_register_information: nextRegisterInfo,
+        // Limpar Mercado Pago no estado local
+        mercadopago_user_id: null,
+        mercadopago_access_token: null,
+        mercadopago_refresh_token: null,
+        mercadopago_token_expires_at: null,
       } as any);
+
+      toast.success('Recebedor Pagar.me criado com sucesso! Mercado Pago foi desativado automaticamente.');
 
       toast.success('Recebedor criado e salvo com sucesso!');
     } catch (err: any) {
@@ -13666,7 +13679,7 @@ Estamos te aguardando! 😎✂️`;
                             </div>
 
                             {String((establishment as any)?.pagarme_recipient_id || '').trim() && (
-                              <div className="mt-3">
+                              <div className="mt-3 space-y-2">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -13679,7 +13692,47 @@ Estamos te aguardando! 😎✂️`;
                                 >
                                   Ativar conta para receber
                                 </button>
-                                <p className="mt-2 text-xs text-gray-200/80">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!establishment?.id) {
+                                      toast.error('ID do estabelecimento não encontrado');
+                                      return;
+                                    }
+
+                                    const confirmMsg = 'Tem certeza que deseja desativar o Pagar.me? Isso irá remover o recebedor configurado e você precisará criar um novo para usar Pagar.me novamente.';
+                                    if (!window.confirm(confirmMsg)) {
+                                      return;
+                                    }
+
+                                    try {
+                                      const { error } = await supabase
+                                        .from('establishments')
+                                        .update({
+                                          pagarme_recipient_id: null,
+                                        })
+                                        .eq('id', establishment.id);
+
+                                      if (error) {
+                                        throw error;
+                                      }
+
+                                      setEstablishment({
+                                        ...establishment,
+                                        pagarme_recipient_id: null,
+                                      } as any);
+
+                                      toast.success('Pagar.me desativado com sucesso');
+                                    } catch (error: any) {
+                                      console.error('❌ Erro ao desativar Pagar.me:', error);
+                                      toast.error(error.message || 'Erro ao desativar Pagar.me');
+                                    }
+                                  }}
+                                  className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold"
+                                >
+                                  Desativar Pagar.me
+                                </button>
+                                <p className="text-xs text-gray-200/80">
                                   Para você <span className="font-semibold">começar a receber os pagamentos</span>, é necessário pedir para o suporte <span className="font-semibold">ativar sua conta</span> (status pode ficar em <span className="font-semibold">afiliaçao</span> até a liberação da Pagar.me).
                                 </p>
                               </div>
@@ -13745,9 +13798,58 @@ Estamos te aguardando! 😎✂️`;
                           </button>
 
                           {String((establishment as any)?.mercadopago_access_token || '').trim() && (
-                            <p className="mt-2 text-xs text-gray-200/80">
-                              ✅ Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.
-                            </p>
+                            <div className="mt-2 space-y-2">
+                              <p className="text-xs text-gray-200/80">
+                                ✅ Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!establishment?.id) {
+                                    toast.error('ID do estabelecimento não encontrado');
+                                    return;
+                                  }
+
+                                  const confirmMsg = 'Tem certeza que deseja desconectar o Mercado Pago? Isso irá remover a conexão e você precisará conectar novamente para usar Mercado Pago.';
+                                  if (!window.confirm(confirmMsg)) {
+                                    return;
+                                  }
+
+                                  try {
+                                    const { error } = await supabase
+                                      .from('establishments')
+                                      .update({
+                                        mercadopago_user_id: null,
+                                        mercadopago_access_token: null,
+                                        mercadopago_refresh_token: null,
+                                        mercadopago_token_expires_at: null,
+                                      })
+                                      .eq('id', establishment.id);
+
+                                    if (error) {
+                                      throw error;
+                                    }
+
+                                    setEstablishment({
+                                      ...establishment,
+                                      mercadopago_user_id: null,
+                                      mercadopago_access_token: null,
+                                      mercadopago_refresh_token: null,
+                                      mercadopago_token_expires_at: null,
+                                    } as any);
+
+                                    toast.success('Mercado Pago desconectado com sucesso');
+                                    fetchEstablishment(); // Recarregar dados
+                                  } catch (error: any) {
+                                    console.error('❌ Erro ao desconectar Mercado Pago:', error);
+                                    toast.error(error.message || 'Erro ao desconectar Mercado Pago');
+                                  }
+                                }}
+                                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold text-sm"
+                              >
+                                Desconectar Mercado Pago
+                              </button>
+                            </div>
                           )}
                         </div>
 

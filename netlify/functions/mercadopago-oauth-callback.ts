@@ -86,8 +86,11 @@ export const handler: Handler = async (event) => {
       }
     }
 
-    // Salvar tokens no banco de dados (supabaseAdmin já verificado acima)
+    // Trocar código por token
+    const tokenData = await exchangeCodeForToken(code);
 
+    // Salvar tokens no banco de dados (supabaseAdmin já verificado acima)
+    // Desativar Pagar.me ao conectar Mercado Pago (exclusão mútua)
     const { error: updateError } = await supabaseAdmin
       .from('establishments')
       .update({
@@ -97,6 +100,8 @@ export const handler: Handler = async (event) => {
         mercadopago_token_expires_at: new Date(
           Date.now() + tokenData.expires_in * 1000
         ).toISOString(),
+        // Desativar Pagar.me
+        pagarme_recipient_id: null,
       })
       .eq('id', establishmentId);
 
