@@ -2,7 +2,7 @@ import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay,
 import { ptBR } from 'date-fns/locale';
 import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
@@ -305,6 +305,7 @@ interface ClientSubscription {
 const EstablishmentDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const lastSaldoFetchAtRef = useRef<number>(0);
   const lastSaldoFetchEstIdRef = useRef<string>('');
@@ -5265,6 +5266,33 @@ Estamos te aguardando! 😎✂️`;
       setShowPromotionPopup(false);
     }
   }, [establishment, activeTab]);
+
+  // Detectar resultado do OAuth Mercado Pago
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const mpError = searchParams.get('mp_error');
+    const mpConnected = searchParams.get('mp_connected');
+
+    if (mpConnected === 'true') {
+      toast.success('✅ Conta do Mercado Pago conectada com sucesso!');
+      // Limpar parâmetro da URL
+      navigate(location.pathname, { replace: true });
+      // Recarregar dados do estabelecimento para atualizar status
+      if (establishment?.id) {
+        fetchEstablishment();
+      }
+    }
+
+    if (mpError === 'true') {
+      toast.error('❌ Erro ao conectar conta do Mercado Pago. Verifique os logs do Netlify para mais detalhes.');
+      // Limpar parâmetro da URL
+      navigate(location.pathname, { replace: true });
+      // Recarregar dados do estabelecimento para atualizar status (tokens foram limpos no callback)
+      if (establishment?.id) {
+        fetchEstablishment();
+      }
+    }
+  }, [location.search, navigate, toast, establishment?.id]);
 
   useEffect(() => {
     if (!establishment?.id) return;

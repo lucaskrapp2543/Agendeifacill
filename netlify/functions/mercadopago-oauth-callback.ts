@@ -90,7 +90,34 @@ export const handler: Handler = async (event) => {
       body: '',
     };
   } catch (error: any) {
-    console.error('❌ [MP OAuth Callback] Erro:', error);
+    console.error('❌ [MP OAuth Callback] Erro completo:', {
+      message: error?.message,
+      stack: error?.stack,
+      code: getQueryParam(event, 'code'),
+      state: getQueryParam(event, 'state'),
+      hasSupabaseAdmin: !!supabaseAdmin,
+      hasSupabaseUrl: !!SUPABASE_URL,
+      hasSupabaseKey: !!SUPABASE_SERVICE_ROLE_KEY,
+    });
+    
+    // Limpar tokens parciais/inválidos se houver establishmentId
+    const establishmentId = getQueryParam(event, 'state');
+    if (establishmentId && supabaseAdmin) {
+      try {
+        await supabaseAdmin
+          .from('establishments')
+          .update({
+            mercadopago_user_id: null,
+            mercadopago_access_token: null,
+            mercadopago_refresh_token: null,
+            mercadopago_token_expires_at: null,
+          })
+          .eq('id', establishmentId);
+        console.log('🧹 [MP OAuth Callback] Tokens inválidos removidos do estabelecimento');
+      } catch (cleanupError) {
+        console.error('⚠️ [MP OAuth Callback] Erro ao limpar tokens:', cleanupError);
+      }
+    }
     
     // Redirecionar para página de erro
     const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
