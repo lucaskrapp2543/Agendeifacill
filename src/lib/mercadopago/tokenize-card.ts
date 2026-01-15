@@ -71,10 +71,10 @@ export async function tokenizeMercadoPagoCard(
   try {
     // ✅ USAR API REST DIRETAMENTE (similar ao Pagar.me)
     // Endpoint: POST https://api.mercadopago.com/v1/card_tokens
-    const url = 'https://api.mercadopago.com/v1/card_tokens';
+    // ⚠️ IMPORTANTE: public_key deve ser enviado como QUERY PARAMETER, não no body
+    const url = `https://api.mercadopago.com/v1/card_tokens?public_key=${encodeURIComponent(publicKey)}`;
 
     const payload: any = {
-      public_key: publicKey,
       card_number: cardNumber,
       cardholder_name: holderName,
       card_expiration_month: expMonth,
@@ -89,6 +89,7 @@ export async function tokenizeMercadoPagoCard(
       holderName,
       expMonth,
       expYear: expYearShort,
+      publicKey: publicKey.substring(0, 10) + '...',
     });
 
     const response = await fetch(url, {
