@@ -37,6 +37,35 @@
   force = true
   methods = ["GET", "POST", "OPTIONS"]
 
+## Rotas de API (Mercado Pago)
+[[redirects]]
+  from = "/api/mercadopago/oauth/authorize"
+  to = "/.netlify/functions/mercadopago-oauth-authorize"
+  status = 200
+  force = true
+  methods = ["GET", "OPTIONS"]
+
+[[redirects]]
+  from = "/api/mercadopago/oauth/callback"
+  to = "/.netlify/functions/mercadopago-oauth-callback"
+  status = 200
+  force = true
+  methods = ["GET", "OPTIONS"]
+
+[[redirects]]
+  from = "/api/mercadopago/create-payment"
+  to = "/.netlify/functions/mercadopago-create-payment"
+  status = 200
+  force = true
+  methods = ["POST", "OPTIONS"]
+
+[[redirects]]
+  from = "/api/mercadopago/check-status"
+  to = "/.netlify/functions/mercadopago-check-status"
+  status = 200
+  force = true
+  methods = ["GET", "OPTIONS"]
+
 # API Routes - DEVEM VIR ANTES do catch-all
 [[redirects]]
   from = "/api/cancel-appointment"

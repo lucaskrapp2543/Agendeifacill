@@ -35,6 +35,17 @@ if (process.env.PAGARME_SECRET_KEY) {
   console.log('   Tamanho da chave:', process.env.PAGARME_SECRET_KEY.length, 'caracteres');
 }
 
+// Debug: verificar variáveis do Mercado Pago
+console.log('🔑 MERCADOPAGO_CLIENT_ID existe?', !!process.env.MERCADOPAGO_CLIENT_ID);
+console.log('🔑 MERCADOPAGO_CLIENT_SECRET existe?', !!process.env.MERCADOPAGO_CLIENT_SECRET);
+console.log('🔑 MERCADOPAGO_REDIRECT_URI existe?', !!process.env.MERCADOPAGO_REDIRECT_URI);
+if (process.env.MERCADOPAGO_CLIENT_ID) {
+  console.log('   Client ID:', process.env.MERCADOPAGO_CLIENT_ID.substring(0, 4) + '...');
+}
+if (process.env.MERCADOPAGO_REDIRECT_URI) {
+  console.log('   Redirect URI:', process.env.MERCADOPAGO_REDIRECT_URI);
+}
+
 import cors from 'cors';
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
@@ -46,6 +57,7 @@ import {
   getOrderDetails,
   getRecipientStatus,
 } from '../src/lib/pagarme-server';
+import mercadopagoRoutes from './mercadopago/mp.routes';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -63,6 +75,9 @@ const supabaseAdmin =
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Rotas do Mercado Pago
+app.use('/api/mercadopago', mercadopagoRoutes);
 
 const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
 const toISODate = (d: Date) => d.toISOString().slice(0, 10);
@@ -776,6 +791,10 @@ app.listen(PORT, () => {
   console.log(`   POST /api/pagarme/create-recipient`);
   console.log(`   POST /api/pagarme/create-payment`);
   console.log(`   GET  /api/pagarme/check-status`);
+  console.log(`   GET  /api/mercadopago/oauth/authorize`);
+  console.log(`   GET  /api/mercadopago/oauth/callback`);
+  console.log(`   POST /api/mercadopago/create-payment`);
+  console.log(`   GET  /api/mercadopago/check-status`);
   console.log('═══════════════════════════════════════════════════════════');
   console.log('');
   console.log('👀 ATENÇÃO: Os logs das requisições aparecerão AQUI neste terminal!');
