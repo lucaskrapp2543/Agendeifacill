@@ -129,6 +129,7 @@ interface Establishment {
   carousel_position?: 'behind' | 'below'; // Posição do carrossel: atrás ou embaixo do perfil
   debit_card_tax_percentage?: number; // Taxa do cartão de débito (%)
   card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
+  tax_deducted_by_establishment?: boolean; // Se true, taxa é descontada do estabelecimento; se false, do profissional
   payment_alert_enabled?: boolean; // Indica se o alerta de pagamento está ativado
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
   use_15_minute_interval?: boolean;
@@ -474,6 +475,7 @@ const EstablishmentDashboard = () => {
     jcb: 3.5,
     outros: 3.5
   }); // Taxas por bandeira de cartão
+  const [taxDeductedByEstablishment, setTaxDeductedByEstablishment] = useState(false); // Se true, taxa é descontada do estabelecimento; se false, do profissional
 
   // Efeito para preencher automaticamente o pixPaymentLink
   useEffect(() => {
@@ -4741,6 +4743,9 @@ Estamos te aguardando! 😎✂️`;
           setCardBrandTaxes(establishmentData.card_brand_taxes);
         }
 
+        // Carrega a configuração de quem paga a taxa (estabelecimento ou profissional)
+        setTaxDeductedByEstablishment(establishmentData.tax_deducted_by_establishment ?? false);
+
         // Carrega a configuração de intervalo de 15 minutos
         setUse15MinuteInterval(establishmentData.use_15_minute_interval ?? false);
 
@@ -7600,7 +7605,8 @@ Estamos te aguardando! 😎✂️`;
         .update({
           credit_card_tax_percentage: creditCardTaxPercentage,
           debit_card_tax_percentage: debitCardTaxPercentage,
-          card_brand_taxes: cardBrandTaxes
+          card_brand_taxes: cardBrandTaxes,
+          tax_deducted_by_establishment: taxDeductedByEstablishment
         })
         .eq('id', establishment.id);
 
@@ -7612,7 +7618,8 @@ Estamos te aguardando! 😎✂️`;
         ...establishment,
         credit_card_tax_percentage: creditCardTaxPercentage,
         debit_card_tax_percentage: debitCardTaxPercentage,
-        card_brand_taxes: cardBrandTaxes
+        card_brand_taxes: cardBrandTaxes,
+        tax_deducted_by_establishment: taxDeductedByEstablishment
       });
 
       toast('Taxas de cartão salvas com sucesso', 'success');
@@ -9001,7 +9008,8 @@ Estamos te aguardando! 😎✂️`;
         .update({
           credit_card_tax_percentage: creditCardTaxPercentage,
           debit_card_tax_percentage: debitCardTaxPercentage,
-          card_brand_taxes: cardBrandTaxes
+          card_brand_taxes: cardBrandTaxes,
+          tax_deducted_by_establishment: taxDeductedByEstablishment
         })
         .eq('id', establishment.id);
 
@@ -9016,12 +9024,13 @@ Estamos te aguardando! 😎✂️`;
         ...establishment,
         credit_card_tax_percentage: creditCardTaxPercentage,
         debit_card_tax_percentage: debitCardTaxPercentage,
-        card_brand_taxes: cardBrandTaxes
+        card_brand_taxes: cardBrandTaxes,
+        tax_deducted_by_establishment: taxDeductedByEstablishment
       });
     } catch (error) {
       console.error('❌ Erro ao salvar configurações de pagamento automaticamente:', error);
     }
-  }, [establishment, creditCardTaxPercentage, debitCardTaxPercentage, cardBrandTaxes]);
+  }, [establishment, creditCardTaxPercentage, debitCardTaxPercentage, cardBrandTaxes, taxDeductedByEstablishment]);
 
   // ✅ Auto-save para Formas de Pagamento Disponíveis
   const autoSavePaymentMethods = useCallback(async (methods?: string[]) => {
@@ -9897,7 +9906,7 @@ Estamos te aguardando! 😎✂️`;
       }))
     });
 
-    // Calcular o líquido total (profissionais recebem % do valor BRUTO: serviço + serviços extra, SEM produtos V2)
+    // Calcular o líquido total (profissionais recebem % do valor após descontar taxa de cartão: serviço + serviços extra, SEM produtos V2)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
         // Usar price + additional_products (serviços extra)
@@ -9905,7 +9914,25 @@ Estamos te aguardando! 😎✂️`;
         const serviceBasePrice = appointment.price || 0;
         const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
         const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
-        const netValue = (baseValue * (professional?.percentage || 0)) / 100;
+        
+        // Verificar se taxa é descontada do estabelecimento ou do profissional
+        const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+        let netValue;
+        
+        if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
+          // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
+          if (establishment?.tax_deducted_by_establishment) {
+            netValue = (baseValue * (professional?.percentage || 0)) / 100;
+          } else {
+            // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+            const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+            netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+          }
+        } else {
+          // Se não for cartão, apenas aplicar percentual
+          netValue = (baseValue * (professional?.percentage || 0)) / 100;
+        }
+        
         console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${professional?.percentage || 0}%)`);
         return total + netValue;
       }
@@ -9958,20 +9985,34 @@ Estamos te aguardando! 😎✂️`;
       }
     });
 
-    // Se for pagamento com cartão, aplicar taxa específica primeiro
+    // Se for pagamento com cartão, verificar se a taxa é descontada do estabelecimento ou do profissional
     if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
-      const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-      const result = (valueAfterCardTax * percentage) / 100;
+      // Se a taxa é descontada pelo estabelecimento, o profissional recebe % do valor bruto (sem descontar taxa)
+      if (establishment?.tax_deducted_by_establishment) {
+        const result = (baseValue * percentage) / 100;
+        console.log('🚨 TESTE - Cartão (taxa pelo estabelecimento):', {
+          baseValue,
+          paymentTax,
+          percentage,
+          result,
+          calculation: `${baseValue} * ${percentage}% = ${result} (taxa não descontada do profissional)`
+        });
+        return result;
+      } else {
+        // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+        const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+        const result = (valueAfterCardTax * percentage) / 100;
 
-      console.log('🚨 TESTE - Cartão:', {
-        baseValue,
-        paymentTax,
-        valueAfterCardTax,
-        percentage,
-        result,
-        calculation: `${baseValue} - (${baseValue} * ${paymentTax}%) = ${valueAfterCardTax} → ${valueAfterCardTax} * ${percentage}% = ${result}`
-      });
-      return result;
+        console.log('🚨 TESTE - Cartão (taxa pelo profissional):', {
+          baseValue,
+          paymentTax,
+          valueAfterCardTax,
+          percentage,
+          result,
+          calculation: `${baseValue} - (${baseValue} * ${paymentTax}%) = ${valueAfterCardTax} → ${valueAfterCardTax} * ${percentage}% = ${result}`
+        });
+        return result;
+      }
     }
 
     // Se não for cartão, usar cálculo normal (apenas percentual do profissional)
@@ -14755,6 +14796,45 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         </div>
 
+                        {/* Toggle: Taxas descontadas pelo estabelecimento */}
+                        <div className="mt-6 p-4 bg-[#1a1b1c] rounded-lg border border-gray-700">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <div className="flex-1">
+                              <span className="block text-sm font-medium text-gray-300 mb-1">
+                                Taxas descontadas pelo estabelecimento
+                              </span>
+                              <p className="text-xs text-gray-500">
+                                {taxDeductedByEstablishment 
+                                  ? 'As taxas da maquininha serão descontadas do estabelecimento (não do profissional)'
+                                  : 'As taxas da maquininha serão descontadas do profissional'}
+                              </p>
+                            </div>
+                            <div className="ml-4">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTaxDeductedByEstablishment(!taxDeductedByEstablishment);
+                                  if (paymentConfigAutoSaveTimeoutRef.current) {
+                                    clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                                  }
+                                  paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                    autoSavePaymentConfig();
+                                  }, 1000);
+                                }}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                                  taxDeductedByEstablishment ? 'bg-blue-600' : 'bg-gray-600'
+                                }`}
+                              >
+                                <span
+                                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    taxDeductedByEstablishment ? 'translate-x-6' : 'translate-x-1'
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                          </label>
+                        </div>
+
                         <button
                           onClick={handleSaveCardTax}
                           className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -15703,8 +15783,21 @@ Estamos te aguardando! 😎✂️`;
                                               netValue = baseValue;
                                             }
                                           } else {
-                                            // Para outros profissionais: recebem % do valor BRUTO (sem taxa)
-                                            netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                            // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
+                                            const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                            if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                              // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
+                                              if (establishment?.tax_deducted_by_establishment) {
+                                                netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                              } else {
+                                                // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+                                                const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+                                                netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                              }
+                                            } else {
+                                              // Se não for cartão, apenas aplicar percentual
+                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                            }
                                           }
                                           return total + netValue;
                                         }, 0);
@@ -15754,9 +15847,23 @@ Estamos te aguardando! 😎✂️`;
                                                 } else {
                                                   netValue = baseValue;
                                                 }
-                                              } else {
+                                          } else {
+                                            // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
+                                            const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                            if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                              // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
+                                              if (establishment?.tax_deducted_by_establishment) {
                                                 netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                              } else {
+                                                // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+                                                const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+                                                netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
                                               }
+                                            } else {
+                                              // Se não for cartão, apenas aplicar percentual
+                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                            }
+                                          }
                                               console.log(`💰 Agendamento ${apt.id}: R$ ${baseValue} -> Líquido: R$ ${netValue}`);
                                               return total + netValue;
                                             }, 0)
@@ -15812,8 +15919,21 @@ Estamos te aguardando! 😎✂️`;
                                             netValue = baseValue;
                                           }
                                         } else {
-                                          // Para outros profissionais: recebem % do valor BRUTO (sem taxa)
-                                          netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                          // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
+                                          const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                          if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                            // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
+                                            if (establishment?.tax_deducted_by_establishment) {
+                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                            } else {
+                                              // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+                                              const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+                                              netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                            }
+                                          } else {
+                                            // Se não for cartão, apenas aplicar percentual
+                                            netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                          }
                                         }
 
                                         // Formatar data e horário

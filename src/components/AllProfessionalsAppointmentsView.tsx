@@ -768,8 +768,62 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const professional = professionals.find((p) => p.id === professionalId);
       const percentage = professional?.percentage || 100;
 
-      const dailyNet = dailyGross * (percentage / 100);
-      const monthlyNet = monthlyGross * (percentage / 100);
+      // Função auxiliar para obter taxa de pagamento
+      const getPaymentMethodTax = (method: string, cardBrand?: string) => {
+        // Se for cartão e tiver bandeira definida, usar taxa da bandeira
+        if ((method === 'credito' || method === 'debito') && cardBrand && cardBrand !== 'bandeira') {
+          return establishment?.card_brand_taxes?.[cardBrand] || 3.5;
+        }
+        // Fallback para taxas antigas por tipo de cartão
+        switch (method) {
+          case 'credito':
+            return establishment?.credit_card_tax_percentage || 3.5;
+          case 'debito':
+            return establishment?.debit_card_tax_percentage || 2.5;
+          default:
+            return 0;
+        }
+      };
+
+      // Calcular líquido diário: verificar se taxa é descontada do estabelecimento ou do profissional
+      const dailyNet = dailyAppointments.reduce((total, apt) => {
+        const baseValue = calculateServiceTotal(apt);
+        const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+        
+        if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+          // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
+          if (establishment?.tax_deducted_by_establishment) {
+            return total + (baseValue * percentage / 100);
+          } else {
+            // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+            const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+            return total + (valueAfterCardTax * percentage / 100);
+          }
+        } else {
+          // Se não for cartão, apenas aplicar percentual
+          return total + (baseValue * percentage / 100);
+        }
+      }, 0);
+
+      // Calcular líquido mensal: verificar se taxa é descontada do estabelecimento ou do profissional
+      const monthlyNet = monthlyAppointmentsForPro.reduce((total, apt) => {
+        const baseValue = calculateServiceTotal(apt);
+        const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+        
+        if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+          // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
+          if (establishment?.tax_deducted_by_establishment) {
+            return total + (baseValue * percentage / 100);
+          } else {
+            // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+            const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+            return total + (valueAfterCardTax * percentage / 100);
+          }
+        } else {
+          // Se não for cartão, apenas aplicar percentual
+          return total + (baseValue * percentage / 100);
+        }
+      }, 0);
 
       return {
         dailyGross,
