@@ -75,16 +75,28 @@ export const PaymentModal = ({
     if (isOpen && establishmentId) {
       supabase
         .from('establishments')
-        .select('mercadopago_access_token, pagarme_recipient_id')
+        .select('mercadopago_access_token, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado')
         .eq('id', establishmentId)
         .single()
         .then(({ data }) => {
           const hasMP = !!data?.mercadopago_access_token;
           const hasPM = !!data?.pagarme_recipient_id;
+          const exigirMP = Boolean(data?.exigir_pagamento_antecipado_mercadopago === true);
+          const exigirPM = Boolean(data?.exigir_pagamento_antecipado === true);
           
-          // Se tem Mercado Pago e NÃO tem Pagar.me, usar apenas Mercado Pago
-          // Se tem Pagar.me, usar Pagar.me (prioridade)
-          setHasMercadoPago(hasMP && !hasPM);
+          // Prioridade: Se Mercado Pago está configurado para exigir pagamento antecipado, usar Mercado Pago
+          // Caso contrário, se Pagar.me está configurado para exigir, usar Pagar.me
+          // Se nenhum está configurado para exigir, usar Mercado Pago se disponível (sem Pagar.me)
+          if (hasMP && exigirMP) {
+            // Mercado Pago está ativo e configurado para exigir pagamento antecipado
+            setHasMercadoPago(true);
+          } else if (hasPM && exigirPM) {
+            // Pagar.me está ativo e configurado para exigir pagamento antecipado
+            setHasMercadoPago(false);
+          } else {
+            // Fallback: usar Mercado Pago se disponível e não tiver Pagar.me
+            setHasMercadoPago(hasMP && !hasPM);
+          }
         })
         .catch(() => {
           setHasMercadoPago(false);
