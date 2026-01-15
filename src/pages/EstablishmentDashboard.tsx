@@ -421,6 +421,12 @@ const EstablishmentDashboard = () => {
   const [saldoEmVendasErro, setSaldoEmVendasErro] = useState<string | null>(null);
   const [saldoEmVendasDebug, setSaldoEmVendasDebug] = useState<string | null>(null);
   const saldoAutoLoadedRef = useRef<string>(''); // evita recalcular em loop por re-renders
+  
+  // Saldo (vendas via Mercado Pago) - total bruto vendido
+  const [saldoMercadoPago, setSaldoMercadoPago] = useState<number>(0);
+  const [isLoadingSaldoMercadoPago, setIsLoadingSaldoMercadoPago] = useState(false);
+  const [saldoMercadoPagoErro, setSaldoMercadoPagoErro] = useState<string | null>(null);
+  const saldoMercadoPagoAutoLoadedRef = useRef<string>(''); // evita recalcular em loop por re-renders
   // Configuração do recebedor (Pagar.me)
   const [bankCpfCnpj, setBankCpfCnpj] = useState('');
   const [bankName, setBankName] = useState('');
@@ -657,6 +663,121 @@ const EstablishmentDashboard = () => {
     }
   }, [establishment?.id]);
 
+  // Função para carregar saldo de vendas do Mercado Pago (líquido, já com taxas descontadas)
+  const carregarSaldoMercadoPago = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    // Verificar se tem Mercado Pago conectado
+    const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    if (!hasMercadoPago) {
+      setSaldoMercadoPago(0);
+      return;
+    }
+
+    // Taxas fixas
+    const taxaPlataforma = 0.5; // R$ 0,50
+    const taxaPixPercent = 0.99 / 100; // 0,99% (taxa do Mercado Pago para PIX)
+    const taxaDebitoPercent = 1.99 / 100; // 1,99% (taxa do Mercado Pago para débito)
+    const taxaCreditoPercent = 4.99 / 100; // 4,99% (taxa do Mercado Pago para crédito)
+
+    // Evitar várias chamadas seguidas
+    const nowStart = Date.now();
+    if (saldoMercadoPagoAutoLoadedRef.current === establishment.id && nowStart - lastSaldoFetchAtRef.current < 8000) {
+      return;
+    }
+    saldoMercadoPagoAutoLoadedRef.current = establishment.id;
+    lastSaldoFetchAtRef.current = nowStart;
+
+    setIsLoadingSaldoMercadoPago(true);
+    setSaldoMercadoPagoErro(null);
+    
+    try {
+      // Buscar agendamentos pagos via Mercado Pago
+      // Identificar Mercado Pago: payment_transaction_id é numérico (Mercado Pago usa IDs numéricos)
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('id,price,status,payment_status,payment_method,payment_transaction_id,pix_payment_status,card_brand')
+        .eq('establishment_id', establishment.id)
+        .or('payment_status.eq.paid,pix_payment_status.eq.aprovado,pix_payment_status.eq.confirmado');
+
+      if (error) throw error;
+
+      const seen = new Set<string>();
+      let total = 0;
+      let vendasCount = 0;
+
+      for (const row of (data as any[]) || []) {
+        const id = String((row as any)?.id || '').trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+
+        const transactionId = String((row as any)?.payment_transaction_id || '').trim();
+        
+        // Identificar pagamento do Mercado Pago: transaction_id é numérico
+        // Mercado Pago usa IDs numéricos (ex: 1234567890)
+        // Pagar.me usa strings alfanuméricas (ex: "or_abc123")
+        const isMercadoPago = transactionId && /^\d+$/.test(transactionId);
+        if (!isMercadoPago) continue;
+
+        // Verificar se está pago
+        const paymentStatus = String((row as any)?.payment_status || '').toLowerCase();
+        const pixPaymentStatus = String((row as any)?.pix_payment_status || '').toLowerCase();
+        const isPaid = paymentStatus === 'paid' || 
+                      pixPaymentStatus === 'aprovado' || 
+                      pixPaymentStatus === 'confirmado';
+        if (!isPaid) continue;
+
+        // Verificar se agendamento está confirmado
+        const status = String((row as any)?.status || '').toLowerCase();
+        if (status !== 'confirmed') continue;
+
+        const bruto = Number((row as any)?.price ?? 0);
+        if (!Number.isFinite(bruto) || bruto <= 0) continue;
+
+        // Identificar método de pagamento para aplicar taxa correta
+        const paymentMethod = String((row as any)?.payment_method || '').toLowerCase();
+        let taxaPercentual = taxaPixPercent; // Padrão: PIX
+        
+        if (paymentMethod === 'credito' || paymentMethod === 'credit_card') {
+          taxaPercentual = taxaCreditoPercent;
+        } else if (paymentMethod === 'debito' || paymentMethod === 'debit_card') {
+          taxaPercentual = taxaDebitoPercent;
+        } else {
+          // PIX ou método não especificado (assumir PIX)
+          taxaPercentual = taxaPixPercent;
+        }
+
+        // Calcular valor líquido: bruto - taxa MP - taxa plataforma
+        const taxaMercadoPago = bruto * taxaPercentual;
+        const liquido = Math.max(0, bruto - taxaMercadoPago - taxaPlataforma);
+        
+        console.log('💰 [MP Saldo] Venda:', {
+          id,
+          bruto,
+          payment_method: paymentMethod,
+          taxa_percentual: taxaPercentual * 100,
+          taxa_mp: taxaMercadoPago,
+          taxa_plataforma: taxaPlataforma,
+          liquido,
+        });
+        
+        total += liquido;
+        vendasCount += 1;
+      }
+
+      setSaldoMercadoPago(Math.round(total * 100) / 100);
+    } catch (e: any) {
+      console.error('❌ Erro ao carregar saldo Mercado Pago:', e);
+      const msg =
+        String(e?.message || e?.error_description || e?.details || '').trim() ||
+        'Não foi possível calcular seu saldo do Mercado Pago agora.';
+      setSaldoMercadoPagoErro(msg);
+      setSaldoMercadoPago(0);
+    } finally {
+      setIsLoadingSaldoMercadoPago(false);
+    }
+  }, [establishment?.id, establishment]);
+
   // Carregar automaticamente ao abrir o dashboard (quando tiver establishment)
   useEffect(() => {
     const liberadoAdmin = Boolean((establishment as any)?.pagamento_adiantado_liberado_admin);
@@ -666,6 +787,19 @@ const EstablishmentDashboard = () => {
     saldoAutoLoadedRef.current = establishment.id;
     carregarSaldoEmVendas();
   }, [carregarSaldoEmVendas, establishment?.id, (establishment as any)?.pagamento_adiantado_liberado_admin]);
+
+  // Carregar saldo Mercado Pago automaticamente
+  useEffect(() => {
+    if (!establishment?.id) return;
+    const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    if (!hasMercadoPago) {
+      setSaldoMercadoPago(0);
+      return;
+    }
+    if (saldoMercadoPagoAutoLoadedRef.current === establishment.id) return;
+    saldoMercadoPagoAutoLoadedRef.current = establishment.id;
+    carregarSaldoMercadoPago();
+  }, [establishment?.id, establishment, carregarSaldoMercadoPago]);
 
   const getPagarmeDraftStorageKey = useCallback((establishmentId: string) => {
     return `pagarme_draft_${establishmentId}`;
@@ -13922,6 +14056,37 @@ Estamos te aguardando! 😎✂️`;
                               >
                                 Desconectar Mercado Pago
                               </button>
+
+                              {/* Saldo de vendas Mercado Pago */}
+                              <div className="mt-4 rounded-lg border border-[#009EE3]/20 bg-black/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div>
+                                  <div className="text-xs text-gray-300">Total vendido via Mercado Pago</div>
+                                  <div className="text-xl font-extrabold text-[#009EE3]">
+                                    {isLoadingSaldoMercadoPago ? 'Calculando...' : fmtBRL(saldoMercadoPago)}
+                                  </div>
+                                  <div className="mt-1 text-[11px] text-gray-300/80">
+                                    * Valor líquido já com taxas descontadas (Mercado Pago + R$ 0,50 da plataforma).
+                                  </div>
+                                  {saldoMercadoPagoErro && (
+                                    <div className="mt-2 text-[11px] text-red-200/90">
+                                      {saldoMercadoPagoErro}
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <button
+                                    type="button"
+                                    disabled={isLoadingSaldoMercadoPago}
+                                    onClick={() => {
+                                      if (isLoadingSaldoMercadoPago) return;
+                                      carregarSaldoMercadoPago();
+                                    }}
+                                    className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+                                  >
+                                    Atualizar
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>

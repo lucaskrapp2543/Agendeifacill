@@ -370,7 +370,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       // Buscar agendamento
       const { data: appointments } = await supabaseAdmin
         .from('appointments')
-        .select('id, establishment_id, payment_transaction_id, status')
+        .select('id, establishment_id, payment_transaction_id, status, payment_method, payment_status')
         .eq('payment_transaction_id', String(paymentId))
         .limit(1);
 
@@ -398,10 +398,25 @@ router.post('/webhook', async (req: Request, res: Response) => {
       );
 
       if (payment.status === 'approved' || payment.status === 'authorized') {
+        // Converter payment_method_id do Mercado Pago para o formato do sistema
+        // Sempre usar o payment_method_id do pagamento (fonte mais confiável)
+        const paymentMethodId = String(payment.payment_method_id || '').toLowerCase();
+        let paymentMethod = 'pix'; // Padrão
+        
+        if (paymentMethodId === 'credit_card') {
+          paymentMethod = 'credito';
+        } else if (paymentMethodId === 'debit_card') {
+          paymentMethod = 'debito';
+        } else if (paymentMethodId === 'pix') {
+          paymentMethod = 'pix';
+        }
+
         await supabaseAdmin
           .from('appointments')
           .update({
             status: 'confirmed',
+            payment_status: 'paid',
+            payment_method: paymentMethod,
             pix_payment_status: payment.payment_method_id === 'pix' ? 'aprovado' : null,
           })
           .eq('id', appointment.id);

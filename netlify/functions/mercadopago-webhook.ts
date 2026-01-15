@@ -81,7 +81,7 @@ export const handler: Handler = async (event) => {
       // Buscar agendamento pelo payment_transaction_id
       const { data: appointments, error: fetchError } = await supabaseAdmin
         .from('appointments')
-        .select('id, establishment_id, payment_transaction_id, payment_method, status')
+        .select('id, establishment_id, payment_transaction_id, payment_method, status, payment_status')
         .eq('payment_transaction_id', String(paymentId))
         .limit(1);
 
@@ -134,8 +134,28 @@ export const handler: Handler = async (event) => {
         if (payment.status === 'approved' || payment.status === 'authorized') {
           console.log('✅ [MP Webhook] Pagamento aprovado! Atualizando agendamento...');
 
+          // Converter payment_method_id do Mercado Pago para o formato do sistema
+          // Sempre usar o payment_method_id do pagamento (fonte mais confiável)
+          const paymentMethodId = String(payment.payment_method_id || '').toLowerCase();
+          let paymentMethod = 'pix'; // Padrão
+          
+          if (paymentMethodId === 'credit_card') {
+            paymentMethod = 'credito';
+          } else if (paymentMethodId === 'debit_card') {
+            paymentMethod = 'debito';
+          } else if (paymentMethodId === 'pix') {
+            paymentMethod = 'pix';
+          }
+          
+          console.log('💳 [MP Webhook] Método de pagamento:', {
+            payment_method_id: paymentMethodId,
+            payment_method_salvo: paymentMethod,
+          });
+
           const updateData: any = {
             status: 'confirmed',
+            payment_status: 'paid',
+            payment_method: paymentMethod,
             pix_payment_status: payment.payment_method_id === 'pix' ? 'aprovado' : null,
           };
 
