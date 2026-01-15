@@ -97,6 +97,14 @@ const AdminDashboard = () => {
   const [isSavingPaymentLinkByEstablishment, setIsSavingPaymentLinkByEstablishment] = useState<Record<string, boolean>>({});
   const paymentLinkSaveTimeoutRef = useRef<Record<string, any>>({});
 
+  // ✅ Links globais do Plano Ouro e Diamante (admin) - envio não direcionado (abre seletor do WhatsApp)
+  const [ouroLink, setOuroLink] = useState('');
+  const [isLoadingOuroLink, setIsLoadingOuroLink] = useState(false);
+  const [isSavingOuroLink, setIsSavingOuroLink] = useState(false);
+  const [diamanteLink, setDiamanteLink] = useState('');
+  const [isLoadingDiamanteLink, setIsLoadingDiamanteLink] = useState(false);
+  const [isSavingDiamanteLink, setIsSavingDiamanteLink] = useState(false);
+
   // ✅ Clientes (estabelecimentos) criados no mês selecionado
   const [clientsMonth, setClientsMonth] = useState<Date>(() => new Date());
   const [clientsMonthCount, setClientsMonthCount] = useState<number>(0);
@@ -402,6 +410,7 @@ const AdminDashboard = () => {
         // Se chegou até aqui, pode carregar dados
         fetchEstablishments();
         fetchPendingRegistrationsCount();
+        loadAdminBillingLinks();
       } catch (error) {
         console.error('Erro ao verificar autenticação:', error);
         navigate('/login');
@@ -448,6 +457,133 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Erro:', error);
     }
+  };
+
+  const loadAdminBillingLinks = async () => {
+    setIsLoadingOuroLink(true);
+    setIsLoadingDiamanteLink(true);
+    try {
+      const { data, error } = await supabase
+        .from('admin_billing_links')
+        .select('id, ouro_link, diamante_link')
+        .eq('id', 'global')
+        .maybeSingle();
+
+      if (error) throw error;
+      setOuroLink(String((data as any)?.ouro_link || ''));
+      setDiamanteLink(String((data as any)?.diamante_link || ''));
+    } catch (e) {
+      console.error('Erro ao carregar links do admin:', e);
+    } finally {
+      setIsLoadingOuroLink(false);
+      setIsLoadingDiamanteLink(false);
+    }
+  };
+
+  const saveOuroLink = async () => {
+    const link = ouroLink.trim();
+    setIsSavingOuroLink(true);
+    try {
+      const { error } = await supabase
+        .from('admin_billing_links')
+        .upsert(
+          {
+            id: 'global',
+            ouro_link: link.length ? link : null,
+            updated_at: new Date().toISOString(),
+          } as any,
+          { onConflict: 'id' }
+        );
+
+      if (error) {
+        toast.error('Erro ao salvar link do Ouro. Aplique a migration `admin_billing_links` no Supabase.');
+        console.error(error);
+        return;
+      }
+
+      toast.success('Link do Ouro salvo!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao salvar link do Ouro.');
+    } finally {
+      setIsSavingOuroLink(false);
+    }
+  };
+
+  const sendOuroWhatsapp = async () => {
+    const link = ouroLink.trim();
+    if (!link) {
+      toast.error('Cole o link do Ouro primeiro.');
+      return;
+    }
+
+    // salvar antes de enviar
+    await saveOuroLink();
+
+    const cnpjPix = '57436351000167';
+    const valorOuro = 'R$ 47,90';
+    const message =
+      `🎉 Parabéns! Você está prestes a ser Plano Ouro Agendei Fácil! 🚀\n\n` +
+      `✨ Basta acessar esse link e efetuar o pagamento:\n${link}\n\n` +
+      `💳 Ou se preferir, faça um PIX direto para esse CNPJ:\n${cnpjPix}\n` +
+      `💰 Valor: ${valorOuro}\n\n` +
+      `✅ Me avise assim que pagar ou envie o comprovante aqui para seguirmos com sua ativação! 😊`;
+
+    // wa.me sem número => abre seletor de contato
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  const saveDiamanteLink = async () => {
+    const link = diamanteLink.trim();
+    setIsSavingDiamanteLink(true);
+    try {
+      const { error } = await supabase
+        .from('admin_billing_links')
+        .upsert(
+          {
+            id: 'global',
+            diamante_link: link.length ? link : null,
+            updated_at: new Date().toISOString(),
+          } as any,
+          { onConflict: 'id' }
+        );
+
+      if (error) {
+        toast.error('Erro ao salvar link do Diamante. Aplique a migration `admin_billing_links` no Supabase.');
+        console.error(error);
+        return;
+      }
+
+      toast.success('Link do Diamante salvo!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao salvar link do Diamante.');
+    } finally {
+      setIsSavingDiamanteLink(false);
+    }
+  };
+
+  const sendDiamanteWhatsapp = async () => {
+    const link = diamanteLink.trim();
+    if (!link) {
+      toast.error('Cole o link do Diamante primeiro.');
+      return;
+    }
+
+    // salvar antes de enviar
+    await saveDiamanteLink();
+
+    const cnpjPix = '57436351000167';
+    const valorDiamante = 'R$ 69,90';
+    const message =
+      `🎉 Parabéns! Você está prestes a ser Plano Diamante Agendei Fácil! 💎\n\n` +
+      `✨ Basta acessar esse link e efetuar o pagamento:\n${link}\n\n` +
+      `💳 Ou se preferir, faça um PIX direto para esse CNPJ:\n${cnpjPix}\n` +
+      `💰 Valor: ${valorDiamante}\n\n` +
+      `✅ Me avise assim que pagar ou envie o comprovante aqui para seguirmos com sua ativação! 😊`;
+
+    // wa.me sem número => abre seletor de contato
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const fetchEstablishments = async () => {
@@ -1718,8 +1854,66 @@ const AdminDashboard = () => {
 
         {/* Establishments List */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Estabelecimentos</h2>
+          <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
+            <div className="flex flex-col gap-4">
+              <h2 className="text-lg font-semibold text-gray-900">Estabelecimentos</h2>
+
+              {/* Botões Ouro e Diamante (responsivo) */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                {/* Botão Ouro */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 flex-1">
+                  <span className="inline-flex items-center px-2 py-1 text-[11px] font-extrabold rounded bg-yellow-400 text-black border border-yellow-500 whitespace-nowrap">
+                    OURO
+                  </span>
+                  <input
+                    type="url"
+                    value={ouroLink}
+                    onChange={(e) => setOuroLink(e.target.value)}
+                    onBlur={saveOuroLink}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900"
+                    placeholder={isLoadingOuroLink ? 'Carregando...' : 'Cole o link do Plano Ouro aqui'}
+                    disabled={isLoadingOuroLink}
+                  />
+                  <button
+                    type="button"
+                    onClick={sendOuroWhatsapp}
+                    disabled={isLoadingOuroLink || isSavingOuroLink || !ouroLink.trim()}
+                    className="w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-bold border border-gray-900 bg-gray-900 text-white hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    title="Abrir WhatsApp e escolher contato (Plano Ouro)"
+                  >
+                    Link
+                  </button>
+                </div>
+
+                {/* Botão Diamante */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 flex-1">
+                  <span className="inline-flex items-center px-2 py-1 text-[11px] font-extrabold rounded bg-purple-400 text-black border border-purple-500 whitespace-nowrap">
+                    DIAMANTE
+                  </span>
+                  <input
+                    type="url"
+                    value={diamanteLink}
+                    onChange={(e) => setDiamanteLink(e.target.value)}
+                    onBlur={saveDiamanteLink}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900"
+                    placeholder={isLoadingDiamanteLink ? 'Carregando...' : 'Cole o link do Plano Diamante aqui'}
+                    disabled={isLoadingDiamanteLink}
+                  />
+                  <button
+                    type="button"
+                    onClick={sendDiamanteWhatsapp}
+                    disabled={isLoadingDiamanteLink || isSavingDiamanteLink || !diamanteLink.trim()}
+                    className="w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-bold border border-gray-900 bg-gray-900 text-white hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    title="Abrir WhatsApp e escolher contato (Plano Diamante)"
+                  >
+                    Link
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">
+                Os botões <strong>Link</strong> abrem o WhatsApp para você escolher o contato e já enviam a mensagem pronta.
+              </p>
+            </div>
           </div>
 
           {isLoading ? (
