@@ -813,9 +813,9 @@ export default function BookingPage() {
       const hasPagarMe = !!pagarmeRecipientId;
       const hasMercadoPago = !!mercadopagoAccessToken;
       
-      // Determinar qual gateway usar (prioridade: Pagar.me se ambos estiverem configurados)
-      const usarPagarMe = hasPagarMe && exigirPagamentoAntecipado;
-      const usarMercadoPago = !hasPagarMe && hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
+      // Determinar qual gateway usar (prioridade: Mercado Pago se marcado, senão Pagar.me)
+      const usarMercadoPago = hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
+      const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
       
       const pagamentoAdiantadoAtivo =
         pagamentoAdiantadoLiberadoAdmin && (usarPagarMe || usarMercadoPago) && !isSubscriber && valorAgendamento > 0;
@@ -2250,9 +2250,9 @@ export default function BookingPage() {
                   const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
                   const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
                   
-                  // Determinar qual gateway usar (prioridade: Pagar.me se ambos estiverem configurados)
-                  const usarPagarMe = hasPagarMe && exigirPagarMe;
-                  const usarMercadoPago = !hasPagarMe && hasMercadoPago && exigirMercadoPago;
+                  // Determinar qual gateway usar (prioridade: Mercado Pago se marcado, senão Pagar.me)
+                  const usarMercadoPago = hasMercadoPago && exigirMercadoPago;
+                  const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagarMe;
                   
                   // Verificar se pagamento é obrigatório (não opcional)
                   const pagamentoAdiantadoLiberadoAdmin = (establishment as any)?.pagamento_adiantado_liberado_admin === true;
