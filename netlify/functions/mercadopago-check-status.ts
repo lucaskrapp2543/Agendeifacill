@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { checkMPPaymentStatus } from '../../server/mercadopago/mp.service';
+import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
 import { json, getQueryParam } from './_utils';
 
 // Supabase Admin (bypass RLS)

@@ -6,8 +6,9 @@
 
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
-import { getAuthorizationUrl, exchangeCodeForToken } from './mp.oauth';
-import { createMPPayment, checkMPPaymentStatus, CreateMPPaymentRequest } from './mp.service';
+// Importar de src/lib para compatibilidade (também funciona em server local)
+import { getAuthorizationUrl, exchangeCodeForToken } from '../../src/lib/mercadopago/mp-oauth';
+import { createMPPayment, checkMPPaymentStatus, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
 
 const router = Router();
 

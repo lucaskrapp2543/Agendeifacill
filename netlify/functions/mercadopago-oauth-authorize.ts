@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { getAuthorizationUrl } from '../../server/mercadopago/mp.oauth';
+import { getAuthorizationUrl } from '../../src/lib/mercadopago/mp-oauth';
 import { json, getQueryParam } from './_utils';
 
 // Supabase Admin (bypass RLS)

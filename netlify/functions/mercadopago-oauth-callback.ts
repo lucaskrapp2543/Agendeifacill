@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { exchangeCodeForToken } from '../../server/mercadopago/mp.oauth';
+import { exchangeCodeForToken } from '../../src/lib/mercadopago/mp-oauth';
 import { json, getQueryParam } from './_utils';
 
 // Supabase Admin (bypass RLS)
