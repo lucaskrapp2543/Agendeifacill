@@ -43,28 +43,28 @@
   to = "/.netlify/functions/mercadopago-oauth-authorize"
   status = 200
   force = true
-  methods = ["GET", "OPTIONS"]
+  methods = ["GET", "POST", "OPTIONS"]
 
 [[redirects]]
   from = "/api/mercadopago/oauth/callback"
   to = "/.netlify/functions/mercadopago-oauth-callback"
   status = 200
   force = true
-  methods = ["GET", "OPTIONS"]
+  methods = ["GET", "POST", "OPTIONS"]
 
 [[redirects]]
   from = "/api/mercadopago/create-payment"
   to = "/.netlify/functions/mercadopago-create-payment"
   status = 200
   force = true
-  methods = ["POST", "OPTIONS"]
+  methods = ["GET", "POST", "OPTIONS"]
 
 [[redirects]]
   from = "/api/mercadopago/check-status"
   to = "/.netlify/functions/mercadopago-check-status"
   status = 200
   force = true
-  methods = ["GET", "OPTIONS"]
+  methods = ["GET", "POST", "OPTIONS"]
 
 # API Routes - DEVEM VIR ANTES do catch-all
 [[redirects]]

@@ -14,7 +14,16 @@ export function json(statusCode: number, body: any, extraHeaders?: Record<string
 }
 
 export function getQueryParam(event: HandlerEvent, key: string): string | null {
-  return (event.queryStringParameters && event.queryStringParameters[key]) || null;
+  if (!event.queryStringParameters) return null;
+  
+  // Busca case-insensitive (resolve establishmentId vs establishmentid)
+  const lowerKey = key.toLowerCase();
+  for (const [paramKey, value] of Object.entries(event.queryStringParameters)) {
+    if (paramKey.toLowerCase() === lowerKey) {
+      return value || null;
+    }
+  }
+  return null;
 }
 
 export function parseJsonBody<T = any>(event: HandlerEvent): T | null {

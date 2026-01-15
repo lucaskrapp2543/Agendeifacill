@@ -155,7 +155,9 @@ export async function createMPPayment(
       },
       application_fee: payment.application_fee || application_fee / 100,
       metadata: payment.metadata,
-    };
+      // Incluir dados do PIX se disponível
+      point_of_interaction: payment.point_of_interaction,
+    } as any;
   } catch (error: any) {
     console.error('❌ [MP Payment] Erro ao criar pagamento:', {
       message: error?.message,

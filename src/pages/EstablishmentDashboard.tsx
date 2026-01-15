@@ -13659,6 +13659,70 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         )}
 
+                        {/* Seção Mercado Pago */}
+                        <div className="mt-6 p-4 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                            <div className="text-white font-semibold">Mercado Pago</div>
+                            <div className="text-xs text-gray-300">
+                              Status:{' '}
+                              <span className="font-mono">
+                                {String((establishment as any)?.mercadopago_access_token || '').trim()
+                                  ? `Conectado (ID: ${String((establishment as any).mercadopago_user_id || '').slice(0, 8)}...)`
+                                  : 'Não conectado'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-gray-400 mb-4">
+                            Conecte sua conta do Mercado Pago para receber pagamentos via PIX. Os clientes poderão escolher pagar com Mercado Pago como alternativa ao Pagar.me.
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!establishment?.id) {
+                                toast.error('ID do estabelecimento não encontrado');
+                                return;
+                              }
+
+                              try {
+                                const authorizeUrl = import.meta.env.PROD
+                                  ? `/.netlify/functions/mercadopago-oauth-authorize?establishmentId=${establishment.id}`
+                                  : `/api/mercadopago/oauth/authorize?establishmentId=${establishment.id}`;
+
+                                const response = await fetch(authorizeUrl);
+                                if (!response.ok) {
+                                  const error = await response.json();
+                                  throw new Error(error.error || 'Erro ao gerar URL de autorização');
+                                }
+
+                                const data = await response.json();
+                                if (data.authorization_url) {
+                                  window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
+                                  toast.success('Redirecionando para conectar conta do Mercado Pago...');
+                                } else {
+                                  throw new Error('URL de autorização não retornada');
+                                }
+                              } catch (error: any) {
+                                console.error('❌ Erro ao iniciar OAuth Mercado Pago:', error);
+                                toast.error(error.message || 'Erro ao conectar Mercado Pago');
+                              }
+                            }}
+                            disabled={!establishment?.id}
+                            className="w-full px-4 py-2 bg-[#009EE3] text-white rounded-lg hover:bg-[#0088C7] transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {String((establishment as any)?.mercadopago_access_token || '').trim()
+                              ? 'Reconectar conta Mercado Pago'
+                              : 'Conectar conta Mercado Pago'}
+                          </button>
+
+                          {String((establishment as any)?.mercadopago_access_token || '').trim() && (
+                            <p className="mt-2 text-xs text-gray-200/80">
+                              ✅ Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.
+                            </p>
+                          )}
+                        </div>
+
                         <label className="flex items-center space-x-2">
                           <input
                             type="checkbox"

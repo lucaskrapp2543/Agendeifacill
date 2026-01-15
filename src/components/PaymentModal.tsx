@@ -58,12 +58,176 @@ export const PaymentModal = ({
   const [billingCidade, setBillingCidade] = useState('');
   const [billingUf, setBillingUf] = useState('');
   const [cardRefusedReason, setCardRefusedReason] = useState<string>('');
+  const [hasPagarMeError, setHasPagarMeError] = useState(false);
+  const [hasMercadoPago, setHasMercadoPago] = useState(false);
   const { toast } = useToast();
   const pixCountdownIntervalRef = useRef<number | null>(null);
 
   // Valor em centavos
   const amountInCents = Math.round(amount * 100);
   // O split é montado no BACKEND (Express) para não expor/configurar recipient da plataforma no frontend.
+
+  // Verificar se o estabelecimento tem Mercado Pago conectado
+  useEffect(() => {
+    if (isOpen && establishmentId) {
+      supabase
+        .from('establishments')
+        .select('mercadopago_access_token')
+        .eq('id', establishmentId)
+        .single()
+        .then(({ data }) => {
+          setHasMercadoPago(!!data?.mercadopago_access_token);
+        })
+        .catch(() => {
+          setHasMercadoPago(false);
+        });
+    }
+  }, [isOpen, establishmentId]);
+
+  // Função para pagar com Mercado Pago
+  const handleMercadoPagoPayment = async () => {
+    if (!hasMercadoPago) {
+      toast('Estabelecimento não possui conta do Mercado Pago conectada', 'error');
+      return;
+    }
+
+    const docDigits = String(cpfCliente || '').replace(/\D/g, '');
+    if (!(docDigits.length === 11 || docDigits.length === 14)) {
+      toast('Informe um CPF (11) ou CNPJ (14) válido para continuar.', 'error');
+      return;
+    }
+
+    setIsProcessing(true);
+    setHasPagarMeError(false);
+
+    try {
+      const createPaymentUrl = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-create-payment'
+        : '/api/mercadopago/create-payment';
+
+      const paymentResponse = await fetch(createPaymentUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          establishmentId,
+          amount: amountInCents,
+          description: `Agendamento #${appointmentId}`,
+          payer: {
+            email: customerData.email || 'cliente@exemplo.com',
+            identification: {
+              type: docDigits.length === 11 ? 'CPF' : 'CNPJ',
+              number: docDigits,
+            },
+          },
+          payment_method_id: 'pix', // Por enquanto só PIX
+          metadata: {
+            appointment_id: appointmentId,
+            establishment_id: establishmentId,
+          },
+        }),
+      });
+
+      if (!paymentResponse.ok) {
+        const errorData = await paymentResponse.json().catch(() => ({ message: 'Erro desconhecido' }));
+        throw new Error(errorData.userMessage || errorData.error || `Erro ${paymentResponse.status}`);
+      }
+
+      const paymentResult = await paymentResponse.json();
+
+      // Salvar transaction_id no Supabase
+      try {
+        if (paymentResult?.id) {
+          await supabase
+            .from('appointments')
+            .update({
+              payment_transaction_id: String(paymentResult.id),
+              payment_method: 'pix',
+              pix_payment_status: 'enviado',
+            })
+            .eq('id', appointmentId);
+        }
+      } catch (e) {
+        console.warn('⚠️ Não foi possível salvar payment_transaction_id:', e);
+      }
+
+      // Se for PIX, mostrar QR Code
+      // Mercado Pago retorna QR code em point_of_interaction.transaction_data
+      const qrCode = (paymentResult as any).point_of_interaction?.transaction_data?.qr_code;
+      const qrCodeBase64 = (paymentResult as any).point_of_interaction?.transaction_data?.qr_code_base64;
+      
+      if (qrCode) {
+        setPixQrCode(qrCode);
+        setPixQrCodeUrl(qrCodeBase64 ? `data:image/png;base64,${qrCodeBase64}` : '');
+        setPixExpiresInSeconds(90);
+        setPixRemainingSeconds(90);
+        setIsCheckingPayment(true);
+        checkMercadoPagoPaymentStatus(paymentResult.id);
+        setIsProcessing(false);
+      } else if (paymentResult.status === 'approved' || paymentResult.status === 'authorized') {
+        await confirmAppointment(String(paymentResult.id));
+      } else {
+        toast('Pagamento processado. Aguardando confirmação...', 'warning');
+        setIsCheckingPayment(true);
+        checkMercadoPagoPaymentStatus(paymentResult.id);
+        setIsProcessing(false);
+      }
+    } catch (error: any) {
+      console.error('❌ Erro ao processar pagamento Mercado Pago:', error);
+      toast(`Erro ao processar pagamento: ${error.message}`, 'error');
+      setIsProcessing(false);
+      setIsCheckingPayment(false);
+    }
+  };
+
+  // Verificar status do pagamento Mercado Pago periodicamente
+  const checkMercadoPagoPaymentStatus = async (paymentId: number) => {
+    const maxAttempts = 60; // 60 tentativas = ~5 minutos (5s cada)
+    let attempts = 0;
+
+    const checkStatus = async () => {
+      if (attempts >= maxAttempts || !isCheckingPayment) {
+        setIsCheckingPayment(false);
+        if (attempts >= maxAttempts) {
+          toast('Tempo limite de pagamento excedido', 'error');
+          setHasPagarMeError(true);
+        }
+        return;
+      }
+
+      try {
+        const checkStatusUrl = import.meta.env.PROD
+          ? `/.netlify/functions/mercadopago-check-status?paymentId=${paymentId}&establishmentId=${establishmentId}`
+          : `/api/mercadopago/check-status?paymentId=${paymentId}&establishmentId=${establishmentId}`;
+
+        const response = await fetch(checkStatusUrl);
+        if (!response.ok) throw new Error('Erro ao verificar status');
+
+        const payment = await response.json();
+
+        // Mercado Pago: status pode ser 'approved', 'authorized', 'pending', 'rejected', 'cancelled', 'refunded'
+        if (payment.status === 'approved' || payment.status === 'authorized') {
+          setIsCheckingPayment(false);
+          await confirmAppointment(String(paymentId));
+        } else if (payment.status === 'rejected' || payment.status === 'cancelled' || payment.status === 'refunded') {
+          setIsCheckingPayment(false);
+          toast('Pagamento recusado ou cancelado', 'error');
+          setHasPagarMeError(true);
+        } else {
+          // Continuar verificando (pending, in_process, etc)
+          attempts++;
+          setTimeout(checkStatus, 5000); // Verificar a cada 5 segundos
+        }
+      } catch (error) {
+        console.error('❌ Erro ao verificar status Mercado Pago:', error);
+        attempts++;
+        setTimeout(checkStatus, 5000);
+      }
+    };
+
+    checkStatus();
+  };
 
   const handlePayment = async (method: PaymentMethod) => {
     if (!method) return;
@@ -82,6 +246,7 @@ export const PaymentModal = ({
     setPixQrCodeUrl('');
     // limpar banner de fallback quando tentar pagar de novo
     setCardRefusedReason('');
+    setHasPagarMeError(false); // Limpar erro anterior ao tentar novamente
 
     try {
       // Se for cartão, tokenizar no FRONTEND (pk_ via /tokens?appId=...)
@@ -280,8 +445,8 @@ export const PaymentModal = ({
       setIsProcessing(false);
       setIsCheckingPayment(false);
       setSelectedMethod(null);
-      // Em erro genérico, manter comportamento atual
-      onPaymentFailure();
+      setHasPagarMeError(true); // Marcar que houve erro no Pagar.me
+      // Não chamar onPaymentFailure() aqui - deixar o usuário tentar com Mercado Pago
     }
   };
 
@@ -542,6 +707,7 @@ export const PaymentModal = ({
               </div>
             ) : null}
 
+
             <div className="bg-blue-600/20 border border-blue-500/50 rounded-lg p-4 mb-6">
               <p className="text-sm text-blue-300">
                 💳 {cancelAppointmentOnFailure
@@ -587,6 +753,20 @@ export const PaymentModal = ({
                   <div className="text-sm text-gray-400">Tokenização segura (Pagar.me)</div>
                 </div>
               </button>
+
+              {hasMercadoPago && (
+                <button
+                  onClick={handleMercadoPagoPayment}
+                  disabled={isProcessing || isCheckingPayment}
+                  className="w-full p-4 bg-[#2a2b2c] border border-[#009EE3] rounded-lg hover:border-[#0088C7] transition-colors flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <CreditCard className="h-6 w-6 text-[#009EE3]" />
+                  <div className="flex-1 text-left">
+                    <div className="text-white font-medium">Mercado Pago</div>
+                    <div className="text-sm text-gray-400">PIX via Mercado Pago</div>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         ) : selectedMethod === 'credit_card' && !pixQrCode ? (
