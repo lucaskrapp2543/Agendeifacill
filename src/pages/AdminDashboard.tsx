@@ -2,6 +2,9 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
   Edit,
   Eye,
   EyeOff,
@@ -15,7 +18,7 @@ import {
   X,
   XCircle
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { AppDownloadLinks } from '../components/AppDownloadLinks';
@@ -34,6 +37,7 @@ interface Establishment {
   payment_status: 'paid' | 'unpaid' | 'expired';
   plan_type: 'monthly' | 'annual' | 'trial';
   payment_due_date: string;
+  payment_paid_at?: string | null; // Quando foi marcado como pago (para "pagou no mês")
   owner_email?: string;
   is_deleted?: boolean;
   is_blocked?: boolean;
@@ -42,6 +46,8 @@ interface Establishment {
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
   booking_blocked?: boolean; // Indica se o booking está bloqueado
   admin_notes?: string; // Observações privadas do admin
+  admin_profit_value?: number | null; // Valor manual de lucro (admin) para somar no saldo geral
+  admin_payment_link?: string | null; // Link de pagamento para envio de cobrança (admin)
   whatsapp?: string; // WhatsApp do estabelecimento
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar "Pagamento adiantado" ao barbeiro
 }
@@ -81,6 +87,20 @@ const AdminDashboard = () => {
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [editingEstablishment, setEditingEstablishment] = useState<Establishment | null>(null);
   const [notesText, setNotesText] = useState('');
+
+  // ✅ Valor manual por estabelecimento (lucro) + salvar
+  const [profitInputByEstablishment, setProfitInputByEstablishment] = useState<Record<string, string>>({});
+  const [isSavingProfitByEstablishment, setIsSavingProfitByEstablishment] = useState<Record<string, boolean>>({});
+
+  // ✅ Link de pagamento por estabelecimento (admin)
+  const [paymentLinkInputByEstablishment, setPaymentLinkInputByEstablishment] = useState<Record<string, string>>({});
+  const [isSavingPaymentLinkByEstablishment, setIsSavingPaymentLinkByEstablishment] = useState<Record<string, boolean>>({});
+  const paymentLinkSaveTimeoutRef = useRef<Record<string, any>>({});
+
+  // ✅ Clientes (estabelecimentos) criados no mês selecionado
+  const [clientsMonth, setClientsMonth] = useState<Date>(() => new Date());
+  const [clientsMonthCount, setClientsMonthCount] = useState<number>(0);
+  const [isLoadingClientsMonth, setIsLoadingClientsMonth] = useState(false);
 
   const togglePagamentoAdiantadoAdmin = async (establishmentId: string, current: boolean) => {
     try {
@@ -479,10 +499,13 @@ const AdminDashboard = () => {
             payment_status: establishment.payment_status || 'unpaid',
             plan_type: establishment.plan_type || 'monthly',
             payment_due_date: establishment.payment_due_date || establishment.created_at,
+            payment_paid_at: establishment.payment_paid_at || null,
             is_blocked: establishment.is_blocked || false,
             last_access: lastAppointment?.created_at || null,
             payment_alert_enabled: establishment.payment_alert_enabled || false,
             promotion_enabled: establishment.promotion_enabled || false,
+            admin_profit_value: Number(establishment.admin_profit_value ?? 0),
+            admin_payment_link: establishment.admin_payment_link || null,
             whatsapp: establishment.whatsapp || ''
           };
 
@@ -499,9 +522,12 @@ const AdminDashboard = () => {
           payment_status: establishment.payment_status || 'unpaid',
           plan_type: establishment.plan_type || 'monthly',
           payment_due_date: establishment.payment_due_date || establishment.created_at,
+          payment_paid_at: establishment.payment_paid_at || null,
           is_blocked: establishment.is_blocked || false,
           payment_alert_enabled: establishment.payment_alert_enabled || false,
           promotion_enabled: establishment.promotion_enabled || false,
+          admin_profit_value: Number(establishment.admin_profit_value ?? 0),
+          admin_payment_link: establishment.admin_payment_link || null,
           whatsapp: establishment.whatsapp || ''
         };
       });
@@ -560,7 +586,8 @@ const AdminDashboard = () => {
             ? {
               ...est,
               payment_status: status,
-              payment_due_date: status === 'paid' ? updateData.payment_due_date : est.payment_due_date
+              payment_due_date: status === 'paid' ? updateData.payment_due_date : est.payment_due_date,
+              payment_paid_at: est.payment_paid_at
             }
             : est
         )
@@ -877,6 +904,317 @@ const AdminDashboard = () => {
     return due < today;
   };
 
+  const isSameMonthYear = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+
+  const getMonthRange = (date: Date) => {
+    const start = new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+    const end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { start, end };
+  };
+
+  const fetchClientsMonthCount = async (date: Date) => {
+    setIsLoadingClientsMonth(true);
+    try {
+      const { start, end } = getMonthRange(date);
+
+      const { count, error } = await supabase
+        .from('establishments')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+        .or('is_deleted.is.null,is_deleted.eq.false');
+
+      if (error) throw error;
+      setClientsMonthCount(count || 0);
+    } catch (error) {
+      console.error('Erro ao carregar clientes do mês (admin):', error);
+      toast.error('Erro ao carregar clientes do mês');
+      setClientsMonthCount(0);
+    } finally {
+      setIsLoadingClientsMonth(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchClientsMonthCount(clientsMonth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientsMonth]);
+
+  // Pré-preencher inputs com o valor salvo (sem sobrescrever quem estiver digitando)
+  useEffect(() => {
+    setProfitInputByEstablishment(prev => {
+      const next = { ...prev };
+      for (const est of establishments) {
+        if (next[est.id] === undefined) {
+          const v = Number(est.admin_profit_value ?? 0);
+          next[est.id] = Number.isFinite(v) ? String(v) : '0';
+        }
+      }
+      return next;
+    });
+  }, [establishments]);
+
+  // Pré-preencher input do link (sem sobrescrever quem estiver digitando)
+  useEffect(() => {
+    setPaymentLinkInputByEstablishment(prev => {
+      const next = { ...prev };
+      for (const est of establishments) {
+        if (next[est.id] === undefined) {
+          next[est.id] = String(est.admin_payment_link || '');
+        }
+      }
+      return next;
+    });
+  }, [establishments]);
+
+  const parseBRLNumberInput = (raw: string): number => {
+    const s = String(raw || '').trim();
+    if (!s) return NaN;
+
+    // Mantém apenas dígitos e separadores comuns
+    const cleaned = s.replace(/[^\d.,-]/g, '');
+
+    const lastDot = cleaned.lastIndexOf('.');
+    const lastComma = cleaned.lastIndexOf(',');
+
+    // Descobrir qual é o separador decimal (se existir)
+    let decimalSep: '.' | ',' | null = null;
+    if (lastDot !== -1 && lastComma !== -1) {
+      decimalSep = lastDot > lastComma ? '.' : ',';
+    } else if (lastComma !== -1) {
+      decimalSep = ',';
+    } else if (lastDot !== -1) {
+      decimalSep = '.';
+    }
+
+    let normalized = cleaned;
+    if (decimalSep === ',') {
+      // remover separadores de milhar "." e trocar decimal "," por "."
+      normalized = normalized.replace(/\./g, '').replace(',', '.');
+    } else if (decimalSep === '.') {
+      // remover separadores de milhar "," e manter "." como decimal
+      normalized = normalized.replace(/,/g, '');
+    } else {
+      // sem separador decimal: só números (e possível sinal)
+      normalized = normalized.replace(/[.,]/g, '');
+    }
+
+    return Number(normalized);
+  };
+
+  const savePaymentLink = async (establishment: Establishment) => {
+    const raw = (paymentLinkInputByEstablishment[establishment.id] ?? '').trim();
+    const nextLink = raw.length ? raw : null;
+
+    setIsSavingPaymentLinkByEstablishment(prev => ({ ...prev, [establishment.id]: true }));
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ admin_payment_link: nextLink })
+        .eq('id', establishment.id);
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (/admin_payment_link/i.test(msg) || /column/i.test(msg)) {
+          toast.error('Campo admin_payment_link não existe no banco. Aplique a migration no Supabase.');
+        } else {
+          toast.error('Erro ao salvar link.');
+        }
+        console.error(error);
+        return;
+      }
+
+      setEstablishments(prev =>
+        prev.map(e => (e.id === establishment.id ? { ...e, admin_payment_link: nextLink } : e))
+      );
+      toast.success('Link salvo!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao salvar link.');
+    } finally {
+      setIsSavingPaymentLinkByEstablishment(prev => ({ ...prev, [establishment.id]: false }));
+    }
+  };
+
+  const savePaymentLinkById = async (establishmentId: string) => {
+    const est = establishments.find(e => e.id === establishmentId);
+    if (!est) return;
+    await savePaymentLink(est);
+  };
+
+  const scheduleAutoSavePaymentLink = (establishmentId: string, delayMs = 600) => {
+    const current = paymentLinkSaveTimeoutRef.current[establishmentId];
+    if (current) clearTimeout(current);
+    paymentLinkSaveTimeoutRef.current[establishmentId] = setTimeout(() => {
+      savePaymentLinkById(establishmentId);
+    }, delayMs);
+  };
+
+  // Limpar timeouts pendentes ao desmontar
+  useEffect(() => {
+    return () => {
+      for (const key of Object.keys(paymentLinkSaveTimeoutRef.current)) {
+        clearTimeout(paymentLinkSaveTimeoutRef.current[key]);
+      }
+      paymentLinkSaveTimeoutRef.current = {};
+    };
+  }, []);
+
+  const sendChargeWhatsapp = async (establishment: Establishment) => {
+    const phoneRaw = String(establishment.whatsapp || '').trim();
+    if (!phoneRaw) {
+      toast.error('Este estabelecimento não tem WhatsApp cadastrado.');
+      return;
+    }
+
+    let phoneNumber = phoneRaw.replace(/\D/g, '');
+    if (!phoneNumber.startsWith('55')) phoneNumber = `55${phoneNumber}`;
+
+    const valueRaw = profitInputByEstablishment[establishment.id] ?? '';
+    const valueNum = parseBRLNumberInput(valueRaw);
+    if (!Number.isFinite(valueNum) || valueNum <= 0) {
+      toast.error('Informe um valor válido (> 0) para enviar a cobrança.');
+      return;
+    }
+
+    const link = (paymentLinkInputByEstablishment[establishment.id] ?? '').trim();
+    if (!link) {
+      toast.error('Informe o link de pagamento antes de enviar a cobrança.');
+      return;
+    }
+
+    // Tentar salvar o link antes de enviar (melhora consistência)
+    if (String(establishment.admin_payment_link || '') !== link) {
+      await savePaymentLink(establishment);
+    }
+
+    const valorFormatado = fmtBRL(valueNum);
+    const cnpjPix = '57436351000167';
+
+    const message =
+      `Seu Agendei Fácil venceu, não perca seu acesso.\n\n` +
+      `Esse é seu link de pagamento valor (${valorFormatado}). ` +
+      `Acesse o link, após pagamento avise que deixaremos em dia.\n\n` +
+      `${link}\n\n` +
+      `Caso link nao funcione, envie direto no nosso CNPJ como PIX (${cnpjPix}). ` +
+      `Faça um PIX no valor de (${valorFormatado}).`;
+
+    const waUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, '_blank');
+  };
+
+  const saveProfitValue = async (establishment: Establishment) => {
+    const raw = profitInputByEstablishment[establishment.id] ?? '';
+    const value = parseBRLNumberInput(raw);
+
+    if (!Number.isFinite(value) || value < 0) {
+      toast.error('Digite um valor válido (>= 0).');
+      return;
+    }
+
+    setIsSavingProfitByEstablishment(prev => ({ ...prev, [establishment.id]: true }));
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ admin_profit_value: value })
+        .eq('id', establishment.id);
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (/admin_profit_value/i.test(msg) || /column/i.test(msg)) {
+          toast.error('Campo de lucro ainda não existe no banco. Aplique a migration no Supabase.');
+        } else {
+          toast.error('Erro ao salvar valor.');
+        }
+        console.error(error);
+        return;
+      }
+
+      setEstablishments(prev =>
+        prev.map(e => (e.id === establishment.id ? { ...e, admin_profit_value: value } : e))
+      );
+      toast.success('Valor salvo!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao salvar valor.');
+    } finally {
+      setIsSavingProfitByEstablishment(prev => ({ ...prev, [establishment.id]: false }));
+    }
+  };
+
+  const isPaidMarkedInCurrentMonth = (establishment: Establishment): boolean => {
+    if (!establishment.payment_paid_at) return false;
+    const t = new Date(establishment.payment_paid_at).getTime();
+    if (!Number.isFinite(t)) return false;
+    const now = new Date();
+    const { start: monthStart } = getMonthRange(now);
+    return t >= monthStart.getTime() && t <= now.getTime();
+  };
+
+  // Marca/desmarca manualmente "pagou ESSE MÊS" (sem alterar vencimento/plano/status)
+  const togglePaidThisMonth = async (establishment: Establishment) => {
+    const key = `paidmonth:${establishment.id}`;
+    setIsPayingByEstablishment(prev => ({ ...prev, [key]: true }));
+
+    try {
+      const shouldUnmark = isPaidMarkedInCurrentMonth(establishment);
+      const nextPaidAt = shouldUnmark ? null : new Date().toISOString();
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({ payment_paid_at: nextPaidAt })
+        .eq('id', establishment.id);
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (/payment_paid_at/i.test(msg) || /column/i.test(msg)) {
+          toast.error('Campo payment_paid_at não existe no banco. Aplique a migration no Supabase.');
+        } else {
+          toast.error('Erro ao atualizar marcação do mês.');
+        }
+        console.error(error);
+        return;
+      }
+
+      setEstablishments(prev =>
+        prev.map(e => (e.id === establishment.id ? { ...e, payment_paid_at: nextPaidAt } : e))
+      );
+      toast.success(shouldUnmark ? 'Removido do Saldo mês.' : 'Adicionado ao Saldo mês.');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao atualizar marcação do mês.');
+    } finally {
+      setIsPayingByEstablishment(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  // "Pago" + "ESSE MÊS" + "PAGAMENTO AD" juntos (sempre ativar, nunca desativar)
+  const handleMarkPaidAll = async (establishment: Establishment) => {
+    const key = `paidall:${establishment.id}`;
+    if (isPayingByEstablishment[key]) return;
+
+    setIsPayingByEstablishment(prev => ({ ...prev, [key]: true }));
+    try {
+      // 1) Marcar como pago (status + próximo vencimento)
+      await updatePaymentStatus(establishment.id, 'paid');
+
+      // 2) Marcar "ESSE MÊS" (só se ainda não estiver marcado neste mês)
+      if (!isPaidMarkedInCurrentMonth(establishment)) {
+        await togglePaidThisMonth(establishment);
+      }
+
+      // 3) Ativar "PAGAMENTO AD" (só se ainda não estiver ativo)
+      if (!Boolean(establishment.pagamento_adiantado_liberado_admin)) {
+        await togglePagamentoAdiantadoAdmin(establishment.id, Boolean(establishment.pagamento_adiantado_liberado_admin));
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao marcar Pago + Esse mês + Pagamento AD.');
+    } finally {
+      setIsPayingByEstablishment(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
   // Função para verificar senha do usuário
   const checkUserPassword = async () => {
     if (!emailToCheck.trim()) {
@@ -1059,15 +1397,25 @@ const AdminDashboard = () => {
       return matchesSearch && matchesStatus && matchesPlan;
     })
     .sort((a, b) => {
-      // Estabelecimentos vencidos sempre no topo
+      // 1) Estabelecimentos vencidos sempre no topo
       const aIsExpired = a.payment_status === 'expired' || isExpired(a.payment_due_date);
       const bIsExpired = b.payment_status === 'expired' || isExpired(b.payment_due_date);
-      
-      if (aIsExpired && !bIsExpired) return -1; // a vem antes (vencido)
-      if (!aIsExpired && bIsExpired) return 1;  // b vem antes (vencido)
-      
-      // Se ambos são vencidos ou ambos não são vencidos, manter ordem original (por created_at)
-      return 0;
+
+      if (aIsExpired && !bIsExpired) return -1;
+      if (!aIsExpired && bIsExpired) return 1;
+
+      // 2) Ordenar por vencimento (mais próximo primeiro)
+      const aDue = new Date(a.payment_due_date).getTime();
+      const bDue = new Date(b.payment_due_date).getTime();
+      const aValid = Number.isFinite(aDue);
+      const bValid = Number.isFinite(bDue);
+
+      if (aValid && bValid && aDue !== bDue) return aDue - bDue;
+      if (aValid && !bValid) return -1;
+      if (!aValid && bValid) return 1;
+
+      // 3) Desempate: nome (determinístico)
+      return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
     });
 
   // Filtrar estabelecimentos da lixeira
@@ -1076,6 +1424,26 @@ const AdminDashboard = () => {
       establishment.code.toLowerCase().includes(searchTermDeleted.toLowerCase()) ||
       (establishment.owner_email || '').toLowerCase().includes(searchTermDeleted.toLowerCase());
   });
+
+  // Saldo (lucro) manual total — não inclui lixeira pois establishments já vem filtrado
+  const totalAdminProfit = establishments.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+
+  // Saldo do mês: soma do lucro manual apenas de quem PAGOU neste mês (do dia 1 até AGORA)
+  const now = new Date();
+  const { start: monthStart } = getMonthRange(now);
+  const paidThisMonth = establishments.filter(est => {
+    if (!est.payment_paid_at) return false;
+    const t = new Date(est.payment_paid_at).getTime();
+    if (!Number.isFinite(t)) return false;
+    return t >= monthStart.getTime() && t <= now.getTime();
+  });
+  const saldoMesProfit = paidThisMonth.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
 
   // Mostrar loading enquanto verifica autenticação
   if (!user) {
@@ -1156,13 +1524,74 @@ const AdminDashboard = () => {
 
       <div className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6">
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-9 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <Building2 className="h-8 w-8 text-blue-600" />
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Total Estabelecimentos</p>
                 <p className="text-2xl font-bold text-gray-900">{establishments.length}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <DollarSign className="h-8 w-8 text-emerald-600" />
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Saldo (lucro)</p>
+                <p className="text-2xl font-bold text-gray-900">{fmtBRL(totalAdminProfit)}</p>
+                <p className="text-xs text-gray-500 mt-1">Soma dos valores manuais (não inclui lixeira)</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-green-50 border border-green-200 rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <DollarSign className="h-8 w-8 text-green-700" />
+              <div className="ml-4">
+                <p className="text-sm font-medium text-green-900">Saldo mês</p>
+                <p className="text-2xl font-bold text-green-900">{fmtBRL(saldoMesProfit)}</p>
+                <p className="text-xs text-green-800/80 mt-1">
+                  {paidThisMonth.length} pago(s) de{' '}
+                  {monthStart.toLocaleDateString('pt-BR')} até {now.toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <Building2 className="h-8 w-8 text-indigo-600" />
+              <div className="ml-4 w-full">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-600">Clientes do mês</p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setClientsMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                      className="p-1 rounded hover:bg-gray-100 text-gray-600"
+                      title="Mês anterior"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClientsMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                      disabled={isSameMonthYear(clientsMonth, new Date())}
+                      className="p-1 rounded hover:bg-gray-100 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Próximo mês"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-1 capitalize">
+                  {clientsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-2xl font-bold text-gray-900 mt-2">
+                  {isLoadingClientsMonth ? '...' : clientsMonthCount}
+                </p>
               </div>
             </div>
           </div>
@@ -1334,13 +1763,96 @@ const AdminDashboard = () => {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredEstablishments.map((establishment) => (
-                    <tr key={establishment.id} className={isExpired(establishment.payment_due_date) ? 'bg-red-50' : ''}>
+                <tbody className="bg-white divide-y divide-gray-300">
+                  {filteredEstablishments.map((establishment, idx) => {
+                    const isRowExpired = isExpired(establishment.payment_due_date) || establishment.payment_status === 'expired';
+                    const rowAccent = establishment.is_blocked
+                      ? 'border-l-rose-700'
+                      : isRowExpired
+                        ? 'border-l-red-600'
+                        : establishment.payment_status === 'paid'
+                          ? 'border-l-emerald-600'
+                          : 'border-l-amber-500';
+
+                    // Cor de fundo por status (bem mais visível)
+                    const bg = establishment.is_blocked
+                      ? 'bg-rose-300'
+                      : isRowExpired
+                        ? 'bg-red-300'
+                        : establishment.payment_status === 'paid'
+                          ? 'bg-emerald-300'
+                          : 'bg-amber-300';
+
+                    return (
+                    <tr
+                      key={establishment.id}
+                      className={`${bg} ${rowAccent} border-l-8 border-b border-gray-200 hover:bg-blue-50/40 transition-colors`}
+                    >
                       <td className="px-3 py-4">
                         <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
                         <div className="text-xs text-gray-500">
                           {new Date(establishment.created_at).toLocaleDateString('pt-BR')}
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={profitInputByEstablishment[establishment.id] ?? ''}
+                            onChange={(e) =>
+                              setProfitInputByEstablishment(prev => ({ ...prev, [establishment.id]: e.target.value }))
+                            }
+                            className="w-28 px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900"
+                            placeholder="0,00"
+                            title="Valor manual de lucro (admin)"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveProfitValue(establishment)}
+                            disabled={Boolean(isSavingProfitByEstablishment[establishment.id])}
+                            className="px-2 py-1 text-xs rounded border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Salvar valor"
+                          >
+                            {isSavingProfitByEstablishment[establishment.id] ? 'Salvando...' : 'Salvar'}
+                          </button>
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="inline-flex items-center px-2 py-1 text-[11px] font-bold rounded bg-red-600 text-white">
+                            LINK
+                          </span>
+                          <input
+                            type="url"
+                            value={paymentLinkInputByEstablishment[establishment.id] ?? ''}
+                            onChange={(e) =>
+                              setPaymentLinkInputByEstablishment(prev => ({ ...prev, [establishment.id]: e.target.value }))
+                            }
+                            onPaste={() => {
+                              // salvar logo após colar (após o state atualizar)
+                              setTimeout(() => savePaymentLinkById(establishment.id), 0);
+                            }}
+                            onInput={() => scheduleAutoSavePaymentLink(establishment.id)}
+                            onBlur={() => savePaymentLinkById(establishment.id)}
+                            className="w-64 px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900"
+                            placeholder="Cole o link aqui"
+                            title="Link de pagamento (admin)"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => savePaymentLink(establishment)}
+                            disabled={Boolean(isSavingPaymentLinkByEstablishment[establishment.id])}
+                            className="px-2 py-1 text-xs rounded border border-red-600 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Salvar link"
+                          >
+                            {isSavingPaymentLinkByEstablishment[establishment.id] ? 'Salvando...' : 'Salvar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => sendChargeWhatsapp(establishment)}
+                            className="px-3 py-1 text-xs rounded border border-gray-900 bg-gray-900 text-white hover:bg-black"
+                            title="Enviar cobrança no WhatsApp"
+                          >
+                            Enviar cobrança
+                          </button>
                         </div>
                       </td>
 
@@ -1438,11 +1950,25 @@ const AdminDashboard = () => {
                             PROPAGANDA
                           </button>
                           <button
-                            onClick={() => updatePaymentStatus(establishment.id, 'paid')}
-                            className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50"
-                            title="Marcar Pago"
+                            onClick={() => handleMarkPaidAll(establishment)}
+                            disabled={Boolean(isPayingByEstablishment[`paidall:${establishment.id}`])}
+                            className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title='Marcar "Pago" + "Esse mês" + "Pagamento AD"'
                           >
                             Pago
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => togglePaidThisMonth(establishment)}
+                            disabled={Boolean(isPayingByEstablishment[`paidmonth:${establishment.id}`])}
+                            className={`text-xs px-2 py-0.5 border rounded disabled:opacity-50 disabled:cursor-not-allowed ${
+                              isPaidMarkedInCurrentMonth(establishment)
+                                ? 'text-white border-blue-600 bg-blue-600 hover:bg-blue-700'
+                                : 'text-blue-700 border-blue-300 hover:bg-blue-50 hover:text-blue-900'
+                            }`}
+                            title="Alternar marcação do mês (apenas para o card Saldo mês)"
+                          >
+                            ESSE MÊS
                           </button>
                           <button
                             onClick={() => updatePaymentStatus(establishment.id, 'unpaid')}
@@ -1554,7 +2080,8 @@ const AdminDashboard = () => {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
 
