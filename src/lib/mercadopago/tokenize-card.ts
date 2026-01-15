@@ -81,33 +81,50 @@ export async function tokenizeMercadoPagoCard(
     // ✅ CORRIGIDO: Criar campos temporários no DOM antes de tokenizar
     // O SDK do Mercado Pago exige que campos sejam criados com mp.fields.create() antes de usar createCardToken()
     
-    // Criar container temporário oculto
+    // Criar containers temporários ocultos para cada campo
+    const tempId = `mp-temp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    
+    const cardNumberDiv = document.createElement('div');
+    cardNumberDiv.id = `${tempId}-cardNumber`;
+    cardNumberDiv.style.display = 'none';
+    
+    const expirationDateDiv = document.createElement('div');
+    expirationDateDiv.id = `${tempId}-expirationDate`;
+    expirationDateDiv.style.display = 'none';
+    
+    const securityCodeDiv = document.createElement('div');
+    securityCodeDiv.id = `${tempId}-securityCode`;
+    securityCodeDiv.style.display = 'none';
+    
+    // Criar container pai oculto
     const tempContainer = document.createElement('div');
-    tempContainer.id = `mp-temp-container-${Date.now()}`;
+    tempContainer.id = `${tempId}-container`;
     tempContainer.style.display = 'none';
     tempContainer.style.position = 'absolute';
     tempContainer.style.left = '-9999px';
+    tempContainer.appendChild(cardNumberDiv);
+    tempContainer.appendChild(expirationDateDiv);
+    tempContainer.appendChild(securityCodeDiv);
     document.body.appendChild(tempContainer);
 
     try {
-      // Criar campos temporários com o SDK
+      // Criar campos temporários com o SDK (cada um no seu próprio elemento)
       const cardNumberField = mp.fields.create('cardNumber', {
         placeholder: 'Número do cartão'
-      }).mount(`#${tempContainer.id}`);
+      }).mount(`#${tempId}-cardNumber`);
 
       const expirationDateField = mp.fields.create('expirationDate', {
         placeholder: 'MM/YY'
-      }).mount(`#${tempContainer.id}`);
+      }).mount(`#${tempId}-expirationDate`);
 
       const securityCodeField = mp.fields.create('securityCode', {
         placeholder: 'CVV'
-      }).mount(`#${tempContainer.id}`);
+      }).mount(`#${tempId}-securityCode`);
 
-      // Aguardar campos serem montados
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Aguardar campos serem montados completamente
+      await new Promise(resolve => setTimeout(resolve, 800));
 
-      // Preencher campos programaticamente (se suportado)
-      // Como não podemos preencher diretamente, usamos createCardToken com os dados
+      // Agora podemos usar createCardToken (campos já foram criados e montados)
       const token = await mp.fields.createCardToken({
         cardNumber: cardNumber,
         cardholderName: holderName,
@@ -119,10 +136,18 @@ export async function tokenizeMercadoPagoCard(
       });
 
       // Limpar campos temporários
-      cardNumberField.unmount();
-      expirationDateField.unmount();
-      securityCodeField.unmount();
-      document.body.removeChild(tempContainer);
+      try {
+        cardNumberField.unmount();
+        expirationDateField.unmount();
+        securityCodeField.unmount();
+      } catch {}
+      
+      // Remover elementos do DOM
+      try {
+        if (tempContainer.parentNode) {
+          document.body.removeChild(tempContainer);
+        }
+      } catch {}
 
       if (!token || !token.id) {
         throw new Error('Token do cartão não foi gerado pelo Mercado Pago');
