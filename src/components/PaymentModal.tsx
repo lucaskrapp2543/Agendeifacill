@@ -84,17 +84,19 @@ export const PaymentModal = ({
           const exigirMP = Boolean(data?.exigir_pagamento_antecipado_mercadopago === true);
           const exigirPM = Boolean(data?.exigir_pagamento_antecipado === true);
           
-          // Prioridade: Se Mercado Pago está configurado para exigir pagamento antecipado, usar Mercado Pago
-          // Caso contrário, se Pagar.me está configurado para exigir, usar Pagar.me
-          // Se nenhum está configurado para exigir, usar Mercado Pago se disponível (sem Pagar.me)
-          if (hasMP && exigirMP) {
-            // Mercado Pago está ativo e configurado para exigir pagamento antecipado
+          // ✅ CORRIGIDO: Prioridade baseada em qual gateway está configurado para exigir
+          // Se Mercado Pago está marcado para exigir → usar Mercado Pago
+          // Se apenas Pagar.me está marcado para exigir → usar Pagar.me
+          // Se ambos estão marcados → prioridade para Mercado Pago
+          // Se nenhum está marcado para exigir → usar Mercado Pago se disponível (sem Pagar.me)
+          if (exigirMP && hasMP) {
+            // Mercado Pago está configurado para exigir pagamento antecipado → usar Mercado Pago
             setHasMercadoPago(true);
-          } else if (hasPM && exigirPM) {
-            // Pagar.me está ativo e configurado para exigir pagamento antecipado
+          } else if (exigirPM && hasPM) {
+            // Apenas Pagar.me está configurado para exigir → usar Pagar.me
             setHasMercadoPago(false);
           } else {
-            // Fallback: usar Mercado Pago se disponível e não tiver Pagar.me
+            // Fallback: se nenhum está marcado para exigir, usar Mercado Pago se disponível (sem Pagar.me)
             setHasMercadoPago(hasMP && !hasPM);
           }
         })
