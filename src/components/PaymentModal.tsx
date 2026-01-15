@@ -62,6 +62,8 @@ export const PaymentModal = ({
   const [hasMercadoPago, setHasMercadoPago] = useState(false);
   const { toast } = useToast();
   const pixCountdownIntervalRef = useRef<number | null>(null);
+  const isCheckingPaymentRef = useRef<boolean>(false);
+  const currentPaymentIdRef = useRef<number | null>(null);
 
   // Valor em centavos
   const amountInCents = Math.round(amount * 100);
@@ -86,6 +88,18 @@ export const PaymentModal = ({
         .catch(() => {
           setHasMercadoPago(false);
         });
+    } else if (!isOpen) {
+      // Limpar estados e refs quando o modal fechar
+      if (pixCountdownIntervalRef.current) {
+        window.clearInterval(pixCountdownIntervalRef.current);
+        pixCountdownIntervalRef.current = null;
+      }
+      setIsCheckingPayment(false);
+      isCheckingPaymentRef.current = false;
+      currentPaymentIdRef.current = null;
+      setPixQrCode('');
+      setPixRemainingSeconds(0);
+      setHasPagarMeError(false);
     }
   }, [isOpen, establishmentId]);
 
@@ -201,11 +215,32 @@ export const PaymentModal = ({
         const qrCodeBase64 = (paymentResult as any).point_of_interaction?.transaction_data?.qr_code_base64;
         
         if (qrCode) {
+          // Limpar interval anterior se existir
+          if (pixCountdownIntervalRef.current) {
+            window.clearInterval(pixCountdownIntervalRef.current);
+            pixCountdownIntervalRef.current = null;
+          }
+          
           setPixQrCode(qrCode);
           setPixQrCodeUrl(qrCodeBase64 ? `data:image/png;base64,${qrCodeBase64}` : '');
           setPixExpiresInSeconds(90);
           setPixRemainingSeconds(90);
           setIsCheckingPayment(true);
+          isCheckingPaymentRef.current = true;
+          currentPaymentIdRef.current = paymentResult.id;
+          
+          // Iniciar contador imediatamente
+          pixCountdownIntervalRef.current = window.setInterval(() => {
+            setPixRemainingSeconds((prev) => {
+              const newValue = Math.max(0, prev - 1);
+              if (newValue === 0 && pixCountdownIntervalRef.current) {
+                window.clearInterval(pixCountdownIntervalRef.current);
+                pixCountdownIntervalRef.current = null;
+              }
+              return newValue;
+            });
+          }, 1000);
+          
           checkMercadoPagoPaymentStatus(paymentResult.id);
           setIsProcessing(false);
         } else if (paymentResult.status === 'approved' || paymentResult.status === 'authorized') {
@@ -213,6 +248,8 @@ export const PaymentModal = ({
         } else {
           toast('Pagamento processado. Aguardando confirmação...', 'warning');
           setIsCheckingPayment(true);
+          isCheckingPaymentRef.current = true;
+          currentPaymentIdRef.current = paymentResult.id;
           checkMercadoPagoPaymentStatus(paymentResult.id);
           setIsProcessing(false);
         }
@@ -244,8 +281,13 @@ export const PaymentModal = ({
     let attempts = 0;
 
     const checkStatus = async () => {
-      if (attempts >= maxAttempts || !isCheckingPayment) {
-        setIsCheckingPayment(false);
+      // Usar ref para verificar se ainda está checando (evita race conditions)
+      if (attempts >= maxAttempts || !isCheckingPaymentRef.current || currentPaymentIdRef.current !== paymentId) {
+        if (currentPaymentIdRef.current === paymentId) {
+          setIsCheckingPayment(false);
+          isCheckingPaymentRef.current = false;
+          currentPaymentIdRef.current = null;
+        }
         if (attempts >= maxAttempts) {
           toast('Tempo limite de pagamento excedido', 'error');
           setHasPagarMeError(true);
@@ -258,28 +300,53 @@ export const PaymentModal = ({
           ? `/.netlify/functions/mercadopago-check-status?paymentId=${paymentId}&establishmentId=${establishmentId}`
           : `/api/mercadopago/check-status?paymentId=${paymentId}&establishmentId=${establishmentId}`;
 
+        console.log('🔄 [MP] Verificando status do pagamento:', paymentId, 'Tentativa:', attempts + 1);
+        
         const response = await fetch(checkStatusUrl);
-        if (!response.ok) throw new Error('Erro ao verificar status');
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Erro ${response.status}: ${errorText}`);
+        }
 
         const payment = await response.json();
+        console.log('📊 [MP] Status do pagamento:', payment.status, payment);
 
         // Mercado Pago: status pode ser 'approved', 'authorized', 'pending', 'rejected', 'cancelled', 'refunded'
         if (payment.status === 'approved' || payment.status === 'authorized') {
+          console.log('✅ [MP] Pagamento aprovado!');
+          // Limpar interval do contador
+          if (pixCountdownIntervalRef.current) {
+            window.clearInterval(pixCountdownIntervalRef.current);
+            pixCountdownIntervalRef.current = null;
+          }
           setIsCheckingPayment(false);
+          isCheckingPaymentRef.current = false;
+          currentPaymentIdRef.current = null;
           await confirmAppointment(String(paymentId));
         } else if (payment.status === 'rejected' || payment.status === 'cancelled' || payment.status === 'refunded') {
+          console.log('❌ [MP] Pagamento recusado/cancelado');
+          if (pixCountdownIntervalRef.current) {
+            window.clearInterval(pixCountdownIntervalRef.current);
+            pixCountdownIntervalRef.current = null;
+          }
           setIsCheckingPayment(false);
+          isCheckingPaymentRef.current = false;
+          currentPaymentIdRef.current = null;
           toast('Pagamento recusado ou cancelado', 'error');
           setHasPagarMeError(true);
         } else {
           // Continuar verificando (pending, in_process, etc)
+          console.log('⏳ [MP] Pagamento ainda pendente, verificando novamente em 5s...');
           attempts++;
           setTimeout(checkStatus, 5000); // Verificar a cada 5 segundos
         }
-      } catch (error) {
-        console.error('❌ Erro ao verificar status Mercado Pago:', error);
+      } catch (error: any) {
+        console.error('❌ [MP] Erro ao verificar status:', error);
         attempts++;
-        setTimeout(checkStatus, 5000);
+        // Continuar tentando mesmo com erro (pode ser temporário)
+        if (isCheckingPaymentRef.current && currentPaymentIdRef.current === paymentId) {
+          setTimeout(checkStatus, 5000);
+        }
       }
     };
 

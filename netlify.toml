@@ -66,6 +66,13 @@
   force = true
   methods = ["GET", "POST", "OPTIONS"]
 
+[[redirects]]
+  from = "/api/mercadopago/webhook"
+  to = "/.netlify/functions/mercadopago-webhook"
+  status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
+
 # API Routes - DEVEM VIR ANTES do catch-all
 [[redirects]]
   from = "/api/cancel-appointment"

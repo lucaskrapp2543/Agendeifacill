@@ -4,6 +4,7 @@
 /api/mercadopago/oauth/callback     /.netlify/functions/mercadopago-oauth-callback     200
 /api/mercadopago/create-payment     /.netlify/functions/mercadopago-create-payment   200
 /api/mercadopago/check-status      /.netlify/functions/mercadopago-check-status      200
+/api/mercadopago/webhook           /.netlify/functions/mercadopago-webhook           200
 
 # Pagar.me
 /api/pagarme/create-recipient      /.netlify/functions/pagarme-create-recipient      200

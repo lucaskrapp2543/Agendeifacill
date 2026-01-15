@@ -77,6 +77,12 @@ export async function createMPPayment(
   if (application_fee < 0 || application_fee >= amount) {
     throw new Error('application_fee deve ser entre 0 e o valor do pagamento');
   }
+  
+  // Validar que application_fee não é maior que 10% do valor (recomendação do Mercado Pago)
+  const maxApplicationFee = Math.floor(amount * 0.1); // Máximo 10%
+  if (application_fee > maxApplicationFee) {
+    console.warn(`⚠️ [MP Payment] application_fee (${application_fee}) é maior que 10% do valor (${maxApplicationFee}). Isso pode causar problemas.`);
+  }
 
   try {
     console.log('💳 [MP Payment] Criando pagamento:', {
@@ -90,8 +96,18 @@ export async function createMPPayment(
     const MP_API_BASE_URL = getMPApiBaseUrl();
 
     // Montar payload para a API do Mercado Pago
+    const transactionAmount = amount / 100; // Converter centavos para reais
+    const applicationFeeAmount = application_fee / 100; // Converter centavos para reais
+    
+    console.log('💰 [MP Payment] Valores do split:', {
+      transaction_amount: transactionAmount,
+      application_fee: applicationFeeAmount,
+      vendedor_recebe: transactionAmount - applicationFeeAmount,
+      plataforma_recebe: applicationFeeAmount,
+    });
+    
     const payload: any = {
-      transaction_amount: amount / 100, // Converter centavos para reais
+      transaction_amount: transactionAmount,
       description: paymentData.description,
       payment_method_id: paymentData.payment_method_id || 'pix', // Padrão: PIX
       payer: {
@@ -105,12 +121,14 @@ export async function createMPPayment(
             }
           : {}),
       },
-      application_fee: application_fee / 100, // Converter centavos para reais
+      application_fee: applicationFeeAmount, // Taxa da plataforma (R$ 0,50)
       ...(paymentData.metadata ? { metadata: paymentData.metadata } : {}),
       ...(paymentData.statement_descriptor
         ? { statement_descriptor: paymentData.statement_descriptor }
         : {}),
     };
+    
+    console.log('📦 [MP Payment] Payload completo:', JSON.stringify(payload, null, 2));
 
     // Para cartão de crédito, adicionar installments
     if (paymentData.payment_method_id === 'credit_card' && paymentData.installments) {
@@ -136,9 +154,19 @@ export async function createMPPayment(
       id: payment.id,
       status: payment.status,
       status_detail: payment.status_detail,
-      amount: payment.transaction_amount,
+      transaction_amount: payment.transaction_amount,
       application_fee: payment.application_fee,
+      vendedor_recebe: payment.transaction_amount - (payment.application_fee || 0),
+      plataforma_recebe: payment.application_fee || 0,
     });
+    
+    // Verificar se application_fee foi aplicado
+    if (!payment.application_fee || payment.application_fee === 0) {
+      console.warn('⚠️ [MP Payment] ATENÇÃO: application_fee não foi aplicado! O vendedor receberá o valor total.');
+      console.warn('⚠️ [MP Payment] Verifique se a aplicação está configurada corretamente no Mercado Pago.');
+    } else {
+      console.log('✅ [MP Payment] application_fee aplicado corretamente:', payment.application_fee);
+    }
 
     return {
       id: payment.id,

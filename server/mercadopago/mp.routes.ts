@@ -323,4 +323,113 @@ router.get('/check-status', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/mercadopago/webhook
+ * Webhook do Mercado Pago para notificações de pagamento
+ * 
+ * Body: Notificação do Mercado Pago (JSON ou form-urlencoded)
+ */
+router.post('/webhook', async (req: Request, res: Response) => {
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        error: 'Supabase admin não configurado',
+      });
+    }
+
+    // Parse do body
+    let webhookData: any = req.body;
+    
+    // Se vier como form-urlencoded, tentar parse do campo 'data'
+    if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+      const dataParam = (req.body as any)?.data;
+      if (dataParam && typeof dataParam === 'string') {
+        try {
+          webhookData = JSON.parse(dataParam);
+        } catch {
+          webhookData = { id: dataParam };
+        }
+      }
+    }
+
+    console.log('📨 [MP Webhook] Notificação recebida:', {
+      type: webhookData?.type,
+      action: webhookData?.action,
+      id: webhookData?.id,
+      data: webhookData?.data,
+    });
+
+    if (webhookData?.type === 'payment') {
+      const paymentId = webhookData.data?.id || webhookData.id;
+      
+      if (!paymentId) {
+        return res.status(400).json({ error: 'Payment ID não encontrado' });
+      }
+
+      // Buscar agendamento
+      const { data: appointments } = await supabaseAdmin
+        .from('appointments')
+        .select('id, establishment_id, payment_transaction_id, status')
+        .eq('payment_transaction_id', String(paymentId))
+        .limit(1);
+
+      if (!appointments || appointments.length === 0) {
+        return res.status(200).json({ message: 'Webhook recebido, mas agendamento não encontrado' });
+      }
+
+      const appointment = appointments[0];
+
+      // Buscar access_token do estabelecimento
+      const { data: establishment } = await supabaseAdmin
+        .from('establishments')
+        .select('mercadopago_access_token')
+        .eq('id', appointment.establishment_id)
+        .single();
+
+      if (!establishment || !(establishment as any)?.mercadopago_access_token) {
+        return res.status(200).json({ message: 'Webhook recebido, mas estabelecimento não configurado' });
+      }
+
+      // Verificar status do pagamento
+      const payment = await checkMPPaymentStatus(
+        Number(paymentId),
+        String((establishment as any).mercadopago_access_token)
+      );
+
+      if (payment.status === 'approved' || payment.status === 'authorized') {
+        await supabaseAdmin
+          .from('appointments')
+          .update({
+            status: 'confirmed',
+            pix_payment_status: payment.payment_method_id === 'pix' ? 'aprovado' : null,
+          })
+          .eq('id', appointment.id);
+
+        return res.status(200).json({
+          message: 'Webhook processado com sucesso',
+          appointmentId: appointment.id,
+          paymentStatus: payment.status,
+        });
+      }
+
+      return res.status(200).json({
+        message: 'Webhook processado',
+        paymentStatus: payment.status,
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Webhook recebido',
+      type: webhookData?.type,
+    });
+  } catch (error: any) {
+    console.error('❌ [MP Webhook] Erro:', error);
+    return res.status(200).json({
+      error: 'Erro ao processar webhook',
+      message: error.message,
+    });
+  }
+});
+
 export default router;
