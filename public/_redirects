@@ -1,7 +1,19 @@
-# Redirecionar todas as rotas para index.html para suportar client-side routing
-# Isso permite que o React Router gerencie as rotas no lado do cliente
-/*    /index.html   200
+# Rotas de API - DEVEM VIR ANTES do catch-all
+# Mercado Pago
+/api/mercadopago/oauth/authorize    /.netlify/functions/mercadopago-oauth-authorize    200
+/api/mercadopago/oauth/callback     /.netlify/functions/mercadopago-oauth-callback     200
+/api/mercadopago/create-payment     /.netlify/functions/mercadopago-create-payment   200
+/api/mercadopago/check-status      /.netlify/functions/mercadopago-check-status      200
 
-# Opcional: Redirecionamentos específicos se necessário
-# /api/*  /api/:splat  200
-# /admin/*  /admin/:splat  200 
+# Pagar.me
+/api/pagarme/create-recipient      /.netlify/functions/pagarme-create-recipient      200
+/api/pagarme/create-payment         /.netlify/functions/pagarme-create-payment       200
+/api/pagarme/check-status           /.netlify/functions/pagarme-check-status         200
+/api/pagarme/order-details         /.netlify/functions/pagarme-order-details        200
+
+# Outras APIs
+/api/cancel-appointment             /.netlify/functions/cancel-appointment           200
+
+# Redirecionar todas as outras rotas para index.html para suportar client-side routing
+# Isso permite que o React Router gerencie as rotas no lado do cliente
+/*    /index.html   200 

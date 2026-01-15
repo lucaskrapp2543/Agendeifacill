@@ -76,10 +76,11 @@ export const handler: Handler = async (event) => {
       user_id: tokenData.user_id,
     });
 
-    // Redirecionar para página de sucesso (ou retornar JSON)
-    // Em produção, você pode redirecionar para uma página do frontend
+    // Redirecionar para página de sucesso
+    const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
+    const protocol = event.headers['x-forwarded-proto'] || 'https';
     const successUrl = process.env.MERCADOPAGO_SUCCESS_REDIRECT_URL || 
-      `https://${event.headers.host || 'seu-dominio.netlify.app'}/dashboard?mp_connected=true`;
+      `${protocol}://${host}/dashboard?mp_connected=true`;
 
     return {
       statusCode: 302,
@@ -92,8 +93,10 @@ export const handler: Handler = async (event) => {
     console.error('❌ [MP OAuth Callback] Erro:', error);
     
     // Redirecionar para página de erro
+    const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
+    const protocol = event.headers['x-forwarded-proto'] || 'https';
     const errorUrl = process.env.MERCADOPAGO_ERROR_REDIRECT_URL || 
-      `https://${event.headers.host || 'seu-dominio.netlify.app'}/dashboard?mp_error=true`;
+      `${protocol}://${host}/dashboard?mp_error=true`;
 
     return {
       statusCode: 302,
