@@ -282,7 +282,9 @@ export const PaymentModal = ({
           amount: amountInCents,
           description: `Agendamento #${appointmentId}`,
           payer: payerData,
-          payment_method_id: method === 'credit_card' ? (cardPaymentMethodId || 'visa') : method,
+          // ✅ CORRIGIDO: Para cartão de crédito, usar 'credit_card' (não a bandeira)
+          // A bandeira é detectada automaticamente pelo token
+          payment_method_id: method === 'credit_card' ? 'credit_card' : method,
           ...(method === 'credit_card' ? { 
             installments: 1,
             token: cardToken,
