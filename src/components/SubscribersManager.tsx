@@ -38,6 +38,8 @@ interface SubscribersManagerProps {
     limit_subscribers_one_week?: boolean;
     use_pagarme_subscription_pix?: boolean;
     pagarme_recipient_id?: string | null;
+    use_mercadopago_subscription_pix?: boolean;
+    mercadopago_access_token?: string | null;
   };
   onEstablishmentUpdate?: () => void;
 }
@@ -94,6 +96,20 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   });
   const [isUpdatingPagarmeSubscriptionPix, setIsUpdatingPagarmeSubscriptionPix] = useState(false);
+
+  // Recorrência via Mercado Pago (PIX manual, sem cobrança automática)
+  const localStorageMercadoPagoKey = `use_mercadopago_subscription_pix_${establishmentId}`;
+  const [useMercadoPagoSubscriptionPix, setUseMercadoPagoSubscriptionPix] = useState<boolean>(() => {
+    if (establishment?.use_mercadopago_subscription_pix !== undefined) {
+      return Boolean(establishment.use_mercadopago_subscription_pix);
+    }
+    try {
+      return localStorage.getItem(localStorageMercadoPagoKey) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isUpdatingMercadoPagoSubscriptionPix, setIsUpdatingMercadoPagoSubscriptionPix] = useState(false);
 
   const fmtBRL = (v: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v || 0));
@@ -171,13 +187,35 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (establishment?.limit_subscribers_one_week !== undefined) {
       setLimitSubscribersOneWeek(establishment.limit_subscribers_one_week);
     }
-    if (establishment?.use_pagarme_subscription_pix !== undefined) {
+    
+    // Se não tiver recipient_id, forçar desativar recorrência Pagar.me
+    const hasRecipientId = !!String(establishment?.pagarme_recipient_id || '').trim();
+    if (!hasRecipientId) {
+      setUsePagarmeSubscriptionPix(false);
+      try {
+        localStorage.removeItem(localStoragePagarmeKey);
+      } catch { }
+    } else if (establishment?.use_pagarme_subscription_pix !== undefined) {
       setUsePagarmeSubscriptionPix(Boolean(establishment.use_pagarme_subscription_pix));
       try {
         localStorage.setItem(localStoragePagarmeKey, establishment.use_pagarme_subscription_pix ? 'true' : 'false');
       } catch { }
     }
-  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week, establishment?.use_pagarme_subscription_pix]);
+    
+    // Se não tiver access_token, forçar desativar recorrência Mercado Pago
+    const hasAccessToken = !!String(establishment?.mercadopago_access_token || '').trim();
+    if (!hasAccessToken) {
+      setUseMercadoPagoSubscriptionPix(false);
+      try {
+        localStorage.removeItem(localStorageMercadoPagoKey);
+      } catch { }
+    } else if (establishment?.use_mercadopago_subscription_pix !== undefined) {
+      setUseMercadoPagoSubscriptionPix(Boolean(establishment.use_mercadopago_subscription_pix));
+      try {
+        localStorage.setItem(localStorageMercadoPagoKey, establishment.use_mercadopago_subscription_pix ? 'true' : 'false');
+      } catch { }
+    }
+  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week, establishment?.use_pagarme_subscription_pix, establishment?.use_mercadopago_subscription_pix, establishment?.pagarme_recipient_id, establishment?.mercadopago_access_token]);
 
   const handleUpdateUsePagarmeSubscriptionPix = async (newValue: boolean) => {
     setIsUpdatingPagarmeSubscriptionPix(true);
@@ -189,29 +227,47 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
 
-      // Sempre persistir localmente (fallback)
+      // Exclusão mútua: se ativar Pagar.me, desativar Mercado Pago
+      const updateData: any = { use_pagarme_subscription_pix: newValue };
+      if (newValue) {
+        updateData.use_mercadopago_subscription_pix = false;
+      }
+
+      // Limpar localStorage quando desativar (garantir que não fique cache antigo)
       try {
-        localStorage.setItem(localStoragePagarmeKey, newValue ? 'true' : 'false');
+        if (newValue) {
+          localStorage.setItem(localStoragePagarmeKey, 'true');
+          localStorage.setItem(localStorageMercadoPagoKey, 'false');
+        } else {
+          // Quando desativar, remover do localStorage para garantir que não seja usado
+          localStorage.removeItem(localStoragePagarmeKey);
+        }
       } catch { }
 
       const { error } = await supabase
         .from('establishments')
-        .update({ use_pagarme_subscription_pix: newValue } as any)
+        .update(updateData)
         .eq('id', establishmentId);
 
       if (error) {
         console.warn('⚠️ Não foi possível salvar no banco (coluna pode não existir ainda). Salvando localmente.', error);
         setUsePagarmeSubscriptionPix(newValue);
+        if (newValue) {
+          setUseMercadoPagoSubscriptionPix(false);
+        }
         toast.success(newValue
-          ? 'Recorrência Pagar.me (PIX) ativada (salva localmente).'
+          ? 'Recorrência Pagar.me (PIX) ativada (salva localmente). Mercado Pago foi desativado automaticamente.'
           : 'Recorrência Pagar.me (PIX) desativada (salva localmente).'
         );
         return;
       }
 
       setUsePagarmeSubscriptionPix(newValue);
+      if (newValue) {
+        setUseMercadoPagoSubscriptionPix(false);
+      }
       toast.success(newValue
-        ? 'Recorrência Pagar.me (PIX) ativada.'
+        ? 'Recorrência Pagar.me (PIX) ativada. Mercado Pago foi desativado automaticamente.'
         : 'Recorrência Pagar.me (PIX) desativada.'
       );
 
@@ -221,6 +277,69 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       toast.error('Erro ao atualizar configuração de recorrência Pagar.me.');
     } finally {
       setIsUpdatingPagarmeSubscriptionPix(false);
+    }
+  };
+
+  const handleUpdateUseMercadoPagoSubscriptionPix = async (newValue: boolean) => {
+    setIsUpdatingMercadoPagoSubscriptionPix(true);
+    try {
+      // Só permitir ATIVAR se houver Mercado Pago conectado
+      const accessToken = String(establishment?.mercadopago_access_token || '').trim();
+      if (newValue && !accessToken) {
+        toast.error('Você precisa conectar sua conta do Mercado Pago nas Configurações.');
+        return;
+      }
+
+      // Exclusão mútua: se ativar Mercado Pago, desativar Pagar.me
+      const updateData: any = { use_mercadopago_subscription_pix: newValue };
+      if (newValue) {
+        updateData.use_pagarme_subscription_pix = false;
+      }
+
+      // Limpar localStorage quando desativar (garantir que não fique cache antigo)
+      try {
+        if (newValue) {
+          localStorage.setItem(localStorageMercadoPagoKey, 'true');
+          localStorage.setItem(localStoragePagarmeKey, 'false');
+        } else {
+          // Quando desativar, remover do localStorage para garantir que não seja usado
+          localStorage.removeItem(localStorageMercadoPagoKey);
+        }
+      } catch { }
+
+      const { error } = await supabase
+        .from('establishments')
+        .update(updateData)
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.warn('⚠️ Não foi possível salvar no banco (coluna pode não existir ainda). Salvando localmente.', error);
+        setUseMercadoPagoSubscriptionPix(newValue);
+        if (newValue) {
+          setUsePagarmeSubscriptionPix(false);
+        }
+        toast.success(newValue
+          ? 'Recorrência Mercado Pago (PIX) ativada (salva localmente). Pagar.me foi desativado automaticamente.'
+          : 'Recorrência Mercado Pago (PIX) desativada (salva localmente).'
+        );
+        return;
+      }
+
+      setUseMercadoPagoSubscriptionPix(newValue);
+      if (newValue) {
+        setUsePagarmeSubscriptionPix(false);
+      }
+      toast.success(newValue
+        ? 'Recorrência Mercado Pago (PIX) ativada. Pagar.me foi desativado automaticamente.'
+        : 'Recorrência Mercado Pago (PIX) desativada.'
+      );
+
+      if (onEstablishmentUpdate) onEstablishmentUpdate();
+    } catch (e) {
+      console.error('Erro ao atualizar recorrência Mercado Pago:', e);
+      toast.error('Erro ao atualizar configuração de recorrência Mercado Pago.');
+    } finally {
+      setIsUpdatingMercadoPagoSubscriptionPix(false);
     }
   };
 
@@ -1865,7 +1984,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             ⚠️ Taxas altas — recomendado usar opção de baixo.
           </div>
 
-          {/* Opção Pagar.me (PIX manual) */}
+          {/* Opção Pagar.me (PIX manual) - Só mostrar se tiver recipient_id configurado */}
+          {String(establishment?.pagarme_recipient_id || '').trim() && (
           <div
             className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(34,197,94,0.18)]"
             style={{
@@ -1906,17 +2026,20 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 }}
                 disabled={
                   isUpdatingPagarmeSubscriptionPix ||
-                  (!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim())
+                  (!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()) ||
+                  !String(establishment?.pagarme_recipient_id || '').trim() // Desabilitar se não tiver recipient_id
                 }
                 className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
                   usePagarmeSubscriptionPix
                     ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
                     : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
                 } ${
-                  isUpdatingPagarmeSubscriptionPix ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
+                  (isUpdatingPagarmeSubscriptionPix || !String(establishment?.pagarme_recipient_id || '').trim()) ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
                 }`}
                 title={
-                  !usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()
+                  !String(establishment?.pagarme_recipient_id || '').trim()
+                    ? 'Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me) nas Configurações primeiro'
+                    : !usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()
                     ? 'Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me)'
                     : undefined
                 }
@@ -1928,15 +2051,82 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX da Pagar.me (com CPF).
               Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
             </p>
-            {!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim() && (
+          </div>
+          </div>
+          )}
+
+          {/* Opção Mercado Pago (PIX manual) - Só mostrar se tiver access_token configurado */}
+          {String(establishment?.mercadopago_access_token || '').trim() && (
+          <div
+            className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(34,197,94,0.18)]"
+            style={{
+              background:
+                'linear-gradient(135deg, rgba(34,197,94,0.55), rgba(59,130,246,0.35), rgba(34,197,94,0.18))',
+            }}
+          >
+            {/* brilho suave */}
+            <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-green-500/20 blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
+
+            <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+                  <span className="inline-flex w-fit items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase bg-green-500/15 border border-green-500/30 text-green-200">
+                    ⭐ Recomendado
+                  </span>
+                  <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
+                    Usar recorrência Mercado Pago{' '}
+                    <span className="text-green-200/90 font-extrabold">(taxas mais baixas)</span>
+                  </p>
+                </div>
+                <p className="text-sm text-gray-300 mt-1">
+                  As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$0,50</span> da plataforma,
+                  não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const accessToken = String(establishment?.mercadopago_access_token || '').trim();
+                  if (!useMercadoPagoSubscriptionPix && !accessToken) {
+                    toast.error('Você precisa conectar sua conta do Mercado Pago nas Configurações.');
+                    return;
+                  }
+                  handleUpdateUseMercadoPagoSubscriptionPix(!useMercadoPagoSubscriptionPix);
+                }}
+                disabled={
+                  isUpdatingMercadoPagoSubscriptionPix ||
+                  (!useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim())
+                }
+                className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
+                  useMercadoPagoSubscriptionPix
+                    ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
+                    : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
+                } ${
+                  isUpdatingMercadoPagoSubscriptionPix ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
+                }`}
+                title={
+                  !useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim()
+                    ? 'Você precisa conectar sua conta do Mercado Pago nas Configurações'
+                    : undefined
+                }
+              >
+                {useMercadoPagoSubscriptionPix ? 'ATIVADO' : 'ATIVAR'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX do Mercado Pago (com CPF).
+              Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
+            </p>
+            {!useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim() && (
               <p className="text-xs text-yellow-200/90 mt-2">
-                ⚠️ Para ativar essa opção, você precisa <span className="font-semibold">criar e colocar seus dados de recebimento</span> (Recebedor Pagar.me) nas Configurações.
+                ⚠️ Para ativar essa opção, você precisa <span className="font-semibold">conectar sua conta do Mercado Pago</span> nas Configurações.
               </p>
             )}
           </div>
           </div>
-
-          {/* Mensagem de Atenção */}
+          )}
           <div className="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4 mb-4">
             <p className="text-yellow-200 font-medium text-sm leading-relaxed">
               ⚠️ <span className="font-bold">Atenção:</span><br />

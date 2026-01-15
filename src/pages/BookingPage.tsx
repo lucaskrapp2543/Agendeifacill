@@ -405,7 +405,11 @@ export default function BookingPage() {
             custom_photo_5_url,
             custom_photo_6_url,
             custom_photo_7_url,
-            carousel_position
+            carousel_position,
+            use_pagarme_subscription_pix,
+            pagarme_recipient_id,
+            mercadopago_access_token,
+            use_mercadopago_subscription_pix
           `)
         .eq('code', id)
         .single();
@@ -636,16 +640,33 @@ export default function BookingPage() {
     // Buscar a assinatura completa para verificar se tem link personalizado
     const subscription = subscriptions.find(sub => sub.name === subscriptionName);
 
-    const isPagarmeSubscriptionPixEnabled = (() => {
-      try {
-        const fromDb = Boolean((establishment as any)?.use_pagarme_subscription_pix);
-        if (fromDb) return true;
-        const key = `use_pagarme_subscription_pix_${String((establishment as any)?.id || '')}`;
-        return localStorage.getItem(key) === 'true';
-      } catch {
-        return Boolean((establishment as any)?.use_pagarme_subscription_pix);
+    // Verificar Pagar.me: SEMPRE priorizar valor do banco de dados
+    // Se estiver false no banco, NÃO usar Pagar.me mesmo que localStorage diga true
+    const isPagarmeSubscriptionPixEnabled = Boolean((establishment as any)?.use_pagarme_subscription_pix === true);
+    
+    // Verificar Mercado Pago: SEMPRE priorizar valor do banco de dados
+    // ✅ Usar try-catch para evitar erro se coluna não existir ainda
+    let isMercadoPagoSubscriptionPixEnabled = false;
+    try {
+      isMercadoPagoSubscriptionPixEnabled = Boolean((establishment as any)?.use_mercadopago_subscription_pix === true);
+    } catch {
+      // Coluna ainda não existe no banco, usar false
+      isMercadoPagoSubscriptionPixEnabled = false;
+    }
+    const hasMercadoPagoAccessToken = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+
+    // Se Mercado Pago estiver ativado e conectado, usar Mercado Pago
+    if (isMercadoPagoSubscriptionPixEnabled && hasMercadoPagoAccessToken) {
+      if (!subscription) {
+        toast.error('Assinatura não encontrada');
+        return;
       }
-    })();
+      // Abrir modal de pagamento Mercado Pago
+      setSelectedSubscriptionForPix(subscription);
+      setShowSubscriptionPixModal(true);
+      setShowSubscriptionsDropdown(false);
+      return;
+    }
 
     // Se Pagar.me PIX estiver ativado, abrir modal de pagamento (sem cobrança automática)
     if (isPagarmeSubscriptionPixEnabled) {
@@ -2473,6 +2494,18 @@ export default function BookingPage() {
             value: Number(selectedSubscriptionForPix.value || 0),
             duration_months: selectedSubscriptionForPix.duration_months ?? null,
           }}
+          paymentProvider={
+            (() => {
+              try {
+                return Boolean((establishment as any)?.use_mercadopago_subscription_pix === true);
+              } catch {
+                return false;
+              }
+            })() &&
+            !!String((establishment as any)?.mercadopago_access_token || '').trim()
+              ? 'mercadopago'
+              : 'pagarme'
+          }
         />
       )}
 

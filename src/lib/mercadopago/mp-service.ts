@@ -26,12 +26,21 @@ export interface CreateMPPaymentRequest {
       type: 'CPF' | 'CNPJ';
       number: string;
     };
+    address?: {
+      zip_code: string;
+      street_name: string;
+      street_number: number;
+      neighborhood?: string;
+      city: string;
+      federal_unit: string;
+    };
   };
   application_fee: number; // Taxa da plataforma em centavos (ex: 50 = R$ 0,50)
   access_token: string; // Access token do vendedor
   metadata?: Record<string, any>;
   payment_method_id?: string; // 'pix', 'credit_card', etc.
   installments?: number; // Para cartão de crédito
+  token?: string; // Token do cartão (obrigatório para credit_card)
   statement_descriptor?: string;
 }
 
@@ -120,6 +129,7 @@ export async function createMPPayment(
               },
             }
           : {}),
+        ...(paymentData.payer.address ? { address: paymentData.payer.address } : {}),
       },
       application_fee: applicationFeeAmount, // Taxa da plataforma (R$ 0,50)
       ...(paymentData.metadata ? { metadata: paymentData.metadata } : {}),
@@ -128,12 +138,18 @@ export async function createMPPayment(
         : {}),
     };
     
-    console.log('📦 [MP Payment] Payload completo:', JSON.stringify(payload, null, 2));
-
-    // Para cartão de crédito, adicionar installments
-    if (paymentData.payment_method_id === 'credit_card' && paymentData.installments) {
-      payload.installments = paymentData.installments;
+    // Para cartão de crédito, adicionar token e installments
+    if (paymentData.payment_method_id === 'credit_card') {
+      if (!paymentData.token) {
+        throw new Error('Token do cartão é obrigatório para pagamento com cartão de crédito');
+      }
+      payload.token = paymentData.token;
+      if (paymentData.installments) {
+        payload.installments = paymentData.installments;
+      }
     }
+    
+    console.log('📦 [MP Payment] Payload completo:', JSON.stringify(payload, null, 2));
 
     // Criar pagamento usando o access_token do vendedor
     const response = await axios.post(

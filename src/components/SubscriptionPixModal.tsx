@@ -2,12 +2,13 @@ import { CheckCircle2, CreditCard, Loader2, MessageCircle, QrCode, X } from 'luc
 import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
+import { tokenizeMercadoPagoCard } from '../lib/mercadopago/tokenize-card';
 
 type SubscriptionPixModalProps = {
   isOpen: boolean;
   onClose: () => void;
   establishmentId: string;
-  recipientId: string;
+  recipientId?: string; // Opcional se usar Mercado Pago
   establishmentName: string;
   establishmentWhatsapp?: string | null;
   subscription: {
@@ -16,6 +17,7 @@ type SubscriptionPixModalProps = {
     value: number; // em reais (como vem do banco)
     duration_months?: number | null;
   };
+  paymentProvider?: 'pagarme' | 'mercadopago'; // Novo prop para indicar qual gateway usar
 };
 
 export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
@@ -26,6 +28,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   establishmentName,
   establishmentWhatsapp,
   subscription,
+  paymentProvider = 'pagarme', // Padrão: Pagar.me
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'pix' | 'credit_card' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -94,22 +97,42 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  const checkPaymentStatusPeriodically = async (orderId: string, provider: 'pagarme_pix' | 'pagarme_card') => {
+  const checkPaymentStatusPeriodically = async (orderId: string, provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card') => {
     const maxAttempts = 60;
     let attempts = 0;
     const interval = window.setInterval(async () => {
       attempts++;
       try {
-        const checkStatusUrl = import.meta.env.PROD
-          ? `/.netlify/functions/pagarme-check-status?orderId=${orderId}`
-          : `/api/pagarme/check-status?orderId=${orderId}`;
+        let status: string;
+        let reason: string | undefined;
+        
+        if (provider.startsWith('mercadopago_')) {
+          // Verificar status Mercado Pago
+          const checkStatusUrl = import.meta.env.PROD
+            ? `/.netlify/functions/mercadopago-check-status?paymentId=${orderId}`
+            : `/api/mercadopago/check-status?paymentId=${orderId}`;
 
-        const r = await fetch(checkStatusUrl);
-        if (!r.ok) throw new Error('Erro ao verificar status');
-        const { status, reason } = await r.json();
+          const r = await fetch(checkStatusUrl);
+          if (!r.ok) throw new Error('Erro ao verificar status');
+          const data = await r.json();
+          status = data.status || '';
+          reason = data.status_detail || undefined;
+        } else {
+          // Verificar status Pagar.me
+          const checkStatusUrl = import.meta.env.PROD
+            ? `/.netlify/functions/pagarme-check-status?orderId=${orderId}`
+            : `/api/pagarme/check-status?orderId=${orderId}`;
+
+          const r = await fetch(checkStatusUrl);
+          if (!r.ok) throw new Error('Erro ao verificar status');
+          const result = await r.json();
+          status = result.status || '';
+          reason = result.reason || undefined;
+        }
+
         const normalized = String(status || '').toLowerCase();
 
-        if (normalized === 'paid' || normalized === 'authorized') {
+        if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
           window.clearInterval(interval);
           setIsCheckingPayment(false);
           try {
@@ -151,6 +174,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           setIsPaid(true);
         } else if (
           normalized === 'refused' ||
+          normalized === 'rejected' ||
           normalized === 'pending_refund' ||
           normalized === 'failed' ||
           normalized === 'canceled' ||
@@ -162,7 +186,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           const reasonStr = String(reason || '');
 
           // ✅ Qualquer recusa no cartão -> oferecer PIX sem refazer os dados
-          if (provider === 'pagarme_card') {
+          if (provider === 'pagarme_card' || provider === 'mercadopago_card') {
             setCardRefusedReason(reasonStr || 'Pagamento no cartão recusado');
             toast.error('Pagamento no cartão recusado. Você pode pagar via PIX sem refazer seus dados.');
             setSelectedMethod(null);
@@ -185,6 +209,101 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   };
 
   const handleGeneratePix = async () => {
+    if (paymentProvider === 'mercadopago') {
+      // Fluxo Mercado Pago
+      if (!amountInCents || amountInCents <= 0) {
+        toast.error('Valor da assinatura inválido.');
+        return;
+      }
+
+      const cpfDigits = String(cpf || '').replace(/\D/g, '');
+      if (cpfDigits.length !== 11 && cpfDigits.length !== 14) {
+        toast.error('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
+        return;
+      }
+      if (!nome.trim()) {
+        toast.error('Informe seu nome.');
+        return;
+      }
+      const phoneDigits = String(whatsapp || '').replace(/\D/g, '');
+      if (phoneDigits.length < 10) {
+        toast.error('Informe um WhatsApp válido (com DDD).');
+        return;
+      }
+
+      setSelectedMethod('pix');
+      setIsProcessing(true);
+      setPixQrCode('');
+      setPixQrCodeUrl('');
+      setCardRefusedReason('');
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 25000);
+
+        const createPaymentUrl = import.meta.env.PROD
+          ? '/.netlify/functions/mercadopago-create-payment'
+          : '/api/mercadopago/create-payment';
+
+        const response = await fetch(createPaymentUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            establishmentId,
+            amount: amountInCents,
+            description: `Assinatura ${subscription.name}`,
+            payer: {
+              email: email?.trim() || 'cliente@exemplo.com',
+              identification: {
+                type: cpfDigits.length === 11 ? 'CPF' : 'CNPJ',
+                number: cpfDigits,
+              },
+            },
+            payment_method_id: 'pix',
+            metadata: {
+              establishment_id: establishmentId,
+              subscription_id: subscription.id,
+              subscription_name: subscription.name,
+            },
+          }),
+        });
+
+        window.clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
+          const msg = errorData.error || errorData.message || `Erro ${response.status}`;
+          throw new Error(msg);
+        }
+
+        const result = await response.json();
+        const pixData = result.point_of_interaction?.transaction_data;
+        if (!pixData?.qr_code && !pixData?.qr_code_base64) {
+          throw new Error('Não foi possível gerar o QR Code do PIX.');
+        }
+
+        setPixQrCode(pixData.qr_code || '');
+        setPixQrCodeUrl(pixData.qr_code_base64 ? `data:image/png;base64,${pixData.qr_code_base64}` : '');
+        const expiresIn = 90; // Mercado Pago PIX expira em 90 segundos
+        setExpiresInSeconds(expiresIn);
+        setRemainingSeconds(expiresIn);
+        setIsCheckingPayment(true);
+        checkPaymentStatusPeriodically(result.id, 'mercadopago_pix');
+      } catch (err: any) {
+        const isAbort = err?.name === 'AbortError';
+        toast.error(
+          isAbort
+            ? 'O servidor de pagamentos demorou demais para responder. Tente novamente.'
+            : `Erro ao gerar PIX: ${err?.message || 'Erro desconhecido'}`
+        );
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // Fluxo Pagar.me (original)
     if (!String(recipientId || '').trim()) {
       toast.error('Este estabelecimento ainda não configurou o recebedor da Pagar.me.');
       return;
@@ -511,7 +630,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             Valor: <span className="font-semibold">R$ {Number(subscription.value || 0).toFixed(2).replace('.', ',')}</span>
           </p>
           <p className="text-xs text-gray-400 mt-2">
-            Sem cobrança automática. Seu cliente só será lembrado para manter em dia.
+            Todo mês você será lembrado para renovar sua assinatura automaticamente.
           </p>
         </div>
 
@@ -634,21 +753,27 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 )}
               </button>
 
-              <button
-                onClick={() => setSelectedMethod('credit_card')}
-                disabled={isProcessing}
-                className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <CreditCard className="h-5 w-5" />
-                Cartão
-              </button>
+                <button
+                  onClick={() => {
+                    setSelectedMethod('credit_card');
+                    // Se já tiver dados preenchidos, processar imediatamente
+                    if (nome.trim() && cpf && whatsapp) {
+                      handlePayWithCard();
+                    }
+                  }}
+                  disabled={isProcessing}
+                  className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <CreditCard className="h-5 w-5" />
+                  Cartão
+                </button>
             </div>
 
             {selectedMethod === 'credit_card' ? (
               <div className="mt-3 space-y-3 border-t border-gray-800 pt-3">
                 <div className="bg-green-600/10 border border-green-500/30 rounded-lg p-3">
                   <p className="text-sm text-green-200">
-                    Cartão usa tokenização segura (Pagar.me). O número do cartão não vai para o servidor.
+                    Cartão usa tokenização segura ({paymentProvider === 'mercadopago' ? 'Mercado Pago' : 'Pagar.me'}). O número do cartão não vai para o servidor.
                   </p>
                 </div>
 

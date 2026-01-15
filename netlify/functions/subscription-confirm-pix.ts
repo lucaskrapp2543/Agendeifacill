@@ -52,13 +52,50 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const statusResult = await checkPaymentStatus(String(orderId));
-    const normalizedStatus = String((statusResult as any)?.status || '').toLowerCase();
-    if (normalizedStatus !== 'paid' && normalizedStatus !== 'authorized') {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'Pagamento ainda não confirmado', details: { status: normalizedStatus } }),
-      };
+    // Validar pagamento (Pagar.me ou Mercado Pago)
+    const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
+    let normalizedStatus: string;
+    
+    if (providerNormalized.startsWith('mercadopago_')) {
+      // Validar pagamento Mercado Pago
+      const { checkMPPaymentStatus } = await import('../../src/lib/mercadopago/mp-service');
+      
+      // Buscar access_token do estabelecimento
+      const { data: establishment, error: fetchError } = await supabaseAdmin
+        .from('establishments')
+        .select('mercadopago_access_token')
+        .eq('id', String(establishmentId))
+        .single();
+
+      if (fetchError || !establishment) {
+        return { statusCode: 404, body: JSON.stringify({ error: 'Estabelecimento não encontrado' }) };
+      }
+
+      const accessToken = (establishment as any)?.mercadopago_access_token;
+      if (!accessToken) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Estabelecimento não possui conta do Mercado Pago conectada' }) };
+      }
+
+      const statusResult = await checkMPPaymentStatus(Number(orderId), String(accessToken));
+      normalizedStatus = String(statusResult.status || '').toLowerCase();
+      
+      if (normalizedStatus !== 'approved' && normalizedStatus !== 'authorized') {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'Pagamento ainda não confirmado', details: { status: normalizedStatus } }),
+        };
+      }
+    } else {
+      // Validar pagamento Pagar.me
+      const statusResult = await checkPaymentStatus(String(orderId));
+      normalizedStatus = String((statusResult as any)?.status || '').toLowerCase();
+      
+      if (normalizedStatus !== 'paid' && normalizedStatus !== 'authorized') {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'Pagamento ainda não confirmado', details: { status: normalizedStatus } }),
+        };
+      }
     }
 
     const { data: subData, error: subErr } = await supabaseAdmin
@@ -87,7 +124,8 @@ export const handler: Handler = async (event) => {
 
     const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
     const providerFinal =
-      providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix'
+      providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix' ||
+      providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
         ? providerNormalized
         : 'pagarme_pix';
 

@@ -4,6 +4,7 @@ import { useToast } from './ui/Toaster';
 // Import removido - agora usa API Routes
 import { supabase } from '../lib/supabase';
 import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
+import { tokenizeMercadoPagoCard } from '../lib/mercadopago/tokenize-card';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -123,7 +124,7 @@ export const PaymentModal = ({
       setSelectedMethod('credit_card');
     }
 
-    // Se for cartão, validar dados do cartão
+    // Se for cartão, validar dados do cartão e endereço
     if (method === 'credit_card') {
       const numberDigits = String(cardNumber || '').replace(/\D/g, '');
       const expMonthDigits = String(cardExpMonth || '').replace(/\D/g, '');
@@ -151,12 +152,108 @@ export const PaymentModal = ({
         toast('Informe o nome do titular do cartão.', 'error');
         return;
       }
+
+      // Validar endereço de cobrança (obrigatório para cartão)
+      const cepDigits = String(billingCep || '').replace(/\D/g, '');
+      const rua = String(billingRua || '').trim();
+      const numero = String(billingNumero || '').replace(/\D/g, '');
+      const cidade = String(billingCidade || '').trim();
+      const uf = String(billingUf || '').trim().toUpperCase();
+
+      if (cepDigits.length !== 8) {
+        toast('CEP inválido. Informe um CEP com 8 dígitos.', 'error');
+        return;
+      }
+      if (!rua) {
+        toast('Informe a rua/avenida do endereço de cobrança.', 'error');
+        return;
+      }
+      if (!numero) {
+        toast('Informe o número do endereço de cobrança.', 'error');
+        return;
+      }
+      if (!cidade) {
+        toast('Informe a cidade do endereço de cobrança.', 'error');
+        return;
+      }
+      if (uf.length !== 2) {
+        toast('Informe a UF (estado) do endereço de cobrança (2 letras).', 'error');
+        return;
+      }
     }
 
     setIsProcessing(true);
     setHasPagarMeError(false);
 
     try {
+      let cardToken: string | undefined;
+      let cardPaymentMethodId: string | undefined;
+      
+      // Se for cartão de crédito, tokenizar primeiro
+      if (method === 'credit_card') {
+        try {
+          // Buscar public key do Mercado Pago
+          const mpPublicKey = String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim();
+          if (!mpPublicKey) {
+            throw new Error('Chave pública do Mercado Pago não configurada. Configure VITE_MERCADOPAGO_PUBLIC_KEY.');
+          }
+
+          // Tokenizar cartão
+          const numberDigits = String(cardNumber || '').replace(/\D/g, '');
+          const expMonthDigits = String(cardExpMonth || '').replace(/\D/g, '');
+          const expYearDigits = String(cardExpYear || '').replace(/\D/g, '');
+          const cvvDigits = String(cardCvv || '').replace(/\D/g, '');
+          const holder = String(cardHolderName || '').trim();
+
+          const tokenResult = await tokenizeMercadoPagoCard(
+            {
+              cardNumber: numberDigits,
+              cardHolderName: holder,
+              cardExpMonth: expMonthDigits,
+              cardExpYear: expYearDigits,
+              cardCvv: cvvDigits,
+              identificationType: docDigits.length === 11 ? 'CPF' : 'CNPJ',
+              identificationNumber: docDigits,
+            },
+            mpPublicKey
+          );
+
+          cardToken = tokenResult.token;
+          cardPaymentMethodId = tokenResult.payment_method_id;
+
+          console.log('✅ [MP] Token do cartão gerado:', {
+            token: cardToken?.substring(0, 10) + '...',
+            payment_method_id: cardPaymentMethodId,
+          });
+        } catch (tokenError: any) {
+          console.error('❌ Erro ao tokenizar cartão:', tokenError);
+          toast(`Erro ao processar cartão: ${tokenError.message}`, 'error');
+          setIsProcessing(false);
+          return;
+        }
+      }
+
+      // Preparar dados do pagador com endereço (obrigatório para cartão)
+      const payerData: any = {
+        email: customerData.email || 'cliente@exemplo.com',
+        identification: {
+          type: docDigits.length === 11 ? 'CPF' : 'CNPJ',
+          number: docDigits,
+        },
+      };
+
+      // Adicionar endereço de cobrança se for cartão
+      if (method === 'credit_card' && billingCep && billingRua && billingNumero && billingCidade && billingUf) {
+        payerData.address = {
+          zip_code: String(billingCep || '').replace(/\D/g, ''),
+          street_name: String(billingRua || '').trim(),
+          street_number: Number(String(billingNumero || '').replace(/\D/g, '')) || 0,
+          ...(billingBairro ? { neighborhood: String(billingBairro).trim() } : {}),
+          city: String(billingCidade || '').trim(),
+          federal_unit: String(billingUf || '').trim().toUpperCase(),
+        };
+      }
+
       const createPaymentUrl = import.meta.env.PROD
         ? '/.netlify/functions/mercadopago-create-payment'
         : '/api/mercadopago/create-payment';
@@ -170,15 +267,12 @@ export const PaymentModal = ({
           establishmentId,
           amount: amountInCents,
           description: `Agendamento #${appointmentId}`,
-          payer: {
-            email: customerData.email || 'cliente@exemplo.com',
-            identification: {
-              type: docDigits.length === 11 ? 'CPF' : 'CNPJ',
-              number: docDigits,
-            },
-          },
-          payment_method_id: method,
-          ...(method === 'credit_card' ? { installments: 1 } : {}),
+          payer: payerData,
+          payment_method_id: method === 'credit_card' ? (cardPaymentMethodId || 'visa') : method,
+          ...(method === 'credit_card' ? { 
+            installments: 1,
+            token: cardToken,
+          } : {}),
           metadata: {
             appointment_id: appointmentId,
             establishment_id: establishmentId,

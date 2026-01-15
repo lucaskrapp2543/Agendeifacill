@@ -2,7 +2,7 @@ import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay,
 import { ptBR } from 'date-fns/locale';
 import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
@@ -421,7 +421,7 @@ const EstablishmentDashboard = () => {
   const [saldoEmVendasErro, setSaldoEmVendasErro] = useState<string | null>(null);
   const [saldoEmVendasDebug, setSaldoEmVendasDebug] = useState<string | null>(null);
   const saldoAutoLoadedRef = useRef<string>(''); // evita recalcular em loop por re-renders
-  
+
   // Saldo (vendas via Mercado Pago) - total bruto vendido
   const [saldoMercadoPago, setSaldoMercadoPago] = useState<number>(0);
   const [isLoadingSaldoMercadoPago, setIsLoadingSaldoMercadoPago] = useState(false);
@@ -690,7 +690,7 @@ const EstablishmentDashboard = () => {
 
     setIsLoadingSaldoMercadoPago(true);
     setSaldoMercadoPagoErro(null);
-    
+
     try {
       // Buscar agendamentos pagos via Mercado Pago
       // Identificar Mercado Pago: payment_transaction_id é numérico (Mercado Pago usa IDs numéricos)
@@ -712,7 +712,7 @@ const EstablishmentDashboard = () => {
         seen.add(id);
 
         const transactionId = String((row as any)?.payment_transaction_id || '').trim();
-        
+
         // Identificar pagamento do Mercado Pago: transaction_id é numérico
         // Mercado Pago usa IDs numéricos (ex: 1234567890)
         // Pagar.me usa strings alfanuméricas (ex: "or_abc123")
@@ -722,9 +722,9 @@ const EstablishmentDashboard = () => {
         // Verificar se está pago
         const paymentStatus = String((row as any)?.payment_status || '').toLowerCase();
         const pixPaymentStatus = String((row as any)?.pix_payment_status || '').toLowerCase();
-        const isPaid = paymentStatus === 'paid' || 
-                      pixPaymentStatus === 'aprovado' || 
-                      pixPaymentStatus === 'confirmado';
+        const isPaid = paymentStatus === 'paid' ||
+          pixPaymentStatus === 'aprovado' ||
+          pixPaymentStatus === 'confirmado';
         if (!isPaid) continue;
 
         // Verificar se agendamento está confirmado
@@ -737,7 +737,7 @@ const EstablishmentDashboard = () => {
         // Identificar método de pagamento para aplicar taxa correta
         const paymentMethod = String((row as any)?.payment_method || '').toLowerCase();
         let taxaPercentual = taxaPixPercent; // Padrão: PIX
-        
+
         if (paymentMethod === 'credito' || paymentMethod === 'credit_card') {
           taxaPercentual = taxaCreditoPercent;
         } else if (paymentMethod === 'debito' || paymentMethod === 'debit_card') {
@@ -750,7 +750,7 @@ const EstablishmentDashboard = () => {
         // Calcular valor líquido: bruto - taxa MP - taxa plataforma
         const taxaMercadoPago = bruto * taxaPercentual;
         const liquido = Math.max(0, bruto - taxaMercadoPago - taxaPlataforma);
-        
+
         console.log('💰 [MP Saldo] Venda:', {
           id,
           bruto,
@@ -760,7 +760,7 @@ const EstablishmentDashboard = () => {
           taxa_plataforma: taxaPlataforma,
           liquido,
         });
-        
+
         total += liquido;
         vendasCount += 1;
       }
@@ -2504,7 +2504,7 @@ const EstablishmentDashboard = () => {
         console.warn('⚠️ Erro ao atualizar sessão:', refreshErr);
         // Continuar mesmo assim
       }
-      
+
       // Incrementar o display_order de todas as categorias existentes em 1
       // para que a nova categoria apareça primeiro (com display_order: 0)
       if (serviceCategories.length > 0) {
@@ -2535,22 +2535,22 @@ const EstablishmentDashboard = () => {
           details: error.details,
           hint: error.hint
         });
-        
+
         // ⚠️ MOSTRAR ERRO COMPLETO NA TELA para debug
         const errorMsg = error.message || 'Erro desconhecido';
         const errorCode = error.code || 'SEM_CODIGO';
         console.error(`🚨 ERRO VISÍVEL: ${errorCode} - ${errorMsg}`);
-        
+
         // Se for erro de RLS, tentar novamente após refresh mais agressivo
         if (error.code === '42501' || error.message?.includes('row-level security') || error.message?.includes('violates row-level security')) {
           console.warn('⚠️ Erro de RLS detectado, tentando refresh mais agressivo...');
-          
+
           // Tentar fazer login novamente silenciosamente
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {
             // Forçar refresh do token
             await supabase.auth.setSession(session);
-            
+
             // Tentar inserir novamente
             const { error: retryError } = await supabase
               .from('service_categories')
@@ -2559,7 +2559,7 @@ const EstablishmentDashboard = () => {
                 name: newCategory.name.trim().toUpperCase(),
                 display_order: 0
               });
-            
+
             if (retryError) {
               // ⚠️ MOSTRAR ERRO COMPLETO
               toast(`Erro: ${retryError.code || 'RLS'} - ${retryError.message || 'Tente fazer logout e login novamente'}`, 'error');
@@ -2583,13 +2583,13 @@ const EstablishmentDashboard = () => {
       toast(`Categoria "${newCategory.name.toUpperCase()}" adicionada com sucesso!`, 'success');
     } catch (error: any) {
       console.error('❌ Erro ao adicionar categoria (catch):', error);
-      
+
       // ⚠️ MOSTRAR ERRO COMPLETO NA TELA
       const errorMsg = error?.message || error?.toString() || 'Erro desconhecido';
       const errorCode = error?.code || 'SEM_CODIGO';
-      
+
       console.error(`🚨 ERRO VISÍVEL NO CATCH: ${errorCode} - ${errorMsg}`);
-      
+
       // Mostrar erro completo na tela
       toast(`Erro: ${errorCode} - ${errorMsg}`, 'error');
     }
@@ -2620,7 +2620,7 @@ const EstablishmentDashboard = () => {
         console.warn('⚠️ Erro ao atualizar sessão:', refreshErr);
         // Continuar mesmo assim
       }
-      
+
       const { error } = await supabase
         .from('service_subcategories')
         .insert({
@@ -2639,22 +2639,22 @@ const EstablishmentDashboard = () => {
           details: error.details,
           hint: error.hint
         });
-        
+
         // ⚠️ MOSTRAR ERRO COMPLETO NA TELA para debug
         const errorMsg = error.message || 'Erro desconhecido';
         const errorCode = error.code || 'SEM_CODIGO';
         console.error(`🚨 ERRO VISÍVEL: ${errorCode} - ${errorMsg}`);
-        
+
         // Se for erro de RLS, tentar novamente após refresh mais agressivo
         if (error.code === '42501' || error.message?.includes('row-level security') || error.message?.includes('violates row-level security')) {
           console.warn('⚠️ Erro de RLS detectado, tentando refresh mais agressivo...');
-          
+
           // Tentar fazer login novamente silenciosamente
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {
             // Forçar refresh do token
             await supabase.auth.setSession(session);
-            
+
             // Tentar inserir novamente
             const { error: retryError } = await supabase
               .from('service_subcategories')
@@ -2665,7 +2665,7 @@ const EstablishmentDashboard = () => {
                 duration: duration,
                 display_order: serviceSubcategories.filter(sub => sub.category_id === selectedCategoryForSubcategory).length
               });
-            
+
             if (retryError) {
               // ⚠️ MOSTRAR ERRO COMPLETO
               toast(`Erro: ${retryError.code || 'RLS'} - ${retryError.message || 'Tente fazer logout e login novamente'}`, 'error');
@@ -2690,13 +2690,13 @@ const EstablishmentDashboard = () => {
       toast(`Serviço "${newSubcategory.name}" adicionado com sucesso!`, 'success');
     } catch (error: any) {
       console.error('❌ Erro ao adicionar subcategoria (catch):', error);
-      
+
       // ⚠️ MOSTRAR ERRO COMPLETO NA TELA
       const errorMsg = error?.message || error?.toString() || 'Erro desconhecido';
       const errorCode = error?.code || 'SEM_CODIGO';
-      
+
       console.error(`🚨 ERRO VISÍVEL NO CATCH: ${errorCode} - ${errorMsg}`);
-      
+
       // Mostrar erro completo na tela
       toast(`Erro: ${errorCode} - ${errorMsg}`, 'error');
     }
@@ -6766,7 +6766,7 @@ Estamos te aguardando! 😎✂️`;
     try {
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone)
       await supabase.auth.refreshSession();
-      
+
       // Salvar cliente manual no Supabase (banco de dados)
       // Primeiro verificar se já existe
       const { data: existingClient } = await supabase
@@ -6855,11 +6855,11 @@ Estamos te aguardando! 😎✂️`;
 
     } catch (error: any) {
       console.error('❌ Erro ao adicionar cliente:', error);
-      
+
       // Se for erro de RLS, tentar salvar apenas no localStorage como fallback
       if (error?.code === '42501' || error?.message?.includes('row-level security') || error?.message?.includes('violates row-level security')) {
         console.warn('⚠️ Erro de RLS detectado, salvando apenas no localStorage como fallback');
-        
+
         // Salvar no localStorage mesmo assim
         const storageKey = `manual_clients_${establishment.id}`;
         const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
@@ -6871,20 +6871,20 @@ Estamos te aguardando! 😎✂️`;
           appointmentCount: 0
         };
         localStorage.setItem(storageKey, JSON.stringify(manualClients));
-        
+
         toast('Cliente salvo localmente. Tente novamente mais tarde para sincronizar com o servidor.', 'warning');
-        
+
         // Limpar form e fechar modal
         setNewClientName('');
         setNewClientWhatsapp('');
         setNewClientBirthday('');
         setShowAddClientModal(false);
-        
+
         // Recarregar lista de clientes
         fetchClients();
         return;
       }
-      
+
       toast(error.message || 'Erro ao adicionar cliente', 'error');
     }
   };
@@ -7090,7 +7090,7 @@ Estamos te aguardando! 😎✂️`;
 
       toast('Cliente removido com sucesso!', 'success');
       await loadLoyalCustomers();
-      
+
       // Limpar cliente sorteado se for o que foi deletado
       if (selectedLoyalCustomer?.id === customerId) {
         setSelectedLoyalCustomer(null);
@@ -8810,7 +8810,7 @@ Estamos te aguardando! 😎✂️`;
       // Endereço da empresa é obrigatório para CNPJ (Pagar.me)
       const uf = enderecoUf.trim().toUpperCase();
       const ufsValidas = new Set([
-        'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO',
+        'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
       ]);
       if (!enderecoCep.trim() || !enderecoRua.trim() || !enderecoNumero.trim() || !enderecoBairro.trim() || !enderecoCidade.trim() || !uf) {
         toast.error('Preencha o endereço completo da empresa (CEP, rua, número, bairro, cidade e UF).');
@@ -8902,18 +8902,18 @@ Estamos te aguardando! 😎✂️`;
               ...(pagarmePartnerUseCompanyAddress
                 ? {}
                 : {
-                    address: {
-                      zip_code: pagarmePartnerEnderecoCep.trim(),
-                      street: pagarmePartnerEnderecoRua.trim(),
-                      street_number: pagarmePartnerEnderecoNumero.trim(),
-                      neighborhood: pagarmePartnerEnderecoBairro.trim(),
-                      city: pagarmePartnerEnderecoCidade.trim(),
-                      state: pagarmePartnerEnderecoUf.trim(),
-                      country: 'BR',
-                      complementary: pagarmePartnerEnderecoComplemento.trim(),
-                      reference_point: pagarmePartnerEnderecoPontoReferencia.trim(),
-                    },
-                  }),
+                  address: {
+                    zip_code: pagarmePartnerEnderecoCep.trim(),
+                    street: pagarmePartnerEnderecoRua.trim(),
+                    street_number: pagarmePartnerEnderecoNumero.trim(),
+                    neighborhood: pagarmePartnerEnderecoBairro.trim(),
+                    city: pagarmePartnerEnderecoCidade.trim(),
+                    state: pagarmePartnerEnderecoUf.trim(),
+                    country: 'BR',
+                    complementary: pagarmePartnerEnderecoComplemento.trim(),
+                    reference_point: pagarmePartnerEnderecoPontoReferencia.trim(),
+                  },
+                }),
             },
           ],
         }),
@@ -8929,25 +8929,25 @@ Estamos te aguardando! 😎✂️`;
         const errorsFromObject =
           rawErrors && typeof rawErrors === 'object' && !Array.isArray(rawErrors)
             ? Object.entries(rawErrors)
-                .flatMap(([field, msgs]) => {
-                  const list = Array.isArray(msgs) ? msgs : [msgs];
-                  return list.map((m: any) => `${field}: ${String(m)}`);
-                })
+              .flatMap(([field, msgs]) => {
+                const list = Array.isArray(msgs) ? msgs : [msgs];
+                return list.map((m: any) => `${field}: ${String(m)}`);
+              })
             : [];
 
         // E em alguns casos retorna errors como array de objetos
         const errorsFromArray: string[] = Array.isArray(rawErrors)
           ? rawErrors.map((e: any) => {
-              const field =
-                e?.field ||
-                e?.parameter_name ||
-                e?.path ||
-                e?.param ||
-                e?.name ||
-                'campo';
-              const message = e?.message || e?.description || e?.detail || JSON.stringify(e);
-              return `${field}: ${message}`;
-            })
+            const field =
+              e?.field ||
+              e?.parameter_name ||
+              e?.path ||
+              e?.param ||
+              e?.name ||
+              'campo';
+            const message = e?.message || e?.description || e?.detail || JSON.stringify(e);
+            return `${field}: ${message}`;
+          })
           : [];
 
         const combinedErrors = [...errorsFromObject, ...errorsFromArray].filter(Boolean);
@@ -10111,11 +10111,11 @@ Estamos te aguardando! 😎✂️`;
         const serviceBasePrice = appointment.price || 0;
         const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
         const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
-        
+
         // Verificar se taxa é descontada do estabelecimento ou do profissional
         const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
         let netValue;
-        
+
         if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
           // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
           if (establishment?.tax_deducted_by_establishment) {
@@ -10129,7 +10129,7 @@ Estamos te aguardando! 😎✂️`;
           // Se não for cartão, apenas aplicar percentual
           netValue = (baseValue * (professional?.percentage || 0)) / 100;
         }
-        
+
         console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${professional?.percentage || 0}%)`);
         return total + netValue;
       }
@@ -13866,6 +13866,7 @@ Estamos te aguardando! 😎✂️`;
                                         .from('establishments')
                                         .update({
                                           pagarme_recipient_id: null,
+                                          use_pagarme_subscription_pix: false, // Desativar também a recorrência Pagar.me
                                         })
                                         .eq('id', establishment.id);
 
@@ -13876,9 +13877,17 @@ Estamos te aguardando! 😎✂️`;
                                       setEstablishment({
                                         ...establishment,
                                         pagarme_recipient_id: null,
+                                        use_pagarme_subscription_pix: false,
                                       } as any);
 
-                                      toast.success('Pagar.me desativado com sucesso');
+                                      // Limpar localStorage também
+                                      try {
+                                        const localStorageKey = `use_pagarme_subscription_pix_${establishment.id}`;
+                                        localStorage.removeItem(localStorageKey);
+                                      } catch { }
+
+                                      toast.success('Pagar.me desativado com sucesso. A opção de recorrência Pagar.me também foi desativada em "Meus Assinantes".');
+                                      fetchEstablishment(); // Recarregar dados para atualizar a UI
                                     } catch (error: any) {
                                       console.error('❌ Erro ao desativar Pagar.me:', error);
                                       toast.error(error.message || 'Erro ao desativar Pagar.me');
@@ -13897,68 +13906,151 @@ Estamos te aguardando! 😎✂️`;
                         )}
 
                         {/* Seção Mercado Pago */}
-                        <div className="mt-6 p-4 bg-[#1a1b1c] border border-gray-700 rounded-lg">
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-                            <div className="text-white font-semibold">Mercado Pago</div>
-                            <div className="text-xs text-gray-300">
-                              Status:{' '}
-                              <span className="font-mono">
-                                {String((establishment as any)?.mercadopago_access_token || '').trim()
-                                  ? `Conectado (ID: ${String((establishment as any).mercadopago_user_id || '').slice(0, 8)}...)`
-                                  : 'Não conectado'}
-                              </span>
+                        <div className="mt-6 relative overflow-hidden rounded-xl p-[1px] shadow-[0_0_0_1px_rgba(0,158,227,0.2)]"
+                          style={{
+                            background: 'linear-gradient(135deg, rgba(0,158,227,0.3), rgba(0,158,227,0.15), rgba(0,158,227,0.05))',
+                          }}
+                        >
+                          {/* Efeito de brilho */}
+                          <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-[#009EE3]/20 blur-3xl pointer-events-none" />
+                          <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-[#009EE3]/10 blur-3xl pointer-events-none" />
+                          
+                          <div className="bg-[#0f1112] border border-[#009EE3]/30 rounded-xl p-6 relative z-10">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-lg bg-[#009EE3]/20 flex items-center justify-center">
+                                  <span className="text-2xl">💳</span>
+                                </div>
+                                <div>
+                                  <div className="text-white font-extrabold text-lg">Mercado Pago</div>
+                                  <div className="text-xs text-gray-300 mt-0.5">
+                                    Status:{' '}
+                                    <span className="font-mono text-[#009EE3]">
+                                      {String((establishment as any)?.mercadopago_access_token || '').trim()
+                                        ? `Conectado (ID: ${String((establishment as any).mercadopago_user_id || '').slice(0, 8)}...)`
+                                        : 'Não conectado'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                          </div>
 
-                          <p className="text-xs text-gray-400 mb-4">
-                            Conecte sua conta do Mercado Pago para receber pagamentos via PIX. Os clientes poderão escolher pagar com Mercado Pago como alternativa ao Pagar.me.
-                          </p>
+                            <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+                              Crie ou conecte sua conta Mercado Pago, e receba pagamentos adiantados dos clientes, evite furos e lucre mais.
+                            </p>
 
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!establishment?.id) {
-                                toast.error('ID do estabelecimento não encontrado');
-                                return;
-                              }
+                            {/* Informações de Taxas e Exemplo */}
+                            {String((establishment as any)?.mercadopago_access_token || '').trim() && (
+                              <div className="mb-6 p-4 bg-gradient-to-br from-[#009EE3]/10 to-[#009EE3]/5 border border-[#009EE3]/20 rounded-lg">
+                                <div className="text-white font-bold text-sm mb-3 flex items-center gap-2">
+                                  <span>💰</span>
+                                  <span>Taxas do Mercado Pago</span>
+                                </div>
+                                <div className="space-y-2 text-xs text-gray-300 mb-4">
+                                  <div className="flex justify-between items-center">
+                                    <span>PIX:</span>
+                                    <span className="font-semibold text-white">0,99%</span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span>Débito:</span>
+                                    <span className="font-semibold text-white">1,99%</span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span>Crédito:</span>
+                                    <span className="font-semibold text-white">4,99%</span>
+                                  </div>
+                                  <div className="flex justify-between items-center pt-2 border-t border-[#009EE3]/20">
+                                    <span>Taxa da plataforma:</span>
+                                    <span className="font-semibold text-white">R$ 0,50 fixo</span>
+                                  </div>
+                                </div>
+                                
+                                {/* Exemplo de cálculo */}
+                                <div className="mt-4 p-3 bg-black/30 rounded-lg border border-[#009EE3]/20">
+                                  <div className="text-white font-bold text-xs mb-2">📊 Exemplo: Serviço de R$ 50,00</div>
+                                  <div className="space-y-1.5 text-xs">
+                                    <div className="flex justify-between text-gray-300">
+                                      <span>Valor do serviço:</span>
+                                      <span className="text-white font-semibold">R$ 50,00</span>
+                                    </div>
+                                    <div className="flex justify-between text-gray-300">
+                                      <span>Taxa Mercado Pago (PIX 0,99%):</span>
+                                      <span className="text-red-300">- R$ 0,50</span>
+                                    </div>
+                                    <div className="flex justify-between text-gray-300">
+                                      <span>Taxa da plataforma:</span>
+                                      <span className="text-red-300">- R$ 0,50</span>
+                                    </div>
+                                    <div className="flex justify-between text-[#009EE3] font-bold pt-2 border-t border-[#009EE3]/20">
+                                      <span>Você recebe:</span>
+                                      <span className="text-lg">R$ 49,00</span>
+                                    </div>
+                                  </div>
+                                </div>
 
-                              try {
-                                const authorizeUrl = import.meta.env.PROD
-                                  ? `/.netlify/functions/mercadopago-oauth-authorize?establishmentId=${establishment.id}`
-                                  : `/api/mercadopago/oauth/authorize?establishmentId=${establishment.id}`;
+                                {/* Informação sobre recebimento */}
+                                <div className="mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-lg">⚡</span>
+                                    <div className="flex-1">
+                                      <div className="text-green-200 font-bold text-xs mb-1">Recebimento Instantâneo</div>
+                                      <div className="text-green-200/80 text-xs leading-relaxed">
+                                        O dinheiro cai na hora na sua conta do Mercado Pago. Você pode sacar via PIX para sua conta bancária normal ou deixar no Mercado Pago.
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
 
-                                const response = await fetch(authorizeUrl);
-                                if (!response.ok) {
-                                  const error = await response.json();
-                                  throw new Error(error.error || 'Erro ao gerar URL de autorização');
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!establishment?.id) {
+                                  toast.error('ID do estabelecimento não encontrado');
+                                  return;
                                 }
 
-                                const data = await response.json();
-                                if (data.authorization_url) {
-                                  window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
-                                  toast.success('Redirecionando para conectar conta do Mercado Pago...');
-                                } else {
-                                  throw new Error('URL de autorização não retornada');
-                                }
-                              } catch (error: any) {
-                                console.error('❌ Erro ao iniciar OAuth Mercado Pago:', error);
-                                toast.error(error.message || 'Erro ao conectar Mercado Pago');
-                              }
-                            }}
-                            disabled={!establishment?.id}
-                            className="w-full px-4 py-2 bg-[#009EE3] text-white rounded-lg hover:bg-[#0088C7] transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {String((establishment as any)?.mercadopago_access_token || '').trim()
-                              ? 'Reconectar conta Mercado Pago'
-                              : 'Conectar conta Mercado Pago'}
-                          </button>
+                                try {
+                                  const authorizeUrl = import.meta.env.PROD
+                                    ? `/.netlify/functions/mercadopago-oauth-authorize?establishmentId=${establishment.id}`
+                                    : `/api/mercadopago/oauth/authorize?establishmentId=${establishment.id}`;
 
-                          {String((establishment as any)?.mercadopago_access_token || '').trim() && (
-                            <div className="mt-2 space-y-3">
-                              <p className="text-xs text-gray-200/80">
-                                ✅ Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.
-                              </p>
-                              
+                                  const response = await fetch(authorizeUrl);
+                                  if (!response.ok) {
+                                    const error = await response.json();
+                                    throw new Error(error.error || 'Erro ao gerar URL de autorização');
+                                  }
+
+                                  const data = await response.json();
+                                  if (data.authorization_url) {
+                                    window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
+                                    toast.success('Redirecionando para conectar conta do Mercado Pago...');
+                                  } else {
+                                    throw new Error('URL de autorização não retornada');
+                                  }
+                                } catch (error: any) {
+                                  console.error('❌ Erro ao iniciar OAuth Mercado Pago:', error);
+                                  toast.error(error.message || 'Erro ao conectar Mercado Pago');
+                                }
+                              }}
+                              disabled={!establishment?.id}
+                              className="w-full px-5 py-3 bg-gradient-to-r from-[#009EE3] to-[#0088C7] text-white rounded-xl hover:from-[#0088C7] hover:to-[#0077B6] transition-all font-extrabold shadow-lg hover:shadow-xl transform hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+                            >
+                              {String((establishment as any)?.mercadopago_access_token || '').trim()
+                                ? '🔄 Reconectar conta Mercado Pago'
+                                : '🔗 Conectar conta Mercado Pago'}
+                            </button>
+
+                            {String((establishment as any)?.mercadopago_access_token || '').trim() && (
+                              <div className="mt-4 space-y-4">
+                                <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                                  <p className="text-sm text-green-200 font-semibold flex items-center gap-2">
+                                    <span>✅</span>
+                                    <span>Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.</span>
+                                  </p>
+                                </div>
+
                               {/* Configuração de Pagamento Antecipado Mercado Pago */}
                               <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-3 space-y-2">
                                 <label className="flex items-center space-x-2">
@@ -13978,7 +14070,7 @@ Estamos te aguardando! 😎✂️`;
                                   />
                                   <span className="text-white text-sm font-semibold">Exigir pagamento antecipado via Mercado Pago</span>
                                 </label>
-                                
+
                                 {exigirPagamentoAntecipadoMercadoPago && (
                                   <label className="flex items-center space-x-2 ml-6">
                                     <input
@@ -14057,38 +14149,41 @@ Estamos te aguardando! 😎✂️`;
                                 Desconectar Mercado Pago
                               </button>
 
-                              {/* Saldo de vendas Mercado Pago */}
-                              <div className="mt-4 rounded-lg border border-[#009EE3]/20 bg-black/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                <div>
-                                  <div className="text-xs text-gray-300">Total vendido via Mercado Pago</div>
-                                  <div className="text-xl font-extrabold text-[#009EE3]">
-                                    {isLoadingSaldoMercadoPago ? 'Calculando...' : fmtBRL(saldoMercadoPago)}
-                                  </div>
-                                  <div className="mt-1 text-[11px] text-gray-300/80">
-                                    * Valor líquido já com taxas descontadas (Mercado Pago + R$ 0,50 da plataforma).
-                                  </div>
-                                  {saldoMercadoPagoErro && (
-                                    <div className="mt-2 text-[11px] text-red-200/90">
-                                      {saldoMercadoPagoErro}
+                                {/* Saldo de vendas Mercado Pago */}
+                                <div className="mt-4 rounded-xl border-2 border-[#009EE3]/40 bg-gradient-to-br from-[#009EE3]/10 to-black/30 p-5 shadow-lg">
+                                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                                    <div className="flex-1">
+                                      <div className="text-xs text-gray-300 mb-1">Total vendido via Mercado Pago</div>
+                                      <div className="text-3xl font-extrabold text-[#009EE3] mb-2">
+                                        {isLoadingSaldoMercadoPago ? 'Calculando...' : fmtBRL(saldoMercadoPago)}
+                                      </div>
+                                      <div className="mt-1 text-[11px] text-gray-300/80">
+                                        * Valor líquido já com taxas descontadas (Mercado Pago + R$ 0,50 da plataforma).
+                                      </div>
+                                      {saldoMercadoPagoErro && (
+                                        <div className="mt-2 text-[11px] text-red-200/90">
+                                          {saldoMercadoPagoErro}
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-                                </div>
-                                <div>
-                                  <button
-                                    type="button"
-                                    disabled={isLoadingSaldoMercadoPago}
-                                    onClick={() => {
-                                      if (isLoadingSaldoMercadoPago) return;
-                                      carregarSaldoMercadoPago();
-                                    }}
-                                    className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed text-sm"
-                                  >
-                                    Atualizar
-                                  </button>
+                                    <div>
+                                      <button
+                                        type="button"
+                                        disabled={isLoadingSaldoMercadoPago}
+                                        onClick={() => {
+                                          if (isLoadingSaldoMercadoPago) return;
+                                          carregarSaldoMercadoPago();
+                                        }}
+                                        className="px-5 py-2.5 bg-[#009EE3]/20 hover:bg-[#009EE3]/30 border border-[#009EE3]/40 text-[#009EE3] rounded-lg transition-all font-bold disabled:opacity-60 disabled:cursor-not-allowed text-sm shadow-md hover:shadow-lg"
+                                      >
+                                        🔄 Atualizar
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
 
                         <label className="flex items-center space-x-2">
@@ -15236,7 +15331,7 @@ Estamos te aguardando! 😎✂️`;
                                 Taxas descontadas pelo estabelecimento
                               </span>
                               <p className="text-xs text-gray-500">
-                                {taxDeductedByEstablishment 
+                                {taxDeductedByEstablishment
                                   ? 'As taxas da maquininha serão descontadas do estabelecimento (não do profissional)'
                                   : 'As taxas da maquininha serão descontadas do profissional'}
                               </p>
@@ -15253,14 +15348,12 @@ Estamos te aguardando! 😎✂️`;
                                     autoSavePaymentConfig();
                                   }, 1000);
                                 }}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                                  taxDeductedByEstablishment ? 'bg-blue-600' : 'bg-gray-600'
-                                }`}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${taxDeductedByEstablishment ? 'bg-blue-600' : 'bg-gray-600'
+                                  }`}
                               >
                                 <span
-                                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                    taxDeductedByEstablishment ? 'translate-x-6' : 'translate-x-1'
-                                  }`}
+                                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${taxDeductedByEstablishment ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
                                 />
                               </button>
                             </div>
@@ -16279,23 +16372,23 @@ Estamos te aguardando! 😎✂️`;
                                                 } else {
                                                   netValue = baseValue;
                                                 }
-                                          } else {
-                                            // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
-                                            const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                            if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                              // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
-                                              if (establishment?.tax_deducted_by_establishment) {
-                                                netValue = (baseValue * (professional?.percentage || 0)) / 100;
                                               } else {
-                                                // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
-                                                const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-                                                netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                                // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
+                                                const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                                if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                                  // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
+                                                  if (establishment?.tax_deducted_by_establishment) {
+                                                    netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                                  } else {
+                                                    // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+                                                    const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+                                                    netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                                  }
+                                                } else {
+                                                  // Se não for cartão, apenas aplicar percentual
+                                                  netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                                }
                                               }
-                                            } else {
-                                              // Se não for cartão, apenas aplicar percentual
-                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
-                                            }
-                                          }
                                               console.log(`💰 Agendamento ${apt.id}: R$ ${baseValue} -> Líquido: R$ ${netValue}`);
                                               return total + netValue;
                                             }, 0)
@@ -19283,9 +19376,8 @@ Estamos te aguardando! 😎✂️`;
                             >
                               <span className="text-black">💸 % por colaborador</span>
                               <ChevronDown
-                                className={`h-4 w-4 text-gray-500 transition-transform ${
-                                  selectedProductForCommission === product.id ? 'rotate-180' : ''
-                                }`}
+                                className={`h-4 w-4 text-gray-500 transition-transform ${selectedProductForCommission === product.id ? 'rotate-180' : ''
+                                  }`}
                               />
                             </button>
 

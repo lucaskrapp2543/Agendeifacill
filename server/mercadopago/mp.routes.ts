@@ -182,6 +182,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       payer,
       payment_method_id,
       installments,
+      token,
       metadata,
     } = req.body;
 
@@ -239,11 +240,13 @@ router.post('/create-payment', async (req: Request, res: Response) => {
               },
             }
           : {}),
+        ...(payer.address ? { address: payer.address } : {}),
       },
       application_fee: applicationFee,
       access_token: String(accessToken),
       payment_method_id: payment_method_id || 'pix',
       ...(installments ? { installments: Number(installments) } : {}),
+      ...(token ? { token: String(token) } : {}),
       ...(metadata ? { metadata } : {}),
     };
 
