@@ -1,7 +1,8 @@
 /**
  * Tokenização de cartão para Mercado Pago
  * 
- * Gera token do cartão usando o SDK do Mercado Pago no frontend
+ * ✅ CORRIGIDO: Usa API REST diretamente (não SDK de campos)
+ * Similar ao Pagar.me, evita problemas com campos não preenchidos
  */
 
 interface CardTokenInput {
@@ -15,37 +16,26 @@ interface CardTokenInput {
 }
 
 /**
- * Tokeniza cartão usando SDK do Mercado Pago
+ * Tokeniza cartão usando API REST do Mercado Pago
+ * 
+ * ⚠️ Esta função roda no FRONTEND. Usa public key (não secret key).
  * 
  * @param input - Dados do cartão
- * @param publicKey - Public key do Mercado Pago
+ * @param publicKey - Public key do Mercado Pago (APP_USR-...)
  * @returns Token do cartão e payment_method_id (bandeira)
  */
 export async function tokenizeMercadoPagoCard(
   input: CardTokenInput,
   publicKey: string
 ): Promise<{ token: string; payment_method_id: string }> {
-  // Verificar se SDK está carregado
+  // Verificar se está no navegador
   if (typeof window === 'undefined') {
     throw new Error('Tokenização de cartão só funciona no navegador');
   }
 
-  // Aguardar SDK carregar (pode demorar um pouco)
-  let mp: any;
-  let attempts = 0;
-  const maxAttempts = 10;
-  
-  while (attempts < maxAttempts) {
-    if ((window as any).MercadoPago) {
-      mp = new (window as any).MercadoPago(publicKey);
-      break;
-    }
-    await new Promise(resolve => setTimeout(resolve, 100));
-    attempts++;
-  }
-
-  if (!mp) {
-    throw new Error('SDK do Mercado Pago não está carregado. Aguarde alguns segundos e tente novamente.');
+  // Validar public key
+  if (!publicKey || !publicKey.trim()) {
+    throw new Error('Chave pública do Mercado Pago não configurada');
   }
 
   // Normalizar dados
@@ -53,8 +43,9 @@ export async function tokenizeMercadoPagoCard(
   const expMonth = String(input.cardExpMonth || '').replace(/\D/g, '').padStart(2, '0');
   const expYear = String(input.cardExpYear || '').replace(/\D/g, '');
   const expYearFull = expYear.length === 2 ? `20${expYear}` : expYear;
+  const expYearShort = expYearFull.substring(2); // SDK espera 2 dígitos (YY)
   const cvv = String(input.cardCvv || '').replace(/\D/g, '');
-  const holderName = String(input.cardHolderName || '').trim();
+  const holderName = String(input.cardHolderName || '').trim().toUpperCase();
   const identificationNumber = String(input.identificationNumber || '').replace(/\D/g, '');
 
   // Validações
@@ -78,95 +69,67 @@ export async function tokenizeMercadoPagoCard(
   }
 
   try {
-    // ✅ CORRIGIDO: Criar campos temporários no DOM antes de tokenizar
-    // O SDK do Mercado Pago exige que campos sejam criados com mp.fields.create() antes de usar createCardToken()
-    
-    // Criar containers temporários ocultos para cada campo
-    const tempId = `mp-temp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
-    const cardNumberDiv = document.createElement('div');
-    cardNumberDiv.id = `${tempId}-cardNumber`;
-    cardNumberDiv.style.display = 'none';
-    
-    const expirationDateDiv = document.createElement('div');
-    expirationDateDiv.id = `${tempId}-expirationDate`;
-    expirationDateDiv.style.display = 'none';
-    
-    const securityCodeDiv = document.createElement('div');
-    securityCodeDiv.id = `${tempId}-securityCode`;
-    securityCodeDiv.style.display = 'none';
-    
-    // Criar container pai oculto
-    const tempContainer = document.createElement('div');
-    tempContainer.id = `${tempId}-container`;
-    tempContainer.style.display = 'none';
-    tempContainer.style.position = 'absolute';
-    tempContainer.style.left = '-9999px';
-    tempContainer.appendChild(cardNumberDiv);
-    tempContainer.appendChild(expirationDateDiv);
-    tempContainer.appendChild(securityCodeDiv);
-    document.body.appendChild(tempContainer);
+    // ✅ USAR API REST DIRETAMENTE (similar ao Pagar.me)
+    // Endpoint: POST https://api.mercadopago.com/v1/card_tokens
+    const url = 'https://api.mercadopago.com/v1/card_tokens';
 
-    try {
-      // Criar campos temporários com o SDK (cada um no seu próprio elemento)
-      const cardNumberField = mp.fields.create('cardNumber', {
-        placeholder: 'Número do cartão'
-      }).mount(`#${tempId}-cardNumber`);
+    const payload: any = {
+      public_key: publicKey,
+      card_number: cardNumber,
+      cardholder_name: holderName,
+      card_expiration_month: expMonth,
+      card_expiration_year: expYearShort, // 2 dígitos (YY)
+      security_code: cvv,
+      identification_type: input.identificationType,
+      identification_number: identificationNumber,
+    };
 
-      const expirationDateField = mp.fields.create('expirationDate', {
-        placeholder: 'MM/YY'
-      }).mount(`#${tempId}-expirationDate`);
+    console.log('🔄 [MP Tokenize] Criando token via API REST...', {
+      cardNumber: cardNumber.substring(0, 6) + '****' + cardNumber.substring(cardNumber.length - 4),
+      holderName,
+      expMonth,
+      expYear: expYearShort,
+    });
 
-      const securityCodeField = mp.fields.create('securityCode', {
-        placeholder: 'CVV'
-      }).mount(`#${tempId}-securityCode`);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
 
-      // Aguardar campos serem montados completamente
-      await new Promise(resolve => setTimeout(resolve, 800));
+    const data = await response.json().catch(() => ({}));
 
-      // Agora podemos usar createCardToken (campos já foram criados e montados)
-      const token = await mp.fields.createCardToken({
-        cardNumber: cardNumber,
-        cardholderName: holderName,
-        cardExpirationMonth: expMonth,
-        cardExpirationYear: expYearFull.substring(2), // SDK espera 2 dígitos
-        securityCode: cvv,
-        identificationType: input.identificationType,
-        identificationNumber: identificationNumber,
-      });
-
-      // Limpar campos temporários
-      try {
-        cardNumberField.unmount();
-        expirationDateField.unmount();
-        securityCodeField.unmount();
-      } catch {}
-      
-      // Remover elementos do DOM
-      try {
-        if (tempContainer.parentNode) {
-          document.body.removeChild(tempContainer);
-        }
-      } catch {}
-
-      if (!token || !token.id) {
-        throw new Error('Token do cartão não foi gerado pelo Mercado Pago');
-      }
-
-      // Retornar token e payment_method_id (bandeira do cartão)
-      return {
-        token: String(token.id),
-        payment_method_id: token.payment_method_id || 'visa', // Bandeira detectada pelo SDK
-      };
-    } catch (createError: any) {
-      // Limpar container em caso de erro
-      try {
-        if (tempContainer.parentNode) {
-          document.body.removeChild(tempContainer);
-        }
-      } catch {}
-      throw createError;
+    if (!response.ok) {
+      const errorMsg =
+        data?.message ||
+        data?.error ||
+        (data?.cause && Array.isArray(data.cause) ? data.cause[0]?.description : null) ||
+        `Erro ${response.status} ao tokenizar cartão`;
+      throw new Error(String(errorMsg));
     }
+
+    // Validar resposta
+    if (!data?.id) {
+      throw new Error('Token do cartão não foi retornado pelo Mercado Pago');
+    }
+
+    // Extrair payment_method_id (bandeira do cartão)
+    const paymentMethodId = data?.payment_method?.id || 
+                           data?.card_id?.split('_')[0] || 
+                           'visa'; // Fallback
+
+    console.log('✅ [MP Tokenize] Token criado:', {
+      token: String(data.id).substring(0, 10) + '...',
+      payment_method_id: paymentMethodId,
+    });
+
+    return {
+      token: String(data.id),
+      payment_method_id: paymentMethodId,
+    };
   } catch (error: any) {
     console.error('❌ Erro ao tokenizar cartão Mercado Pago:', error);
     const errorMessage = error?.message || error?.error || 'Erro ao tokenizar cartão';
