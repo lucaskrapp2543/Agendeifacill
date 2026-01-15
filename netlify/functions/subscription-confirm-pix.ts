@@ -122,7 +122,7 @@ export const handler: Handler = async (event) => {
       .limit(1)
       .maybeSingle();
 
-    const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
+    // Reutilizar providerNormalized já declarado acima (linha 56)
     const providerFinal =
       providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix' ||
       providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
