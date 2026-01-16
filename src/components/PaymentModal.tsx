@@ -131,6 +131,10 @@ export const PaymentModal = ({
       return;
     }
 
+    // ✅ CORRIGIDO: Definir identificationType logo após normalizar CPF/CNPJ
+    // Isso garante que seja usado o mesmo tipo na tokenização E no pagamento
+    const identificationType = docDigits.length === 11 ? 'CPF' : 'CNPJ';
+
     // Definir selectedMethod para que confirmAppointment saiba qual método foi usado
     if (method === 'pix') {
       setSelectedMethod('pix');
