@@ -78,7 +78,7 @@
   to = "/.netlify/functions/mercadopago-get-payment-method"
   status = 200
   force = true
-  methods = ["GET", "POST", "OPTIONS"]
+  methods = ["POST", "OPTIONS"]
 
 # API Routes - DEVEM VIR ANTES do catch-all
 [[redirects]]
@@ -88,7 +88,7 @@
   force = true
   methods = ["POST", "OPTIONS"]
 
-# Catch-all - DEVE VIR POR ÚLTIMO
+# Catch-all - DEVE VIR POR ÚLTIMO (SPA)
 [[redirects]]
   from = "/*"
   to = "/index.html"
