@@ -4,7 +4,7 @@ import { useToast } from './ui/Toaster';
 // Import removido - agora usa API Routes
 import { supabase } from '../lib/supabase';
 import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
-import { tokenizeMercadoPagoCard } from '../lib/mercadopago/tokenize-card';
+import { CardPaymentBrick } from './CardPaymentBrick';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -47,6 +47,7 @@ export const PaymentModal = ({
   const [pixRemainingSeconds, setPixRemainingSeconds] = useState<number>(0);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [cpfCliente, setCpfCliente] = useState<string>(customerData.document || '');
+  // ✅ Estados dos inputs manuais de cartão (apenas para Pagar.me - Mercado Pago usa Brick)
   const [cardNumber, setCardNumber] = useState('');
   const [cardHolderName, setCardHolderName] = useState('');
   const [cardExpMonth, setCardExpMonth] = useState('');
@@ -61,6 +62,12 @@ export const PaymentModal = ({
   const [cardRefusedReason, setCardRefusedReason] = useState<string>('');
   const [hasPagarMeError, setHasPagarMeError] = useState(false);
   const [hasMercadoPago, setHasMercadoPago] = useState(false);
+  // ✅ NOVO: Estados para dados do Card Payment Brick
+  const [brickCardToken, setBrickCardToken] = useState<string | null>(null);
+  const [brickPaymentMethodId, setBrickPaymentMethodId] = useState<string | null>(null);
+  const [brickIssuerId, setBrickIssuerId] = useState<string | null>(null);
+  const [brickInstallments, setBrickInstallments] = useState<number>(1);
+  const [isBrickReady, setIsBrickReady] = useState(false);
   const { toast } = useToast();
   const pixCountdownIntervalRef = useRef<number | null>(null);
   const isCheckingPaymentRef = useRef<boolean>(false);
@@ -118,6 +125,44 @@ export const PaymentModal = ({
     }
   }, [isOpen, establishmentId]);
 
+  // ✅ NOVO: Handler para quando o Card Payment Brick submete o formulário
+  const handleBrickSubmit = async (formData: {
+    token: string;
+    payment_method_id: string;
+    issuer_id: string;
+    installments: number;
+    bin?: string;
+    lastFourDigits?: string;
+  }) => {
+    console.log('📦 [MP Brick] Formulário submetido pelo Brick:', {
+      token: formData.token.substring(0, 10) + '...',
+      payment_method_id: formData.payment_method_id,
+      issuer_id: formData.issuer_id,
+      installments: formData.installments,
+    });
+
+    // ✅ Salvar dados do Brick nos estados
+    setBrickCardToken(formData.token);
+    setBrickPaymentMethodId(formData.payment_method_id);
+    setBrickIssuerId(formData.issuer_id);
+    setBrickInstallments(formData.installments);
+
+    // ✅ Processar pagamento com os dados do Brick
+    await handleMercadoPagoPayment('credit_card');
+  };
+
+  // ✅ NOVO: Handler para quando o Brick está pronto
+  const handleBrickReady = () => {
+    console.log('✅ [MP Brick] Brick está pronto');
+    setIsBrickReady(true);
+  };
+
+  // ✅ NOVO: Handler para erros do Brick
+  const handleBrickError = (error: any) => {
+    console.error('❌ [MP Brick] Erro no Brick:', error);
+    toast(`Erro no formulário de pagamento: ${error?.message || 'Erro desconhecido'}`, 'error');
+  };
+
   // Função para pagar com Mercado Pago (PIX ou Cartão)
   const handleMercadoPagoPayment = async (method: 'pix' | 'credit_card' = 'pix') => {
     if (!hasMercadoPago) {
@@ -142,33 +187,20 @@ export const PaymentModal = ({
       setSelectedMethod('credit_card');
     }
 
-    // Se for cartão, validar dados do cartão e endereço
+    // ✅ REMOVIDO: Validação manual de cartão para Mercado Pago (agora usa Card Payment Brick)
+    // O Brick valida automaticamente os dados do cartão
+    // Apenas validar endereço de cobrança (ainda necessário)
     if (method === 'credit_card') {
-      const numberDigits = String(cardNumber || '').replace(/\D/g, '');
-      const expMonthDigits = String(cardExpMonth || '').replace(/\D/g, '');
-      const expYearDigits = String(cardExpYear || '').replace(/\D/g, '');
-      const cvvDigits = String(cardCvv || '').replace(/\D/g, '');
-      const holder = String(cardHolderName || '').trim();
-
-      if (numberDigits.length < 13 || numberDigits.length > 19) {
-        toast('Número do cartão inválido.', 'error');
-        return;
-      }
-      if (!expMonthDigits || expMonthDigits.length < 2) {
-        toast('Mês de validade inválido.', 'error');
-        return;
-      }
-      if (!expYearDigits || expYearDigits.length < 2) {
-        toast('Ano de validade inválido.', 'error');
-        return;
-      }
-      if (!cvvDigits || cvvDigits.length < 3 || cvvDigits.length > 4) {
-        toast('CVV inválido. Informe o código de segurança do cartão (3 ou 4 dígitos).', 'error');
-        return;
-      }
-      if (!holder) {
-        toast('Informe o nome do titular do cartão.', 'error');
-        return;
+      // ✅ Validar apenas se o Brick está pronto e tem token (para Mercado Pago)
+      if (hasMercadoPago) {
+        if (!isBrickReady) {
+          toast('Aguarde o formulário de pagamento carregar.', 'error');
+          return;
+        }
+        if (!brickCardToken || !brickPaymentMethodId || !brickIssuerId) {
+          toast('Preencha os dados do cartão no formulário.', 'error');
+          return;
+        }
       }
 
       // Validar endereço de cobrança (obrigatório para cartão)
@@ -204,153 +236,45 @@ export const PaymentModal = ({
     setHasPagarMeError(false);
 
     try {
-      // ✅ CRÍTICO: Sempre criar um novo token (não reutilizar de tentativas anteriores)
+      // ✅ NOVO: Usar dados do Card Payment Brick (não tokenização manual)
       let cardToken: string | undefined;
       let cardPaymentMethodId: string | undefined;
       let cardIssuerId: string | undefined;
-      let cardInstallments: number = 1; // Padrão 1, mas pode vir da API de métodos de pagamento
+      let cardInstallments: number = 1;
 
-      // Se for cartão de crédito, tokenizar primeiro
+      // Se for cartão de crédito, usar dados do Brick
       if (method === 'credit_card') {
-        try {
-          // Buscar public key do Mercado Pago
-          const mpPublicKey = String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim();
-          if (!mpPublicKey) {
-            throw new Error('Chave pública do Mercado Pago não configurada. Configure VITE_MERCADOPAGO_PUBLIC_KEY.');
-          }
-
-          // Tokenizar cartão
-          const numberDigits = String(cardNumber || '').replace(/\D/g, '');
-          const expMonthDigits = String(cardExpMonth || '').replace(/\D/g, '');
-          const expYearDigits = String(cardExpYear || '').replace(/\D/g, '');
-          const cvvDigits = String(cardCvv || '').replace(/\D/g, '');
-          // ✅ CORRIGIDO: Normalizar nome do titular para MAIÚSCULAS (consistente com tokenização)
-          const holder = String(cardHolderName || '').trim().toUpperCase();
-
-          // ✅ Garantir que os dados sejam exatamente iguais entre tokenização e pagamento
-          // Usar o mesmo identificationType e identificationNumber que foi definido acima
-          const identificationNumber = docDigits; // Sempre só dígitos (já normalizado)
-          
-          console.log('🔄 [MP Tokenize] Dados para tokenização:', {
-            cardNumber: numberDigits.substring(0, 6) + '****' + numberDigits.substring(numberDigits.length - 4),
-            cardHolderName: holder.substring(0, 20) + '...',
-            cardExpMonth: expMonthDigits,
-            cardExpYear: expYearDigits,
-            cvvLength: cvvDigits.length,
-            identificationType,
-            identificationNumber: identificationNumber.substring(0, 3) + '***' + identificationNumber.substring(identificationNumber.length - 3),
-          });
-
-          // ✅ CRÍTICO: Sempre criar um NOVO token (não reutilizar)
-          // Limpar qualquer token anterior antes de criar um novo
-          cardToken = undefined;
-          cardPaymentMethodId = undefined;
-          cardIssuerId = undefined;
-
-          // 1. Tokenizar o cartão (retorna token + BIN)
-          const tokenResult = await tokenizeMercadoPagoCard(
-            {
-              cardNumber: numberDigits,
-              cardHolderName: holder, // Já está em MAIÚSCULAS
-              cardExpMonth: expMonthDigits,
-              cardExpYear: expYearDigits,
-              cardCvv: cvvDigits,
-              identificationType,
-              identificationNumber,
-            },
-            mpPublicKey
-          );
-
-          cardToken = tokenResult.token;
-          const bin = tokenResult.first_six_digits;
-
-          // 2. Buscar payment_method_id e issuer_id via BACKEND (evita CORS)
-          // ✅ SOLUÇÃO: Usar URL DIRETA da Netlify Function (sem redirect)
-          const getPaymentMethodUrl = '/.netlify/functions/mercadopago-get-payment-method';
-
-          console.log('🔍 [MP] Buscando payment_method_id e issuer_id via backend para BIN:', bin.substring(0, 2) + '****');
-
-          const paymentMethodResponse = await fetch(getPaymentMethodUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ bin }),
-          });
-
-          if (!paymentMethodResponse.ok) {
-            const errorData = await paymentMethodResponse.json().catch(() => ({ message: 'Erro desconhecido' }));
-            // ✅ ERRO CLARO: Se for 404, informar sobre ambiente (teste/produção)
-            const errorMessage = errorData.message || errorData.error || `Erro ${paymentMethodResponse.status} ao buscar método de pagamento`;
-            const environmentMessage = errorData.environment 
-              ? ` (Ambiente: ${errorData.environment})`
-              : '';
-            throw new Error(errorMessage + environmentMessage);
-          }
-
-          const paymentMethodData = await paymentMethodResponse.json();
-
-          // ✅ VALIDAÇÃO: payment_method_id e issuer_id são OBRIGATÓRIOS
-          if (!paymentMethodData.payment_method_id) {
-            throw new Error('payment_method_id não foi retornado pela API. Não é possível continuar com o pagamento.');
-          }
-
-          if (!paymentMethodData.issuer_id) {
-            throw new Error('issuer_id não foi retornado pela API. Não é possível continuar com o pagamento.');
-          }
-
-          // ✅ USAR APENAS OS DADOS RETORNADOS PELA API DO BACKEND (sem hardcode)
-          // ✅ REMOVIDO: NUNCA usar 'credit_card' hardcoded
-          cardPaymentMethodId = paymentMethodData.payment_method_id; // ✅ OBRIGATÓRIO: visa, master, elo, etc.
-          cardIssuerId = paymentMethodData.issuer_id; // ✅ OBRIGATÓRIO: ID do banco emissor
-
-          console.log('✅ [MP] Token e dados do método de pagamento obtidos:', {
-            token: cardToken?.substring(0, 10) + '...',
-            payment_method_id: cardPaymentMethodId, // ✅ Nunca será 'credit_card'
-            issuer_id: cardIssuerId,
-            first_six_digits: bin,
-            installments: cardInstallments,
-          });
-          
-          // ✅ Log dos dados que serão enviados no pagamento (para comparar com tokenização)
-          console.log('📦 [MP Payment] Dados que serão enviados no pagamento:', {
-            holderName: holder.substring(0, 10) + '...',
-            first_name: holder.split(' ')[0] || holder,
-            last_name: holder.split(' ').slice(1).join(' ') || holder,
-            identificationType: docDigits.length === 11 ? 'CPF' : 'CNPJ',
-            identificationNumber: docDigits.substring(0, 3) + '***' + docDigits.substring(docDigits.length - 3),
-            cardToken: cardToken?.substring(0, 10) + '...',
-            payment_method_id: cardPaymentMethodId, // ✅ Usar o que veio da API (não hardcode)
-            issuer_id: cardIssuerId || 'NÃO ENVIADO', // ✅ Usar o que veio da API
-            installments: cardInstallments,
-          });
-        } catch (tokenError: any) {
-          console.error('❌ Erro ao tokenizar cartão:', tokenError);
-          toast(`Erro ao processar cartão: ${tokenError.message}`, 'error');
+        // ✅ VALIDAÇÃO: Garantir que o Brick forneceu todos os dados necessários
+        if (!brickCardToken || !brickPaymentMethodId || !brickIssuerId) {
+          toast('Erro: Dados do cartão não foram fornecidos pelo formulário. Tente novamente.', 'error');
           setIsProcessing(false);
           return;
         }
+
+        // ✅ USAR APENAS OS DADOS RETORNADOS PELO BRICK (sem hardcode)
+        cardToken = brickCardToken;
+        cardPaymentMethodId = brickPaymentMethodId; // ✅ OBRIGATÓRIO: visa, master, elo, etc. (vem do Brick)
+        cardIssuerId = brickIssuerId; // ✅ OBRIGATÓRIO: ID do banco emissor (vem do Brick)
+        cardInstallments = brickInstallments || 1;
+
+        console.log('✅ [MP Brick] Dados do Brick que serão usados no pagamento:', {
+          token: cardToken.substring(0, 10) + '...',
+          payment_method_id: cardPaymentMethodId, // ✅ Nunca será 'credit_card'
+          issuer_id: cardIssuerId,
+          installments: cardInstallments,
+        });
       }
 
-      // ✅ CORRIGIDO: Preparar dados do pagador usando os MESMOS dados da tokenização
-      // identificationType e docDigits já foram normalizados acima, garantir consistência
-      // ⚠️ IMPORTANTE: Nome do titular deve ser o MESMO usado na tokenização para evitar diff_param_bins
-      let holderNameForPayment = '';
-      if (method === 'credit_card') {
-        holderNameForPayment = String(cardHolderName || '').trim().toUpperCase(); // Mesmo nome usado na tokenização
-      }
-
+      // ✅ NOVO: Preparar dados do pagador
+      // O Brick já coleta nome do titular, então não precisamos mais fazer isso manualmente
       const payerData: any = {
         email: customerData.email || 'cliente@exemplo.com',
         identification: {
           type: identificationType, // Usar o mesmo tipo definido acima
           number: docDigits, // Usar o mesmo CPF/CNPJ normalizado (só dígitos)
         },
-        // ✅ Adicionar nome do titular se for cartão (ajuda a evitar diff_param_bins)
-        ...(method === 'credit_card' && holderNameForPayment ? {
-          first_name: holderNameForPayment.split(' ')[0] || holderNameForPayment,
-          last_name: holderNameForPayment.split(' ').slice(1).join(' ') || holderNameForPayment,
-        } : {}),
+        // ✅ O Brick já envia first_name e last_name no token, então não precisamos adicionar aqui
+        // O backend vai usar os dados do token automaticamente
       };
 
       // ✅ CORRIGIDO: Adicionar endereço de cobrança para cartão (obrigatório no Mercado Pago)
@@ -1187,58 +1111,34 @@ export const PaymentModal = ({
                 />
               </div>
 
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Número do cartão</label>
-                <input
-                  value={cardNumber}
-                  onChange={(e) => setCardNumber(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="0000 0000 0000 0000"
-                  inputMode="numeric"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Nome do titular</label>
-                <input
-                  value={cardHolderName}
-                  onChange={(e) => setCardHolderName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="Como está no cartão"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-1">
-                  <label className="block text-sm text-gray-300 mb-1">Mês</label>
-                  <input
-                    value={cardExpMonth}
-                    onChange={(e) => setCardExpMonth(e.target.value)}
-                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="MM"
-                    inputMode="numeric"
-                  />
-                </div>
-                <div className="col-span-1">
-                  <label className="block text-sm text-gray-300 mb-1">Ano</label>
-                  <input
-                    value={cardExpYear}
-                    onChange={(e) => setCardExpYear(e.target.value)}
-                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="AA ou AAAA"
-                    inputMode="numeric"
-                  />
-                </div>
-                <div className="col-span-1">
-                  <label className="block text-sm text-gray-300 mb-1">CVV</label>
-                  <input
-                    value={cardCvv}
-                    onChange={(e) => setCardCvv(e.target.value)}
-                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="123"
-                    inputMode="numeric"
-                  />
-                </div>
+              {/* ✅ NOVO: Card Payment Brick do Mercado Pago (Secure Fields) */}
+              <div className="mb-4">
+                <label className="block text-sm text-gray-300 mb-2">Dados do cartão</label>
+                {hasMercadoPago ? (() => {
+                  const docDigitsForBrick = String(cpfCliente || '').replace(/\D/g, '');
+                  const identificationTypeForBrick = docDigitsForBrick.length === 11 ? 'CPF' : 'CNPJ';
+                  
+                  return (
+                    <CardPaymentBrick
+                      publicKey={String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim()}
+                      amount={amount}
+                      onSubmit={handleBrickSubmit}
+                      onReady={handleBrickReady}
+                      onError={handleBrickError}
+                      payerData={{
+                        email: customerData.email || 'cliente@exemplo.com',
+                        identificationType: identificationTypeForBrick,
+                        identificationNumber: docDigitsForBrick,
+                        firstName: customerData.name?.split(' ')[0] || '',
+                        lastName: customerData.name?.split(' ').slice(1).join(' ') || customerData.name || '',
+                      }}
+                    />
+                  );
+                })() : (
+                  <div className="text-sm text-gray-400 p-4 bg-[#111213] rounded-md border border-gray-700">
+                    Mercado Pago não configurado. Use Pagar.me.
+                  </div>
+                )}
               </div>
 
               <div className="mt-2 border-t border-gray-800 pt-3 space-y-3">
@@ -1310,24 +1210,24 @@ export const PaymentModal = ({
                 </div>
               </div>
 
-              <button
-                onClick={() => hasMercadoPago ? handleMercadoPagoPayment('credit_card') : handlePayment('credit_card')}
-                disabled={isProcessing || isCheckingPayment}
-                className={`w-full mt-1 px-4 py-3 rounded-lg text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
-                  hasMercadoPago 
-                    ? 'bg-[#009EE3] hover:bg-[#0088C7]' 
-                    : 'bg-green-600 hover:bg-green-700'
-                }`}
-              >
-                {isProcessing ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    Processando...
-                  </>
-                ) : (
-                  `Pagar com Cartão (R$ ${amount.toFixed(2)})${hasMercadoPago ? ' - Mercado Pago' : ' - Pagar.me'}`
-                )}
-              </button>
+              {/* ✅ REMOVIDO: Botão manual de pagamento (agora o Brick tem seu próprio botão) */}
+              {/* O Card Payment Brick já inclui o botão de pagamento integrado */}
+              {!hasMercadoPago && (
+                <button
+                  onClick={() => handlePayment('credit_card')}
+                  disabled={isProcessing || isCheckingPayment}
+                  className="w-full mt-1 px-4 py-3 rounded-lg text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Processando...
+                    </>
+                  ) : (
+                    `Pagar com Cartão (R$ ${amount.toFixed(2)}) - Pagar.me`
+                  )}
+                </button>
+              )}
 
               <button
                 type="button"
