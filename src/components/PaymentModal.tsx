@@ -217,12 +217,13 @@ export const PaymentModal = ({
           const expMonthDigits = String(cardExpMonth || '').replace(/\D/g, '');
           const expYearDigits = String(cardExpYear || '').replace(/\D/g, '');
           const cvvDigits = String(cardCvv || '').replace(/\D/g, '');
-          const holder = String(cardHolderName || '').trim();
+          // ✅ CORRIGIDO: Normalizar nome do titular para MAIÚSCULAS (consistente com tokenização)
+          const holder = String(cardHolderName || '').trim().toUpperCase();
 
           const tokenResult = await tokenizeMercadoPagoCard(
             {
               cardNumber: numberDigits,
-              cardHolderName: holder,
+              cardHolderName: holder, // Já está em MAIÚSCULAS
               cardExpMonth: expMonthDigits,
               cardExpYear: expYearDigits,
               cardCvv: cvvDigits,
