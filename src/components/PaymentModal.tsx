@@ -216,39 +216,56 @@ export const PaymentModal = ({
     const emailToUse = String(payerEmail || customerData.email || '').trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+    console.log('🔍 [MP Brick] Validando dados antes de processar:', {
+      cepDigits: cepDigits.length,
+      rua: !!rua,
+      numero: !!numero,
+      cidade: !!cidade,
+      uf: uf.length,
+      email: !!emailToUse && emailRegex.test(emailToUse),
+    });
+
     // Validar endereço
     if (cepDigits.length !== 8) {
+      console.error('❌ [MP Brick] CEP inválido');
       toast('CEP inválido. Informe um CEP com 8 dígitos.', 'error');
       return;
     }
     if (!rua) {
+      console.error('❌ [MP Brick] Rua não informada');
       toast('Informe a rua/avenida do endereço de cobrança.', 'error');
       return;
     }
     if (!numero) {
+      console.error('❌ [MP Brick] Número não informado');
       toast('Informe o número do endereço de cobrança.', 'error');
       return;
     }
     if (!cidade) {
+      console.error('❌ [MP Brick] Cidade não informada');
       toast('Informe a cidade do endereço de cobrança.', 'error');
       return;
     }
     if (uf.length !== 2) {
+      console.error('❌ [MP Brick] UF inválida');
       toast('Informe a UF (estado) do endereço de cobrança (2 letras).', 'error');
       return;
     }
 
     // Validar email
     if (!emailToUse || !emailRegex.test(emailToUse)) {
+      console.error('❌ [MP Brick] Email inválido');
       toast('Email inválido. Informe um email válido para continuar o pagamento.', 'error');
       return;
     }
 
-    // ✅ Salvar dados do Brick nos estados
+    // ✅ Salvar dados do Brick nos estados ANTES de processar
     setBrickCardToken(formData.token);
     setBrickPaymentMethodId(formData.payment_method_id);
     setBrickIssuerId(formData.issuer_id);
     setBrickInstallments(formData.installments);
+
+    console.log('✅ [MP Brick] Dados validados e salvos, processando pagamento...');
 
     // ✅ Processar pagamento com os dados do Brick
     await handleMercadoPagoPayment('credit_card');
@@ -357,10 +374,12 @@ export const PaymentModal = ({
             hasIssuerId: !!brickIssuerId,
             isBrickReady,
           });
-          toast('Por favor, preencha e submeta o formulário de cartão acima antes de continuar.', 'error');
+          toast('Por favor, preencha os dados do cartão no formulário acima e clique no botão de pagamento do formulário.', 'error');
           setIsProcessing(false);
           return;
         }
+
+        console.log('✅ [MP Payment] Dados do Brick disponíveis, continuando pagamento...');
 
         // ✅ USAR APENAS OS DADOS RETORNADOS PELO BRICK (sem hardcode)
         cardToken = brickCardToken;
@@ -1073,12 +1092,80 @@ export const PaymentModal = ({
       toast('Pagamento confirmado! Agendamento realizado com sucesso.', 'success');
       setIsProcessing(false);
 
-      // Buscar telefone do agendamento para redirecionamento
-      const { data: appointmentData } = await supabase
+      // ✅ Buscar dados completos do agendamento para salvar no localStorage (confirmação WhatsApp)
+      const { data: appointmentData, error: appointmentError } = await supabase
         .from('appointments')
-        .select('client_whatsapp')
+        .select(`
+          client_whatsapp,
+          service,
+          professional,
+          appointment_date,
+          appointment_time,
+          establishment_id,
+          payment_method
+        `)
         .eq('id', appointmentId)
         .single();
+
+      if (!appointmentError && appointmentData) {
+        // ✅ Buscar dados do estabelecimento (nome e código)
+        const { data: establishmentData } = await supabase
+          .from('establishments')
+          .select('name, code')
+          .eq('id', establishmentId)
+          .single();
+
+        // ✅ Buscar nome do profissional (pode ser ID ou nome direto)
+        let professionalName = '';
+        if (appointmentData.professional) {
+          // Se professional é um ID (UUID), buscar nome
+          if (String(appointmentData.professional).length > 20) {
+            const { data: professionalData } = await supabase
+              .from('professionals')
+              .select('name, full_name')
+              .eq('id', appointmentData.professional)
+              .single();
+            professionalName = professionalData?.full_name || professionalData?.name || String(appointmentData.professional);
+          } else {
+            // Se é nome direto (string)
+            professionalName = String(appointmentData.professional);
+          }
+        }
+
+        // ✅ Formatar data e horário
+        const appointmentDate = appointmentData.appointment_date 
+          ? new Date(appointmentData.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            })
+          : '';
+        const appointmentTime = appointmentData.appointment_time || '';
+
+        // ✅ Salvar dados no localStorage para mostrar modal de confirmação WhatsApp
+        const reminderData = {
+          appointmentDate,
+          appointmentTime,
+          serviceName: Array.isArray(appointmentData.service) 
+            ? appointmentData.service.join(' + ') 
+            : String(appointmentData.service || ''),
+          professionalName,
+          establishmentName: establishmentData?.name || '',
+          establishmentCode: establishmentData?.code || '',
+          paymentMethod: appointmentData.payment_method === 'pix' 
+            ? 'PIX' 
+            : appointmentData.payment_method === 'credito' 
+              ? 'Cartão de Crédito' 
+              : appointmentData.payment_method === 'debito'
+                ? 'Cartão de Débito'
+                : 'Não especificada',
+          uniqueKey: `${appointmentId}_${Date.now()}`,
+        };
+
+        console.log('✅ Salvando dados de confirmação WhatsApp:', reminderData);
+        localStorage.setItem('reminder_creation_data', JSON.stringify(reminderData));
+      }
 
       // Passar telefone para o callback de sucesso
       onPaymentSuccess(appointmentData?.client_whatsapp || '');

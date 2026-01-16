@@ -169,7 +169,13 @@ export const CardPaymentBrick = ({
     });
 
     // ✅ Chamar callback do componente pai
-    await onSubmit(brickData);
+    console.log('✅ [MP Brick] Chamando onSubmit do componente pai com dados validados');
+    try {
+      await onSubmit(brickData);
+    } catch (error) {
+      console.error('❌ [MP Brick] Erro ao chamar onSubmit:', error);
+      onError?.(error as Error);
+    }
   };
 
   // ✅ Não renderizar até o SDK estar inicializado
