@@ -21,6 +21,17 @@ export const handler: Handler = async (event) => {
   }
 
   try {
+    // ✅ OBRIGATÓRIO: Obter access_token do ambiente Netlify
+    const accessToken = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+
+    if (!accessToken) {
+      console.error('❌ [MP Get Payment Method] MERCADOPAGO_ACCESS_TOKEN não configurado');
+      return json(500, {
+        error: 'Configuração faltando',
+        message: 'A variável de ambiente MERCADOPAGO_ACCESS_TOKEN não está configurada no Netlify.',
+      });
+    }
+
     const body = parseJsonBody<{ bin: string }>(event);
     
     if (!body?.bin) {
@@ -47,12 +58,14 @@ export const handler: Handler = async (event) => {
     try {
       // 1. Buscar payment_method_id usando BIN
       // Endpoint: GET https://api.mercadopago.com/v1/payment_methods?bin={bin}
+      // ✅ Adicionar Authorization Bearer header
       const paymentMethodsUrl = `${MP_API_BASE_URL}/v1/payment_methods?bin=${bin}`;
       const paymentMethodsResponse = await fetch(paymentMethodsUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'Authorization': `Bearer ${accessToken}`, // ✅ OBRIGATÓRIO: Autenticação com access_token
         },
       });
 
@@ -86,12 +99,14 @@ export const handler: Handler = async (event) => {
       // 2. Se encontrou payment_method_id, buscar issuer_id
       if (payment_method_id) {
         // Endpoint: GET https://api.mercadopago.com/v1/payment_methods/{payment_method_id}/issuers?bin={bin}
+        // ✅ Adicionar Authorization Bearer header
         const issuersUrl = `${MP_API_BASE_URL}/v1/payment_methods/${payment_method_id}/issuers?bin=${bin}`;
         const issuersResponse = await fetch(issuersUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
+            'Authorization': `Bearer ${accessToken}`, // ✅ OBRIGATÓRIO: Autenticação com access_token
           },
         });
 
