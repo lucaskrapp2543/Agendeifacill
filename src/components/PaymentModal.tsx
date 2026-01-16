@@ -362,6 +362,19 @@ export const PaymentModal = ({
         };
       }
 
+      // ✅ VALIDAÇÃO FINAL: Garantir que payment_method_id e issuer_id estão presentes ANTES de enviar
+      if (method === 'credit_card') {
+        if (!cardPaymentMethodId) {
+          throw new Error('payment_method_id é obrigatório para pagamento com cartão. Não foi possível obter da API.');
+        }
+        if (!cardIssuerId) {
+          throw new Error('issuer_id é obrigatório para pagamento com cartão. Não foi possível obter da API.');
+        }
+        if (!cardToken) {
+          throw new Error('Token do cartão é obrigatório para pagamento com cartão.');
+        }
+      }
+
       const createPaymentUrl = import.meta.env.PROD
         ? '/.netlify/functions/mercadopago-create-payment'
         : '/api/mercadopago/create-payment';
@@ -371,19 +384,6 @@ export const PaymentModal = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        // ✅ VALIDAÇÃO FINAL: Garantir que payment_method_id e issuer_id estão presentes
-        if (method === 'credit_card') {
-          if (!cardPaymentMethodId) {
-            throw new Error('payment_method_id é obrigatório para pagamento com cartão. Não foi possível obter da API.');
-          }
-          if (!cardIssuerId) {
-            throw new Error('issuer_id é obrigatório para pagamento com cartão. Não foi possível obter da API.');
-          }
-          if (!cardToken) {
-            throw new Error('Token do cartão é obrigatório para pagamento com cartão.');
-          }
-        }
-
         body: JSON.stringify({
           establishmentId,
           amount: amountInCents,
