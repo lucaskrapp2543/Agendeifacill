@@ -968,10 +968,28 @@ export const PaymentModal = ({
 
   if (!isOpen) return null;
 
+  // ✅ Prevenir scroll da página de trás quando modal está aberto
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isOpen]);
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-700">
-        <div className="flex items-center justify-between mb-6">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 overflow-y-auto"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isProcessing && !isCheckingPayment) {
+          onClose();
+        }
+      }}
+    >
+      <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col my-auto border border-gray-700">
+        {/* Header fixo */}
+        <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0 border-b border-gray-800/50">
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
             <CreditCard className="h-6 w-6" />
             Pagamento Antecipado
@@ -986,7 +1004,9 @@ export const PaymentModal = ({
           )}
         </div>
 
-        {!selectedMethod ? (
+        {/* Conteúdo com scroll */}
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+          {!selectedMethod ? (
           <div className="space-y-4">
             {cardRefusedReason ? (
               <div className="bg-red-900/30 border border-red-700/60 rounded-lg p-4">
@@ -1356,6 +1376,7 @@ export const PaymentModal = ({
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

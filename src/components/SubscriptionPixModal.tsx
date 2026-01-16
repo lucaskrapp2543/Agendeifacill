@@ -829,12 +829,30 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   };
 
+  // ✅ Prevenir scroll da página de trás quando modal está aberto
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-800 text-white">
-        <div className="flex items-center justify-between mb-4">
+    <div 
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isProcessing && !isCheckingPayment) {
+          onClose();
+        }
+      }}
+    >
+      <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col my-auto border border-gray-800 text-white">
+        {/* Header fixo */}
+        <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0 border-b border-gray-800/50">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <QrCode className="h-5 w-5" />
             Assinatura
@@ -846,7 +864,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           )}
         </div>
 
-        <div className="bg-[#111213] border border-gray-700 rounded-lg p-4 mb-4">
+        {/* Conteúdo com scroll */}
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+          <div className="bg-[#111213] border border-gray-700 rounded-lg p-4 mb-4">
           <p className="text-sm text-gray-200">
             Plano: <span className="font-semibold">{subscription.name}</span>
           </p>
@@ -1220,6 +1240,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
