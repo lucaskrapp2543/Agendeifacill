@@ -207,13 +207,34 @@ export async function createMPPayment(
       message: error?.message,
       response: error?.response?.data,
       status: error?.response?.status,
+      statusText: error?.response?.statusText,
+      cause: error?.response?.data?.cause,
     });
 
-    const errorMessage =
-      error?.response?.data?.message ||
-      error?.response?.data?.error ||
+    // Extrair mensagem de erro mais detalhada
+    const responseData = error?.response?.data || {};
+    let errorMessage = 
+      responseData.message ||
+      responseData.error ||
       error?.message ||
       'Erro ao criar pagamento no Mercado Pago';
+
+    // Mensagens específicas para erros comuns
+    if (errorMessage.includes('MARKETPLACE fail') || errorMessage.includes('GET to API MARKETPLACE')) {
+      errorMessage = 'Erro de autenticação no Marketplace. Verifique se a conta do Mercado Pago está conectada corretamente. Se o problema persistir, reconecte a conta.';
+    } else if (error?.response?.status === 401) {
+      errorMessage = 'Token de acesso inválido ou expirado. Reconecte a conta do Mercado Pago.';
+    } else if (error?.response?.status === 403) {
+      errorMessage = 'Acesso negado. Verifique se a aplicação está configurada como Marketplace no painel do Mercado Pago.';
+    }
+
+    // Adicionar detalhes do erro se disponíveis
+    if (responseData.cause && Array.isArray(responseData.cause) && responseData.cause.length > 0) {
+      const firstCause = responseData.cause[0];
+      if (firstCause.description) {
+        errorMessage += ` Detalhes: ${firstCause.description}`;
+      }
+    }
 
     throw new Error(errorMessage);
   }
