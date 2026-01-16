@@ -296,8 +296,10 @@ self.addEventListener('fetch', (event) => {
     if (STATIC_FILES.some(file => url.pathname.includes(file))) {
       event.respondWith(cacheFirst(request));
     }
-    // API calls - Network First
+    // API calls - Network First (sempre da rede, sem cache de erros)
+    // ⚠️ CRÍTICO: APIs nunca devem usar cache de respostas de erro (404, 500, etc)
     else if (url.pathname.includes('/api/') || url.hostname.includes('supabase')) {
+      // Para APIs, usar networkFirst mas garantir que erros não sejam cacheados
       event.respondWith(networkFirst(request));
     }
     // HTML pages - Network First com fallback
