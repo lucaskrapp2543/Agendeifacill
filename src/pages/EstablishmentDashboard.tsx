@@ -1217,6 +1217,11 @@ const EstablishmentDashboard = () => {
   const [professionalAbsences, setProfessionalAbsences] = useState<Record<string, string[]>>({});
   const [absenceModalCurrentMonth, setAbsenceModalCurrentMonth] = useState(new Date());
 
+  // Estados para "Terminei Antes"
+  const [showFinishEarlyModal, setShowFinishEarlyModal] = useState(false);
+  const [selectedAppointmentForFinishEarly, setSelectedAppointmentForFinishEarly] = useState<Appointment | null>(null);
+  const [selectedActualDuration, setSelectedActualDuration] = useState<number>(30);
+
   // Estados para metas dos profissionais
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [selectedProfessionalForGoal, setSelectedProfessionalForGoal] = useState<string | null>(null);
@@ -7297,6 +7302,92 @@ Estamos te aguardando! 😎✂️`;
     setSelectedAppointmentForTransfer(null);
   };
 
+  // Função para abrir modal "Terminei Antes"
+  const handleOpenFinishEarlyModal = (appointment: Appointment) => {
+    setSelectedAppointmentForFinishEarly(appointment);
+    setSelectedActualDuration(appointment.duration || 30);
+    setShowFinishEarlyModal(true);
+  };
+
+  // Função para processar "Terminei Antes"
+  const handleFinishEarly = async () => {
+    if (!selectedAppointmentForFinishEarly) return;
+
+    const appointment = selectedAppointmentForFinishEarly;
+    const originalDuration = appointment.duration || 30;
+    const actualDuration = selectedActualDuration;
+
+    // Validar que a duração real não é maior que a original
+    if (actualDuration > originalDuration) {
+      toast('A duração real não pode ser maior que a duração planejada.', 'error');
+      return;
+    }
+
+    // Validar que a duração real é positiva
+    if (actualDuration <= 0) {
+      toast('A duração real deve ser maior que zero.', 'error');
+      return;
+    }
+
+    // ✅ OTIMIZAÇÃO: Calcular tempo liberado e horários ANTES de fazer update (para resposta imediata)
+    const timeReleased = originalDuration - actualDuration;
+    const [hours, minutes] = appointment.appointment_time.split(':').map(Number);
+    const endTime = new Date();
+    endTime.setHours(hours);
+    endTime.setMinutes(minutes + actualDuration);
+    const availableStartTime = `${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`;
+
+    const originalEndTime = new Date();
+    originalEndTime.setHours(hours);
+    originalEndTime.setMinutes(minutes + originalDuration);
+    const originalEndTimeStr = `${String(originalEndTime.getHours()).padStart(2, '0')}:${String(originalEndTime.getMinutes()).padStart(2, '0')}`;
+
+    // ✅ OTIMIZAÇÃO: Fechar modal IMEDIATAMENTE para dar resposta rápida ao usuário
+    setShowFinishEarlyModal(false);
+    setSelectedAppointmentForFinishEarly(null);
+    setSelectedActualDuration(30);
+
+    // ✅ OTIMIZAÇÃO: Mostrar toast IMEDIATAMENTE
+    toast(
+      `✅ Duração atualizada! Tempo liberado: ${availableStartTime} até ${originalEndTimeStr} (${timeReleased} minutos)`,
+      'success'
+    );
+
+    try {
+      // Atualizar duração real no banco de dados
+      const { error } = await supabase
+        .from('appointments')
+        .update({ 
+          duration: actualDuration,
+          // Adicionar uma observação automática sobre o tempo liberado
+          establishment_observation: appointment.establishment_observation 
+            ? `${appointment.establishment_observation}\n\n⏱️ Terminei antes: Duração real ${actualDuration}min (${timeReleased}min liberados)`
+            : `⏱️ Terminei antes: Duração real ${actualDuration}min (${timeReleased}min liberados)`
+        })
+        .eq('id', appointment.id);
+
+      if (error) {
+        throw error;
+      }
+
+      // ✅ OTIMIZAÇÃO: Atualizar lista em background (sem await para não bloquear)
+      Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments()
+      ]).catch(err => {
+        console.error('Erro ao recarregar agendamentos:', err);
+        // Não mostrar erro para o usuário, apenas logar
+      });
+    } catch (error: any) {
+      console.error('Erro ao atualizar duração:', error);
+      toast('Erro ao atualizar duração do atendimento', 'error');
+      // Reabrir modal em caso de erro
+      setShowFinishEarlyModal(true);
+      setSelectedAppointmentForFinishEarly(appointment);
+      setSelectedActualDuration(actualDuration);
+    }
+  };
+
   const handleTransferAppointment = async (appointmentId: string, toProfessionalId: string) => {
     if (!selectedAppointmentForTransfer) return;
 
@@ -11181,6 +11272,7 @@ Estamos te aguardando! 😎✂️`;
                       }}
                       onGenerateNF={handleGenerateNF as any}
                       onOpenReminderModal={handleOpenReminderModal as any}
+                      onOpenFinishEarlyModal={handleOpenFinishEarlyModal as any}
                       onGoToProfessionalConfig={handleGoToProfessionalConfig}
                       onGoToClients={handleGoToClients}
                       onCancelAppointment={handleCancelClick}
@@ -12293,6 +12385,14 @@ Estamos te aguardando! 😎✂️`;
                                                 title="Gerar Nota Fiscal (XML)"
                                               >
                                                 📄 Gerar NF
+                                              </button>
+
+                                              <button
+                                                onClick={() => handleOpenFinishEarlyModal(appointment)}
+                                                className="px-2 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                                                title="Terminei antes do tempo planejado"
+                                              >
+                                                ⏱️ Terminei Antes
                                               </button>
 
                                             </div>
@@ -21213,6 +21313,89 @@ Estamos te aguardando! 😎✂️`;
         )
       }
 
+
+      {/* Modal "Terminei Antes" */}
+      {showFinishEarlyModal && selectedAppointmentForFinishEarly && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">⏱️ Terminei Antes</h2>
+              <p className="text-gray-700 mb-4">
+                Agendamento de <strong>{selectedAppointmentForFinishEarly.appointment_time}</strong>
+                <br />
+                Duração planejada: <strong>{selectedAppointmentForFinishEarly.duration || 30} minutos</strong>
+              </p>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Quanto tempo durou o serviço? (em minutos)
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {[5, 10, 15, 20, 25, 30, 35, 40, 45].map((duration) => (
+                    <button
+                      key={duration}
+                      onClick={() => setSelectedActualDuration(duration)}
+                      className={`px-3 py-2 text-sm font-medium rounded transition-colors ${
+                        selectedActualDuration === duration
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {duration}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {selectedActualDuration < (selectedAppointmentForFinishEarly.duration || 30) && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm text-green-800">
+                    ✅ Tempo liberado: <strong>
+                      {(selectedAppointmentForFinishEarly.duration || 30) - selectedActualDuration} minutos
+                    </strong>
+                    <br />
+                    Horário disponível para encaixe: <strong>
+                      {(() => {
+                        const [hours, minutes] = selectedAppointmentForFinishEarly.appointment_time.split(':').map(Number);
+                        const endTime = new Date();
+                        endTime.setHours(hours);
+                        endTime.setMinutes(minutes + selectedActualDuration);
+                        const availableStartTime = `${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`;
+                        
+                        const originalEndTime = new Date();
+                        originalEndTime.setHours(hours);
+                        originalEndTime.setMinutes(minutes + (selectedAppointmentForFinishEarly.duration || 30));
+                        const originalEndTimeStr = `${String(originalEndTime.getHours()).padStart(2, '0')}:${String(originalEndTime.getMinutes()).padStart(2, '0')}`;
+                        
+                        return `${availableStartTime} até ${originalEndTimeStr}`;
+                      })()}
+                    </strong>
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowFinishEarlyModal(false);
+                    setSelectedAppointmentForFinishEarly(null);
+                    setSelectedActualDuration(30);
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleFinishEarly}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modais de Tutorial Popup */}
 

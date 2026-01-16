@@ -169,6 +169,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [showEditDescriptionModal, setShowEditDescriptionModal] = useState(false);
   const [selectedSubscriptionForEdit, setSelectedSubscriptionForEdit] = useState<Subscription | null>(null);
   const [editDescription, setEditDescription] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editWeekdays, setEditWeekdays] = useState<string[]>([]);
+  const [editDuration, setEditDuration] = useState<number>(30);
 
   // Estados para edição de link personalizado
   const [showEditLinkModal, setShowEditLinkModal] = useState(false);
@@ -997,28 +1000,52 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // Função para salvar descrição
+  // Função para salvar descrição, nome, dias e duração
   const handleSaveDescription = async () => {
     if (!selectedSubscriptionForEdit) return;
+
+    // Validações
+    if (!editName.trim()) {
+      toast.error('O nome da assinatura é obrigatório.');
+      return;
+    }
+
+    if (editWeekdays.length === 0) {
+      toast.error('Selecione pelo menos um dia da semana.');
+      return;
+    }
+
+    if (!editDuration || editDuration <= 0) {
+      toast.error('A duração deve ser maior que zero.');
+      return;
+    }
 
     try {
       const { error } = await supabase
         .from('subscriptions')
-        .update({ description: editDescription.trim() || null })
+        .update({ 
+          description: editDescription.trim() || null,
+          name: editName.trim(),
+          weekdays: editWeekdays,
+          service_duration: editDuration
+        })
         .eq('id', selectedSubscriptionForEdit.id);
 
       if (error) {
         throw error;
       }
 
-      toast.success(selectedSubscriptionForEdit.description ? 'Descrição atualizada com sucesso!' : 'Descrição adicionada com sucesso!');
+      toast.success('Assinatura atualizada com sucesso!');
       setShowEditDescriptionModal(false);
       setSelectedSubscriptionForEdit(null);
       setEditDescription('');
+      setEditName('');
+      setEditWeekdays([]);
+      setEditDuration(30);
       fetchSubscriptions(); // Atualizar lista
     } catch (error: any) {
-      console.error('Erro ao salvar descrição:', error);
-      toast.error(error.message || 'Erro ao salvar descrição.');
+      console.error('Erro ao salvar assinatura:', error);
+      toast.error(error.message || 'Erro ao salvar assinatura.');
     }
   };
 
@@ -2181,10 +2208,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     onClick={() => {
                       setSelectedSubscriptionForEdit(sub);
                       setEditDescription(sub.description || '');
+                      setEditName(sub.name || '');
+                      setEditWeekdays(sub.weekdays || []);
+                      setEditDuration(sub.service_duration || 30);
                       setShowEditDescriptionModal(true);
                     }}
                     className="text-gray-600 hover:text-gray-800 transition-colors"
-                    title={sub.description ? "Editar Informações" : "Adicionar Informações"}
+                    title="Editar Assinatura"
                   >
                     <Edit className="h-5 w-5" />
                   </button>
@@ -2940,42 +2970,138 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         </div>
       )}
 
-      {/* Modal de Edição de Descrição */}
+      {/* Modal de Edição de Assinatura */}
       {showEditDescriptionModal && selectedSubscriptionForEdit && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700 my-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">
-                {selectedSubscriptionForEdit.description ? 'Editar Descrição' : 'Adicionar Descrição'}
+                Editar Assinatura
               </h3>
               <button
-                onClick={() => setShowEditDescriptionModal(false)}
+                onClick={() => {
+                  setShowEditDescriptionModal(false);
+                  setSelectedSubscriptionForEdit(null);
+                  setEditDescription('');
+                  setEditName('');
+                  setEditWeekdays([]);
+                  setEditDuration(30);
+                }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                Descrição da Assinatura "{selectedSubscriptionForEdit.name}"
-              </label>
-              <textarea
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                placeholder="Ex: Essa assinatura inclui cortes ilimitados durante o mês."
-                maxLength={150}
-                rows={4}
-                className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                {editDescription.length}/150 caracteres
-              </p>
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+              {/* Nome */}
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Nome da Assinatura
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Ex: Barba e Cabelo"
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+                  required
+                />
+              </div>
+
+              {/* Dias da Semana */}
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Dias da Semana
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'monday', label: 'Segunda-feira' },
+                    { value: 'tuesday', label: 'Terça-feira' },
+                    { value: 'wednesday', label: 'Quarta-feira' },
+                    { value: 'thursday', label: 'Quinta-feira' },
+                    { value: 'friday', label: 'Sexta-feira' },
+                    { value: 'saturday', label: 'Sábado' },
+                    { value: 'sunday', label: 'Domingo' }
+                  ].map((day) => (
+                    <label key={day.value} className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editWeekdays.includes(day.value)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setEditWeekdays([...editWeekdays, day.value]);
+                          } else {
+                            setEditWeekdays(editWeekdays.filter(d => d !== day.value));
+                          }
+                        }}
+                        className="w-4 h-4 text-gray-700 bg-[#2a2b2c] border-gray-600 rounded focus:ring-gray-500"
+                      />
+                      <span className="text-sm text-gray-300">{day.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Duração */}
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Duração do Serviço (minutos)
+                </label>
+                <select
+                  value={editDuration}
+                  onChange={(e) => setEditDuration(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  required
+                >
+                  <option value={5}>5 minutos</option>
+                  <option value={10}>10 minutos</option>
+                  <option value={15}>15 minutos</option>
+                  <option value={20}>20 minutos</option>
+                  <option value={30}>30 minutos</option>
+                  <option value={40}>40 minutos</option>
+                  <option value={45}>45 minutos</option>
+                  <option value={60}>1 hora</option>
+                  <option value={75}>1 hora e 15 minutos</option>
+                  <option value={90}>1 hora e 30 minutos</option>
+                  <option value={105}>1 hora e 45 minutos</option>
+                  <option value={120}>2 horas</option>
+                  <option value={135}>2 horas e 15 minutos</option>
+                  <option value={150}>2 horas e 30 minutos</option>
+                  <option value={165}>2 horas e 45 minutos</option>
+                  <option value={180}>3 horas</option>
+                </select>
+              </div>
+
+              {/* Descrição */}
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Descrição (opcional)
+                </label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Ex: Essa assinatura inclui cortes ilimitados durante o mês."
+                  maxLength={150}
+                  rows={4}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {editDescription.length}/150 caracteres
+                </p>
+              </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowEditDescriptionModal(false)}
+                onClick={() => {
+                  setShowEditDescriptionModal(false);
+                  setSelectedSubscriptionForEdit(null);
+                  setEditDescription('');
+                  setEditName('');
+                  setEditWeekdays([]);
+                  setEditDuration(30);
+                }}
                 className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
               >
                 Cancelar
@@ -2984,7 +3110,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 onClick={handleSaveDescription}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                {selectedSubscriptionForEdit.description ? 'Atualizar' : 'Adicionar'}
+                Salvar Alterações
               </button>
             </div>
           </div>

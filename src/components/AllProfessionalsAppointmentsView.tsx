@@ -97,6 +97,7 @@ interface AllProfessionalsAppointmentsViewProps {
   onOpenProductV2Modal?: (appointmentId: string) => void;
   onGenerateNF?: (appointment: Appointment) => void;
   onOpenReminderModal?: (appointment: Appointment) => void;
+  onOpenFinishEarlyModal?: (appointment: Appointment) => void;
   onGoToProfessionalConfig?: (professionalId: string) => void;
   onGoToClients?: () => void;
   onCancelAppointment?: (appointmentId: string) => void;
@@ -121,6 +122,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onOpenProductV2Modal,
   onGenerateNF,
   onOpenReminderModal,
+  onOpenFinishEarlyModal,
   onGoToProfessionalConfig,
   onGoToClients,
   onCancelAppointment,
@@ -1859,6 +1861,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               className="px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800"
                                             >
                                               🔄 TRANSFERIR
+                                            </button>
+
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (onOpenFinishEarlyModal) onOpenFinishEarlyModal(apt);
+                                              }}
+                                              className="px-2 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                                              title="Terminei antes do tempo planejado"
+                                            >
+                                              ⏱️ Terminei Antes
                                             </button>
 
                                             <button
