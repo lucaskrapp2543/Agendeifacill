@@ -256,15 +256,40 @@ export const PaymentModal = ({
         },
       };
 
-      // Adicionar endereço de cobrança se for cartão
-      if (method === 'credit_card' && billingCep && billingRua && billingNumero && billingCidade && billingUf) {
+      // ✅ CORRIGIDO: Adicionar endereço de cobrança para cartão (obrigatório no Mercado Pago)
+      // Validar todos os campos obrigatórios antes de enviar
+      if (method === 'credit_card') {
+        const cepDigits = String(billingCep || '').replace(/\D/g, '');
+        const rua = String(billingRua || '').trim();
+        const numeroStr = String(billingNumero || '').replace(/\D/g, '');
+        const numero = Number(numeroStr) || 1; // Se não tiver número, usar 1 (evita 0)
+        const cidade = String(billingCidade || '').trim();
+        const uf = String(billingUf || '').trim().toUpperCase();
+
+        // Validar campos obrigatórios
+        if (!cepDigits || cepDigits.length !== 8) {
+          throw new Error('CEP inválido. Informe um CEP com 8 dígitos.');
+        }
+        if (!rua) {
+          throw new Error('Informe a rua/avenida do endereço de cobrança.');
+        }
+        if (!numeroStr) {
+          throw new Error('Informe o número do endereço de cobrança.');
+        }
+        if (!cidade) {
+          throw new Error('Informe a cidade do endereço de cobrança.');
+        }
+        if (!uf || uf.length !== 2) {
+          throw new Error('Informe a UF (estado) do endereço de cobrança (2 letras).');
+        }
+
         payerData.address = {
-          zip_code: String(billingCep || '').replace(/\D/g, ''),
-          street_name: String(billingRua || '').trim(),
-          street_number: Number(String(billingNumero || '').replace(/\D/g, '')) || 0,
+          zip_code: cepDigits,
+          street_name: rua,
+          street_number: numero,
+          city: cidade,
+          federal_unit: uf,
           ...(billingBairro ? { neighborhood: String(billingBairro).trim() } : {}),
-          city: String(billingCidade || '').trim(),
-          federal_unit: String(billingUf || '').trim().toUpperCase(),
         };
       }
 
