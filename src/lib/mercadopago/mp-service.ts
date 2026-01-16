@@ -22,6 +22,8 @@ export interface CreateMPPaymentRequest {
   description: string;
   payer: {
     email: string;
+    first_name?: string; // Nome do titular (necessário para cartão)
+    last_name?: string; // Sobrenome do titular (necessário para cartão)
     identification?: {
       type: 'CPF' | 'CNPJ';
       number: string;
@@ -115,12 +117,29 @@ export async function createMPPayment(
       plataforma_recebe: applicationFeeAmount,
     });
     
+    // ✅ Log detalhado do objeto payer antes de montar o payload (para debug diff_param_bins)
+    console.log('👤 [MP Payment] Objeto payer que será enviado:', {
+      email: paymentData.payer.email,
+      first_name: paymentData.payer.first_name || 'NÃO ENVIADO',
+      last_name: paymentData.payer.last_name || 'NÃO ENVIADO',
+      identification: paymentData.payer.identification 
+        ? {
+            type: paymentData.payer.identification.type,
+            number: paymentData.payer.identification.number.substring(0, 3) + '***' + paymentData.payer.identification.number.substring(paymentData.payer.identification.number.length - 3),
+          }
+        : 'NÃO ENVIADO',
+      hasAddress: !!paymentData.payer.address,
+    });
+    
     const payload: any = {
       transaction_amount: transactionAmount,
       description: paymentData.description,
       payment_method_id: paymentData.payment_method_id || 'pix', // Padrão: PIX
       payer: {
         email: paymentData.payer.email,
+        // ✅ CRÍTICO: Incluir first_name e last_name se existirem (necessário para evitar diff_param_bins)
+        ...(paymentData.payer.first_name ? { first_name: paymentData.payer.first_name } : {}),
+        ...(paymentData.payer.last_name ? { last_name: paymentData.payer.last_name } : {}),
         ...(paymentData.payer.identification
           ? {
               identification: {
@@ -154,6 +173,12 @@ export async function createMPPayment(
         tokenLength: String(paymentData.token || '').length,
         tokenPreview: String(paymentData.token || '').substring(0, 10) + '...',
         installments: paymentData.installments || 1,
+        payerName: paymentData.payer.first_name && paymentData.payer.last_name 
+          ? `${paymentData.payer.first_name} ${paymentData.payer.last_name}` 
+          : 'NÃO INFORMADO',
+        payerIdentification: paymentData.payer.identification 
+          ? `${paymentData.payer.identification.type}: ${paymentData.payer.identification.number.substring(0, 3)}***${paymentData.payer.identification.number.substring(paymentData.payer.identification.number.length - 3)}`
+          : 'NÃO INFORMADO',
         hasAddress: !!paymentData.payer.address,
         addressDetails: paymentData.payer.address ? {
           zip_code: paymentData.payer.address.zip_code,

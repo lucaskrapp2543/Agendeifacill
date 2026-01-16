@@ -261,6 +261,9 @@ export const PaymentModal = ({
           
           // ✅ Log dos dados que serão enviados no pagamento (para comparar com tokenização)
           console.log('📦 [MP Payment] Dados que serão enviados no pagamento:', {
+            holderName: holder.substring(0, 10) + '...',
+            first_name: holder.split(' ')[0] || holder,
+            last_name: holder.split(' ').slice(1).join(' ') || holder,
             identificationType: docDigits.length === 11 ? 'CPF' : 'CNPJ',
             identificationNumber: docDigits.substring(0, 3) + '***' + docDigits.substring(docDigits.length - 3),
             cardToken: cardToken?.substring(0, 10) + '...',
