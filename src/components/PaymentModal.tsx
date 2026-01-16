@@ -247,6 +247,7 @@ export const PaymentModal = ({
           cardPaymentMethodId = undefined;
           cardIssuerId = undefined;
 
+          // 1. Tokenizar o cartão (retorna token + BIN)
           const tokenResult = await tokenizeMercadoPagoCard(
             {
               cardNumber: numberDigits,
@@ -260,27 +261,51 @@ export const PaymentModal = ({
             mpPublicKey
           );
 
-          // ✅ CRÍTICO: payment_method_id e issuer_id são OBRIGATÓRIOS
-          // A função tokenizeMercadoPagoCard já deve ter validado isso, mas garantimos aqui
-          if (!tokenResult.payment_method_id) {
-            throw new Error('payment_method_id não foi retornado pela API de tokenização. Não é possível continuar com o pagamento.');
-          }
-
-          if (!tokenResult.issuer_id) {
-            throw new Error('issuer_id não foi retornado pela API de tokenização. Não é possível continuar com o pagamento.');
-          }
-
-          // ✅ USAR APENAS OS DADOS RETORNADOS PELA API (sem hardcode)
-          // ✅ REMOVIDO: NUNCA usar 'credit_card' hardcoded
           cardToken = tokenResult.token;
-          cardPaymentMethodId = tokenResult.payment_method_id; // ✅ OBRIGATÓRIO: visa, master, elo, etc.
-          cardIssuerId = tokenResult.issuer_id; // ✅ OBRIGATÓRIO: ID do banco emissor
+          const bin = tokenResult.first_six_digits;
 
-          console.log('✅ [MP] Token do cartão gerado - Dados retornados pela API:', {
+          // 2. Buscar payment_method_id e issuer_id via BACKEND (evita CORS)
+          // ✅ SOLUÇÃO: Usar Netlify Function ao invés de chamar API do Mercado Pago diretamente
+          const getPaymentMethodUrl = import.meta.env.PROD
+            ? '/.netlify/functions/mercadopago-get-payment-method'
+            : '/api/mercadopago/get-payment-method';
+
+          console.log('🔍 [MP] Buscando payment_method_id e issuer_id via backend para BIN:', bin.substring(0, 2) + '****');
+
+          const paymentMethodResponse = await fetch(getPaymentMethodUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ bin }),
+          });
+
+          if (!paymentMethodResponse.ok) {
+            const errorData = await paymentMethodResponse.json().catch(() => ({ message: 'Erro desconhecido' }));
+            throw new Error(errorData.message || errorData.error || `Erro ${paymentMethodResponse.status} ao buscar método de pagamento`);
+          }
+
+          const paymentMethodData = await paymentMethodResponse.json();
+
+          // ✅ VALIDAÇÃO: payment_method_id e issuer_id são OBRIGATÓRIOS
+          if (!paymentMethodData.payment_method_id) {
+            throw new Error('payment_method_id não foi retornado pela API. Não é possível continuar com o pagamento.');
+          }
+
+          if (!paymentMethodData.issuer_id) {
+            throw new Error('issuer_id não foi retornado pela API. Não é possível continuar com o pagamento.');
+          }
+
+          // ✅ USAR APENAS OS DADOS RETORNADOS PELA API DO BACKEND (sem hardcode)
+          // ✅ REMOVIDO: NUNCA usar 'credit_card' hardcoded
+          cardPaymentMethodId = paymentMethodData.payment_method_id; // ✅ OBRIGATÓRIO: visa, master, elo, etc.
+          cardIssuerId = paymentMethodData.issuer_id; // ✅ OBRIGATÓRIO: ID do banco emissor
+
+          console.log('✅ [MP] Token e dados do método de pagamento obtidos:', {
             token: cardToken?.substring(0, 10) + '...',
             payment_method_id: cardPaymentMethodId, // ✅ Nunca será 'credit_card'
             issuer_id: cardIssuerId,
-            first_six_digits: tokenResult.first_six_digits,
+            first_six_digits: bin,
             installments: cardInstallments,
           });
           
