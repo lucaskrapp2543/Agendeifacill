@@ -131,8 +131,65 @@ export const PaymentModal = ({
       setPixQrCode('');
       setPixRemainingSeconds(0);
       setHasPagarMeError(false);
+      // ✅ NÃO limpar dados do cartão e endereço - manter para o usuário não perder ao voltar
+      // setBrickCardToken(null);
+      // setBrickPaymentMethodId(null);
+      // setBrickIssuerId(null);
+      // setBillingCep('');
+      // setBillingRua('');
+      // etc...
     }
   }, [isOpen, establishmentId]);
+
+  // ✅ NOVO: Salvar dados do endereço e email no localStorage para persistir
+  useEffect(() => {
+    if (isOpen) {
+      // Carregar dados salvos ao abrir o modal
+      try {
+        const savedBillingCep = localStorage.getItem(`payment_billing_cep_${establishmentId}`);
+        const savedBillingRua = localStorage.getItem(`payment_billing_rua_${establishmentId}`);
+        const savedBillingNumero = localStorage.getItem(`payment_billing_numero_${establishmentId}`);
+        const savedBillingBairro = localStorage.getItem(`payment_billing_bairro_${establishmentId}`);
+        const savedBillingCidade = localStorage.getItem(`payment_billing_cidade_${establishmentId}`);
+        const savedBillingUf = localStorage.getItem(`payment_billing_uf_${establishmentId}`);
+        const savedPayerEmail = localStorage.getItem(`payment_payer_email_${establishmentId}`);
+        
+        if (savedBillingCep && !billingCep) setBillingCep(savedBillingCep);
+        if (savedBillingRua && !billingRua) setBillingRua(savedBillingRua);
+        if (savedBillingNumero && !billingNumero) setBillingNumero(savedBillingNumero);
+        if (savedBillingBairro && !billingBairro) setBillingBairro(savedBillingBairro);
+        if (savedBillingCidade && !billingCidade) setBillingCidade(savedBillingCidade);
+        if (savedBillingUf && !billingUf) setBillingUf(savedBillingUf);
+        if (savedPayerEmail && !payerEmail) {
+          // Só usar se não for email de guest
+          if (!savedPayerEmail.includes('guest_') && !savedPayerEmail.includes('@agendafaci')) {
+            setPayerEmail(savedPayerEmail);
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Erro ao carregar dados salvos:', e);
+      }
+    }
+  }, [isOpen, establishmentId]);
+
+  // ✅ Salvar dados do endereço e email quando mudarem
+  useEffect(() => {
+    if (isOpen && establishmentId) {
+      try {
+        if (billingCep) localStorage.setItem(`payment_billing_cep_${establishmentId}`, billingCep);
+        if (billingRua) localStorage.setItem(`payment_billing_rua_${establishmentId}`, billingRua);
+        if (billingNumero) localStorage.setItem(`payment_billing_numero_${establishmentId}`, billingNumero);
+        if (billingBairro) localStorage.setItem(`payment_billing_bairro_${establishmentId}`, billingBairro);
+        if (billingCidade) localStorage.setItem(`payment_billing_cidade_${establishmentId}`, billingCidade);
+        if (billingUf) localStorage.setItem(`payment_billing_uf_${establishmentId}`, billingUf);
+        if (payerEmail && !payerEmail.includes('guest_') && !payerEmail.includes('@agendafaci')) {
+          localStorage.setItem(`payment_payer_email_${establishmentId}`, payerEmail);
+        }
+      } catch (e) {
+        console.warn('⚠️ Erro ao salvar dados:', e);
+      }
+    }
+  }, [isOpen, establishmentId, billingCep, billingRua, billingNumero, billingBairro, billingCidade, billingUf, payerEmail]);
 
   // ✅ NOVO: Handler para quando o Card Payment Brick submete o formulário
   const handleBrickSubmit = async (formData: {
@@ -149,6 +206,43 @@ export const PaymentModal = ({
       issuer_id: formData.issuer_id,
       installments: formData.installments,
     });
+
+    // ✅ VALIDAÇÃO: Verificar se endereço e email estão preenchidos antes de processar
+    const cepDigits = String(billingCep || '').replace(/\D/g, '');
+    const rua = String(billingRua || '').trim();
+    const numero = String(billingNumero || '').replace(/\D/g, '');
+    const cidade = String(billingCidade || '').trim();
+    const uf = String(billingUf || '').trim().toUpperCase();
+    const emailToUse = String(payerEmail || customerData.email || '').trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // Validar endereço
+    if (cepDigits.length !== 8) {
+      toast('CEP inválido. Informe um CEP com 8 dígitos.', 'error');
+      return;
+    }
+    if (!rua) {
+      toast('Informe a rua/avenida do endereço de cobrança.', 'error');
+      return;
+    }
+    if (!numero) {
+      toast('Informe o número do endereço de cobrança.', 'error');
+      return;
+    }
+    if (!cidade) {
+      toast('Informe a cidade do endereço de cobrança.', 'error');
+      return;
+    }
+    if (uf.length !== 2) {
+      toast('Informe a UF (estado) do endereço de cobrança (2 letras).', 'error');
+      return;
+    }
+
+    // Validar email
+    if (!emailToUse || !emailRegex.test(emailToUse)) {
+      toast('Email inválido. Informe um email válido para continuar o pagamento.', 'error');
+      return;
+    }
 
     // ✅ Salvar dados do Brick nos estados
     setBrickCardToken(formData.token);
@@ -200,16 +294,15 @@ export const PaymentModal = ({
     // O Brick valida automaticamente os dados do cartão
     // Apenas validar endereço de cobrança (ainda necessário)
     if (method === 'credit_card') {
-      // ✅ Validar apenas se o Brick está pronto e tem token (para Mercado Pago)
+      // ✅ Validar apenas se o Brick está pronto (para Mercado Pago)
+      // NÃO validar token aqui - o Brick vai chamar handleBrickSubmit quando o usuário clicar no botão
       if (hasMercadoPago) {
         if (!isBrickReady) {
           toast('Aguarde o formulário de pagamento carregar.', 'error');
           return;
         }
-        if (!brickCardToken || !brickPaymentMethodId || !brickIssuerId) {
-          toast('Preencha os dados do cartão no formulário.', 'error');
-          return;
-        }
+        // ✅ REMOVIDO: Não validar token aqui - o Brick faz isso no onSubmit
+        // A validação será feita quando o Brick chamar handleBrickSubmit
       }
 
       // Validar endereço de cobrança (obrigatório para cartão)
@@ -254,8 +347,17 @@ export const PaymentModal = ({
       // Se for cartão de crédito, usar dados do Brick
       if (method === 'credit_card') {
         // ✅ VALIDAÇÃO: Garantir que o Brick forneceu todos os dados necessários
+        // Esta validação só acontece quando handleBrickSubmit é chamado (quando o usuário clica no botão do Brick)
         if (!brickCardToken || !brickPaymentMethodId || !brickIssuerId) {
-          toast('Erro: Dados do cartão não foram fornecidos pelo formulário. Tente novamente.', 'error');
+          // ✅ Se não tem dados, significa que o Brick ainda não foi submetido
+          // Isso não deveria acontecer aqui, mas se acontecer, mostrar erro mais claro
+          console.error('❌ [MP Payment] Dados do Brick não disponíveis:', {
+            hasToken: !!brickCardToken,
+            hasPaymentMethodId: !!brickPaymentMethodId,
+            hasIssuerId: !!brickIssuerId,
+            isBrickReady,
+          });
+          toast('Por favor, preencha e submeta o formulário de cartão acima antes de continuar.', 'error');
           setIsProcessing(false);
           return;
         }
@@ -469,7 +571,8 @@ export const PaymentModal = ({
 
   // Verificar status do pagamento Mercado Pago periodicamente
   const checkMercadoPagoPaymentStatus = async (paymentId: number) => {
-    const maxAttempts = 60; // 60 tentativas = ~5 minutos (5s cada)
+    // ✅ Se pagamento é obrigatório, reduzir tempo de espera para cancelar mais rápido
+    const maxAttempts = cancelAppointmentOnFailure ? 24 : 60; // 2 minutos se obrigatório, 5 minutos se opcional
     let attempts = 0;
 
     const checkStatus = async () => {
@@ -483,6 +586,12 @@ export const PaymentModal = ({
         if (attempts >= maxAttempts) {
           toast('Tempo limite de pagamento excedido', 'error');
           setHasPagarMeError(true);
+          // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
+          if (cancelAppointmentOnFailure) {
+            console.log('❌ Pagamento obrigatório expirou (Mercado Pago), cancelando agendamento...');
+            await cancelAppointment();
+            onPaymentFailure();
+          }
         }
         return;
       }
@@ -526,6 +635,12 @@ export const PaymentModal = ({
           currentPaymentIdRef.current = null;
           toast('Pagamento recusado ou cancelado', 'error');
           setHasPagarMeError(true);
+          // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
+          if (cancelAppointmentOnFailure) {
+            console.log('❌ Pagamento obrigatório recusado (Mercado Pago), cancelando agendamento...');
+            await cancelAppointment();
+            onPaymentFailure();
+          }
         } else {
           // Continuar verificando (pending, in_process, etc)
           console.log('⏳ [MP] Pagamento ainda pendente, verificando novamente em 5s...');
@@ -822,7 +937,9 @@ export const PaymentModal = ({
   };
 
   const checkPaymentStatusPeriodically = async (transactionId: string) => {
-    const maxAttempts = 60; // 5 minutos (60 tentativas × 5 segundos)
+    // ✅ Se pagamento é obrigatório, reduzir tempo de espera para cancelar mais rápido
+    // Se opcional, dar mais tempo (5 minutos). Se obrigatório, cancelar em 2 minutos (24 tentativas * 5s)
+    const maxAttempts = cancelAppointmentOnFailure ? 24 : 60; // 2 minutos se obrigatório, 5 minutos se opcional
     let attempts = 0;
 
     const checkInterval = setInterval(async () => {
@@ -873,9 +990,12 @@ export const PaymentModal = ({
             reasonStr ? `Pagamento recusado/cancelado: ${reasonStr}` : 'Pagamento recusado ou cancelado',
             'error'
           );
+          // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
           if (cancelAppointmentOnFailure) {
+            console.log('❌ Pagamento obrigatório recusado/falhou, cancelando agendamento...');
             await cancelAppointment();
           } else {
+            // Se pagamento é opcional, apenas marcar como não pago
             await markAppointmentPaymentUnpaid();
           }
           onPaymentFailure();
@@ -883,7 +1003,9 @@ export const PaymentModal = ({
           clearInterval(checkInterval);
           setIsCheckingPayment(false);
           toast('Tempo limite de pagamento excedido', 'error');
+          // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
           if (cancelAppointmentOnFailure) {
+            console.log('❌ Pagamento obrigatório falhou/expirou, cancelando agendamento...');
             await cancelAppointment();
           } else {
             await markAppointmentPaymentUnpaid();
@@ -1244,6 +1366,13 @@ export const PaymentModal = ({
               {/* ✅ NOVO: Card Payment Brick do Mercado Pago (Secure Fields) - DEPOIS do endereço */}
               <div className="mb-4 mt-4 border-t border-gray-800 pt-4">
                 <label className="block text-sm text-gray-300 mb-2">Dados do cartão</label>
+                {/* ✅ Mensagem informativa sobre segurança */}
+                <div className="bg-blue-900/20 border border-blue-700/40 rounded-lg p-2.5 mb-3">
+                  <p className="text-xs text-blue-200/90">
+                    <span className="font-semibold">ℹ️ Por segurança:</span> Os dados do cartão (número, validade, CVV) não são salvos. 
+                    Se você sair e voltar, precisará preencher novamente. Seu endereço e email são salvos automaticamente.
+                  </p>
+                </div>
                 {hasMercadoPago ? (() => {
                   const docDigitsForBrick = String(cpfCliente || '').replace(/\D/g, '');
                   const identificationTypeForBrick = docDigitsForBrick.length === 11 ? 'CPF' : 'CNPJ';

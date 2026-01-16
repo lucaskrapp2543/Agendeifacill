@@ -64,6 +64,55 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [brickInstallments, setBrickInstallments] = useState<number>(1);
   const [isBrickReady, setIsBrickReady] = useState(false);
 
+  // ✅ NOVO: Carregar dados salvos do endereço e email ao abrir o modal
+  useEffect(() => {
+    if (isOpen && establishmentId) {
+      try {
+        const savedBillingCep = localStorage.getItem(`subscription_billing_cep_${establishmentId}`);
+        const savedBillingRua = localStorage.getItem(`subscription_billing_rua_${establishmentId}`);
+        const savedBillingNumero = localStorage.getItem(`subscription_billing_numero_${establishmentId}`);
+        const savedBillingBairro = localStorage.getItem(`subscription_billing_bairro_${establishmentId}`);
+        const savedBillingCidade = localStorage.getItem(`subscription_billing_cidade_${establishmentId}`);
+        const savedBillingUf = localStorage.getItem(`subscription_billing_uf_${establishmentId}`);
+        const savedEmail = localStorage.getItem(`subscription_email_${establishmentId}`);
+        
+        if (savedBillingCep && !billingCep) setBillingCep(savedBillingCep);
+        if (savedBillingRua && !billingRua) setBillingRua(savedBillingRua);
+        if (savedBillingNumero && !billingNumero) setBillingNumero(savedBillingNumero);
+        if (savedBillingBairro && !billingBairro) setBillingBairro(savedBillingBairro);
+        if (savedBillingCidade && !billingCidade) setBillingCidade(savedBillingCidade);
+        if (savedBillingUf && !billingUf) setBillingUf(savedBillingUf);
+        if (savedEmail && !email) {
+          // Só usar se não for email de guest
+          if (!savedEmail.includes('guest_') && !savedEmail.includes('@agendafaci')) {
+            setEmail(savedEmail);
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Erro ao carregar dados salvos:', e);
+      }
+    }
+  }, [isOpen, establishmentId]);
+
+  // ✅ Salvar dados do endereço e email quando mudarem
+  useEffect(() => {
+    if (isOpen && establishmentId) {
+      try {
+        if (billingCep) localStorage.setItem(`subscription_billing_cep_${establishmentId}`, billingCep);
+        if (billingRua) localStorage.setItem(`subscription_billing_rua_${establishmentId}`, billingRua);
+        if (billingNumero) localStorage.setItem(`subscription_billing_numero_${establishmentId}`, billingNumero);
+        if (billingBairro) localStorage.setItem(`subscription_billing_bairro_${establishmentId}`, billingBairro);
+        if (billingCidade) localStorage.setItem(`subscription_billing_cidade_${establishmentId}`, billingCidade);
+        if (billingUf) localStorage.setItem(`subscription_billing_uf_${establishmentId}`, billingUf);
+        if (email && !email.includes('guest_') && !email.includes('@agendafaci')) {
+          localStorage.setItem(`subscription_email_${establishmentId}`, email);
+        }
+      } catch (e) {
+        console.warn('⚠️ Erro ao salvar dados:', e);
+      }
+    }
+  }, [isOpen, establishmentId, billingCep, billingRua, billingNumero, billingBairro, billingCidade, billingUf, email]);
+
   const amountInCents = Math.round(Number(subscription.value || 0) * 100);
 
   // ✅ NOVO: Verificar se Mercado Pago está configurado (similar ao PaymentModal)
@@ -465,6 +514,43 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       issuer_id: formData.issuer_id,
       installments: formData.installments,
     });
+
+    // ✅ VALIDAÇÃO: Verificar se endereço e email estão preenchidos antes de processar
+    const cepDigits = String(billingCep || '').replace(/\D/g, '');
+    const rua = String(billingRua || '').trim();
+    const numero = String(billingNumero || '').replace(/\D/g, '');
+    const cidade = String(billingCidade || '').trim();
+    const uf = String(billingUf || '').trim().toUpperCase();
+    const payerEmail = String(email || '').trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // Validar endereço
+    if (cepDigits.length !== 8) {
+      toast.error('CEP inválido. Informe um CEP com 8 dígitos.');
+      return;
+    }
+    if (!rua) {
+      toast.error('Informe a rua/avenida do endereço de cobrança.');
+      return;
+    }
+    if (!numero) {
+      toast.error('Informe o número do endereço de cobrança.');
+      return;
+    }
+    if (!cidade) {
+      toast.error('Informe a cidade do endereço de cobrança.');
+      return;
+    }
+    if (uf.length !== 2) {
+      toast.error('Informe a UF (estado) do endereço de cobrança (2 letras).');
+      return;
+    }
+
+    // Validar email
+    if (!payerEmail || !emailRegex.test(payerEmail)) {
+      toast.error('Email inválido. Informe um email válido para continuar o pagamento.');
+      return;
+    }
 
     setBrickCardToken(formData.token);
     setBrickPaymentMethodId(formData.payment_method_id);
@@ -1103,6 +1189,13 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 {/* ✅ NOVO: Card Payment Brick do Mercado Pago (Secure Fields) - DEPOIS do endereço */}
                 <div className="mt-4 border-t border-gray-800 pt-4">
                   <label className="block text-sm text-gray-300 mb-2">Dados do cartão</label>
+                  {/* ✅ Mensagem informativa sobre segurança */}
+                  <div className="bg-blue-900/20 border border-blue-700/40 rounded-lg p-2.5 mb-3">
+                    <p className="text-xs text-blue-200/90">
+                      <span className="font-semibold">ℹ️ Por segurança:</span> Os dados do cartão (número, validade, CVV) não são salvos. 
+                      Se você sair e voltar, precisará preencher novamente. Seu endereço e email são salvos automaticamente.
+                    </p>
+                  </div>
                   {hasMercadoPago ? (() => {
                     const docDigitsForBrick = String(cpf || '').replace(/\D/g, '');
                     const identificationTypeForBrick = docDigitsForBrick.length === 11 ? 'CPF' : 'CNPJ';
