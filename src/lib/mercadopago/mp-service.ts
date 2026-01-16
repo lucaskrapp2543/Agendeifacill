@@ -147,6 +147,22 @@ export async function createMPPayment(
       if (paymentData.installments) {
         payload.installments = paymentData.installments;
       }
+      
+      // ✅ Log detalhado para cartão (ajuda a debugar problemas específicos)
+      console.log('💳 [MP Payment] Dados específicos do cartão:', {
+        hasToken: !!paymentData.token,
+        tokenLength: String(paymentData.token || '').length,
+        tokenPreview: String(paymentData.token || '').substring(0, 10) + '...',
+        installments: paymentData.installments || 1,
+        hasAddress: !!paymentData.payer.address,
+        addressDetails: paymentData.payer.address ? {
+          zip_code: paymentData.payer.address.zip_code,
+          street_name: paymentData.payer.address.street_name?.substring(0, 20) + '...',
+          street_number: paymentData.payer.address.street_number,
+          city: paymentData.payer.address.city,
+          federal_unit: paymentData.payer.address.federal_unit,
+        } : null,
+      });
     }
     
     console.log('📦 [MP Payment] Payload completo:', JSON.stringify(payload, null, 2));
