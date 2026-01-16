@@ -336,16 +336,45 @@ async function cacheFirst(request) {
 // Estratégia: Network First
 async function networkFirst(request) {
   try {
-    const networkResponse = await fetch(request);
-    if (networkResponse.ok) {
+    // ⚠️ CRÍTICO: Para APIs, sempre buscar da rede (não usar cache)
+    // Isso evita cache de respostas 404 ou erros
+    const networkResponse = await fetch(request, {
+      cache: 'no-store', // Sempre buscar da rede
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      }
+    });
+    
+    // ⚠️ NÃO fazer cache de respostas de erro (404, 500, etc)
+    // Apenas cachear respostas bem-sucedidas (200-299)
+    if (networkResponse.ok && networkResponse.status >= 200 && networkResponse.status < 300) {
       const cache = await caches.open(DYNAMIC_CACHE);
       cache.put(request, networkResponse.clone());
+    } else {
+      // Se for erro (404, 500, etc), limpar cache dessa URL se existir
+      const cache = await caches.open(DYNAMIC_CACHE);
+      await cache.delete(request);
+      console.log('⚠️ Resposta de erro detectada, cache limpo para:', request.url);
     }
+    
     return networkResponse;
   } catch (error) {
     console.log('Erro de rede, tentando cache:', error);
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
+      // ⚠️ Se cacheado for erro (404, 500), NÃO retornar do cache
+      // Forçar nova tentativa na rede
+      if (cachedResponse.status >= 400) {
+        console.log('⚠️ Cache contém erro, limpando e tentando rede novamente');
+        const cache = await caches.open(DYNAMIC_CACHE);
+        await cache.delete(request);
+        // Tentar rede novamente
+        try {
+          return await fetch(request, { cache: 'no-store' });
+        } catch {
+          throw error;
+        }
+      }
       return cachedResponse;
     }
     return new Response('Recurso não disponível offline', { status: 503 });
