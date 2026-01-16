@@ -250,7 +250,13 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   : err?.details?.message || err?.details?.hint || err?.details?.code || '';
               throw new Error(detailsMsg ? `${msg} (${detailsMsg})` : msg);
             }
+
+            // ✅ Log de sucesso para debug
+            const successData = await resp.json().catch(() => ({}));
+            console.log('✅ Assinatura registrada com sucesso:', successData);
+            toast.success('Assinatura registrada! Você já aparece em "Meus Assinantes" do barbeiro.');
           } catch (e: any) {
+            console.error('❌ Erro ao registrar assinatura:', e);
             toast.error(`Pagamento confirmado, mas não consegui registrar como assinante: ${e?.message || 'erro'}`);
             return;
           }
