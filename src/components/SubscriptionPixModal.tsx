@@ -266,6 +266,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         return;
       }
 
+      // ✅ VALIDAÇÃO: Email é obrigatório e deve ser válido
+      const payerEmail = String(email || '').trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      
+      if (!payerEmail || !emailRegex.test(payerEmail)) {
+        toast.error('Email inválido. Informe um email válido para continuar o pagamento.');
+        return;
+      }
+
       setSelectedMethod('pix');
       setIsProcessing(true);
       setPixQrCode('');
@@ -289,7 +298,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             amount: amountInCents,
             description: `Assinatura ${subscription.name}`,
             payer: {
-              email: email?.trim() || 'cliente@exemplo.com',
+              email: payerEmail,
               identification: {
                 type: cpfDigits.length === 11 ? 'CPF' : 'CNPJ',
                 number: cpfDigits,
@@ -498,6 +507,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       return;
     }
 
+    // ✅ VALIDAÇÃO: Email é obrigatório e deve ser válido
+    const payerEmail = String(email || '').trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
+    if (!payerEmail || !emailRegex.test(payerEmail)) {
+      toast.error('Email inválido. Informe um email válido para continuar o pagamento.');
+      return;
+    }
+
     const cepDigits = String(billingCep || '').replace(/\D/g, '');
     const uf = String(billingUf || '').trim().toUpperCase();
     const cidade = String(billingCidade || '').trim();
@@ -544,7 +562,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           issuer_id: brickIssuerId,
           installments: brickInstallments || 1,
           payer: {
-            email: email?.trim() || 'cliente@exemplo.com',
+            email: payerEmail,
             identification: {
               type: cpfDigits.length === 11 ? 'CPF' : 'CNPJ',
               number: cpfDigits,
@@ -850,7 +868,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         }
       }}
     >
-      <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col my-auto border border-gray-800 text-white">
+      <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] min-h-[50vh] flex flex-col my-auto border border-gray-800 text-white">
         {/* Header fixo */}
         <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0 border-b border-gray-800/50">
           <h2 className="text-xl font-bold flex items-center gap-2">
@@ -865,7 +883,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         </div>
 
         {/* Conteúdo com scroll */}
-        <div className="flex-1 overflow-y-auto px-6 pb-6">
+        <div className="flex-1 overflow-y-auto px-6 pb-6" style={{ minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
           <div className="bg-[#111213] border border-gray-700 rounded-lg p-4 mb-4">
           <p className="text-sm text-gray-200">
             Plano: <span className="font-semibold">{subscription.name}</span>
@@ -1097,7 +1115,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                         onReady={handleBrickReady}
                         onError={handleBrickError}
                         payerData={{
-                          email: email || 'cliente@exemplo.com',
+                          email: email?.trim() || '',
                           identificationType: identificationTypeForBrick,
                           identificationNumber: docDigitsForBrick,
                           firstName: nome.split(' ')[0] || '',

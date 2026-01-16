@@ -47,6 +47,15 @@ export const PaymentModal = ({
   const [pixRemainingSeconds, setPixRemainingSeconds] = useState<number>(0);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [cpfCliente, setCpfCliente] = useState<string>(customerData.document || '');
+  // ✅ NÃO preencher automaticamente com email de guest - cliente deve preencher manualmente
+  const [payerEmail, setPayerEmail] = useState<string>(() => {
+    const email = customerData.email || '';
+    // Se for email de guest (contém "guest_" ou "@agendafaci"), deixar vazio
+    if (email.includes('guest_') || email.includes('@agendafaci')) {
+      return '';
+    }
+    return email;
+  });
   // ✅ Estados dos inputs manuais de cartão (apenas para Pagar.me - Mercado Pago usa Brick)
   const [cardNumber, setCardNumber] = useState('');
   const [cardHolderName, setCardHolderName] = useState('');
@@ -267,8 +276,19 @@ export const PaymentModal = ({
 
       // ✅ NOVO: Preparar dados do pagador
       // O Brick já coleta nome do titular, então não precisamos mais fazer isso manualmente
+      
+      // ✅ VALIDAÇÃO: Email é obrigatório e deve ser válido
+      const emailToUse = String(payerEmail || customerData.email || '').trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      
+      if (!emailToUse || !emailRegex.test(emailToUse)) {
+        toast('Email inválido. Informe um email válido para continuar o pagamento.', 'error');
+        setIsProcessing(false);
+        return;
+      }
+
       const payerData: any = {
-        email: customerData.email || 'cliente@exemplo.com',
+        email: emailToUse,
         identification: {
           type: identificationType, // Usar o mesmo tipo definido acima
           number: docDigits, // Usar o mesmo CPF/CNPJ normalizado (só dígitos)
@@ -987,7 +1007,7 @@ export const PaymentModal = ({
         }
       }}
     >
-      <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col my-auto border border-gray-700">
+      <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] min-h-[50vh] flex flex-col my-auto border border-gray-700">
         {/* Header fixo */}
         <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0 border-b border-gray-800/50">
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -1005,7 +1025,7 @@ export const PaymentModal = ({
         </div>
 
         {/* Conteúdo com scroll */}
-        <div className="flex-1 overflow-y-auto px-6 pb-6">
+        <div className="flex-1 overflow-y-auto px-6 pb-6" style={{ minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
           {!selectedMethod ? (
           <div className="space-y-4">
             {cardRefusedReason ? (
@@ -1050,6 +1070,26 @@ export const PaymentModal = ({
                   : 'A Pagar.me costuma exigir CPF/CNPJ para pagamentos (principalmente PIX e cartão).'}
               </p>
             </div>
+
+            {/* ✅ NOVO: Campo de email (obrigatório para Mercado Pago) */}
+            {hasMercadoPago && (
+              <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-4">
+                <label className="block text-sm text-gray-300 mb-2">
+                  Email do pagador <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={payerEmail}
+                  onChange={(e) => setPayerEmail(e.target.value)}
+                  placeholder="seu@email.com"
+                  className="w-full px-3 py-2 rounded-md bg-[#1a1b1c] border border-gray-600 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  inputMode="email"
+                />
+                <p className="text-xs text-gray-400 mt-2">
+                  O Mercado Pago exige um email válido para processar o pagamento.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-3">
               {/* Mostrar opções do Pagar.me apenas se NÃO tiver Mercado Pago */}
@@ -1216,7 +1256,7 @@ export const PaymentModal = ({
                       onReady={handleBrickReady}
                       onError={handleBrickError}
                       payerData={{
-                        email: customerData.email || 'cliente@exemplo.com',
+                        email: payerEmail?.trim() || customerData.email?.trim() || '',
                         identificationType: identificationTypeForBrick,
                         identificationNumber: docDigitsForBrick,
                         firstName: customerData.name?.split(' ')[0] || '',
