@@ -18,6 +18,8 @@ import {
   X,
   XCircle
 } from 'lucide-react';
+import { format, startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
@@ -78,6 +80,184 @@ const AdminDashboard = () => {
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
   const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
+  const [showEstablishmentInfoModal, setShowEstablishmentInfoModal] = useState(false);
+  const [selectedEstablishmentForInfo, setSelectedEstablishmentForInfo] = useState<Establishment | null>(null);
+  const [establishmentInfo, setEstablishmentInfo] = useState<{ email?: string; password?: string; whatsapp?: string } | null>(null);
+  const [isLoadingEstablishmentInfo, setIsLoadingEstablishmentInfo] = useState(false);
+  
+  // Estados para contagem de agendamentos
+  const [selectedDateForAppointments, setSelectedDateForAppointments] = useState<Record<string, Date>>({});
+  const [selectedMonthForAppointments, setSelectedMonthForAppointments] = useState<Record<string, Date>>({});
+  const [appointmentCounts, setAppointmentCounts] = useState<Record<string, { day: number; month: number }>>({});
+  const [isLoadingAppointmentCounts, setIsLoadingAppointmentCounts] = useState<Record<string, boolean>>({});
+
+  // Função para buscar contagem de agendamentos (dia e mês)
+  const fetchAppointmentCounts = async (establishment: Establishment, date: Date, month: Date) => {
+    const key = establishment.id;
+    setIsLoadingAppointmentCounts(prev => ({ ...prev, [key]: true }));
+
+    try {
+      // Contar agendamentos do DIA
+      const dayStart = format(startOfDay(date), 'yyyy-MM-dd');
+      const dayEnd = format(endOfDay(date), 'yyyy-MM-dd');
+      
+      const { count: dayCount, error: dayError } = await supabase
+        .from('appointments')
+        .select('*', { count: 'exact', head: true })
+        .eq('establishment_id', establishment.id)
+        .gte('appointment_date', dayStart)
+        .lte('appointment_date', dayEnd);
+
+      if (dayError) {
+        console.error('Erro ao contar agendamentos do dia:', dayError);
+      }
+
+      // Contar agendamentos do MÊS
+      const monthStart = format(startOfMonth(month), 'yyyy-MM-dd');
+      const monthEnd = format(endOfMonth(month), 'yyyy-MM-dd');
+      
+      const { count: monthCount, error: monthError } = await supabase
+        .from('appointments')
+        .select('*', { count: 'exact', head: true })
+        .eq('establishment_id', establishment.id)
+        .gte('appointment_date', monthStart)
+        .lte('appointment_date', monthEnd);
+
+      if (monthError) {
+        console.error('Erro ao contar agendamentos do mês:', monthError);
+      }
+
+      setAppointmentCounts(prev => ({
+        ...prev,
+        [key]: {
+          day: dayCount || 0,
+          month: monthCount || 0
+        }
+      }));
+    } catch (error) {
+      console.error('Erro ao buscar contagem de agendamentos:', error);
+    } finally {
+      setIsLoadingAppointmentCounts(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  // Função para inicializar data/mês para um estabelecimento (se ainda não tiver)
+  const getSelectedDateForEstablishment = (establishmentId: string): Date => {
+    if (!selectedDateForAppointments[establishmentId]) {
+      return new Date();
+    }
+    return selectedDateForAppointments[establishmentId];
+  };
+
+  const getSelectedMonthForEstablishment = (establishmentId: string): Date => {
+    if (!selectedMonthForAppointments[establishmentId]) {
+      return new Date();
+    }
+    return selectedMonthForAppointments[establishmentId];
+  };
+
+  // Função para navegar para o dia anterior
+  const navigateDayBack = (establishment: Establishment) => {
+    const currentDate = getSelectedDateForEstablishment(establishment.id);
+    const newDate = subDays(currentDate, 1);
+    setSelectedDateForAppointments(prev => ({ ...prev, [establishment.id]: newDate }));
+    fetchAppointmentCounts(establishment, newDate, getSelectedMonthForEstablishment(establishment.id));
+  };
+
+  // Função para navegar para o mês anterior
+  const navigateMonthBack = (establishment: Establishment) => {
+    const currentMonth = getSelectedMonthForEstablishment(establishment.id);
+    const newMonth = subMonths(currentMonth, 1);
+    setSelectedMonthForAppointments(prev => ({ ...prev, [establishment.id]: newMonth }));
+    fetchAppointmentCounts(establishment, getSelectedDateForEstablishment(establishment.id), newMonth);
+  };
+
+  // Função para carregar contagem inicial (lazy load - só quando necessário)
+  const loadAppointmentCounts = async (establishment: Establishment) => {
+    // Evitar carregar múltiplas vezes
+    if (isLoadingAppointmentCounts[establishment.id]) return;
+    if (appointmentCounts[establishment.id]) return; // Já carregado
+    
+    const date = getSelectedDateForEstablishment(establishment.id);
+    const month = getSelectedMonthForEstablishment(establishment.id);
+    await fetchAppointmentCounts(establishment, date, month);
+  };
+
+  // Função para buscar informações do estabelecimento (email, senha, whatsapp)
+  const fetchEstablishmentInfo = async (establishment: Establishment) => {
+    setIsLoadingEstablishmentInfo(true);
+    try {
+      // Buscar na tabela registration_forms pelo nome do estabelecimento
+      const { data: registrationData, error: regError } = await supabase
+        .from('registration_forms')
+        .select('email, password, client_whatsapp')
+        .eq('establishment_name', establishment.name)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (regError && regError.code !== 'PGRST116') { // PGRST116 = nenhum resultado
+        console.error('Erro ao buscar dados do registration_forms:', regError);
+      }
+
+      // Se não encontrar no registration_forms, buscar email do owner_id
+      let ownerEmail = '';
+      if (establishment.owner_id) {
+        try {
+          const { data: userData, error: userError } = await supabase.auth.admin.getUserById(establishment.owner_id);
+          if (!userError && userData?.user) {
+            ownerEmail = userData.user.email || '';
+          }
+        } catch (err) {
+          console.error('Erro ao buscar email do owner:', err);
+        }
+      }
+
+      setEstablishmentInfo({
+        email: registrationData?.email || ownerEmail || establishment.owner_email || 'Não encontrado',
+        password: registrationData?.password || 'Não encontrado',
+        whatsapp: registrationData?.client_whatsapp || establishment.whatsapp || 'Não encontrado'
+      });
+    } catch (error) {
+      console.error('Erro ao buscar informações:', error);
+      toast.error('Erro ao buscar informações do estabelecimento');
+    } finally {
+      setIsLoadingEstablishmentInfo(false);
+    }
+  };
+
+  // Função para abrir modal de informações
+  const handleOpenEstablishmentInfo = async (establishment: Establishment) => {
+    setSelectedEstablishmentForInfo(establishment);
+    setShowEstablishmentInfoModal(true);
+    await fetchEstablishmentInfo(establishment);
+  };
+
+  // Função para logar como estabelecimento
+  const handleLoginAsEstablishment = async () => {
+    if (!establishmentInfo || !establishmentInfo.email || !establishmentInfo.password) {
+      toast.error('Email ou senha não encontrados');
+      return;
+    }
+
+    if (!selectedEstablishmentForInfo) return;
+
+    try {
+      // Salvar credenciais temporariamente no sessionStorage
+      sessionStorage.setItem('admin_login_email', establishmentInfo.email);
+      sessionStorage.setItem('admin_login_password', establishmentInfo.password);
+      sessionStorage.setItem('admin_login_flag', 'true');
+
+      // Fazer logout do admin
+      await signOut();
+
+      // Navegar para a página de login
+      navigate('/login');
+    } catch (error) {
+      console.error('Erro ao fazer login como estabelecimento:', error);
+      toast.error('Erro ao fazer logout');
+    }
+  };
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [emailToCheck, setEmailToCheck] = useState('');
   const [userPassword, setUserPassword] = useState('');
@@ -1324,7 +1504,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // "Pago" + "ESSE MÊS" + "PAGAMENTO AD" juntos (sempre ativar, nunca desativar)
+  // "Pago" + "ESSE MÊS" juntos (sempre ativar, nunca desativar)
   const handleMarkPaidAll = async (establishment: Establishment) => {
     const key = `paidall:${establishment.id}`;
     if (isPayingByEstablishment[key]) return;
@@ -1339,13 +1519,11 @@ const AdminDashboard = () => {
         await togglePaidThisMonth(establishment);
       }
 
-      // 3) Ativar "PAGAMENTO AD" (só se ainda não estiver ativo)
-      if (!Boolean(establishment.pagamento_adiantado_liberado_admin)) {
-        await togglePagamentoAdiantadoAdmin(establishment.id, Boolean(establishment.pagamento_adiantado_liberado_admin));
-      }
+      // ✅ REMOVIDO: Ativação automática de "PAGAMENTO AD"
+      // O usuário deve ativar "PAGAMENTO AD" manualmente se desejar
     } catch (err) {
       console.error(err);
-      toast.error('Erro ao marcar Pago + Esse mês + Pagamento AD.');
+      toast.error('Erro ao marcar Pago + Esse mês.');
     } finally {
       setIsPayingByEstablishment(prev => ({ ...prev, [key]: false }));
     }
@@ -1983,7 +2161,70 @@ const AdminDashboard = () => {
                       className={`${bg} ${rowAccent} border-l-8 border-b border-gray-200 hover:bg-blue-50/40 transition-colors`}
                     >
                       <td className="px-3 py-4">
-                        <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
+                          <button
+                            onClick={() => handleOpenEstablishmentInfo(establishment)}
+                            className="px-2 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
+                            title="Ver informações do estabelecimento"
+                          >
+                            Informações
+                          </button>
+                          
+                          {/* Contador de Agendamentos */}
+                          <div 
+                            className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg border border-gray-300 text-xs cursor-pointer hover:bg-gray-200 transition-colors"
+                            onMouseEnter={() => {
+                              // Carregar automaticamente quando passar o mouse (só se ainda não tiver carregado)
+                              if (!appointmentCounts[establishment.id]) {
+                                loadAppointmentCounts(establishment);
+                              }
+                            }}
+                            title="Contagem de agendamentos (dia e mês)"
+                          >
+                            {/* Dia */}
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateDayBack(establishment);
+                                }}
+                                className="p-0.5 hover:bg-gray-300 rounded transition-colors"
+                                title="Dia anterior"
+                              >
+                                <ChevronLeft className="h-3 w-3 text-gray-600" />
+                              </button>
+                              <span className="text-gray-700 font-medium">
+                                📅 {isLoadingAppointmentCounts[establishment.id] ? '...' : (appointmentCounts[establishment.id]?.day ?? '-')}
+                              </span>
+                              <span className="text-gray-500 text-[10px]">
+                                {format(getSelectedDateForEstablishment(establishment.id), 'dd/MM', { locale: ptBR })}
+                              </span>
+                            </div>
+                            
+                            <span className="text-gray-400">|</span>
+                            
+                            {/* Mês */}
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateMonthBack(establishment);
+                                }}
+                                className="p-0.5 hover:bg-gray-300 rounded transition-colors"
+                                title="Mês anterior"
+                              >
+                                <ChevronLeft className="h-3 w-3 text-gray-600" />
+                              </button>
+                              <span className="text-gray-700 font-medium">
+                                📆 {isLoadingAppointmentCounts[establishment.id] ? '...' : (appointmentCounts[establishment.id]?.month ?? '-')}
+                              </span>
+                              <span className="text-gray-500 text-[10px]">
+                                {format(getSelectedMonthForEstablishment(establishment.id), 'MMM/yyyy', { locale: ptBR })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                         <div className="text-xs text-gray-500">
                           {new Date(establishment.created_at).toLocaleDateString('pt-BR')}
                         </div>
@@ -2051,9 +2292,16 @@ const AdminDashboard = () => {
                       </td>
 
                       <td className="px-2 py-4">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        <button
+                          onClick={() => {
+                            const bookingUrl = `https://agendeifacil.com/booking/${establishment.code}`;
+                            window.open(bookingUrl, '_blank');
+                          }}
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 hover:text-blue-900 transition-colors cursor-pointer"
+                          title={`Abrir booking: agendeifacil.com/booking/${establishment.code}`}
+                        >
                           {establishment.code}
-                        </span>
+                        </button>
                       </td>
 
                       <td className="px-2 py-4">
@@ -2457,6 +2705,91 @@ const AdminDashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Modal de Informações do Estabelecimento */}
+      {showEstablishmentInfoModal && selectedEstablishmentForInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Informações - {selectedEstablishmentForInfo.name}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowEstablishmentInfoModal(false);
+                  setSelectedEstablishmentForInfo(null);
+                  setEstablishmentInfo(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {isLoadingEstablishmentInfo ? (
+              <div className="p-8 text-center">
+                <RefreshCw className="h-8 w-8 text-blue-600 animate-spin mx-auto mb-4" />
+                <p className="text-gray-600">Carregando informações...</p>
+              </div>
+            ) : establishmentInfo ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    E-mail
+                  </label>
+                  <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 break-all">
+                    {establishmentInfo.email}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Senha (Texto Claro)
+                  </label>
+                  <div className="px-3 py-2 bg-red-50 border-2 border-red-300 rounded-lg text-red-900 font-mono font-bold text-center">
+                    {establishmentInfo.password}
+                  </div>
+                  <p className="text-xs text-red-600 mt-1">
+                    ⚠️ Senha em texto claro - visível apenas para admin
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    WhatsApp
+                  </label>
+                  <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900">
+                    {establishmentInfo.whatsapp}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-gray-600 text-center py-4">Não foi possível carregar as informações.</p>
+            )}
+
+            <div className="mt-6 flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowEstablishmentInfoModal(false);
+                  setSelectedEstablishmentForInfo(null);
+                  setEstablishmentInfo(null);
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Fechar
+              </button>
+              {establishmentInfo && establishmentInfo.email && establishmentInfo.password && establishmentInfo.password !== 'Não encontrado' && (
+                <button
+                  onClick={handleLoginAsEstablishment}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Logar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal para Ver Senha de Acesso */}
       {showPasswordModal && (

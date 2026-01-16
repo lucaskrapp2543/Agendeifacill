@@ -83,11 +83,31 @@ const Login = () => {
     checkVersionAndCleanup();
   }, []);
 
-  // Carregar credenciais salvas do localStorage
+  // Carregar credenciais salvas do localStorage ou sessionStorage (do admin)
   useEffect(() => {
     // Só carregar se não estiver logado
     if (authLoading || user) return;
 
+    // ✅ PRIORIDADE: Verificar se veio do admin (sessionStorage)
+    const adminLoginEmail = sessionStorage.getItem('admin_login_email');
+    const adminLoginPassword = sessionStorage.getItem('admin_login_password');
+    const adminLoginFlag = sessionStorage.getItem('admin_login_flag') === 'true';
+
+    if (adminLoginEmail && adminLoginPassword && adminLoginFlag) {
+      // Preencher campos automaticamente
+      setEmail(adminLoginEmail);
+      setPassword(adminLoginPassword);
+      setSaveCredentials(false); // Não salvar credenciais do admin permanentemente
+      
+      // Limpar sessionStorage após usar
+      sessionStorage.removeItem('admin_login_email');
+      sessionStorage.removeItem('admin_login_password');
+      sessionStorage.removeItem('admin_login_flag');
+      
+      return; // Não carregar do localStorage se veio do admin
+    }
+
+    // Fallback: Carregar credenciais salvas do localStorage
     const savedEmail = localStorage.getItem('saved_email');
     const savedPassword = localStorage.getItem('saved_password');
     const savedCredentialsFlag = localStorage.getItem('save_credentials') === 'true';
