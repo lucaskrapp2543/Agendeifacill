@@ -32,6 +32,14 @@ export const handler: Handler = async (event) => {
       });
     }
 
+    // ✅ DETECTAR AMBIENTE: Verificar se é TESTE ou PRODUÇÃO
+    // Tokens de teste começam com "TEST-", tokens de produção começam com "APP_USR-"
+    const isTestEnvironment = accessToken.startsWith('TEST-');
+    const environment = isTestEnvironment ? 'TESTE' : 'PRODUÇÃO';
+    
+    console.log('🔍 [MP Get Payment Method] Ambiente detectado:', environment);
+    console.log('🔍 [MP Get Payment Method] Access Token (primeiros 10 chars):', accessToken.substring(0, 10) + '...');
+
     const body = parseJsonBody<{ bin: string }>(event);
     
     if (!body?.bin) {
@@ -50,7 +58,9 @@ export const handler: Handler = async (event) => {
       });
     }
 
-    console.log('🔍 [MP Get Payment Method] Buscando payment_method_id e issuer_id para BIN:', bin.substring(0, 2) + '****');
+    // ✅ LOG EXPLÍCITO: BIN recebido
+    console.log('🔍 [MP Get Payment Method] BIN recebido:', bin);
+    console.log('🔍 [MP Get Payment Method] Ambiente:', environment);
 
     let payment_method_id: string | undefined;
     let issuer_id: string | undefined;
@@ -75,6 +85,8 @@ export const handler: Handler = async (event) => {
           status: paymentMethodsResponse.status,
           statusText: paymentMethodsResponse.statusText,
           error: errorData,
+          bin: bin,
+          environment: environment,
         });
         return json(500, {
           error: 'Erro ao buscar método de pagamento',
@@ -84,15 +96,31 @@ export const handler: Handler = async (event) => {
 
       const paymentMethodsData = await paymentMethodsResponse.json().catch(() => ({}));
       
+      // ✅ LOG EXPLÍCITO: Resposta completa da API do Mercado Pago
+      console.log('📥 [MP Get Payment Method] Resposta completa da API payment_methods:', JSON.stringify(paymentMethodsData, null, 2));
+      
       // Pegar o primeiro payment method (geralmente é o correto para o BIN)
       if (paymentMethodsData?.results && Array.isArray(paymentMethodsData.results) && paymentMethodsData.results.length > 0) {
         payment_method_id = paymentMethodsData.results[0]?.id;
-        console.log('✅ [MP Get Payment Method] payment_method_id encontrado:', payment_method_id);
+        // ✅ LOG EXPLÍCITO: payment_method_id retornado pelo Mercado Pago
+        console.log('✅ [MP Get Payment Method] payment_method_id retornado pelo Mercado Pago:', payment_method_id);
+        console.log('✅ [MP Get Payment Method] Dados completos do payment method:', JSON.stringify(paymentMethodsData.results[0], null, 2));
       } else {
-        console.warn('⚠️ [MP Get Payment Method] Nenhum payment_method encontrado para BIN:', bin.substring(0, 2) + '****');
+        // ✅ LOG EXPLÍCITO: Nenhum payment_method encontrado
+        console.warn('⚠️ [MP Get Payment Method] Nenhum payment_method encontrado para BIN:', bin);
+        console.warn('⚠️ [MP Get Payment Method] Resposta da API:', JSON.stringify(paymentMethodsData, null, 2));
+        console.warn('⚠️ [MP Get Payment Method] Ambiente:', environment);
+        
+        // ✅ ERRO CLARO: Informar se é problema de ambiente (teste/produção)
+        const errorMessage = isTestEnvironment
+          ? 'Cartão inválido para este ambiente (TESTE). Use apenas cartões de teste do Mercado Pago.'
+          : 'Cartão inválido para este ambiente (PRODUÇÃO). Este cartão pode ser apenas para teste.';
+        
         return json(404, {
           error: 'Método de pagamento não encontrado',
-          message: 'Não foi possível determinar o método de pagamento para este cartão. Verifique o número do cartão.',
+          message: errorMessage,
+          environment: environment,
+          bin: bin.substring(0, 2) + '****',
         });
       }
 
@@ -116,7 +144,12 @@ export const handler: Handler = async (event) => {
             status: issuersResponse.status,
             statusText: issuersResponse.statusText,
             error: errorData,
+            payment_method_id: payment_method_id,
+            bin: bin,
+            environment: environment,
           });
+          // ✅ LOG EXPLÍCITO: Resposta completa quando falhar
+          console.error('❌ [MP Get Payment Method] Resposta completa da API issuers (erro):', JSON.stringify(errorData, null, 2));
           return json(500, {
             error: 'Erro ao buscar banco emissor',
             message: `Não foi possível buscar o banco emissor para este cartão. Erro: ${issuersResponse.status} ${issuersResponse.statusText}`,
@@ -125,15 +158,30 @@ export const handler: Handler = async (event) => {
 
         const issuersData = await issuersResponse.json().catch(() => ({}));
         
+        // ✅ LOG EXPLÍCITO: Resposta completa da API issuers
+        console.log('📥 [MP Get Payment Method] Resposta completa da API issuers:', JSON.stringify(issuersData, null, 2));
+        
         // Pegar o primeiro issuer (geralmente é o correto para o BIN)
         if (issuersData && Array.isArray(issuersData) && issuersData.length > 0) {
           issuer_id = String(issuersData[0]?.id || issuersData[0]?.id || '');
-          console.log('✅ [MP Get Payment Method] issuer_id encontrado:', issuer_id);
+          // ✅ LOG EXPLÍCITO: issuer_id retornado
+          console.log('✅ [MP Get Payment Method] issuer_id retornado pelo Mercado Pago:', issuer_id);
+          console.log('✅ [MP Get Payment Method] Dados completos do issuer:', JSON.stringify(issuersData[0], null, 2));
         } else {
           console.warn('⚠️ [MP Get Payment Method] Nenhum issuer encontrado para payment_method_id:', payment_method_id);
+          console.warn('⚠️ [MP Get Payment Method] Resposta da API issuers:', JSON.stringify(issuersData, null, 2));
+          console.warn('⚠️ [MP Get Payment Method] Ambiente:', environment);
+          
+          // ✅ ERRO CLARO: Informar se é problema de ambiente
+          const errorMessage = isTestEnvironment
+            ? 'Cartão inválido para este ambiente (TESTE). Use apenas cartões de teste do Mercado Pago.'
+            : 'Cartão inválido para este ambiente (PRODUÇÃO). Este cartão pode ser apenas para teste.';
+          
           return json(404, {
             error: 'Banco emissor não encontrado',
-            message: 'Não foi possível determinar o banco emissor para este cartão. Verifique o número do cartão.',
+            message: errorMessage,
+            environment: environment,
+            bin: bin.substring(0, 2) + '****',
           });
         }
       }
@@ -153,22 +201,43 @@ export const handler: Handler = async (event) => {
         });
       }
 
-      console.log('✅ [MP Get Payment Method] Sucesso:', {
-        payment_method_id,
-        issuer_id,
-        bin: bin.substring(0, 2) + '****',
+      // ✅ LOG EXPLÍCITO: Resumo final com todos os dados
+      console.log('✅ [MP Get Payment Method] Sucesso - Resumo:', {
+        bin: bin,
+        environment: environment,
+        payment_method_id: payment_method_id,
+        issuer_id: issuer_id,
       });
+
+      // ✅ GARANTIR: payment_method_id e issuer_id vêm EXCLUSIVAMENTE da API (não hardcoded)
+      if (!payment_method_id || !issuer_id) {
+        console.error('❌ [MP Get Payment Method] ERRO CRÍTICO: payment_method_id ou issuer_id não foram retornados pela API');
+        return json(500, {
+          error: 'Dados incompletos da API',
+          message: 'O Mercado Pago não retornou payment_method_id ou issuer_id para este cartão.',
+          environment: environment,
+        });
+      }
 
       return json(200, {
         payment_method_id,
         issuer_id,
         bin: bin.substring(0, 6), // Retornar BIN normalizado
+        environment: environment, // Informar ambiente para debug
       });
     } catch (apiError: any) {
-      console.error('❌ [MP Get Payment Method] Erro ao buscar dados:', apiError);
+      // ✅ LOG EXPLÍCITO: Erro completo quando falhar
+      console.error('❌ [MP Get Payment Method] Erro ao buscar dados:', {
+        error: apiError,
+        message: apiError?.message,
+        stack: apiError?.stack,
+        bin: bin,
+        environment: environment,
+      });
       return json(500, {
         error: 'Erro ao buscar dados do cartão',
         message: apiError?.message || 'Erro desconhecido ao buscar payment_method_id e issuer_id.',
+        environment: environment,
       });
     }
   } catch (error: any) {
