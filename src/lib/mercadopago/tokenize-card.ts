@@ -22,12 +22,19 @@ interface CardTokenInput {
  * 
  * @param input - Dados do cartão
  * @param publicKey - Public key do Mercado Pago (APP_USR-...)
- * @returns Token do cartão e payment_method_id (bandeira)
+ * @returns Token do cartão e dados do método de pagamento retornados pela API
  */
+export interface TokenizeCardResult {
+  token: string;
+  payment_method_id?: string; // Pode não vir na resposta, mas inferimos do BIN
+  issuer_id?: string; // Pode não vir na resposta
+  first_six_digits?: string; // BIN do cartão
+}
+
 export async function tokenizeMercadoPagoCard(
   input: CardTokenInput,
   publicKey: string
-): Promise<{ token: string; payment_method_id: string }> {
+): Promise<TokenizeCardResult> {
   // Verificar se está no navegador
   if (typeof window === 'undefined') {
     throw new Error('Tokenização de cartão só funciona no navegador');
@@ -117,20 +124,32 @@ export async function tokenizeMercadoPagoCard(
       throw new Error('Token do cartão não foi retornado pelo Mercado Pago');
     }
 
-    // Extrair payment_method_id (bandeira do cartão)
-    const paymentMethodId = data?.payment_method?.id || 
-                           data?.card_id?.split('_')[0] || 
-                           'visa'; // Fallback
+    // ✅ IMPORTANTE: Capturar TODOS os dados retornados pela API (sem fallback hardcoded)
+    // A resposta pode incluir payment_method, issuer_id, first_six_digits, etc.
+    const result: TokenizeCardResult = {
+      token: String(data.id),
+      first_six_digits: data?.first_six_digits || undefined,
+      payment_method_id: data?.payment_method?.id || undefined, // Se vier na resposta, usar
+      issuer_id: data?.issuer?.id || data?.issuer_id || undefined, // Se vier na resposta, usar
+    };
 
-    console.log('✅ [MP Tokenize] Token criado:', {
+    // ⚠️ Se payment_method_id não vier na resposta, NÃO usar fallback hardcoded
+    // Deixar undefined e o frontend deve detectar isso e tratar adequadamente
+    // O Mercado Pago pode inferir do token na hora do pagamento se necessário
+
+    console.log('✅ [MP Tokenize] Token criado - Dados retornados pela API:', {
       token: String(data.id).substring(0, 10) + '...',
-      payment_method_id: paymentMethodId,
+      first_six_digits: result.first_six_digits,
+      payment_method_id: result.payment_method_id || 'NÃO RETORNADO (será inferido)',
+      issuer_id: result.issuer_id || 'NÃO RETORNADO',
+      rawResponse: {
+        hasPaymentMethod: !!data?.payment_method,
+        hasIssuer: !!data?.issuer || !!data?.issuer_id,
+        hasFirstSixDigits: !!data?.first_six_digits,
+      },
     });
 
-    return {
-      token: String(data.id),
-      payment_method_id: paymentMethodId,
-    };
+    return result;
   } catch (error: any) {
     console.error('❌ Erro ao tokenizar cartão Mercado Pago:', error);
     const errorMessage = error?.message || error?.error || 'Erro ao tokenizar cartão';

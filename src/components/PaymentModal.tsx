@@ -204,9 +204,12 @@ export const PaymentModal = ({
     setHasPagarMeError(false);
 
     try {
+      // ✅ CRÍTICO: Sempre criar um novo token (não reutilizar de tentativas anteriores)
       let cardToken: string | undefined;
       let cardPaymentMethodId: string | undefined;
-      
+      let cardIssuerId: string | undefined;
+      let cardInstallments: number = 1; // Padrão 1, mas pode vir da API de métodos de pagamento
+
       // Se for cartão de crédito, tokenizar primeiro
       if (method === 'credit_card') {
         try {
@@ -238,6 +241,12 @@ export const PaymentModal = ({
             identificationNumber: identificationNumber.substring(0, 3) + '***' + identificationNumber.substring(identificationNumber.length - 3),
           });
 
+          // ✅ CRÍTICO: Sempre criar um NOVO token (não reutilizar)
+          // Limpar qualquer token anterior antes de criar um novo
+          cardToken = undefined;
+          cardPaymentMethodId = undefined;
+          cardIssuerId = undefined;
+
           const tokenResult = await tokenizeMercadoPagoCard(
             {
               cardNumber: numberDigits,
@@ -251,12 +260,24 @@ export const PaymentModal = ({
             mpPublicKey
           );
 
+          // ✅ USAR APENAS OS DADOS RETORNADOS PELA API (sem hardcode)
           cardToken = tokenResult.token;
-          cardPaymentMethodId = tokenResult.payment_method_id;
+          cardPaymentMethodId = tokenResult.payment_method_id; // Pode ser undefined se não vier na resposta
+          cardIssuerId = tokenResult.issuer_id; // Pode ser undefined se não vier na resposta
 
-          console.log('✅ [MP] Token do cartão gerado:', {
+          // ⚠️ Se payment_method_id não vier, usar 'credit_card' genérico
+          // (o Mercado Pago pode inferir do token, mas é melhor ser explícito se possível)
+          if (!cardPaymentMethodId) {
+            console.warn('⚠️ [MP] payment_method_id não retornado pela API. Usando "credit_card" genérico.');
+            cardPaymentMethodId = 'credit_card';
+          }
+
+          console.log('✅ [MP] Token do cartão gerado - Dados retornados pela API:', {
             token: cardToken?.substring(0, 10) + '...',
-            payment_method_id: cardPaymentMethodId,
+            payment_method_id: cardPaymentMethodId || 'NÃO RETORNADO',
+            issuer_id: cardIssuerId || 'NÃO RETORNADO',
+            first_six_digits: tokenResult.first_six_digits || 'NÃO RETORNADO',
+            installments: cardInstallments,
           });
           
           // ✅ Log dos dados que serão enviados no pagamento (para comparar com tokenização)
@@ -267,7 +288,9 @@ export const PaymentModal = ({
             identificationType: docDigits.length === 11 ? 'CPF' : 'CNPJ',
             identificationNumber: docDigits.substring(0, 3) + '***' + docDigits.substring(docDigits.length - 3),
             cardToken: cardToken?.substring(0, 10) + '...',
-            payment_method_id: 'credit_card',
+            payment_method_id: cardPaymentMethodId, // ✅ Usar o que veio da API (não hardcode)
+            issuer_id: cardIssuerId || 'NÃO ENVIADO', // ✅ Usar o que veio da API
+            installments: cardInstallments,
           });
         } catch (tokenError: any) {
           console.error('❌ Erro ao tokenizar cartão:', tokenError);
@@ -349,12 +372,15 @@ export const PaymentModal = ({
           amount: amountInCents,
           description: `Agendamento #${appointmentId}`,
           payer: payerData,
-          // ✅ CORRIGIDO: Para cartão de crédito, usar 'credit_card' (não a bandeira)
-          // A bandeira é detectada automaticamente pelo token
-          payment_method_id: method === 'credit_card' ? 'credit_card' : method,
-          ...(method === 'credit_card' ? { 
-            installments: 1,
-            token: cardToken,
+          // ✅ CRÍTICO: Usar APENAS os dados retornados pela API de tokenização
+          // Sem valores hardcoded (evita diff_param_bins)
+          payment_method_id: method === 'credit_card' 
+            ? (cardPaymentMethodId || 'credit_card') // Usar o que veio da API, fallback apenas se necessário
+            : method,
+          ...(method === 'credit_card' ? {
+            token: cardToken, // ✅ Token sempre recriado acima
+            installments: cardInstallments, // ✅ Usar valor padrão ou da API (não hardcode fixo)
+            ...(cardIssuerId ? { issuer_id: cardIssuerId } : {}), // ✅ Incluir issuer_id se vier da API
           } : {}),
           metadata: {
             appointment_id: appointmentId,

@@ -40,9 +40,10 @@ export interface CreateMPPaymentRequest {
   application_fee: number; // Taxa da plataforma em centavos (ex: 50 = R$ 0,50)
   access_token: string; // Access token do vendedor
   metadata?: Record<string, any>;
-  payment_method_id?: string; // 'pix', 'credit_card', etc.
-  installments?: number; // Para cartão de crédito
-  token?: string; // Token do cartão (obrigatório para credit_card)
+  payment_method_id?: string; // 'pix', 'credit_card', 'visa', 'master', etc. (vem do token)
+  installments?: number; // Para cartão de crédito (vem do frontend/API)
+  token?: string; // Token do cartão (obrigatório para credit_card, sempre recriado)
+  issuer_id?: string; // ID do banco emissor (vem do token, pode ser opcional)
   statement_descriptor?: string;
 }
 
@@ -157,22 +158,30 @@ export async function createMPPayment(
         : {}),
     };
     
-    // Para cartão de crédito, adicionar token e installments
-    if (paymentData.payment_method_id === 'credit_card') {
+    // ✅ Para cartão de crédito, adicionar token, installments e issuer_id (se fornecido)
+    // IMPORTANTE: Usar APENAS os valores recebidos (não alterar ou inferir)
+    if (paymentData.payment_method_id === 'credit_card' || paymentData.token) {
       if (!paymentData.token) {
         throw new Error('Token do cartão é obrigatório para pagamento com cartão de crédito');
       }
+      // ✅ REPASSAR token exatamente como veio (sem alteração)
       payload.token = paymentData.token;
+      // ✅ REPASSAR installments se fornecido (sem alteração)
       if (paymentData.installments) {
         payload.installments = paymentData.installments;
       }
+      // ✅ REPASSAR issuer_id se fornecido (sem alteração)
+      if (paymentData.issuer_id) {
+        payload.issuer_id = String(paymentData.issuer_id);
+      }
       
-      // ✅ Log detalhado para cartão (ajuda a debugar problemas específicos)
-      console.log('💳 [MP Payment] Dados específicos do cartão:', {
-        hasToken: !!paymentData.token,
+      // ✅ Log detalhado para cartão (ajuda a debugar problemas específicos - objetivo: eliminar diff_param_bins)
+      console.log('💳 [MP Payment] Dados específicos do cartão ANTES de criar pagamento:', {
+        token: paymentData.token ? String(paymentData.token).substring(0, 10) + '...' : 'NÃO ENVIADO',
         tokenLength: String(paymentData.token || '').length,
-        tokenPreview: String(paymentData.token || '').substring(0, 10) + '...',
-        installments: paymentData.installments || 1,
+        payment_method_id: paymentData.payment_method_id || 'NÃO ENVIADO',
+        issuer_id: paymentData.issuer_id || 'NÃO ENVIADO',
+        installments: paymentData.installments || 'NÃO ENVIADO',
         payerName: paymentData.payer.first_name && paymentData.payer.last_name 
           ? `${paymentData.payer.first_name} ${paymentData.payer.last_name}` 
           : 'NÃO INFORMADO',

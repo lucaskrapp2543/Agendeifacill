@@ -28,8 +28,24 @@ export const handler: Handler = async (event) => {
       payment_method_id,
       installments,
       token,
+      issuer_id, // ✅ Capturar issuer_id se vier do frontend
       metadata,
     } = body;
+
+    // ✅ Logs detalhados ANTES de processar (objetivo: debug diff_param_bins)
+    console.log('📥 [MP Create Payment] Dados recebidos do frontend:', {
+      establishmentId,
+      amount,
+      description: String(description).substring(0, 50),
+      payment_method_id: payment_method_id || 'NÃO ENVIADO',
+      token: token ? String(token).substring(0, 10) + '...' : 'NÃO ENVIADO',
+      issuer_id: issuer_id || 'NÃO ENVIADO',
+      installments: installments || 'NÃO ENVIADO',
+      payerEmail: payer?.email ? String(payer.email).substring(0, 20) + '...' : 'NÃO ENVIADO',
+      payerIdentification: payer?.identification 
+        ? `${payer.identification.type}: ${String(payer.identification.number).substring(0, 3)}***`
+        : 'NÃO ENVIADO',
+    });
 
     // Validação
     if (!establishmentId || !amount || !description || !payer?.email) {
@@ -70,12 +86,15 @@ export const handler: Handler = async (event) => {
     // Taxa da plataforma: R$ 0,50 (50 centavos)
     const applicationFee = 50;
 
-    // Criar pagamento
+    // ✅ CRÍTICO: Apenas REPASSAR os dados recebidos (sem alterar payment_method_id, issuer_id ou installments)
+    // O objetivo é garantir que os dados do token sejam preservados
     const paymentData: CreateMPPaymentRequest = {
       amount: Math.round(Number(amount)),
       description: String(description),
       payer: {
         email: String(payer.email),
+        ...(payer.first_name ? { first_name: String(payer.first_name) } : {}),
+        ...(payer.last_name ? { last_name: String(payer.last_name) } : {}),
         ...(payer.identification
           ? {
               identification: {
@@ -88,11 +107,26 @@ export const handler: Handler = async (event) => {
       },
       application_fee: applicationFee,
       access_token: String(accessToken),
+      // ✅ REPASSAR payment_method_id exatamente como veio (não alterar)
       payment_method_id: payment_method_id || 'pix',
+      // ✅ REPASSAR installments exatamente como veio (não alterar)
       ...(installments ? { installments: Number(installments) } : {}),
+      // ✅ REPASSAR token exatamente como veio (não alterar)
       ...(token ? { token: String(token) } : {}),
+      // ✅ REPASSAR issuer_id exatamente como veio (não alterar)
+      ...(issuer_id ? { issuer_id: String(issuer_id) } : {}),
       ...(metadata ? { metadata } : {}),
     };
+
+    // ✅ Logs detalhados ANTES de criar pagamento (objetivo: debug diff_param_bins)
+    console.log('📤 [MP Create Payment] Dados que serão enviados para Mercado Pago:', {
+      payment_method_id: paymentData.payment_method_id,
+      token: paymentData.token ? String(paymentData.token).substring(0, 10) + '...' : 'NÃO ENVIADO',
+      issuer_id: (paymentData as any).issuer_id || 'NÃO ENVIADO',
+      installments: paymentData.installments || 'NÃO ENVIADO',
+      amount: paymentData.amount,
+      application_fee: paymentData.application_fee,
+    });
 
     const payment = await createMPPayment(paymentData);
 
