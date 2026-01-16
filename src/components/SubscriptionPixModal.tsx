@@ -2,7 +2,8 @@ import { CheckCircle2, CreditCard, Loader2, MessageCircle, QrCode, X } from 'luc
 import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
-import { tokenizeMercadoPagoCard } from '../lib/mercadopago/tokenize-card';
+import { CardPaymentBrick } from './CardPaymentBrick';
+import { supabase } from '../lib/supabase';
 
 type SubscriptionPixModalProps = {
   isOpen: boolean;
@@ -55,8 +56,37 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const countdownRef = useRef<number | null>(null);
   const [expiresInSeconds, setExpiresInSeconds] = useState(90);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
+  // ✅ NOVO: Estados para verificar Mercado Pago e dados do Brick
+  const [hasMercadoPago, setHasMercadoPago] = useState(false);
+  const [brickCardToken, setBrickCardToken] = useState<string | null>(null);
+  const [brickPaymentMethodId, setBrickPaymentMethodId] = useState<string | null>(null);
+  const [brickIssuerId, setBrickIssuerId] = useState<string | null>(null);
+  const [brickInstallments, setBrickInstallments] = useState<number>(1);
+  const [isBrickReady, setIsBrickReady] = useState(false);
 
   const amountInCents = Math.round(Number(subscription.value || 0) * 100);
+
+  // ✅ NOVO: Verificar se Mercado Pago está configurado (similar ao PaymentModal)
+  useEffect(() => {
+    if (isOpen && establishmentId) {
+      supabase
+        .from('establishments')
+        .select('mercadopago_access_token, use_mercadopago_subscription_pix')
+        .eq('id', establishmentId)
+        .single()
+        .then(({ data }) => {
+          const hasMPToken = !!data?.mercadopago_access_token;
+          const useMPSubscription = Boolean(data?.use_mercadopago_subscription_pix === true);
+          // Se paymentProvider é 'mercadopago' E tem token E está habilitado → usar Mercado Pago
+          setHasMercadoPago(
+            paymentProvider === 'mercadopago' && hasMPToken && useMPSubscription
+          );
+        })
+        .catch(() => {
+          setHasMercadoPago(paymentProvider === 'mercadopago');
+        });
+    }
+  }, [isOpen, establishmentId, paymentProvider]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -70,6 +100,11 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setExpiresInSeconds(90);
     setRemainingSeconds(0);
     setCardRefusedReason('');
+    setBrickCardToken(null);
+    setBrickPaymentMethodId(null);
+    setBrickIssuerId(null);
+    setBrickInstallments(1);
+    setIsBrickReady(false);
   }, [isOpen]);
 
   useEffect(() => {
@@ -304,7 +339,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
 
     // Fluxo Pagar.me (original)
-    if (!String(recipientId || '').trim()) {
+    // ✅ CORRIGIDO: Só verificar Pagar.me se não estiver usando Mercado Pago
+    if (paymentProvider !== 'mercadopago' && !String(recipientId || '').trim()) {
       toast.error('Este estabelecimento ainda não configurou o recebedor da Pagar.me.');
       return;
     }
@@ -405,8 +441,196 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   };
 
+  // ✅ NOVO: Handler para quando o Card Payment Brick submete o formulário
+  const handleBrickSubmit = async (formData: {
+    token: string;
+    payment_method_id: string;
+    issuer_id: string;
+    installments: number;
+    bin?: string;
+    lastFourDigits?: string;
+  }) => {
+    console.log('📦 [MP Brick Subscription] Formulário submetido pelo Brick:', {
+      token: formData.token.substring(0, 10) + '...',
+      payment_method_id: formData.payment_method_id,
+      issuer_id: formData.issuer_id,
+      installments: formData.installments,
+    });
+
+    setBrickCardToken(formData.token);
+    setBrickPaymentMethodId(formData.payment_method_id);
+    setBrickIssuerId(formData.issuer_id);
+    setBrickInstallments(formData.installments);
+
+    // Processar pagamento com Mercado Pago
+    await handlePayWithCardMercadoPago();
+  };
+
+  const handleBrickReady = () => {
+    console.log('✅ [MP Brick Subscription] Brick está pronto');
+    setIsBrickReady(true);
+  };
+
+  const handleBrickError = (error: any) => {
+    console.error('❌ [MP Brick Subscription] Erro no Brick:', error);
+    toast.error(`Erro no formulário de pagamento: ${error?.message || 'Erro desconhecido'}`);
+  };
+
+  // ✅ NOVO: Função para pagar com cartão via Mercado Pago
+  const handlePayWithCardMercadoPago = async () => {
+    if (!hasMercadoPago) {
+      toast.error('Estabelecimento não possui conta do Mercado Pago conectada');
+      return;
+    }
+
+    if (!brickCardToken || !brickPaymentMethodId || !brickIssuerId) {
+      toast.error('Dados do cartão não foram fornecidos pelo formulário. Tente novamente.');
+      return;
+    }
+
+    const cpfDigits = String(cpf || '').replace(/\D/g, '');
+    if (cpfDigits.length !== 11 && cpfDigits.length !== 14) {
+      toast.error('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
+      return;
+    }
+    if (!nome.trim()) {
+      toast.error('Informe seu nome.');
+      return;
+    }
+
+    const cepDigits = String(billingCep || '').replace(/\D/g, '');
+    const uf = String(billingUf || '').trim().toUpperCase();
+    const cidade = String(billingCidade || '').trim();
+    const rua = String(billingRua || '').trim();
+    const numero = String(billingNumero || '').trim();
+
+    if (cepDigits.length !== 8) {
+      toast.error('Informe um CEP válido (8 dígitos) para o endereço de cobrança.');
+      return;
+    }
+    if (!rua || !numero) {
+      toast.error('Informe rua e número do endereço de cobrança.');
+      return;
+    }
+    if (!cidade) {
+      toast.error('Informe a cidade do endereço de cobrança.');
+      return;
+    }
+    if (!uf || uf.length !== 2) {
+      toast.error('Informe a UF do endereço de cobrança (2 letras, ex: SC).');
+      return;
+    }
+
+    setSelectedMethod('credit_card');
+    setIsProcessing(true);
+    setPixQrCode('');
+    setPixQrCodeUrl('');
+    setCardRefusedReason('');
+
+    try {
+      const createPaymentUrl = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-create-payment'
+        : '/api/mercadopago/create-payment';
+
+      const response = await fetch(createPaymentUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId,
+          amount: amountInCents,
+          description: `Assinatura ${subscription.name}`,
+          payment_method_id: brickPaymentMethodId,
+          token: brickCardToken,
+          issuer_id: brickIssuerId,
+          installments: brickInstallments || 1,
+          payer: {
+            email: email?.trim() || 'cliente@exemplo.com',
+            identification: {
+              type: cpfDigits.length === 11 ? 'CPF' : 'CNPJ',
+              number: cpfDigits,
+            },
+            first_name: nome.trim().split(' ')[0] || '',
+            last_name: nome.trim().split(' ').slice(1).join(' ') || nome.trim(),
+            address: {
+              zip_code: cepDigits,
+              street_name: rua,
+              street_number: Number(numero) || 0,
+              neighborhood: billingBairro || '',
+              city: cidade,
+              federal_unit: uf,
+            },
+          },
+          metadata: {
+            establishment_id: establishmentId,
+            subscription_id: subscription.id,
+            subscription_name: subscription.name,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
+        const msg = errorData.error || errorData.message || `Erro ${response.status}`;
+        throw new Error(msg);
+      }
+
+      const result = await response.json();
+      const normalized = String(result?.status || '').toLowerCase();
+
+      if (normalized === 'approved' || normalized === 'authorized') {
+        await (async () => {
+          const confirmUrl = import.meta.env.PROD
+            ? '/.netlify/functions/subscription-confirm-pix'
+            : '/api/subscribers/confirm-subscription-pix';
+
+          const resp = await fetch(confirmUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: result.id,
+              establishmentId,
+              subscriptionId: subscription.id,
+              provider: 'mercadopago_card',
+              customer: {
+                name: nome.trim(),
+                whatsapp: whatsapp,
+                email: email?.trim() || undefined,
+                document: cpfDigits,
+              },
+            }),
+          });
+
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            const msg = err?.error || `Erro ${resp.status}`;
+            throw new Error(msg);
+          }
+        })();
+
+        setIsPaid(true);
+        return;
+      }
+
+      setIsCheckingPayment(true);
+      checkPaymentStatusPeriodically(result.id, 'mercadopago_card');
+    } catch (err: any) {
+      toast.error(`Erro ao pagar com cartão: ${err?.message || 'Erro desconhecido'}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // ✅ CORRIGIDO: Função para pagar com cartão via Pagar.me (apenas quando não é Mercado Pago)
   const handlePayWithCard = async () => {
-    if (!String(recipientId || '').trim()) {
+    // ✅ CORRIGIDO: Não verificar Pagar.me se está usando Mercado Pago
+    if (paymentProvider === 'mercadopago' && hasMercadoPago) {
+      // Se está usando Mercado Pago, o Brick já chama handlePayWithCardMercadoPago
+      toast.error('Use o formulário de cartão do Mercado Pago acima.');
+      return;
+    }
+
+    // ✅ CORRIGIDO: Só verificar Pagar.me se não estiver usando Mercado Pago
+    if (paymentProvider !== 'mercadopago' && !String(recipientId || '').trim()) {
       toast.error('Este estabelecimento ainda não configurou o recebedor da Pagar.me.');
       return;
     }
@@ -756,10 +980,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 <button
                   onClick={() => {
                     setSelectedMethod('credit_card');
-                    // Se já tiver dados preenchidos, processar imediatamente
-                    if (nome.trim() && cpf && whatsapp) {
-                      handlePayWithCard();
-                    }
+                    // Não processar automaticamente - aguardar preenchimento do formulário
                   }}
                   disabled={isProcessing}
                   className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
@@ -771,67 +992,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
             {selectedMethod === 'credit_card' ? (
               <div className="mt-3 space-y-3 border-t border-gray-800 pt-3">
-                <div className="bg-green-600/10 border border-green-500/30 rounded-lg p-3">
-                  <p className="text-sm text-green-200">
-                    Cartão usa tokenização segura ({paymentProvider === 'mercadopago' ? 'Mercado Pago' : 'Pagar.me'}). O número do cartão não vai para o servidor.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-gray-300 mb-1">Número do cartão</label>
-                  <input
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(e.target.value)}
-                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="0000 0000 0000 0000"
-                    inputMode="numeric"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-gray-300 mb-1">Nome do titular</label>
-                  <input
-                    value={cardHolderName}
-                    onChange={(e) => setCardHolderName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="Como está no cartão"
-                  />
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="col-span-1">
-                    <label className="block text-sm text-gray-300 mb-1">Mês</label>
-                    <input
-                      value={cardExpMonth}
-                      onChange={(e) => setCardExpMonth(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder="MM"
-                      inputMode="numeric"
-                    />
-                  </div>
-                  <div className="col-span-1">
-                    <label className="block text-sm text-gray-300 mb-1">Ano</label>
-                    <input
-                      value={cardExpYear}
-                      onChange={(e) => setCardExpYear(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder="AA ou AAAA"
-                      inputMode="numeric"
-                    />
-                  </div>
-                  <div className="col-span-1">
-                    <label className="block text-sm text-gray-300 mb-1">CVV</label>
-                    <input
-                      value={cardCvv}
-                      onChange={(e) => setCardCvv(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder="123"
-                      inputMode="numeric"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-2 border-t border-gray-800 pt-3 space-y-3">
+                {/* ✅ REORGANIZADO: Endereço de cobrança ANTES do cartão (melhor UX) */}
+                <div className="mb-4 border-b border-gray-800 pb-3 space-y-3">
                   <p className="text-sm text-gray-200 font-semibold">Endereço de cobrança (obrigatório no cartão)</p>
 
                   <div>
@@ -900,23 +1062,112 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   </div>
                 </div>
 
-                <button
-                  onClick={handlePayWithCard}
-                  disabled={isProcessing || isCheckingPayment}
-                  className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {isProcessing && selectedMethod === 'credit_card' ? (
+                {/* ✅ NOVO: Card Payment Brick do Mercado Pago (Secure Fields) - DEPOIS do endereço */}
+                <div className="mt-4 border-t border-gray-800 pt-4">
+                  <label className="block text-sm text-gray-300 mb-2">Dados do cartão</label>
+                  {hasMercadoPago ? (() => {
+                    const docDigitsForBrick = String(cpf || '').replace(/\D/g, '');
+                    const identificationTypeForBrick = docDigitsForBrick.length === 11 ? 'CPF' : 'CNPJ';
+                    
+                    return (
+                      <CardPaymentBrick
+                        publicKey={String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim()}
+                        amount={Number(subscription.value || 0)}
+                        onSubmit={handleBrickSubmit}
+                        onReady={handleBrickReady}
+                        onError={handleBrickError}
+                        payerData={{
+                          email: email || 'cliente@exemplo.com',
+                          identificationType: identificationTypeForBrick,
+                          identificationNumber: docDigitsForBrick,
+                          firstName: nome.split(' ')[0] || '',
+                          lastName: nome.split(' ').slice(1).join(' ') || nome || '',
+                        }}
+                      />
+                    );
+                  })() : (
                     <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      Processando...
-                    </>
-                  ) : (
-                    <>
-                      <CreditCard className="h-5 w-5" />
-                      Pagar com Cartão
+                      {/* ✅ Pagar.me ainda usa inputs manuais (não tem Brick) */}
+                      <div className="bg-green-600/10 border border-green-500/30 rounded-lg p-3 mb-3">
+                        <p className="text-sm text-green-200">
+                          Cartão usa tokenização segura (Pagar.me). O número do cartão não vai para o servidor.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-gray-300 mb-1">Número do cartão</label>
+                        <input
+                          value={cardNumber}
+                          onChange={(e) => setCardNumber(e.target.value)}
+                          className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                          placeholder="0000 0000 0000 0000"
+                          inputMode="numeric"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-gray-300 mb-1">Nome do titular</label>
+                        <input
+                          value={cardHolderName}
+                          onChange={(e) => setCardHolderName(e.target.value)}
+                          className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                          placeholder="Como está no cartão"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="col-span-1">
+                          <label className="block text-sm text-gray-300 mb-1">Mês</label>
+                          <input
+                            value={cardExpMonth}
+                            onChange={(e) => setCardExpMonth(e.target.value)}
+                            className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            placeholder="MM"
+                            inputMode="numeric"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="block text-sm text-gray-300 mb-1">Ano</label>
+                          <input
+                            value={cardExpYear}
+                            onChange={(e) => setCardExpYear(e.target.value)}
+                            className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            placeholder="AA ou AAAA"
+                            inputMode="numeric"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="block text-sm text-gray-300 mb-1">CVV</label>
+                          <input
+                            value={cardCvv}
+                            onChange={(e) => setCardCvv(e.target.value)}
+                            className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            placeholder="123"
+                            inputMode="numeric"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handlePayWithCard}
+                        disabled={isProcessing || isCheckingPayment}
+                        className="w-full mt-4 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {isProcessing && selectedMethod === 'credit_card' ? (
+                          <>
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                            Processando...
+                          </>
+                        ) : (
+                          <>
+                            <CreditCard className="h-5 w-5" />
+                            Pagar com Cartão
+                          </>
+                        )}
+                      </button>
                     </>
                   )}
-                </button>
+                </div>
               </div>
             ) : null}
           </div>
