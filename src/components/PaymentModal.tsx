@@ -276,13 +276,25 @@ export const PaymentModal = ({
 
       // ✅ CORRIGIDO: Preparar dados do pagador usando os MESMOS dados da tokenização
       // identificationType e docDigits já foram normalizados acima, garantir consistência
+      // ⚠️ IMPORTANTE: Email deve ser válido (não pode ser genérico como 'cliente@exemplo.com')
+      const payerEmail = String(customerData.email || '').trim().toLowerCase();
+      if (!payerEmail || !payerEmail.includes('@')) {
+        throw new Error('Email do cliente é obrigatório para pagamento com Mercado Pago');
+      }
+
       const payerData: any = {
-        email: customerData.email || 'cliente@exemplo.com',
+        email: payerEmail,
         identification: {
           type: identificationType, // Usar o mesmo tipo definido acima
           number: docDigits, // Usar o mesmo CPF/CNPJ normalizado (só dígitos)
         },
       };
+
+      console.log('👤 [MP Payment] Dados do pagador:', {
+        email: payerEmail.substring(0, 10) + '***',
+        identificationType,
+        identificationNumber: docDigits.substring(0, 3) + '***' + docDigits.substring(docDigits.length - 3),
+      });
 
       // ✅ CORRIGIDO: Adicionar endereço de cobrança para cartão (obrigatório no Mercado Pago)
       // Validar todos os campos obrigatórios antes de enviar
