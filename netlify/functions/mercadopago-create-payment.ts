@@ -45,6 +45,8 @@ export const handler: Handler = async (event) => {
       payerIdentification: payer?.identification 
         ? `${payer.identification.type}: ${String(payer.identification.number).substring(0, 3)}***`
         : 'NÃO ENVIADO',
+      metadata: metadata || 'NÃO ENVIADO',
+      appointment_id: metadata?.appointment_id || 'NÃO ENVIADO',
     });
 
     // Validação

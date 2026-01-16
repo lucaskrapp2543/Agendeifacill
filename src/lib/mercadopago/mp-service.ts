@@ -132,6 +132,12 @@ export async function createMPPayment(
       hasAddress: !!paymentData.payer.address,
     });
     
+    // ✅ CRÍTICO: external_reference é usado pelo webhook para identificar o pagamento
+    // Deve ser uma string única que identifica o agendamento
+    const externalReference = paymentData.metadata?.appointment_id 
+      ? `appointment_${paymentData.metadata.appointment_id}`
+      : undefined;
+
     const payload: any = {
       transaction_amount: transactionAmount,
       description: paymentData.description,
@@ -152,6 +158,8 @@ export async function createMPPayment(
         ...(paymentData.payer.address ? { address: paymentData.payer.address } : {}),
       },
       application_fee: applicationFeeAmount, // Taxa da plataforma (R$ 0,50)
+      // ✅ CRÍTICO: external_reference é obrigatório para webhook identificar o pagamento
+      ...(externalReference ? { external_reference: externalReference } : {}),
       ...(paymentData.metadata ? { metadata: paymentData.metadata } : {}),
       ...(paymentData.statement_descriptor
         ? { statement_descriptor: paymentData.statement_descriptor }
