@@ -209,6 +209,15 @@ export async function createMPPayment(
       });
     }
     
+    // ✅ LOG: Confirmar que external_reference está sendo enviado
+    console.log('🔗 [MP Payment] external_reference que será enviado:', externalReference || 'NÃO ENVIADO');
+    console.log('📦 [MP Payment] Payload completo (resumo):', {
+      transaction_amount: payload.transaction_amount,
+      payment_method_id: payload.payment_method_id,
+      external_reference: payload.external_reference || 'NÃO ENVIADO',
+      has_metadata: !!payload.metadata,
+      appointment_id: payload.metadata?.appointment_id || 'NÃO ENVIADO',
+    });
     console.log('📦 [MP Payment] Payload completo:', JSON.stringify(payload, null, 2));
 
     // Criar pagamento usando o access_token do vendedor
