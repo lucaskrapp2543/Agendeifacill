@@ -398,9 +398,8 @@ export const PaymentModal = ({
         }
       }
 
-      const createPaymentUrl = import.meta.env.PROD
-        ? '/.netlify/functions/mercadopago-create-payment'
-        : '/api/mercadopago/create-payment';
+      // ✅ Usar URL direta da Netlify Function (sem redirect)
+      const createPaymentUrl = '/.netlify/functions/mercadopago-create-payment';
 
       const paymentResponse = await fetch(createPaymentUrl, {
         method: 'POST',
