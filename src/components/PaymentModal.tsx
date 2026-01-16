@@ -158,8 +158,8 @@ export const PaymentModal = ({
         toast('Ano de validade inválido.', 'error');
         return;
       }
-      if (cvvDigits.length < 3 || cvvDigits.length > 4) {
-        toast('CVV inválido.', 'error');
+      if (!cvvDigits || cvvDigits.length < 3 || cvvDigits.length > 4) {
+        toast('CVV inválido. Informe o código de segurança do cartão (3 ou 4 dígitos).', 'error');
         return;
       }
       if (!holder) {
