@@ -265,10 +265,9 @@ export const PaymentModal = ({
           const bin = tokenResult.first_six_digits;
 
           // 2. Buscar payment_method_id e issuer_id via BACKEND (evita CORS)
-          // ✅ SOLUÇÃO: Usar Netlify Function ao invés de chamar API do Mercado Pago diretamente
-          const getPaymentMethodUrl = import.meta.env.PROD
-            ? '/.netlify/functions/mercadopago-get-payment-method'
-            : '/api/mercadopago/get-payment-method';
+          // ✅ SOLUÇÃO: Usar Netlify Function via redirect (funciona em dev e produção)
+          // ✅ PADRONIZADO: Usar sempre /api/mercadopago/get-payment-method (redirect no netlify.toml)
+          const getPaymentMethodUrl = '/api/mercadopago/get-payment-method';
 
           console.log('🔍 [MP] Buscando payment_method_id e issuer_id via backend para BIN:', bin.substring(0, 2) + '****');
 
