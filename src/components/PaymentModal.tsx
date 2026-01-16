@@ -1111,36 +1111,7 @@ export const PaymentModal = ({
                 />
               </div>
 
-              {/* ✅ NOVO: Card Payment Brick do Mercado Pago (Secure Fields) */}
-              <div className="mb-4">
-                <label className="block text-sm text-gray-300 mb-2">Dados do cartão</label>
-                {hasMercadoPago ? (() => {
-                  const docDigitsForBrick = String(cpfCliente || '').replace(/\D/g, '');
-                  const identificationTypeForBrick = docDigitsForBrick.length === 11 ? 'CPF' : 'CNPJ';
-                  
-                  return (
-                    <CardPaymentBrick
-                      publicKey={String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim()}
-                      amount={amount}
-                      onSubmit={handleBrickSubmit}
-                      onReady={handleBrickReady}
-                      onError={handleBrickError}
-                      payerData={{
-                        email: customerData.email || 'cliente@exemplo.com',
-                        identificationType: identificationTypeForBrick,
-                        identificationNumber: docDigitsForBrick,
-                        firstName: customerData.name?.split(' ')[0] || '',
-                        lastName: customerData.name?.split(' ').slice(1).join(' ') || customerData.name || '',
-                      }}
-                    />
-                  );
-                })() : (
-                  <div className="text-sm text-gray-400 p-4 bg-[#111213] rounded-md border border-gray-700">
-                    Mercado Pago não configurado. Use Pagar.me.
-                  </div>
-                )}
-              </div>
-
+              {/* ✅ REORGANIZADO: Endereço de cobrança ANTES do cartão (melhor UX) */}
               <div className="mt-2 border-t border-gray-800 pt-3 space-y-3">
                 <p className="text-sm text-gray-200 font-semibold">Endereço de cobrança (obrigatório no cartão)</p>
 
@@ -1210,9 +1181,107 @@ export const PaymentModal = ({
                 </div>
               </div>
 
-              {/* ✅ REMOVIDO: Botão manual de pagamento (agora o Brick tem seu próprio botão) */}
+              {/* ✅ NOVO: Card Payment Brick do Mercado Pago (Secure Fields) - DEPOIS do endereço */}
+              <div className="mb-4 mt-4 border-t border-gray-800 pt-4">
+                <label className="block text-sm text-gray-300 mb-2">Dados do cartão</label>
+                {hasMercadoPago ? (() => {
+                  const docDigitsForBrick = String(cpfCliente || '').replace(/\D/g, '');
+                  const identificationTypeForBrick = docDigitsForBrick.length === 11 ? 'CPF' : 'CNPJ';
+                  
+                  return (
+                    <CardPaymentBrick
+                      publicKey={String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim()}
+                      amount={amount}
+                      onSubmit={handleBrickSubmit}
+                      onReady={handleBrickReady}
+                      onError={handleBrickError}
+                      payerData={{
+                        email: customerData.email || 'cliente@exemplo.com',
+                        identificationType: identificationTypeForBrick,
+                        identificationNumber: docDigitsForBrick,
+                        firstName: customerData.name?.split(' ')[0] || '',
+                        lastName: customerData.name?.split(' ').slice(1).join(' ') || customerData.name || '',
+                      }}
+                    />
+                  );
+                })() : (
+                  <>
+                    {/* ✅ Pagar.me ainda usa inputs manuais (não tem Brick) */}
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-1">Número do cartão</label>
+                      <input
+                        value={cardNumber || ''}
+                        onChange={(e) => setCardNumber(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="0000 0000 0000 0000"
+                        inputMode="numeric"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-1">Nome do titular</label>
+                      <input
+                        value={cardHolderName || ''}
+                        onChange={(e) => setCardHolderName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="Como está no cartão"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="col-span-1">
+                        <label className="block text-sm text-gray-300 mb-1">Mês</label>
+                        <input
+                          value={cardExpMonth || ''}
+                          onChange={(e) => setCardExpMonth(e.target.value)}
+                          className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                          placeholder="MM"
+                          inputMode="numeric"
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <label className="block text-sm text-gray-300 mb-1">Ano</label>
+                        <input
+                          value={cardExpYear || ''}
+                          onChange={(e) => setCardExpYear(e.target.value)}
+                          className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                          placeholder="AA ou AAAA"
+                          inputMode="numeric"
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <label className="block text-sm text-gray-300 mb-1">CVV</label>
+                        <input
+                          value={cardCvv || ''}
+                          onChange={(e) => setCardCvv(e.target.value)}
+                          className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                          placeholder="123"
+                          inputMode="numeric"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handlePayment('credit_card')}
+                      disabled={isProcessing || isCheckingPayment}
+                      className="w-full mt-4 px-4 py-3 rounded-lg text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          Processando...
+                        </>
+                      ) : (
+                        `Pagar com Cartão (R$ ${amount.toFixed(2)}) - Pagar.me`
+                      )}
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* ✅ REMOVIDO: Botão manual de pagamento para Mercado Pago (agora o Brick tem seu próprio botão) */}
               {/* O Card Payment Brick já inclui o botão de pagamento integrado */}
-              {!hasMercadoPago && (
+              {/* Botão do Pagar.me já está dentro do bloco acima */}
                 <button
                   onClick={() => handlePayment('credit_card')}
                   disabled={isProcessing || isCheckingPayment}
