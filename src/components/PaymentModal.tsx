@@ -221,8 +221,8 @@ export const PaymentModal = ({
           const holder = String(cardHolderName || '').trim().toUpperCase();
 
           // ✅ Garantir que os dados sejam exatamente iguais entre tokenização e pagamento
-          const identificationType = docDigits.length === 11 ? 'CPF' : 'CNPJ';
-          const identificationNumber = docDigits; // Sempre só dígitos
+          // Usar o mesmo identificationType e identificationNumber que foi definido acima
+          const identificationNumber = docDigits; // Sempre só dígitos (já normalizado)
           
           console.log('🔄 [MP Tokenize] Dados para tokenização:', {
             cardNumber: numberDigits.substring(0, 6) + '****' + numberDigits.substring(numberDigits.length - 4),
@@ -270,12 +270,13 @@ export const PaymentModal = ({
         }
       }
 
-      // Preparar dados do pagador com endereço (obrigatório para cartão)
+      // ✅ CORRIGIDO: Preparar dados do pagador usando os MESMOS dados da tokenização
+      // identificationType e docDigits já foram normalizados acima, garantir consistência
       const payerData: any = {
         email: customerData.email || 'cliente@exemplo.com',
         identification: {
-          type: docDigits.length === 11 ? 'CPF' : 'CNPJ',
-          number: docDigits,
+          type: identificationType, // Usar o mesmo tipo definido acima
+          number: docDigits, // Usar o mesmo CPF/CNPJ normalizado (só dígitos)
         },
       };
 
