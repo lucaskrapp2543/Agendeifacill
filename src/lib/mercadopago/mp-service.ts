@@ -160,7 +160,9 @@ export async function createMPPayment(
     
     // ✅ Para cartão de crédito, adicionar token, installments e issuer_id (se fornecido)
     // IMPORTANTE: Usar APENAS os valores recebidos (não alterar ou inferir)
-    if (paymentData.payment_method_id === 'credit_card' || paymentData.token) {
+    // ✅ CORRIGIDO: Verificar se há token (indica cartão), não apenas se payment_method_id === 'credit_card'
+    // payment_method_id pode ser 'visa', 'master', 'elo', etc. (não 'credit_card')
+    if (paymentData.token) {
       if (!paymentData.token) {
         throw new Error('Token do cartão é obrigatório para pagamento com cartão de crédito');
       }
