@@ -73,6 +73,13 @@
   force = true
   methods = ["GET", "POST", "OPTIONS"]
 
+[[redirects]]
+  from = "/api/mercadopago/get-payment-method"
+  to = "/.netlify/functions/mercadopago-get-payment-method"
+  status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
+
 # API Routes - DEVEM VIR ANTES do catch-all
 [[redirects]]
   from = "/api/cancel-appointment"
