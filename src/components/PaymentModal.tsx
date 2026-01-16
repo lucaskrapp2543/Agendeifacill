@@ -1281,22 +1281,7 @@ export const PaymentModal = ({
 
               {/* ✅ REMOVIDO: Botão manual de pagamento para Mercado Pago (agora o Brick tem seu próprio botão) */}
               {/* O Card Payment Brick já inclui o botão de pagamento integrado */}
-              {/* Botão do Pagar.me já está dentro do bloco acima */}
-                <button
-                  onClick={() => handlePayment('credit_card')}
-                  disabled={isProcessing || isCheckingPayment}
-                  className="w-full mt-1 px-4 py-3 rounded-lg text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      Processando...
-                    </>
-                  ) : (
-                    `Pagar com Cartão (R$ ${amount.toFixed(2)}) - Pagar.me`
-                  )}
-                </button>
-              )}
+              {/* Botão do Pagar.me já está dentro do bloco acima (dentro do CardPaymentBrick quando !hasMercadoPago) */}
 
               <button
                 type="button"
