@@ -86,6 +86,27 @@ export const handler: Handler = async (event) => {
     // Taxa da plataforma: R$ 0,50 (50 centavos)
     const applicationFee = 50;
 
+    // ✅ VALIDAÇÃO CRÍTICA: Se for pagamento com cartão, payment_method_id e issuer_id são OBRIGATÓRIOS
+    // ✅ REMOVIDO: Nunca usar 'credit_card' ou inferir valores
+    if (token) {
+      // Se tem token, é pagamento com cartão
+      if (!payment_method_id || payment_method_id === 'credit_card') {
+        return json(400, {
+          error: 'payment_method_id inválido',
+          message: 'Para pagamento com cartão, payment_method_id deve ser a bandeira específica (visa, master, elo, etc.), não "credit_card" genérico.',
+          userMessage: 'Erro ao processar pagamento. Verifique os dados do cartão.',
+        });
+      }
+
+      if (!issuer_id) {
+        return json(400, {
+          error: 'issuer_id obrigatório',
+          message: 'Para pagamento com cartão, issuer_id (ID do banco emissor) é obrigatório.',
+          userMessage: 'Erro ao processar pagamento. Verifique os dados do cartão.',
+        });
+      }
+    }
+
     // ✅ CRÍTICO: Apenas REPASSAR os dados recebidos (sem alterar payment_method_id, issuer_id ou installments)
     // O objetivo é garantir que os dados do token sejam preservados
     const paymentData: CreateMPPaymentRequest = {
@@ -107,8 +128,9 @@ export const handler: Handler = async (event) => {
       },
       application_fee: applicationFee,
       access_token: String(accessToken),
-      // ✅ REPASSAR payment_method_id exatamente como veio (não alterar)
-      payment_method_id: payment_method_id || 'pix',
+      // ✅ REPASSAR payment_method_id exatamente como veio (NUNCA inferir ou alterar)
+      // ✅ REMOVIDO: Não usar fallback 'pix' se vier token (seria cartão)
+      payment_method_id: payment_method_id || (token ? undefined : 'pix'), // Se tem token, payment_method_id é obrigatório
       // ✅ REPASSAR installments exatamente como veio (não alterar)
       ...(installments ? { installments: Number(installments) } : {}),
       // ✅ REPASSAR token exatamente como veio (não alterar)
@@ -118,14 +140,25 @@ export const handler: Handler = async (event) => {
       ...(metadata ? { metadata } : {}),
     };
 
+    // ✅ VALIDAÇÃO FINAL: Se payment_method_id não foi fornecido e há token, erro
+    if (token && !paymentData.payment_method_id) {
+      return json(400, {
+        error: 'payment_method_id obrigatório',
+        message: 'Para pagamento com cartão, payment_method_id (bandeira do cartão) é obrigatório.',
+        userMessage: 'Erro ao processar pagamento. Verifique os dados do cartão.',
+      });
+    }
+
     // ✅ Logs detalhados ANTES de criar pagamento (objetivo: debug diff_param_bins)
     console.log('📤 [MP Create Payment] Dados que serão enviados para Mercado Pago:', {
-      payment_method_id: paymentData.payment_method_id,
+      payment_method_id: paymentData.payment_method_id || 'NÃO ENVIADO',
       token: paymentData.token ? String(paymentData.token).substring(0, 10) + '...' : 'NÃO ENVIADO',
       issuer_id: (paymentData as any).issuer_id || 'NÃO ENVIADO',
       installments: paymentData.installments || 'NÃO ENVIADO',
       amount: paymentData.amount,
       application_fee: paymentData.application_fee,
+      // ✅ Verificar se não há 'credit_card' hardcoded
+      hasCreditCardHardcoded: paymentData.payment_method_id === 'credit_card',
     });
 
     const payment = await createMPPayment(paymentData);

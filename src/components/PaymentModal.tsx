@@ -260,23 +260,27 @@ export const PaymentModal = ({
             mpPublicKey
           );
 
-          // ✅ USAR APENAS OS DADOS RETORNADOS PELA API (sem hardcode)
-          cardToken = tokenResult.token;
-          cardPaymentMethodId = tokenResult.payment_method_id; // Pode ser undefined se não vier na resposta
-          cardIssuerId = tokenResult.issuer_id; // Pode ser undefined se não vier na resposta
-
-          // ⚠️ Se payment_method_id não vier, usar 'credit_card' genérico
-          // (o Mercado Pago pode inferir do token, mas é melhor ser explícito se possível)
-          if (!cardPaymentMethodId) {
-            console.warn('⚠️ [MP] payment_method_id não retornado pela API. Usando "credit_card" genérico.');
-            cardPaymentMethodId = 'credit_card';
+          // ✅ CRÍTICO: payment_method_id e issuer_id são OBRIGATÓRIOS
+          // A função tokenizeMercadoPagoCard já deve ter validado isso, mas garantimos aqui
+          if (!tokenResult.payment_method_id) {
+            throw new Error('payment_method_id não foi retornado pela API de tokenização. Não é possível continuar com o pagamento.');
           }
+
+          if (!tokenResult.issuer_id) {
+            throw new Error('issuer_id não foi retornado pela API de tokenização. Não é possível continuar com o pagamento.');
+          }
+
+          // ✅ USAR APENAS OS DADOS RETORNADOS PELA API (sem hardcode)
+          // ✅ REMOVIDO: NUNCA usar 'credit_card' hardcoded
+          cardToken = tokenResult.token;
+          cardPaymentMethodId = tokenResult.payment_method_id; // ✅ OBRIGATÓRIO: visa, master, elo, etc.
+          cardIssuerId = tokenResult.issuer_id; // ✅ OBRIGATÓRIO: ID do banco emissor
 
           console.log('✅ [MP] Token do cartão gerado - Dados retornados pela API:', {
             token: cardToken?.substring(0, 10) + '...',
-            payment_method_id: cardPaymentMethodId || 'NÃO RETORNADO',
-            issuer_id: cardIssuerId || 'NÃO RETORNADO',
-            first_six_digits: tokenResult.first_six_digits || 'NÃO RETORNADO',
+            payment_method_id: cardPaymentMethodId, // ✅ Nunca será 'credit_card'
+            issuer_id: cardIssuerId,
+            first_six_digits: tokenResult.first_six_digits,
             installments: cardInstallments,
           });
           
@@ -367,20 +371,34 @@ export const PaymentModal = ({
         headers: {
           'Content-Type': 'application/json',
         },
+        // ✅ VALIDAÇÃO FINAL: Garantir que payment_method_id e issuer_id estão presentes
+        if (method === 'credit_card') {
+          if (!cardPaymentMethodId) {
+            throw new Error('payment_method_id é obrigatório para pagamento com cartão. Não foi possível obter da API.');
+          }
+          if (!cardIssuerId) {
+            throw new Error('issuer_id é obrigatório para pagamento com cartão. Não foi possível obter da API.');
+          }
+          if (!cardToken) {
+            throw new Error('Token do cartão é obrigatório para pagamento com cartão.');
+          }
+        }
+
         body: JSON.stringify({
           establishmentId,
           amount: amountInCents,
           description: `Agendamento #${appointmentId}`,
           payer: payerData,
           // ✅ CRÍTICO: Usar APENAS os dados retornados pela API de tokenização
-          // Sem valores hardcoded (evita diff_param_bins)
+          // ✅ REMOVIDO COMPLETAMENTE: Nunca usar 'credit_card' hardcoded
+          // payment_method_id DEVE ser: visa, master, elo, etc. (vem da API)
           payment_method_id: method === 'credit_card' 
-            ? (cardPaymentMethodId || 'credit_card') // Usar o que veio da API, fallback apenas se necessário
+            ? cardPaymentMethodId // ✅ OBRIGATÓRIO: visa, master, elo, etc. (NUNCA 'credit_card')
             : method,
           ...(method === 'credit_card' ? {
-            token: cardToken, // ✅ Token sempre recriado acima
-            installments: cardInstallments, // ✅ Usar valor padrão ou da API (não hardcode fixo)
-            ...(cardIssuerId ? { issuer_id: cardIssuerId } : {}), // ✅ Incluir issuer_id se vier da API
+            token: cardToken, // ✅ OBRIGATÓRIO
+            issuer_id: cardIssuerId, // ✅ OBRIGATÓRIO
+            installments: cardInstallments, // ✅ Usar valor padrão ou da API
           } : {}),
           metadata: {
             appointment_id: appointmentId,

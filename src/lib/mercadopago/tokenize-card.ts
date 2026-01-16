@@ -26,9 +26,9 @@ interface CardTokenInput {
  */
 export interface TokenizeCardResult {
   token: string;
-  payment_method_id?: string; // Pode não vir na resposta, mas inferimos do BIN
-  issuer_id?: string; // Pode não vir na resposta
-  first_six_digits?: string; // BIN do cartão
+  payment_method_id: string; // ✅ OBRIGATÓRIO: Deve vir da API de métodos de pagamento
+  issuer_id: string; // ✅ OBRIGATÓRIO: Deve vir da API de issuers
+  first_six_digits: string; // BIN do cartão (obrigatório para buscar payment_method_id e issuer_id)
 }
 
 export async function tokenizeMercadoPagoCard(
@@ -124,29 +124,91 @@ export async function tokenizeMercadoPagoCard(
       throw new Error('Token do cartão não foi retornado pelo Mercado Pago');
     }
 
-    // ✅ IMPORTANTE: Capturar TODOS os dados retornados pela API (sem fallback hardcoded)
-    // A resposta pode incluir payment_method, issuer_id, first_six_digits, etc.
+    // ✅ OBRIGATÓRIO: Obter BIN (first_six_digits) da resposta
+    const bin = data?.first_six_digits || cardNumber.substring(0, 6);
+    if (!bin || bin.length < 6) {
+      throw new Error('BIN do cartão não foi retornado e não pode ser inferido');
+    }
+
+    const token = String(data.id);
+
+    // ✅ CRÍTICO: Buscar payment_method_id e issuer_id usando a API do Mercado Pago com o BIN
+    // A API de tokenização NÃO retorna esses dados, precisamos buscar separadamente
+    console.log('🔍 [MP Tokenize] Buscando payment_method_id e issuer_id para BIN:', bin);
+
+    let payment_method_id: string | undefined;
+    let issuer_id: string | undefined;
+
+    try {
+      // 1. Buscar payment_method_id usando BIN
+      // Endpoint: GET https://api.mercadopago.com/v1/payment_methods?bin={bin}
+      const paymentMethodsUrl = `https://api.mercadopago.com/v1/payment_methods?bin=${bin}`;
+      const paymentMethodsResponse = await fetch(paymentMethodsUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      });
+
+      if (paymentMethodsResponse.ok) {
+        const paymentMethodsData = await paymentMethodsResponse.json().catch(() => ({}));
+        
+        // Pegar o primeiro payment method (geralmente é o correto para o BIN)
+        if (paymentMethodsData?.results && Array.isArray(paymentMethodsData.results) && paymentMethodsData.results.length > 0) {
+          payment_method_id = paymentMethodsData.results[0]?.id;
+          console.log('✅ [MP Tokenize] payment_method_id encontrado:', payment_method_id);
+        }
+      }
+
+      // 2. Se encontrou payment_method_id, buscar issuer_id
+      if (payment_method_id) {
+        // Endpoint: GET https://api.mercadopago.com/v1/payment_methods/{payment_method_id}/issuers?bin={bin}
+        const issuersUrl = `https://api.mercadopago.com/v1/payment_methods/${payment_method_id}/issuers?bin=${bin}`;
+        const issuersResponse = await fetch(issuersUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        });
+
+        if (issuersResponse.ok) {
+          const issuersData = await issuersResponse.json().catch(() => ({}));
+          
+          // Pegar o primeiro issuer (geralmente é o correto para o BIN)
+          if (issuersData && Array.isArray(issuersData) && issuersData.length > 0) {
+            issuer_id = issuersData[0]?.id;
+            console.log('✅ [MP Tokenize] issuer_id encontrado:', issuer_id);
+          }
+        }
+      }
+    } catch (apiError: any) {
+      console.error('⚠️ [MP Tokenize] Erro ao buscar payment_method_id/issuer_id:', apiError);
+      // Continuar e validar depois se estão presentes
+    }
+
+    // ✅ VALIDAÇÃO CRÍTICA: Se payment_method_id ou issuer_id não foram encontrados, ERRO
+    if (!payment_method_id) {
+      throw new Error('Não foi possível determinar o método de pagamento (payment_method_id) para este cartão. Verifique o número do cartão.');
+    }
+
+    if (!issuer_id) {
+      throw new Error('Não foi possível determinar o banco emissor (issuer_id) para este cartão. Verifique o número do cartão.');
+    }
+
     const result: TokenizeCardResult = {
-      token: String(data.id),
-      first_six_digits: data?.first_six_digits || undefined,
-      payment_method_id: data?.payment_method?.id || undefined, // Se vier na resposta, usar
-      issuer_id: data?.issuer?.id || data?.issuer_id || undefined, // Se vier na resposta, usar
+      token,
+      first_six_digits: bin,
+      payment_method_id, // ✅ OBRIGATÓRIO
+      issuer_id, // ✅ OBRIGATÓRIO
     };
 
-    // ⚠️ Se payment_method_id não vier na resposta, NÃO usar fallback hardcoded
-    // Deixar undefined e o frontend deve detectar isso e tratar adequadamente
-    // O Mercado Pago pode inferir do token na hora do pagamento se necessário
-
-    console.log('✅ [MP Tokenize] Token criado - Dados retornados pela API:', {
-      token: String(data.id).substring(0, 10) + '...',
+    console.log('✅ [MP Tokenize] Token criado - Dados completos:', {
+      token: token.substring(0, 10) + '...',
       first_six_digits: result.first_six_digits,
-      payment_method_id: result.payment_method_id || 'NÃO RETORNADO (será inferido)',
-      issuer_id: result.issuer_id || 'NÃO RETORNADO',
-      rawResponse: {
-        hasPaymentMethod: !!data?.payment_method,
-        hasIssuer: !!data?.issuer || !!data?.issuer_id,
-        hasFirstSixDigits: !!data?.first_six_digits,
-      },
+      payment_method_id: result.payment_method_id,
+      issuer_id: result.issuer_id,
     });
 
     return result;
