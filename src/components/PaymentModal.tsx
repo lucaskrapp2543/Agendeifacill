@@ -280,7 +280,12 @@ export const PaymentModal = ({
 
           if (!paymentMethodResponse.ok) {
             const errorData = await paymentMethodResponse.json().catch(() => ({ message: 'Erro desconhecido' }));
-            throw new Error(errorData.message || errorData.error || `Erro ${paymentMethodResponse.status} ao buscar método de pagamento`);
+            // ✅ ERRO CLARO: Se for 404, informar sobre ambiente (teste/produção)
+            const errorMessage = errorData.message || errorData.error || `Erro ${paymentMethodResponse.status} ao buscar método de pagamento`;
+            const environmentMessage = errorData.environment 
+              ? ` (Ambiente: ${errorData.environment})`
+              : '';
+            throw new Error(errorMessage + environmentMessage);
           }
 
           const paymentMethodData = await paymentMethodResponse.json();
