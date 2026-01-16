@@ -125,6 +125,22 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+  
+  // ⚠️ CRÍTICO: NUNCA interceptar requisições para Netlify Functions
+  // Deixar passar direto para a rede (evita problemas de 404)
+  if (url.pathname.includes('/.netlify/functions/')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+  
+  // ⚠️ CRÍTICO: NUNCA interceptar requisições para APIs que fazem redirect para Netlify Functions
+  // Isso evita que o Service Worker interfira no redirect do Netlify
+  if (url.pathname.includes('/api/mercadopago/get-payment-method') || 
+      url.pathname.includes('/api/mercadopago/create-payment') ||
+      url.pathname.includes('/api/mercadopago/check-status')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
 
   // ⚠️ DETECTAR MOBILE PELO USER-AGENT (ANTES DE QUALQUER COISA)
   const userAgent = request.headers.get('user-agent') || '';
