@@ -71,11 +71,37 @@ self.addEventListener('activate', (event) => {
             }
             // Remover caches antigos também (versões anteriores a 2.3.0)
             if (!cacheName.includes('v2.3.0') && cacheName !== STATIC_CACHE) {
-            console.log('🗑️ Removendo cache antigo:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
+              console.log('🗑️ Removendo cache antigo:', cacheName);
+              return caches.delete(cacheName);
+            }
+            return null;
+          })
+        );
+        
+        // ⚠️ CRÍTICO: Limpar TODOS os caches que podem conter respostas do Supabase
+        // Isso evita problemas de autenticação (401) causados por cache antigo
+        try {
+          const allCaches = await caches.keys();
+          await Promise.all(
+            allCaches.map(async (cacheName) => {
+              const cache = await caches.open(cacheName);
+              const keys = await cache.keys();
+              // Limpar todas as requisições do Supabase do cache
+              await Promise.all(
+                keys.map(async (cachedRequest) => {
+                  if (cachedRequest.url.includes('supabase')) {
+                    console.log('🗑️ Removendo cache do Supabase:', cachedRequest.url);
+                    return cache.delete(cachedRequest);
+                  }
+                  return null;
+                })
+              );
+            })
+          );
+          console.log('✅ Todos os caches do Supabase limpos');
+        } catch (error) {
+          console.warn('⚠️ Erro ao limpar cache do Supabase:', error);
+        }
         
         console.log('✅ Todos os caches de HTML limpos');
       } catch (error) {
@@ -298,7 +324,12 @@ self.addEventListener('fetch', (event) => {
     }
     // API calls - Network First (sempre da rede, sem cache de erros)
     // ⚠️ CRÍTICO: APIs nunca devem usar cache de respostas de erro (404, 500, etc)
-    else if (url.pathname.includes('/api/') || url.hostname.includes('supabase')) {
+    // ⚠️ SUPABASE: NUNCA usar cache (sempre da rede) para evitar problemas de autenticação
+    else if (url.hostname.includes('supabase')) {
+      // Para Supabase, SEMPRE buscar da rede (nunca usar cache)
+      event.respondWith(fetch(request, { cache: 'no-store' }));
+    }
+    else if (url.pathname.includes('/api/')) {
       // Para APIs, usar networkFirst mas garantir que erros não sejam cacheados
       event.respondWith(networkFirst(request));
     }
