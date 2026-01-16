@@ -220,6 +220,20 @@ export const PaymentModal = ({
           // ✅ CORRIGIDO: Normalizar nome do titular para MAIÚSCULAS (consistente com tokenização)
           const holder = String(cardHolderName || '').trim().toUpperCase();
 
+          // ✅ Garantir que os dados sejam exatamente iguais entre tokenização e pagamento
+          const identificationType = docDigits.length === 11 ? 'CPF' : 'CNPJ';
+          const identificationNumber = docDigits; // Sempre só dígitos
+          
+          console.log('🔄 [MP Tokenize] Dados para tokenização:', {
+            cardNumber: numberDigits.substring(0, 6) + '****' + numberDigits.substring(numberDigits.length - 4),
+            cardHolderName: holder.substring(0, 20) + '...',
+            cardExpMonth: expMonthDigits,
+            cardExpYear: expYearDigits,
+            cvvLength: cvvDigits.length,
+            identificationType,
+            identificationNumber: identificationNumber.substring(0, 3) + '***' + identificationNumber.substring(identificationNumber.length - 3),
+          });
+
           const tokenResult = await tokenizeMercadoPagoCard(
             {
               cardNumber: numberDigits,
@@ -227,8 +241,8 @@ export const PaymentModal = ({
               cardExpMonth: expMonthDigits,
               cardExpYear: expYearDigits,
               cardCvv: cvvDigits,
-              identificationType: docDigits.length === 11 ? 'CPF' : 'CNPJ',
-              identificationNumber: docDigits,
+              identificationType,
+              identificationNumber,
             },
             mpPublicKey
           );
@@ -239,6 +253,14 @@ export const PaymentModal = ({
           console.log('✅ [MP] Token do cartão gerado:', {
             token: cardToken?.substring(0, 10) + '...',
             payment_method_id: cardPaymentMethodId,
+          });
+          
+          // ✅ Log dos dados que serão enviados no pagamento (para comparar com tokenização)
+          console.log('📦 [MP Payment] Dados que serão enviados no pagamento:', {
+            identificationType: docDigits.length === 11 ? 'CPF' : 'CNPJ',
+            identificationNumber: docDigits.substring(0, 3) + '***' + docDigits.substring(docDigits.length - 3),
+            cardToken: cardToken?.substring(0, 10) + '...',
+            payment_method_id: 'credit_card',
           });
         } catch (tokenError: any) {
           console.error('❌ Erro ao tokenizar cartão:', tokenError);
