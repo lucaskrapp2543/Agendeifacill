@@ -276,25 +276,24 @@ export const PaymentModal = ({
 
       // ✅ CORRIGIDO: Preparar dados do pagador usando os MESMOS dados da tokenização
       // identificationType e docDigits já foram normalizados acima, garantir consistência
-      // ⚠️ IMPORTANTE: Email deve ser válido (não pode ser genérico como 'cliente@exemplo.com')
-      const payerEmail = String(customerData.email || '').trim().toLowerCase();
-      if (!payerEmail || !payerEmail.includes('@')) {
-        throw new Error('Email do cliente é obrigatório para pagamento com Mercado Pago');
+      // ⚠️ IMPORTANTE: Nome do titular deve ser o MESMO usado na tokenização para evitar diff_param_bins
+      let holderNameForPayment = '';
+      if (method === 'credit_card') {
+        holderNameForPayment = String(cardHolderName || '').trim().toUpperCase(); // Mesmo nome usado na tokenização
       }
 
       const payerData: any = {
-        email: payerEmail,
+        email: customerData.email || 'cliente@exemplo.com',
         identification: {
           type: identificationType, // Usar o mesmo tipo definido acima
           number: docDigits, // Usar o mesmo CPF/CNPJ normalizado (só dígitos)
         },
+        // ✅ Adicionar nome do titular se for cartão (ajuda a evitar diff_param_bins)
+        ...(method === 'credit_card' && holderNameForPayment ? {
+          first_name: holderNameForPayment.split(' ')[0] || holderNameForPayment,
+          last_name: holderNameForPayment.split(' ').slice(1).join(' ') || holderNameForPayment,
+        } : {}),
       };
-
-      console.log('👤 [MP Payment] Dados do pagador:', {
-        email: payerEmail.substring(0, 10) + '***',
-        identificationType,
-        identificationNumber: docDigits.substring(0, 3) + '***' + docDigits.substring(docDigits.length - 3),
-      });
 
       // ✅ CORRIGIDO: Adicionar endereço de cobrança para cartão (obrigatório no Mercado Pago)
       // Validar todos os campos obrigatórios antes de enviar
