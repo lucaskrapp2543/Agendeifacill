@@ -2127,12 +2127,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
           </div>
           )}
-          <div className="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4 mb-4">
-            <p className="text-yellow-200 font-medium text-sm leading-relaxed">
-              ⚠️ <span className="font-bold">Atenção:</span><br />
-              Se você não utilizar a Cakto para receber as recorrências das suas assinaturas, quando o cliente clicar em "Assinar", ele será direcionado diretamente para o seu WhatsApp para finalizar o pagamento manualmente.
-            </p>
-          </div>
+          {/* ✅ CORRIGIDO: Mensagem de atenção sobre Cakto só aparece se Mercado Pago NÃO estiver ativado */}
+          {!useMercadoPagoSubscriptionPix && (
+            <div className="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4 mb-4">
+              <p className="text-yellow-200 font-medium text-sm leading-relaxed">
+                ⚠️ <span className="font-bold">Atenção:</span><br />
+                Se você não utilizar a Cakto para receber as recorrências das suas assinaturas, quando o cliente clicar em "Assinar", ele será direcionado diretamente para o seu WhatsApp para finalizar o pagamento manualmente.
+              </p>
+            </div>
+          )}
         </div>
 
         {subscriptions.length === 0 ? (
