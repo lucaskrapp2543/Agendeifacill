@@ -69,7 +69,19 @@ Você verá nos logs:
 
 - **Cartões de teste só funcionam com tokens de TESTE**
 - **Não use cartões de teste com tokens de PRODUÇÃO**
+- **Se aparecer erro `cc_rejected_high_risk`, significa que está usando token de PRODUÇÃO com cartão de teste**
 - **Em produção, use cartões reais (mas cuidado!)**
+
+### 🔴 Erro `cc_rejected_high_risk`
+
+Se você ver este erro, significa que:
+1. **Está usando token de PRODUÇÃO** (`APP_USR-...`) com cartão de teste
+2. **Solução:** Use token de **TESTE** (`TEST-...`) no Netlify/localhost
+
+**Como verificar:**
+- No Netlify: Vá em **Site settings** → **Environment variables**
+- Verifique se `MERCADOPAGO_ACCESS_TOKEN` começa com `TEST-`
+- Se começar com `APP_USR-`, está em modo PRODUÇÃO (não aceita cartões de teste)
 
 ### 🎯 Teste Recomendado
 

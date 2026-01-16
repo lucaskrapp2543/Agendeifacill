@@ -259,16 +259,38 @@ export const PaymentModal = ({
       return;
     }
 
-    // ✅ Salvar dados do Brick nos estados ANTES de processar
+    // ✅ IMPORTANTE: Salvar dados do Brick nos estados ANTES de processar
+    // Usar uma função de atualização que garante que os estados sejam atualizados
     setBrickCardToken(formData.token);
     setBrickPaymentMethodId(formData.payment_method_id);
     setBrickIssuerId(formData.issuer_id);
     setBrickInstallments(formData.installments);
 
-    console.log('✅ [MP Brick] Dados validados e salvos, processando pagamento...');
+    console.log('✅ [MP Brick] Dados validados e salvos nos estados:', {
+      token: formData.token.substring(0, 10) + '...',
+      payment_method_id: formData.payment_method_id,
+      issuer_id: formData.issuer_id,
+    });
 
-    // ✅ Processar pagamento com os dados do Brick
-    await handleMercadoPagoPayment('credit_card');
+    // ✅ Aguardar um tick para garantir que os estados foram atualizados
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // ✅ Processar pagamento com os dados do Brick (passar dados diretamente para evitar problema de timing)
+    console.log('✅ [MP Brick] Iniciando processamento do pagamento...');
+    
+    // ✅ Chamar handleMercadoPagoPayment diretamente, mas garantir que os dados estão nos estados
+    // Usar os dados do formData diretamente em vez de depender dos estados
+    try {
+      await handleMercadoPagoPaymentWithBrickData({
+        token: formData.token,
+        payment_method_id: formData.payment_method_id,
+        issuer_id: formData.issuer_id,
+        installments: formData.installments,
+      });
+    } catch (error) {
+      console.error('❌ [MP Brick] Erro ao processar pagamento:', error);
+      toast('Erro ao processar pagamento. Tente novamente.', 'error');
+    }
   };
 
   // ✅ NOVO: Handler para quando o Brick está pronto
@@ -281,6 +303,135 @@ export const PaymentModal = ({
   const handleBrickError = (error: any) => {
     console.error('❌ [MP Brick] Erro no Brick:', error);
     toast(`Erro no formulário de pagamento: ${error?.message || 'Erro desconhecido'}`, 'error');
+  };
+
+  // ✅ NOVA: Função auxiliar para processar pagamento com dados do Brick diretamente
+  const handleMercadoPagoPaymentWithBrickData = async (brickData: {
+    token: string;
+    payment_method_id: string;
+    issuer_id: string;
+    installments: number;
+  }) => {
+    if (!hasMercadoPago) {
+      toast('Estabelecimento não possui conta do Mercado Pago conectada', 'error');
+      return;
+    }
+
+    // ✅ IMPORTANTE: Definir selectedMethod antes de processar
+    setSelectedMethod('credit_card');
+
+    setIsProcessing(true);
+    setHasPagarMeError(false);
+
+    try {
+      // ✅ Usar dados do Brick diretamente (não depender dos estados)
+      const cardToken = brickData.token;
+      const cardPaymentMethodId = brickData.payment_method_id;
+      const cardIssuerId = brickData.issuer_id;
+      const cardInstallments = brickData.installments;
+
+      console.log('✅ [MP Payment] Processando com dados do Brick:', {
+        token: cardToken.substring(0, 10) + '...',
+        payment_method_id: cardPaymentMethodId,
+        issuer_id: cardIssuerId,
+        installments: cardInstallments,
+      });
+
+      // Continuar com o fluxo normal de pagamento...
+      // (código abaixo é o mesmo de handleMercadoPagoPayment para cartão)
+      const amountInCents = Math.round(amount * 100);
+      
+      // Validar endereço de cobrança
+      const cepDigits = String(billingCep || '').replace(/\D/g, '');
+      const rua = String(billingRua || '').trim();
+      const numero = String(billingNumero || '').replace(/\D/g, '');
+      const cidade = String(billingCidade || '').trim();
+      const uf = String(billingUf || '').trim().toUpperCase();
+      const emailToUse = String(payerEmail || customerData.email || '').trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (cepDigits.length !== 8) {
+        toast('CEP inválido. Informe um CEP com 8 dígitos.', 'error');
+        setIsProcessing(false);
+        return;
+      }
+      if (!rua || !numero || !cidade || uf.length !== 2) {
+        toast('Preencha todos os campos do endereço de cobrança.', 'error');
+        setIsProcessing(false);
+        return;
+      }
+      if (!emailToUse || !emailRegex.test(emailToUse)) {
+        toast('Email inválido. Informe um email válido.', 'error');
+        setIsProcessing(false);
+        return;
+      }
+
+      const docDigits = String(cpfCliente || '').replace(/\D/g, '');
+      if (!(docDigits.length === 11 || docDigits.length === 14)) {
+        toast('Informe um CPF (11) ou CNPJ (14) válido.', 'error');
+        setIsProcessing(false);
+        return;
+      }
+
+      // Criar pagamento com Mercado Pago
+      const createPaymentUrl = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-create-payment'
+        : '/api/mercadopago/create-payment';
+
+      const paymentResponse = await fetch(createPaymentUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId,
+          amount: amountInCents,
+          description: `Pagamento de serviço - Agendamento ${appointmentId}`,
+          payment_method_id: cardPaymentMethodId,
+          token: cardToken,
+          issuer_id: cardIssuerId,
+          installments: cardInstallments,
+          payer: {
+            email: emailToUse,
+            identification: {
+              type: docDigits.length === 11 ? 'CPF' : 'CNPJ',
+              number: docDigits,
+            },
+            first_name: customerData.name?.split(' ')[0] || '',
+            last_name: customerData.name?.split(' ').slice(1).join(' ') || customerData.name || '',
+            address: {
+              zip_code: cepDigits,
+              street_name: rua,
+              street_number: Number(numero) || 0,
+              neighborhood: billingBairro || '',
+              city: cidade,
+              federal_unit: uf,
+            },
+          },
+          metadata: {
+            appointment_id: appointmentId,
+            establishment_id: establishmentId,
+          },
+        }),
+      });
+
+      if (!paymentResponse.ok) {
+        const errorData = await paymentResponse.json().catch(() => ({ message: 'Erro desconhecido' }));
+        throw new Error(errorData.message || errorData.error || `Erro ${paymentResponse.status}`);
+      }
+
+      const paymentResult = await paymentResponse.json();
+      console.log('✅ [MP Payment] Pagamento criado:', paymentResult);
+
+      if (paymentResult.status === 'approved' || paymentResult.status === 'authorized') {
+        await confirmAppointment(String(paymentResult.id));
+      } else {
+        setIsCheckingPayment(true);
+        checkMercadoPagoPaymentStatus(paymentResult.id);
+      }
+    } catch (error: any) {
+      console.error('❌ Erro ao processar pagamento Mercado Pago:', error);
+      toast(`Erro ao processar pagamento: ${error?.message || 'Erro desconhecido'}`, 'error');
+      setIsProcessing(false);
+    }
   };
 
   // Função para pagar com Mercado Pago (PIX ou Cartão)
@@ -571,8 +722,30 @@ export const PaymentModal = ({
         if (paymentResult.status === 'approved' || paymentResult.status === 'authorized') {
           await confirmAppointment(String(paymentResult.id));
         } else if (paymentResult.status === 'rejected' || paymentResult.status === 'cancelled') {
-          toast(`Pagamento ${paymentResult.status_detail || 'recusado'}`, 'error');
+          const statusDetail = paymentResult.status_detail || '';
+          let errorMessage = 'Pagamento recusado';
+          
+          // ✅ Mensagens mais claras para erros comuns
+          if (statusDetail === 'cc_rejected_high_risk') {
+            errorMessage = 'Pagamento recusado por política de risco. Verifique se está usando token de TESTE com cartão de teste, ou tente com outro cartão.';
+          } else if (statusDetail.includes('cc_rejected')) {
+            errorMessage = `Cartão recusado: ${statusDetail.replace('cc_rejected_', '').replace(/_/g, ' ')}`;
+          } else if (statusDetail) {
+            errorMessage = `Pagamento recusado: ${statusDetail}`;
+          }
+          
+          console.error('❌ [MP Payment] Pagamento recusado:', {
+            status: paymentResult.status,
+            status_detail: statusDetail,
+            payment_id: paymentResult.id,
+          });
+          
+          toast(errorMessage, 'error');
           setIsProcessing(false);
+          
+          // ✅ Se cartão foi recusado, oferecer PIX como alternativa
+          setCardRefusedReason(statusDetail || 'Pagamento no cartão recusado');
+          setSelectedMethod(null); // Volta para seleção e mostra botão PIX
         } else {
           toast('Pagamento processado. Aguardando confirmação...', 'warning');
           setIsCheckingPayment(true);
@@ -644,7 +817,24 @@ export const PaymentModal = ({
           currentPaymentIdRef.current = null;
           await confirmAppointment(String(paymentId));
         } else if (payment.status === 'rejected' || payment.status === 'cancelled' || payment.status === 'refunded') {
-          console.log('❌ [MP] Pagamento recusado/cancelado');
+          const statusDetail = payment.status_detail || '';
+          let errorMessage = 'Pagamento recusado ou cancelado';
+          
+          // ✅ Mensagens mais claras para erros comuns
+          if (statusDetail === 'cc_rejected_high_risk') {
+            errorMessage = 'Pagamento recusado por política de risco. Verifique se está usando token de TESTE com cartão de teste, ou tente com outro cartão.';
+          } else if (statusDetail.includes('cc_rejected')) {
+            errorMessage = `Cartão recusado: ${statusDetail.replace('cc_rejected_', '').replace(/_/g, ' ')}`;
+          } else if (statusDetail) {
+            errorMessage = `Pagamento recusado: ${statusDetail}`;
+          }
+          
+          console.log('❌ [MP] Pagamento recusado/cancelado:', {
+            status: payment.status,
+            status_detail: statusDetail,
+            payment_id: paymentId,
+          });
+          
           if (pixCountdownIntervalRef.current) {
             window.clearInterval(pixCountdownIntervalRef.current);
             pixCountdownIntervalRef.current = null;
@@ -652,8 +842,13 @@ export const PaymentModal = ({
           setIsCheckingPayment(false);
           isCheckingPaymentRef.current = false;
           currentPaymentIdRef.current = null;
-          toast('Pagamento recusado ou cancelado', 'error');
+          toast(errorMessage, 'error');
           setHasPagarMeError(true);
+          
+          // ✅ Se cartão foi recusado, oferecer PIX como alternativa
+          setCardRefusedReason(statusDetail || 'Pagamento no cartão recusado');
+          setSelectedMethod(null); // Volta para seleção e mostra botão PIX
+          
           // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
           if (cancelAppointmentOnFailure) {
             console.log('❌ Pagamento obrigatório recusado (Mercado Pago), cancelando agendamento...');
