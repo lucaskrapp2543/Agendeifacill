@@ -400,7 +400,8 @@ export function AppointmentForm({
   }, [user?.id, guestClientData]);
   const [selectedService, setSelectedService] = useState<Service | undefined>(undefined);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
-  const [useMultiService, setUseMultiService] = useState(true);
+  const [useMultiService, setUseMultiService] = useState(false); // ✅ CORRIGIDO: Começar como false para não conflitar com categorias
+  // ✅ CORRIGIDO: Começar como true se houver categorias, senão false
   const [useCategoryService, setUseCategoryService] = useState(false);
   const [serviceCategories, setServiceCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -464,14 +465,23 @@ export function AppointmentForm({
   useEffect(() => {
     fetchServiceCategories();
 
-    // Se não houver serviços nas configurações, selecionar automaticamente "SERVIÇOS"
-    if (establishment?.services_with_prices && establishment.services_with_prices.length === 0) {
+    // ✅ CORRIGIDO: Se houver categorias OU não houver serviços gerais, usar categorias por padrão
+    if (serviceCategories.length > 0 || (establishment?.services_with_prices && establishment.services_with_prices.length === 0)) {
       setUseCategoryService(true);
       setUseMultiService(false);
       setSelectedService(undefined);
       setSelectedServices([]);
     }
-  }, [establishment?.id, establishment?.services_with_prices]);
+  }, [establishment?.id, establishment?.services_with_prices, serviceCategories.length]);
+
+  // ✅ CORRIGIDO: Ativar categorias automaticamente quando houver categorias cadastradas
+  useEffect(() => {
+    if (serviceCategories.length > 0 && !useCategoryService) {
+      setUseCategoryService(true);
+      setUseMultiService(false);
+      console.log('✅ Categorias detectadas, ativando modo categorias automaticamente');
+    }
+  }, [serviceCategories.length]);
 
   // ✅ NOVO: Auto-selecionar categoria única quando categorias são carregadas e profissional já está selecionado
   useEffect(() => {
@@ -1979,28 +1989,6 @@ export function AppointmentForm({
 
             {/* Toggle para escolher entre seleção única, múltipla ou categorias */}
             <div className="mb-4 flex gap-2">
-              {/* ✅ CORRIGIDO: Mostrar "Escolha 1 ou mais serviços" APENAS se houver serviços específicos do profissional */}
-              {shouldShowMultiServiceButton && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseMultiService(true);
-                    setUseCategoryService(false);
-                    setSelectedService(undefined);
-                    setSelectedCategory(null);
-                    setSelectedSubcategory(null);
-                  }}
-                  className="px-4 py-2 rounded-xl text-sm font-extrabold transition-colors"
-                  style={{
-                    background: useMultiService && !useCategoryService ? '#E6C78B' : '#151515',
-                    color: useMultiService && !useCategoryService ? '#0B0B0B' : '#A1A1A1',
-                    border: '1px solid rgba(255,255,255,0.06)'
-                  }}
-                >
-                  Escolha 1 ou mais serviços
-                </button>
-              )}
-
               {/* Mostrar "Outros Serviços" sempre */}
               <button
                 type="button"
@@ -2022,67 +2010,9 @@ export function AppointmentForm({
             </div>
 
             {/* Renderizar componente apropriado */}
-            {useMultiService ? (
-              <MultiServiceSelector
-                services={getCombinedServices().filter((service: any) => service && service.id && service.name)} // ✅ Filtrar serviços inválidos
-                selectedServices={selectedServices}
-                onSelectServices={(services) => {
-                  setSelectedServices(services);
-                }}
-                onBookServices={(services) => {
-                  setSelectedServices(services);
-                  // Avançar automaticamente para a etapa de data
-                  setTimeout(() => {
-                    setCurrentStep(3);
-                    // Scroll para a seção de data
-                    setTimeout(() => {
-                      window.scrollBy({
-                        top: 300,
-                        behavior: 'smooth'
-                      });
-                    }, 100);
-                  }, 300);
-                }}
-                maxServices={4}
-              />
-            ) : useCategoryService ? (
+            {/* ✅ CORRIGIDO: Verificar useCategoryService PRIMEIRO para evitar conflito com MultiServiceSelector */}
+            {useCategoryService ? (
               <div className="space-y-4">
-                {/* ✅ BOTÃO PARA MÚLTIPLOS SERVIÇOS EM CATEGORIAS - SEMPRE ATIVO */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUseMultiCategoryService(true);
-                      setSelectedSubcategory(null);
-                    }}
-                    className="px-4 py-2 rounded-xl text-sm font-extrabold transition-colors"
-                    style={{
-                      background: '#E6C78B',
-                      color: '#0B0B0B',
-                      border: '1px solid rgba(255,255,255,0.06)'
-                    }}
-                  >
-                    Escolha 1 ou mais serviços
-                  </button>
-                </div>
-                
-                {/* ✅ MENSAGEM INFORMATIVA - Pode selecionar serviços de diferentes categorias */}
-                <div
-                  className="rounded-2xl p-3 mb-4"
-                  style={{
-                    background: 'rgba(34, 197, 94, 0.1)',
-                    border: '1px solid rgba(34, 197, 94, 0.3)'
-                  }}
-                >
-                  <div className="flex items-start gap-2">
-                    <span className="text-lg">💡</span>
-                    <p className="text-sm font-medium" style={{ color: '#22c55e' }}>
-                      Você pode selecionar 1 ou mais serviços de diferentes categorias. 
-                      Selecione uma categoria, escolha seus serviços, depois volte e selecione outra categoria para adicionar mais serviços!
-                    </p>
-                  </div>
-                </div>
-
                 {serviceCategories.length === 0 ? (
                   <div
                     className="rounded-2xl p-4"
@@ -2181,19 +2111,27 @@ export function AppointmentForm({
                     </div>
 
                     {/* Seletor de Subcategoria */}
-                    {selectedCategory && (
-                      <div data-services-section>
-                        <div
-                          className="p-3 rounded-2xl mb-3"
-                          style={{
-                            background: '#151515',
-                            border: '1px solid rgba(255,255,255,0.06)'
-                          }}
-                        >
-                          <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
-                            📋 Selecione um ou mais serviços
+                    {selectedCategory && (() => {
+                      const selectedCategoryData = serviceCategories.find(cat => cat.id === selectedCategory);
+                      const hasSubcategories = selectedCategoryData?.subcategories && selectedCategoryData.subcategories.length > 0;
+                      
+                      if (!hasSubcategories) {
+                        return null; // Não mostrar nada se não houver subcategorias
+                      }
+                      
+                      return (
+                        <div data-services-section>
+                          <div
+                            className="p-3 rounded-2xl mb-3"
+                            style={{
+                              background: '#151515',
+                              border: '1px solid rgba(255,255,255,0.06)'
+                            }}
+                          >
+                            <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
+                              📋 Selecione um ou mais serviços
+                            </div>
                           </div>
-                        </div>
 
                         {useMultiCategoryService ? (
                           <div className="space-y-3">
@@ -2318,7 +2256,8 @@ export function AppointmentForm({
                           </div>
                         )}
                       </div>
-                    )}
+                      );
+                    })()}
 
                     {/* ✅ RESUMO DO SERVIÇO SELECIONADO - UM OU MÚLTIPLOS */}
                     {!useMultiCategoryService && selectedSubcategory && (
@@ -2400,6 +2339,29 @@ export function AppointmentForm({
                   </div>
                 )}
               </div>
+            ) : useMultiService ? (
+              <MultiServiceSelector
+                services={getCombinedServices().filter((service: any) => service && service.id && service.name)} // ✅ Filtrar serviços inválidos
+                selectedServices={selectedServices}
+                onSelectServices={(services) => {
+                  setSelectedServices(services);
+                }}
+                onBookServices={(services) => {
+                  setSelectedServices(services);
+                  // Avançar automaticamente para a etapa de data
+                  setTimeout(() => {
+                    setCurrentStep(3);
+                    // Scroll para a seção de data
+                    setTimeout(() => {
+                      window.scrollBy({
+                        top: 300,
+                        behavior: 'smooth'
+                      });
+                    }, 100);
+                  }, 300);
+                }}
+                maxServices={4}
+              />
             ) : (
               <ServiceList
                 services={getCombinedServices()}

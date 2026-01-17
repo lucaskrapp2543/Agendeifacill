@@ -62,10 +62,11 @@ AS $$
   SELECT
     a.id AS appointment_id,
     a.establishment_id,
+    -- ✅ CORRIGIDO: Usar APENAS client_whatsapp do appointment (nunca fallback para profiles)
+    -- Isso evita pegar número errado se profiles.whatsapp ou profiles.phone estiver incorreto
     COALESCE(
       NULLIF(trim(COALESCE(a.client_whatsapp, '')), ''),
-      NULLIF(trim(COALESCE(a.profile_whatsapp, '')), ''),
-      NULLIF(trim(COALESCE(a.profile_phone, '')), '')
+      NULL -- Removido fallback para profiles para evitar pegar número do profissional
     ) AS client_whatsapp,
     COALESCE(a.client_name, '') AS client_name,
     COALESCE(a.establishment_name_joined, '') AS establishment_name,
@@ -74,10 +75,11 @@ AS $$
       NULLIF(
         CASE
           -- Se for UUID, tentar traduzir pelo JSON de profissionais do estabelecimento
+          -- ✅ CORRIGIDO: professionals é JSONB[], não JSONB. Converter array para JSONB primeiro.
           WHEN COALESCE(a.professional, '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (
-            SELECT (p->>'name')::text
-            FROM jsonb_array_elements(COALESCE(a.establishment_professionals::jsonb, '[]'::jsonb)) p
-            WHERE (p->>'id')::text = a.professional
+            SELECT (prof_elem->>'name')::text
+            FROM unnest(COALESCE(a.establishment_professionals, ARRAY[]::jsonb[])) prof_elem
+            WHERE (prof_elem->>'id')::text = a.professional
             LIMIT 1
           )
           ELSE a.professional
@@ -101,11 +103,9 @@ AS $$
   WHERE auth.role() = 'service_role'
     AND l.id IS NULL
     AND lower(a.status::text) <> 'cancelled'
-    AND COALESCE(
-      NULLIF(trim(COALESCE(a.client_whatsapp, '')), ''),
-      NULLIF(trim(COALESCE(a.profile_whatsapp, '')), ''),
-      NULLIF(trim(COALESCE(a.profile_phone, '')), '')
-    ) IS NOT NULL
+    -- ✅ CORRIGIDO: Validar APENAS client_whatsapp do appointment (nunca fallback para profiles)
+    -- Isso garante que só envie para números que realmente foram cadastrados no agendamento
+    AND NULLIF(trim(COALESCE(a.client_whatsapp, '')), '') IS NOT NULL
     AND (
       -- Robustez contra atraso do cron: pega lembretes "vencidos" nos últimos 5 minutos.
       (a.appt_at_minute - (a.remind_before_minutes || ' minutes')::interval) >= (ctx.now_local - interval '5 minutes')
