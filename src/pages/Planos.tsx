@@ -127,7 +127,13 @@ export default function Planos() {
 
         {/* ✅ Pizza acima do PRATA */}
         <div className="max-w-2xl mx-auto mb-6">
-          <img src="/praia.png" alt="Praia" className="w-full h-auto rounded-lg border border-white/10" loading="lazy" />
+          {/* Cache-buster: imagens em /public podem ficar cacheadas (especialmente em mobile) */}
+          <img
+            src="/praia.png?v=20260117"
+            alt="Praia"
+            className="w-full h-auto rounded-lg border border-white/10"
+            loading="lazy"
+          />
         </div>
 
         <PlanosCards whatsappNumber="5548991484275" />
