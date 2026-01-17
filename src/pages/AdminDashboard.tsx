@@ -38,6 +38,7 @@ interface Establishment {
   created_at: string;
   payment_status: 'paid' | 'unpaid' | 'expired';
   plan_type: 'monthly' | 'annual' | 'trial';
+  plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin
   payment_due_date: string;
   payment_paid_at?: string | null; // Quando foi marcado como pago (para "pagou no mês")
   owner_email?: string;
@@ -334,6 +335,26 @@ const AdminDashboard = () => {
     if (!isSupportAccount) return;
     setWhatsappRemindersEstablishment(establishment);
     setShowWhatsappRemindersModal(true);
+  };
+
+  // ✅ Botão PRATA no Admin (toggle)
+  const togglePlanPrata = async (establishment: Establishment) => {
+    try {
+      const next = !Boolean(establishment.plan_prata_active);
+      const { error } = await supabase
+        .from('establishments')
+        .update({ plan_prata_active: next })
+        .eq('id', establishment.id);
+      if (error) throw error;
+
+      setEstablishments(prev =>
+        prev.map(e => (e.id === establishment.id ? { ...e, plan_prata_active: next } : e))
+      );
+      toast.success(next ? 'Plano PRATA ativado' : 'Plano PRATA desativado');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao atualizar PRATA');
+    }
   };
 
   const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
@@ -814,6 +835,7 @@ const AdminDashboard = () => {
             owner_email: profile?.name || 'Email não encontrado',
             payment_status: establishment.payment_status || 'unpaid',
             plan_type: establishment.plan_type || 'monthly',
+            plan_prata_active: Boolean((establishment as any).plan_prata_active),
             payment_due_date: establishment.payment_due_date || establishment.created_at,
             payment_paid_at: establishment.payment_paid_at || null,
             is_blocked: establishment.is_blocked || false,
@@ -837,6 +859,7 @@ const AdminDashboard = () => {
           owner_email: profile?.name || 'Email não encontrado',
           payment_status: establishment.payment_status || 'unpaid',
           plan_type: establishment.plan_type || 'monthly',
+          plan_prata_active: Boolean((establishment as any).plan_prata_active),
           payment_due_date: establishment.payment_due_date || establishment.created_at,
           payment_paid_at: establishment.payment_paid_at || null,
           is_blocked: establishment.is_blocked || false,
@@ -2392,6 +2415,18 @@ const AdminDashboard = () => {
                             PROPAGANDA
                           </button>
                           <button
+                            type="button"
+                            onClick={() => togglePlanPrata(establishment)}
+                            className={`text-xs px-2 py-0.5 border rounded font-extrabold ${
+                              establishment.plan_prata_active
+                                ? 'text-white border-gray-900 bg-gray-900 hover:bg-black'
+                                : 'text-gray-700 border-gray-300 bg-gray-50 hover:bg-gray-100'
+                            }`}
+                            title={establishment.plan_prata_active ? 'PRATA ATIVO (clique para desativar)' : 'Ativar PRATA (bloqueia assinantes e produtos)'}
+                          >
+                            PRATA
+                          </button>
+                          <button
                             onClick={() => handleMarkPaidAll(establishment)}
                             disabled={Boolean(isPayingByEstablishment[`paidall:${establishment.id}`])}
                             className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2701,6 +2736,8 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
+
+              {/* (Removido) Modal de upgrade no Admin — PRATA agora é apenas toggle */}
             </div>
           )}
         </div>

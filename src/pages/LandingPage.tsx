@@ -21,7 +21,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CacheBuster } from '../components/CacheBuster';
 import { PromoNotifications } from '../components/PromoNotifications';
-import PlanosOuroDiamante from '../components/PlanosOuroDiamante';
+import PlanosCards from '../components/PlanosCards';
 import WhatsAppButton from '../components/WhatsAppButton';
 
 const pulseKeyframes = `
@@ -1055,11 +1055,7 @@ const LandingPage = () => {
               </div>
 
               <div className="mt-8">
-                <PlanosOuroDiamante
-                  ouroHref="https://pay.cakto.com.br/o798qm9_509159?affiliate=jK2AXbTW"
-                  diamanteHref="https://pay.cakto.com.br/ccx4wk8?affiliate=jK2AXbTW"
-                  diamanteCtaLabel="Economizar Agora"
-                />
+                <PlanosCards whatsappNumber="5548991484275" />
               </div>
             </div>
           </div>

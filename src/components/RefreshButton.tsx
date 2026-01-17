@@ -4,6 +4,9 @@ import { useState } from 'react';
 export const RefreshButton = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Oculta o botão de recarregar especificamente na página /planos
+  if (window.location.pathname === '/planos') return null;
+
   const handleRefresh = () => {
     if (isRefreshing) return;
     

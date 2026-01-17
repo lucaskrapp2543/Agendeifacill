@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import PlanosOuroDiamante from '../components/PlanosOuroDiamante';
+import PlanosCards from '../components/PlanosCards';
 import WhatsAppButton from '../components/WhatsAppButton';
 import { getCurrentVersion } from '../utils/versionManager';
 
@@ -580,10 +580,7 @@ const LandingVendas = () => {
             </div>
           </div>
 
-          <PlanosOuroDiamante
-            ouroHref="https://wa.me/5548991484275?text=quero%20ser%20agendei%20facil%20mensal"
-            diamanteHref="https://wa.me/5548991484275?text=quero%20mais%20informaçoes%20do%20anual"
-          />
+          <PlanosCards whatsappNumber="5548991484275" />
         </div>
       </section>
 

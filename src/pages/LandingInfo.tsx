@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import PlanosOuroDiamante from '../components/PlanosOuroDiamante';
+import PlanosCards from '../components/PlanosCards';
 import WhatsAppButton from '../components/WhatsAppButton';
 
 const LandingInfo = () => {
@@ -586,10 +586,7 @@ const LandingInfo = () => {
             </div>
           </div>
 
-          <PlanosOuroDiamante
-            ouroHref="https://pay.kiwify.com.br/6sJj9tM"
-            diamanteHref="https://pay.kiwify.com.br/uadfJqr"
-          />
+          <PlanosCards whatsappNumber="5548991484275" />
         </div>
       </section>
 

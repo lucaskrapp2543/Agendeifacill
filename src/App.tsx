@@ -29,6 +29,7 @@ import LandingPage from './pages/LandingPage';
 import LandingVendas from './pages/LandingVendas';
 import Login from './pages/Login';
 import NotFound from './pages/NotFound';
+import Planos from './pages/Planos';
 import PremiumDashboard from './pages/PremiumDashboard';
 import Register from './pages/Register';
 import RegistrationFreeSuccess from './pages/RegistrationFreeSuccess';
@@ -109,6 +110,7 @@ function App() {
                   <Route path="/" element={<LandingVendas />} />
                   <Route path="/info" element={<LandingInfo />} />
                   <Route path="/landing" element={<LandingPage />} />
+                  <Route path="/planos" element={<Planos />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
                   <Route path="/recovery-password" element={<RecoveryPassword />} />
