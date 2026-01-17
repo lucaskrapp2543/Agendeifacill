@@ -522,14 +522,16 @@ export default function BookingPage() {
       // ✅ LIMPEZA AUTOMÁTICA: liberar horários presos por pagamento pendente antigo
       // Se o cliente fechou a aba antes de pagar, o agendamento pode ficar em pending_payment e bloquear a vaga.
       // Aqui cancelamos pendências antigas para não "travar" o booking.
-      // PIX expira rápido (ex: 90s). Usamos uma margem pequena para não deixar horários presos.
-      const thresholdMinutes = 2;
+      // ✅ CORRIGIDO: NÃO cancelar se tiver payment_transaction_id (pagamento foi iniciado e pode estar sendo processado)
+      // ✅ CORRIGIDO: Aumentar tempo limite para 15 minutos (webhook pode demorar)
+      const thresholdMinutes = 15; // Aumentado de 2 para 15 minutos para dar tempo do webhook processar
       const thresholdDate = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
       await supabase
         .from('appointments')
         .update({ status: 'cancelled', payment_status: 'failed' })
         .eq('establishment_id', establishment.id)
         .eq('status', 'pending_payment')
+        .is('payment_transaction_id', null) // ✅ CORRIGIDO: Só cancelar se NÃO tiver transaction_id (pagamento não foi iniciado)
         .lt('created_at', thresholdDate);
 
       const { data, error } = await supabase
