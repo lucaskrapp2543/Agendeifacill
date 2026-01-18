@@ -91,6 +91,18 @@ export default function BookingPage() {
   const [subscriberDetectionDisabled, setSubscriberDetectionDisabled] = useState(false); // Estado para desabilitar detecção de assinante
   const [showQuickBookingModal, setShowQuickBookingModal] = useState(false); // Modal de agendamento rápido
   const [guestClientData, setGuestClientData] = useState<{ name: string; phone: string } | null>(null); // Dados do cliente convidado
+
+  // ✅ Fila de espera (booking público)
+  const [showWaitlistModal, setShowWaitlistModal] = useState(false);
+  const [waitlistEntries, setWaitlistEntries] = useState<any[]>([]);
+  const [isLoadingWaitlist, setIsLoadingWaitlist] = useState(false);
+  const [showLeaveWaitlistForm, setShowLeaveWaitlistForm] = useState(false);
+  const [leaveWaitlistPhone, setLeaveWaitlistPhone] = useState('');
+  const [showJoinWaitlistForm, setShowJoinWaitlistForm] = useState(false);
+  const [waitlistName, setWaitlistName] = useState('');
+  const [waitlistPhone, setWaitlistPhone] = useState('');
+  const [waitlistServiceId, setWaitlistServiceId] = useState('');
+
   // Pagamento antecipado (Pagar.me) no booking público
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
@@ -1087,6 +1099,344 @@ export default function BookingPage() {
     safeSessionSet(QUICK_BOOKING_DATA_KEY, JSON.stringify({ name, phone }));
   };
 
+  const normalizePhoneDigits = (phone: string) => String(phone || '').replace(/\D/g, '');
+  const filaEsperaAtiva = Boolean((establishment as any)?.fila_espera_ativa);
+  const filaEsperaFechada = Boolean((establishment as any)?.fila_espera_fechada);
+
+  // Prefill de nome/telefone para fila (se já coletou no fluxo rápido)
+  useEffect(() => {
+    if (!guestClientData) return;
+    if (!waitlistName) setWaitlistName(guestClientData.name || '');
+    if (!waitlistPhone) setWaitlistPhone(guestClientData.phone || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guestClientData]);
+
+  const fetchWaitlist = async () => {
+    if (!establishment?.id) return;
+    setIsLoadingWaitlist(true);
+    try {
+      const { data, error } = await supabase
+        .from('waitlist_entries')
+        .select('id, client_name, client_whatsapp, service_name, service_price, service_duration_minutes, started_at, created_at')
+        .eq('establishment_id', establishment.id)
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        // Fallback para banco ainda não migrado (colunas novas não existem)
+        if (msg.includes('does not exist') && msg.includes('waitlist_entries')) {
+          const { data: legacyData, error: legacyError } = await supabase
+            .from('waitlist_entries')
+            .select('id, client_name, client_whatsapp, service_name, created_at')
+            .eq('establishment_id', establishment.id)
+            .eq('status', 'waiting')
+            .order('created_at', { ascending: true });
+          if (legacyError) throw legacyError;
+          setWaitlistEntries(((legacyData as any[]) || []).map((r: any) => ({ ...r })));
+          return;
+        }
+        throw error;
+      }
+      setWaitlistEntries((data as any[]) || []);
+    } catch (e: any) {
+      console.error('❌ Erro ao carregar fila (booking):', e);
+      toast.error(e?.message || 'Erro ao carregar fila de espera');
+    } finally {
+      setIsLoadingWaitlist(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showWaitlistModal) return;
+    fetchWaitlist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showWaitlistModal, establishment?.id]);
+
+  const fmtBRL = (v: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+
+  const labelServicoFila = (s: any) => {
+    const nome = String(s?.name || 'Serviço').trim() || 'Serviço';
+    const preco = Number(s?.price ?? 0);
+    const dur = Number(s?.duration ?? s?.service_duration ?? 0);
+    const partes: string[] = [nome];
+    if (Number.isFinite(preco) && preco > 0) partes.push(fmtBRL(preco));
+    if (Number.isFinite(dur) && dur > 0) partes.push(`${dur}min`);
+    return partes.join(' — ');
+  };
+
+  const calcularMinutosRestantes = (entries: any[], idx: number): number | null => {
+    if (!Array.isArray(entries) || entries.length === 0) return null;
+    const first = entries[0];
+    const startedAt = first?.started_at ? new Date(first.started_at) : null;
+    const dur0 = Number(first?.service_duration_minutes ?? 0);
+    if (!startedAt || !Number.isFinite(dur0) || dur0 <= 0) return null;
+
+    let finish = startedAt.getTime() + dur0 * 60_000;
+    for (let i = 1; i <= idx; i++) {
+      const d = Number(entries[i]?.service_duration_minutes ?? 0);
+      if (i === idx) break;
+      if (Number.isFinite(d) && d > 0) finish += d * 60_000;
+    }
+    // Para o item idx, estimar início = finish; fim = início + duração do idx
+    const dIdx = Number(entries[idx]?.service_duration_minutes ?? 0);
+    if (idx === 0) {
+      // restante do atual
+      const ms = finish - Date.now();
+      return Math.max(0, Math.ceil(ms / 60_000));
+    }
+    if (!Number.isFinite(dIdx) || dIdx <= 0) return null;
+    const startIdx = finish;
+    const ms = startIdx - Date.now();
+    return Math.max(0, Math.ceil(ms / 60_000));
+  };
+
+  const handleEntrarNaFila = async () => {
+    if (!establishment?.id) return;
+    if (!filaEsperaAtiva) {
+      toast.error('Fila de espera não está ativa neste estabelecimento.');
+      return;
+    }
+    if (filaEsperaFechada) {
+      toast.error('Fila de espera está fechada no momento.');
+      return;
+    }
+
+    const nome = String(waitlistName || '').trim();
+    const phoneDigits = normalizePhoneDigits(waitlistPhone);
+    const serviceId = String(waitlistServiceId || '').trim();
+
+    if (!nome) {
+      toast.error('Informe seu nome.');
+      return;
+    }
+    if (!phoneDigits) {
+      toast.error('Informe seu telefone/WhatsApp.');
+      return;
+    }
+    if (!serviceId) {
+      toast.error('Selecione um serviço.');
+      return;
+    }
+
+    const servico = ((establishment as any)?.services_with_prices || []).find((s: any) => String(s.id) === serviceId);
+    const serviceName = String(servico?.name || 'Serviço').trim() || 'Serviço';
+    const servicePrice = Number(servico?.price ?? 0);
+    const serviceDuration = Number(servico?.duration ?? servico?.service_duration ?? 0);
+
+    const profissionalPadraoId = String((establishment as any)?.fila_espera_profissional_id || '').trim();
+    if (!profissionalPadraoId) {
+      toast.error('Fila de espera ainda não foi configurada com um profissional. Peça ao estabelecimento para ativar corretamente no dashboard.');
+      return;
+    }
+
+    try {
+      // Garantir que existe um "cliente convidado" logado (sem exigir email/senha)
+      const guestRes = await createGuestClientAndLogin(nome, phoneDigits);
+      if (guestRes?.error) throw guestRes.error;
+
+      const now = new Date();
+      const pad2 = (n: number) => String(n).padStart(2, '0');
+      const appointmentDate = format(now, 'yyyy-MM-dd');
+      const appointmentTime = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
+      // Criar um "agendamento" ligado à fila para contabilizar no profissional (respeita configs do profissional)
+      const insertAppointmentPayload: any = {
+        client_id: (guestRes as any)?.user?.id,
+        establishment_id: establishment.id,
+        establishment_code: establishment.code,
+        client_name: nome,
+        client_whatsapp: phoneDigits,
+        service: serviceName,
+        professional: profissionalPadraoId,
+        appointment_date: appointmentDate,
+        appointment_time: appointmentTime,
+        duration: Number.isFinite(serviceDuration) ? serviceDuration : 0,
+        price: Number.isFinite(servicePrice) ? servicePrice : 0,
+        status: 'pending',
+        is_waitlist: true,
+      };
+
+      let insertedAppointmentId: string | null = null;
+      {
+        const { data: insertedAppointment, error: apptErr } = await supabase
+          .from('appointments')
+          .insert([insertAppointmentPayload])
+          .select('id')
+          .single();
+
+        if (apptErr) {
+          const msg = String((apptErr as any)?.message || '');
+          // Fallback para banco ainda não migrado (coluna is_waitlist não existe)
+          if (msg.includes('does not exist') && msg.includes('is_waitlist')) {
+            const { data: insertedLegacy, error: apptLegacyErr } = await supabase
+              .from('appointments')
+              .insert([
+                {
+                  ...insertAppointmentPayload,
+                  is_waitlist: undefined,
+                } as any,
+              ])
+              .select('id')
+              .single();
+            if (apptLegacyErr) throw apptLegacyErr;
+            insertedAppointmentId = insertedLegacy?.id || null;
+          } else {
+            throw apptErr;
+          }
+        } else {
+          insertedAppointmentId = insertedAppointment?.id || null;
+        }
+      }
+
+      if (!insertedAppointmentId) {
+        throw new Error('Não foi possível criar o agendamento da fila.');
+      }
+
+      // Criar entrada na fila referenciando o agendamento
+      const waitlistPayload: any = {
+        establishment_id: establishment.id,
+        appointment_id: insertedAppointmentId,
+        client_name: nome,
+        client_whatsapp: phoneDigits,
+        service_id: serviceId,
+        service_name: serviceName,
+        service_price: Number.isFinite(servicePrice) ? servicePrice : null,
+        service_duration_minutes: Number.isFinite(serviceDuration) ? serviceDuration : null,
+        professional_id: profissionalPadraoId,
+        source: 'booking',
+        status: 'waiting',
+      };
+
+      let insertedEntryId: string | null = null;
+      {
+        const { data: insertedEntry, error: wlErr } = await supabase
+          .from('waitlist_entries')
+          .insert(waitlistPayload)
+          .select('id')
+          .single();
+
+        if (wlErr) {
+          const msg = String((wlErr as any)?.message || '');
+          // Fallback para banco ainda não migrado (colunas novas não existem)
+          if (msg.includes('schema cache') || (msg.includes('does not exist') && msg.includes('waitlist_entries'))) {
+            const { data: insertedLegacy, error: wlLegacyErr } = await supabase
+              .from('waitlist_entries')
+              .insert({
+                establishment_id: establishment.id,
+                appointment_id: insertedAppointmentId,
+                client_name: nome,
+                client_whatsapp: phoneDigits,
+                service_id: serviceId,
+                service_name: serviceName,
+                source: 'booking',
+                status: 'waiting',
+              } as any)
+              .select('id')
+              .single();
+            if (wlLegacyErr) throw wlLegacyErr;
+            insertedEntryId = insertedLegacy?.id || null;
+          } else {
+            throw wlErr;
+          }
+        } else {
+          insertedEntryId = insertedEntry?.id || null;
+        }
+      }
+
+      if (!insertedEntryId) {
+        throw new Error('Não foi possível criar a entrada da fila.');
+      }
+
+      // Link reverso (opcional)
+      try {
+        await supabase
+          .from('appointments')
+          .update({ waitlist_entry_id: insertedEntryId } as any)
+          .eq('id', insertedAppointmentId);
+      } catch {
+        // ignore
+      }
+
+      toast.success('✅ Você entrou na fila de espera!');
+      setShowJoinWaitlistForm(false);
+      setWaitlistServiceId('');
+      await fetchWaitlist();
+    } catch (e: any) {
+      console.error('❌ Erro ao entrar na fila:', e);
+      toast.error(e?.message || 'Erro ao entrar na fila');
+    }
+  };
+
+  const handleSairDaFila = async () => {
+    if (!establishment?.id) return;
+    if (!filaEsperaAtiva) {
+      toast.error('Fila de espera não está ativa neste estabelecimento.');
+      return;
+    }
+    if (filaEsperaFechada) {
+      toast.error('Fila de espera está fechada no momento.');
+      return;
+    }
+
+    const phoneDigits = normalizePhoneDigits(leaveWaitlistPhone);
+    if (!phoneDigits) {
+      toast.error('Informe o telefone/WhatsApp que você usou para entrar na fila.');
+      return;
+    }
+    const phoneAlt =
+      phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits.length >= 10 ? `55${phoneDigits}` : '';
+
+    try {
+      // Pegar a entrada mais recente desse telefone (se a pessoa entrou mais de uma vez)
+      const { data, error } = await supabase
+        .from('waitlist_entries')
+        .select('id, appointment_id')
+        .eq('establishment_id', establishment.id)
+        .eq('status', 'waiting')
+        .in('client_whatsapp', [phoneDigits, phoneAlt].filter(Boolean))
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (error) throw error;
+      const entryId = (data as any[])?.[0]?.id;
+      const appointmentId = (data as any[])?.[0]?.appointment_id;
+      if (!entryId) {
+        toast.error('Não encontrei ninguém na fila com esse telefone.');
+        return;
+      }
+
+      const { error: updErr } = await supabase.from('waitlist_entries').update({ status: 'cancelled' } as any).eq('id', entryId);
+      if (updErr) {
+        // Dica comum: falta policy de UPDATE pro cliente (RLS)
+        const msg = String((updErr as any)?.message || '');
+        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('rls')) {
+          toast.error('Sem permissão para sair da fila. O dono precisa rodar o SQL FINAL atualizado (policy de cancelamento).');
+          return;
+        }
+        throw updErr;
+      }
+
+      // Se tiver appointment ligado, cancelar também (se o cliente tiver permissão)
+      if (appointmentId) {
+        try {
+          await supabase.from('appointments').update({ status: 'cancelled' } as any).eq('id', appointmentId);
+        } catch {
+          // ignore
+        }
+      }
+
+      toast.success('✅ Você saiu da fila.');
+      setShowLeaveWaitlistForm(false);
+      setLeaveWaitlistPhone('');
+      await fetchWaitlist();
+    } catch (e: any) {
+      console.error('❌ Erro ao sair da fila:', e);
+      toast.error(e?.message || 'Erro ao sair da fila');
+    }
+  };
+
   console.log('🔍 RENDER - Estados atuais:');
   console.log('  - isLoading:', isLoading);
   console.log('  - establishment:', establishment);
@@ -1462,6 +1812,27 @@ export default function BookingPage() {
                           RESERVAR AGORA
                         </button>
                       </div>
+
+                      {/* ✅ Botão Fila de Espera (aba/modal) */}
+                      {filaEsperaAtiva && (
+                        <div className="flex justify-center mt-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+              if (filaEsperaFechada) return;
+              setShowWaitlistModal(true);
+              setShowJoinWaitlistForm(false);
+                            }}
+            className={`w-[230px] sm:w-[260px] font-extrabold py-2.5 px-4 text-sm uppercase tracking-[0.18em] rounded-2xl transition-all duration-300 border border-white/15 active:scale-[0.99] ${
+              filaEsperaFechada
+                ? 'bg-white/5 text-white/50 cursor-not-allowed'
+                : 'bg-white/5 text-white/90 hover:bg-white/10'
+            }`}
+                          >
+            {filaEsperaFechada ? 'FILA FECHADA' : 'FILA DE ESPERA'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2409,6 +2780,245 @@ export default function BookingPage() {
           )}
         </div>
       </div>
+
+      {/* ✅ Modal Fila de Espera */}
+      {showWaitlistModal && (
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4">
+          <div
+            className="w-full max-w-xl rounded-2xl shadow-2xl border border-white/10 bg-[#0f0f10] max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🕒</span>
+                <div className="text-sm font-extrabold text-white">Fila de espera</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowWaitlistModal(false);
+                  setShowJoinWaitlistForm(false);
+                  setShowLeaveWaitlistForm(false);
+                }}
+                className="p-2 rounded-lg hover:bg-white/5 text-white/90"
+                aria-label="Fechar"
+                title="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="text-sm text-white/80 leading-relaxed">
+                Veja a fila atual por ordem de chegada e entre na fila de espera.
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                {isLoadingWaitlist ? (
+                  <div className="text-sm text-white/70">Carregando fila...</div>
+                ) : waitlistEntries.length === 0 ? (
+                  <div className="text-sm text-white/70">Nenhuma pessoa na fila no momento.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {waitlistEntries.map((e: any, idx: number) => {
+                      const isAtual = idx === 0;
+                      const isProximo = idx === 1;
+                      const boxClass = isAtual
+                        ? 'border-emerald-400/40 bg-emerald-500/10'
+                        : isProximo
+                          ? 'border-amber-400/40 bg-amber-500/10'
+                          : 'border-white/10 bg-black/20';
+
+                      return (
+                      <div
+                        key={e.id}
+                        className={`rounded-xl border ${boxClass} p-3 flex items-start justify-between gap-2`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm font-extrabold text-white truncate">
+                            {isAtual ? `${e.client_name} — em atendimento` : isProximo ? `Próximo: ${e.client_name}` : e.client_name}
+                          </div>
+                          <div className="text-[11px] text-white/60 space-y-0.5">
+                            <div>
+                              Serviço: <span className="font-semibold text-white/80">{e.service_name}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                              {Number.isFinite(Number(e.service_price)) && (
+                                <span>
+                                  Valor: <span className="font-semibold text-white/85">{fmtBRL(Number(e.service_price))}</span>
+                                </span>
+                              )}
+                              {Number.isFinite(Number(e.service_duration_minutes)) && Number(e.service_duration_minutes) > 0 && (
+                                <span>
+                                  Tempo: <span className="font-semibold text-white/85">{Number(e.service_duration_minutes)}min</span>
+                                </span>
+                              )}
+                              {idx === 0 && e.started_at && (
+                                <span>
+                                  Início: <span className="font-semibold text-white/85">{String(new Date(e.started_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))}</span>
+                                </span>
+                              )}
+                              {(() => {
+                                const min = calcularMinutosRestantes(waitlistEntries, idx);
+                                if (min === null) return null;
+                                return (
+                                  <span>
+                                    {idx === 0 ? 'Falta:' : 'Estimativa:'}{' '}
+                                    <span className="font-semibold text-white/85">{min}min</span>
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {showLeaveWaitlistForm ? (
+                <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3">
+                  <div className="text-sm font-extrabold text-white">Sair da fila</div>
+                  <div className="text-xs text-white/70">
+                    Digite o mesmo telefone/WhatsApp que você usou para entrar na fila.
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs text-white/70">Telefone / WhatsApp</label>
+                    <input
+                      value={leaveWaitlistPhone}
+                      onChange={(e) => setLeaveWaitlistPhone(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                      placeholder="(DD) 9xxxx-xxxx"
+                      inputMode="tel"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSairDaFila}
+                      className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    >
+                      Confirmar saída
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowLeaveWaitlistForm(false);
+                        setLeaveWaitlistPhone('');
+                      }}
+                      className="px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                    >
+                      Voltar
+                    </button>
+                  </div>
+                </div>
+              ) : showJoinWaitlistForm ? (
+                <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3">
+                  <div className="text-sm font-extrabold text-white">Entrar na fila</div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs text-white/70">Nome</label>
+                    <input
+                      value={waitlistName}
+                      onChange={(e) => setWaitlistName(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                      placeholder="Seu nome"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs text-white/70">Telefone / WhatsApp</label>
+                    <input
+                      value={waitlistPhone}
+                      onChange={(e) => setWaitlistPhone(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                      placeholder="(DD) 9xxxx-xxxx"
+                      inputMode="tel"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs text-white/70">Serviço</label>
+                    <select
+                      value={waitlistServiceId}
+                      onChange={(e) => setWaitlistServiceId(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                    >
+                      <option value="">Selecione um serviço</option>
+                      {((establishment as any)?.services_with_prices || []).map((s: any) => (
+                        <option key={s.id} value={s.id}>
+                          {labelServicoFila(s)}
+                        </option>
+                      ))}
+                    </select>
+                    {waitlistServiceId && (
+                      <div className="text-[11px] text-white/70">
+                        Você escolheu:{' '}
+                        <span className="font-semibold text-white/85">
+                          {labelServicoFila(
+                            ((establishment as any)?.services_with_prices || []).find((s: any) => String(s.id) === String(waitlistServiceId))
+                          )}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleEntrarNaFila}
+                      className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-green-600 text-white hover:bg-green-700 transition-colors"
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowJoinWaitlistForm(false)}
+                      className="px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                    >
+                      Voltar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowJoinWaitlistForm(true);
+                      setShowLeaveWaitlistForm(false);
+                    }}
+                    className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white text-black hover:bg-gray-100 transition-colors"
+                  >
+                    Entrar na fila
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowLeaveWaitlistForm(true);
+                      setShowJoinWaitlistForm(false);
+                    }}
+                    className="px-4 py-3 rounded-xl font-extrabold bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  >
+                    Sair da fila
+                  </button>
+                  <button
+                    type="button"
+                    onClick={fetchWaitlist}
+                    className="px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                  >
+                    Atualizar
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
 
       {/* Modal de Agendamento Rápido */}

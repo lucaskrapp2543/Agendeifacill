@@ -73,8 +73,9 @@ export const handler: Handler = async (event) => {
         
         const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
         const protocol = event.headers['x-forwarded-proto'] || 'https';
-        const successUrl = process.env.MERCADOPAGO_SUCCESS_REDIRECT_URL || 
-          `${protocol}://${host}/dashboard?mp_connected=true`;
+        const successUrl =
+          process.env.MERCADOPAGO_SUCCESS_REDIRECT_URL ||
+          `${protocol}://${host}/dashboard/establishment?mp_connected=true`;
 
         return {
           statusCode: 302,
@@ -121,8 +122,9 @@ export const handler: Handler = async (event) => {
     // Redirecionar para página de sucesso
     const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
     const protocol = event.headers['x-forwarded-proto'] || 'https';
-    const successUrl = process.env.MERCADOPAGO_SUCCESS_REDIRECT_URL || 
-      `${protocol}://${host}/dashboard?mp_connected=true`;
+    const successUrl =
+      process.env.MERCADOPAGO_SUCCESS_REDIRECT_URL ||
+      `${protocol}://${host}/dashboard/establishment?mp_connected=true`;
 
     return {
       statusCode: 302,
@@ -166,8 +168,9 @@ export const handler: Handler = async (event) => {
             
             const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
             const protocol = event.headers['x-forwarded-proto'] || 'https';
-            const successUrl = process.env.MERCADOPAGO_SUCCESS_REDIRECT_URL || 
-              `${protocol}://${host}/dashboard?mp_connected=true`;
+            const successUrl =
+              process.env.MERCADOPAGO_SUCCESS_REDIRECT_URL ||
+              `${protocol}://${host}/dashboard/establishment?mp_connected=true`;
 
             return {
               statusCode: 302,
@@ -204,8 +207,9 @@ export const handler: Handler = async (event) => {
     // Redirecionar para página de erro
     const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
     const protocol = event.headers['x-forwarded-proto'] || 'https';
-    const errorUrl = process.env.MERCADOPAGO_ERROR_REDIRECT_URL || 
-      `${protocol}://${host}/dashboard?mp_error=true`;
+    const errorUrl =
+      process.env.MERCADOPAGO_ERROR_REDIRECT_URL ||
+      `${protocol}://${host}/dashboard/establishment?mp_error=true`;
 
     return {
       statusCode: 302,

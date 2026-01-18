@@ -155,6 +155,7 @@ type TabType =
   | 'missing-clients'
   | 'draw'
   | 'passo-a-passo'
+  | 'fila-espera'
   | 'client-page'
   | 'indication'
   | 'whatsapp-reminders'
@@ -277,6 +278,9 @@ interface Client {
   whatsapp: string;
   name: string;
   appointmentCount: number;
+  completedCount?: number; // Agendamentos realizados (status completed)
+  totalSpent?: number; // Total gasto (somente completed)
+  faltas?: number; // faltas acumuladas (interno)
   isSubscriber: boolean; // Nova propriedade
   birthday: string | null; // Campo de aniversário
   alert?: string | null; // Campo de alerta/anotação (máximo 100 caracteres)
@@ -343,6 +347,11 @@ const EstablishmentDashboard = () => {
   const [newBirthday, setNewBirthday] = useState('');
   const [editingClientAlert, setEditingClientAlert] = useState<string | null>(null);
   const [newAlert, setNewAlert] = useState('');
+
+  // ✅ Controle interno de faltas por cliente
+  const [showClientInfoModal, setShowClientInfoModal] = useState(false);
+  const [selectedClientInfo, setSelectedClientInfo] = useState<Client | null>(null);
+  const [isSavingFalta, setIsSavingFalta] = useState(false);
 
   // Estados para adicionar cliente manualmente
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -802,6 +811,897 @@ const EstablishmentDashboard = () => {
     carregarSaldoMercadoPago();
   }, [establishment?.id, establishment, carregarSaldoMercadoPago]);
 
+  // ✅ Fila de espera (por estabelecimento) — precisa ficar ANTES de qualquer uso (evita TDZ)
+  const [filaEsperaAtiva, setFilaEsperaAtiva] = useState(false);
+  const [filaEsperaFechada, setFilaEsperaFechada] = useState(false);
+  const [filaEsperaProfissionalId, setFilaEsperaProfissionalId] = useState<string>('');
+  const [filaEntries, setFilaEntries] = useState<any[]>([]);
+  const [isLoadingFilaEntries, setIsLoadingFilaEntries] = useState(false);
+  const [isSavingFilaEsperaAtiva, setIsSavingFilaEsperaAtiva] = useState(false);
+  const [showAtivarFilaModal, setShowAtivarFilaModal] = useState(false);
+  const [profissionalSelecionadoFila, setProfissionalSelecionadoFila] = useState<string>('');
+  const [profissionalFinanceiroFilaId, setProfissionalFinanceiroFilaId] = useState<string>('');
+  const [filtroHistoricoFila, setFiltroHistoricoFila] = useState<'dia' | 'mes' | 'todos'>('dia');
+  const [historicoFila, setHistoricoFila] = useState<any[]>([]);
+  const [isLoadingHistoricoFila, setIsLoadingHistoricoFila] = useState(false);
+  const [saldoFilaDia, setSaldoFilaDia] = useState(0);
+  const [saldoFilaMes, setSaldoFilaMes] = useState(0);
+  const [saldoFilaTotal, setSaldoFilaTotal] = useState(0);
+  const [filaFinanceiroTabelaOk, setFilaFinanceiroTabelaOk] = useState<boolean | null>(null);
+  const [showAdicionarFilaModal, setShowAdicionarFilaModal] = useState(false);
+  const [adicionarFilaNome, setAdicionarFilaNome] = useState('');
+  const [adicionarFilaServiceId, setAdicionarFilaServiceId] = useState('');
+  const [isAddingFila, setIsAddingFila] = useState(false);
+
+  const normalizePhoneDigits = (phone: string) => String(phone || '').replace(/\D/g, '');
+
+  const getPercentualProfissionalFila = useCallback(
+    (professionalIdOrName: string): number => {
+      const profs = ((establishment as any)?.professionals || []) as any[];
+      const key = String(professionalIdOrName || '').trim();
+      const prof =
+        profs.find((p) => String(p?.id) === key) ||
+        profs.find((p) => String(p?.name || '').trim().toLowerCase() === key.toLowerCase());
+      const pct = Number(prof?.percentage ?? 100);
+      const safe = Number.isFinite(pct) ? pct : 100;
+      return Math.min(100, Math.max(0, safe));
+    },
+    [establishment]
+  );
+
+  const calcularLiquidoProfissionalFila = useCallback(
+    (bruto: number, professionalIdOrName: string) => {
+      const pct = getPercentualProfissionalFila(professionalIdOrName);
+      const safeBruto = Number.isFinite(bruto) ? bruto : 0;
+      const liquido = (safeBruto * pct) / 100;
+      return { pct, liquido };
+    },
+    [getPercentualProfissionalFila]
+  );
+
+  const carregarHistoricoFinanceiroFila = useCallback(async () => {
+    if (!establishment?.id) return;
+    const profId = String(profissionalFinanceiroFilaId || '').trim();
+    if (!profId) return;
+
+    setIsLoadingHistoricoFila(true);
+    try {
+      let q = supabase
+        .from('waitlist_financial_logs')
+        .select('id, professional_id, client_name, client_whatsapp, service_name, gross_amount, professional_percentage, professional_amount, occurred_at')
+        .eq('establishment_id', establishment.id)
+        .eq('professional_id', profId)
+        .order('occurred_at', { ascending: false });
+
+      const now = new Date();
+      if (filtroHistoricoFila === 'dia') {
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        q = q.gte('occurred_at', start);
+      } else if (filtroHistoricoFila === 'mes') {
+        const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        q = q.gte('occurred_at', start);
+      }
+
+      const { data, error } = await q;
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (msg.includes('does not exist') || msg.includes('schema cache')) {
+          // tabela ainda não criada no banco
+          setFilaFinanceiroTabelaOk(false);
+          setHistoricoFila([]);
+          setSaldoFilaDia(0);
+          setSaldoFilaMes(0);
+          setSaldoFilaTotal(0);
+          return;
+        }
+        throw error;
+      }
+
+      const rows = (data as any[]) || [];
+      setFilaFinanceiroTabelaOk(true);
+      setHistoricoFila(rows);
+
+      // Totais: sempre recalcular dia/mês/total com queries separadas (simples e consistente)
+      const calcTotal = (items: any[]) => items.reduce((sum, r) => sum + Number(r.professional_amount || 0), 0);
+      const totalAtual = calcTotal(rows);
+
+      // total do período atual (dia/mes/todos) fica em saldoFilaTotal
+      setSaldoFilaTotal(totalAtual);
+
+      // saldo do dia
+      {
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const { data: d } = await supabase
+          .from('waitlist_financial_logs')
+          .select('professional_amount, occurred_at')
+          .eq('establishment_id', establishment.id)
+          .eq('professional_id', profId)
+          .gte('occurred_at', start);
+        setSaldoFilaDia(((d as any[]) || []).reduce((sum, r) => sum + Number(r.professional_amount || 0), 0));
+      }
+      // saldo do mês
+      {
+        const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        const { data: d } = await supabase
+          .from('waitlist_financial_logs')
+          .select('professional_amount, occurred_at')
+          .eq('establishment_id', establishment.id)
+          .eq('professional_id', profId)
+          .gte('occurred_at', start);
+        setSaldoFilaMes(((d as any[]) || []).reduce((sum, r) => sum + Number(r.professional_amount || 0), 0));
+      }
+    } catch (e: any) {
+      console.error('❌ Erro ao carregar histórico financeiro da fila:', e);
+    } finally {
+      setIsLoadingHistoricoFila(false);
+    }
+  }, [establishment?.id, filtroHistoricoFila, profissionalFinanceiroFilaId]);
+
+  const fetchFilaEntries = useCallback(async (): Promise<any[] | null> => {
+    if (!establishment?.id) return;
+    setIsLoadingFilaEntries(true);
+    try {
+      const { data, error } = await supabase
+        .from('waitlist_entries')
+        .select(
+          'id, appointment_id, client_name, client_whatsapp, service_id, service_name, service_price, service_duration_minutes, professional_id, started_at, status, notified_one_ahead, created_at'
+        )
+        .eq('establishment_id', establishment.id)
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        // Fallback para banco ainda não migrado (colunas novas não existem)
+        if (msg.includes('does not exist') && msg.includes('waitlist_entries')) {
+          const { data: legacyData, error: legacyError } = await supabase
+            .from('waitlist_entries')
+            .select('id, appointment_id, client_name, client_whatsapp, service_id, service_name, status, notified_one_ahead, created_at')
+            .eq('establishment_id', establishment.id)
+            .eq('status', 'waiting')
+            .order('created_at', { ascending: true });
+          if (legacyError) throw legacyError;
+          const legacyRows = (legacyData as any[]) || [];
+          setFilaEntries(legacyRows);
+          return legacyRows;
+        }
+        throw error;
+      }
+      const rows = (data as any[]) || [];
+      setFilaEntries(rows);
+      return rows;
+    } catch (e: any) {
+      console.error('❌ Erro ao carregar fila de espera:', e);
+      return null;
+    } finally {
+      setIsLoadingFilaEntries(false);
+    }
+  }, [establishment?.id]);
+
+  // Carregar fila automaticamente ao abrir o dashboard
+  useEffect(() => {
+    if (!establishment?.id) return;
+    fetchFilaEntries();
+  }, [establishment?.id, fetchFilaEntries]);
+
+  // Carregar histórico financeiro da fila quando mudar profissional/filtro
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (!profissionalFinanceiroFilaId) return;
+    carregarHistoricoFinanceiroFila();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishment?.id, profissionalFinanceiroFilaId, filtroHistoricoFila]);
+
+  const salvarFilaEsperaAtiva = useCallback(
+    async (next: boolean, overrides?: { profissionalId?: string }) => {
+      if (!establishment?.id) return;
+      if (isSavingFilaEsperaAtiva) return;
+      setIsSavingFilaEsperaAtiva(true);
+      try {
+        const profissionalId = String(overrides?.profissionalId ?? filaEsperaProfissionalId ?? '').trim() || null;
+        const { error } = await supabase
+          .from('establishments')
+          .update({ fila_espera_ativa: next, fila_espera_profissional_id: profissionalId } as any)
+          .eq('id', establishment.id);
+        if (error) {
+          const msg = String((error as any)?.message || '');
+          // Fallback para banco ainda não migrado (coluna fila_espera_profissional_id não existe)
+          if (msg.includes('does not exist') && msg.includes('fila_espera_profissional_id')) {
+            const { error: legacyErr } = await supabase
+              .from('establishments')
+              .update({ fila_espera_ativa: next } as any)
+              .eq('id', establishment.id);
+            if (legacyErr) throw legacyErr;
+          } else {
+            throw error;
+          }
+        }
+        setFilaEsperaAtiva(next);
+        setFilaEsperaProfissionalId(profissionalId ? String(profissionalId) : '');
+        setEstablishment((prev: any) => (prev ? { ...prev, fila_espera_ativa: next } : prev));
+        toast.success(next ? '✅ Fila de espera ativada!' : '✅ Fila de espera desativada!');
+
+        // Se desativou, zerar a fila (cancela entradas e agendamentos ligados)
+        if (!next) {
+          try {
+            const { data: openEntries } = await supabase
+              .from('waitlist_entries')
+              .select('id, appointment_id')
+              .eq('establishment_id', establishment.id)
+              .eq('status', 'waiting');
+
+            const ids = ((openEntries as any[]) || []).map((e) => e.id);
+            const apptIds = ((openEntries as any[]) || []).map((e) => e.appointment_id).filter(Boolean);
+
+            if (ids.length) {
+              await supabase.from('waitlist_entries').update({ status: 'cancelled' } as any).in('id', ids);
+            }
+            if (apptIds.length) {
+              await supabase.from('appointments').update({ status: 'cancelled' } as any).in('id', apptIds);
+            }
+            await fetchFilaEntries();
+          } catch {
+            // ignore
+          }
+        }
+      } catch (e: any) {
+        console.error('❌ Erro ao salvar fila_espera_ativa:', e);
+        toast.error(e?.message || 'Erro ao salvar a Fila de Espera');
+      } finally {
+        setIsSavingFilaEsperaAtiva(false);
+      }
+    },
+    [establishment?.id, isSavingFilaEsperaAtiva, filaEsperaProfissionalId]
+  );
+
+  const tentarNotificarUmAntes = useCallback(
+    async (entries: any[]) => {
+      if (!establishment?.id) return;
+      // Regra: "falta apenas 1 atendimento" -> pessoa na posição 2 (index 1) quando existe alguém em atendimento (index 0)
+      if (!Array.isArray(entries) || entries.length < 2) return;
+      // Só notificar se o atendimento atual já foi iniciado (tem started_at)
+      if (!entries?.[0]?.started_at) return;
+
+      const target = entries[1];
+      if (!target || target.notified_one_ahead) return;
+
+      const phoneTo = normalizePhoneDigits(target.client_whatsapp);
+      if (!phoneTo) return;
+
+      const message =
+        '📢 Fila de espera (Agendei Fácil)\n\n' +
+        'Falta apenas 1 pessoa para o seu atendimento.\n' +
+        'Você já pode se deslocar até o local. ✅';
+
+      try {
+        // Enfileirar para envio automático via job (service role)
+        const { error: outboxErr } = await supabase.from('waitlist_whatsapp_outbox').insert({
+          establishment_id: establishment.id,
+          waitlist_entry_id: target.id,
+          phone_to: phoneTo,
+          message,
+          status: 'pending',
+        } as any);
+
+        if (outboxErr) {
+          console.warn('⚠️ Não foi possível inserir outbox de WhatsApp (fila):', outboxErr);
+        }
+
+        // Marcar como notificado (evita duplicidade)
+        const { error: updErr } = await supabase
+          .from('waitlist_entries')
+          .update({ notified_one_ahead: true, notified_one_ahead_at: new Date().toISOString() } as any)
+          .eq('id', target.id);
+
+        if (updErr) {
+          console.warn('⚠️ Não foi possível marcar notified_one_ahead:', updErr);
+        } else {
+          setFilaEntries((prev) => prev.map((e: any) => (e.id === target.id ? { ...e, notified_one_ahead: true } : e)));
+        }
+      } catch (e: any) {
+        console.error('❌ Erro ao enfileirar notificação de fila:', e);
+      }
+    },
+    [establishment?.id]
+  );
+
+  const finalizarAtendimentoFila = useCallback(
+    async (entryId: string) => {
+      if (!establishment?.id) return;
+      try {
+        const entry = (filaEntries || []).find((e: any) => e.id === entryId);
+        const { error } = await supabase.from('waitlist_entries').update({ status: 'done' } as any).eq('id', entryId);
+        if (error) throw error;
+
+        // Se tiver appointment ligado, marcar como completed (contabiliza pro profissional)
+        if (entry?.appointment_id) {
+          try {
+            await supabase.from('appointments').update({ status: 'completed' } as any).eq('id', entry.appointment_id);
+          } catch {
+            // ignore
+          }
+        }
+
+        // Registrar histórico financeiro exclusivo da fila (por profissional)
+        try {
+          const bruto = Number(entry?.service_price ?? 0);
+          const professionalKey = String(entry?.professional_id || filaEsperaProfissionalId || '').trim();
+          const { pct, liquido } = calcularLiquidoProfissionalFila(bruto, professionalKey);
+
+          if (professionalKey) {
+            if (!profissionalFinanceiroFilaId) {
+              setProfissionalFinanceiroFilaId(professionalKey);
+            }
+            const { error: logErr } = await supabase.from('waitlist_financial_logs').insert({
+              establishment_id: establishment.id,
+              professional_id: professionalKey,
+              waitlist_entry_id: entryId,
+              appointment_id: entry?.appointment_id || null,
+              client_name: String(entry?.client_name || '').trim() || 'Cliente',
+              client_whatsapp: String(entry?.client_whatsapp || '').trim() || '',
+              service_name: String(entry?.service_name || '').trim() || 'Serviço',
+              gross_amount: Number.isFinite(bruto) ? bruto : 0,
+              professional_percentage: pct,
+              professional_amount: Number.isFinite(liquido) ? liquido : 0,
+              occurred_at: new Date().toISOString(),
+            } as any);
+
+            if (logErr) {
+              const msg = String((logErr as any)?.message || '');
+              // se a tabela ainda não existir, não quebrar o fluxo
+              if (msg.includes('does not exist') || msg.includes('schema cache')) {
+                setFilaFinanceiroTabelaOk(false);
+                toast.error('⚠️ Falta criar a tabela do financeiro da fila. Rode novamente o SQL FINAL da fila no Supabase.');
+              } else {
+                console.warn('⚠️ Erro ao salvar histórico financeiro da fila:', logErr);
+              }
+            } else {
+              setFilaFinanceiroTabelaOk(true);
+              // atualizar totais/histórico em tela
+              void carregarHistoricoFinanceiroFila();
+            }
+          }
+        } catch {
+          // ignore
+        }
+
+        const updated = await fetchFilaEntries();
+        if (updated) {
+          void tentarNotificarUmAntes(updated);
+        }
+      } catch (e: any) {
+        console.error('❌ Erro ao finalizar atendimento da fila:', e);
+        toast.error(e?.message || 'Erro ao finalizar atendimento');
+      }
+    },
+    [calcularLiquidoProfissionalFila, carregarHistoricoFinanceiroFila, establishment?.id, fetchFilaEntries, filaEntries, filaEsperaProfissionalId, tentarNotificarUmAntes]
+  );
+
+  const removerDaFila = useCallback(
+    async (entryId: string) => {
+      if (!establishment?.id) return;
+      try {
+        const entry = (filaEntries || []).find((e: any) => e.id === entryId);
+        const { error } = await supabase.from('waitlist_entries').update({ status: 'cancelled' } as any).eq('id', entryId);
+        if (error) throw error;
+
+        // Se tiver appointment ligado, cancelar também
+        if (entry?.appointment_id) {
+          try {
+            await supabase.from('appointments').update({ status: 'cancelled' } as any).eq('id', entry.appointment_id);
+          } catch {
+            // ignore
+          }
+        }
+
+        const updated = await fetchFilaEntries();
+        if (updated) {
+          void tentarNotificarUmAntes(updated);
+        }
+      } catch (e: any) {
+        console.error('❌ Erro ao remover da fila:', e);
+        toast.error(e?.message || 'Erro ao remover da fila');
+      }
+    },
+    [establishment?.id, fetchFilaEntries, filaEntries, tentarNotificarUmAntes]
+  );
+
+  const iniciarAtendimentoFila = useCallback(
+    async (entryId: string) => {
+      if (!establishment?.id) return;
+      try {
+        const { error } = await supabase
+          .from('waitlist_entries')
+          .update({ started_at: new Date().toISOString() } as any)
+          .eq('id', entryId);
+        if (error) throw error;
+
+        const updated = await fetchFilaEntries();
+        if (updated) {
+          void tentarNotificarUmAntes(updated);
+        }
+      } catch (e: any) {
+        console.error('❌ Erro ao iniciar atendimento da fila:', e);
+        toast.error(e?.message || 'Erro ao iniciar atendimento');
+      }
+    },
+    [establishment?.id, fetchFilaEntries, tentarNotificarUmAntes]
+  );
+
+  const adicionarFilaManual = useCallback(async () => {
+    if (!establishment?.id) return;
+    if (!filaEsperaAtiva) {
+      toast.error('Ative a Fila de Espera antes de adicionar alguém.');
+      return;
+    }
+    if (filaEsperaFechada) {
+      toast.error('A fila está fechada. Abra a fila para adicionar.');
+      return;
+    }
+    if (isAddingFila) return;
+
+    const nome = String(adicionarFilaNome || '').trim();
+    const serviceId = String(adicionarFilaServiceId || '').trim();
+    if (!nome) {
+      toast.error('Informe o nome do cliente.');
+      return;
+    }
+    if (!serviceId) {
+      toast.error('Selecione o serviço.');
+      return;
+    }
+
+    const servico = ((establishment as any)?.services_with_prices || []).find((s: any) => String(s.id) === serviceId);
+    const serviceName = String(servico?.name || 'Serviço').trim() || 'Serviço';
+    const servicePrice = Number(servico?.price ?? 0);
+    const serviceDuration = Number(servico?.duration ?? servico?.service_duration ?? 0);
+
+    const profissionalPadraoId = String(filaEsperaProfissionalId || '').trim();
+    if (!profissionalPadraoId) {
+      toast.error('Selecione um profissional padrão ao ativar a fila.');
+      return;
+    }
+
+    setIsAddingFila(true);
+    try {
+      const now = new Date();
+      const pad2 = (n: number) => String(n).padStart(2, '0');
+      const appointmentDate = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+      const appointmentTime = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
+      // Criar appointment ligado à fila (para contabilização no financeiro do profissional)
+      const { data: insertedAppointment, error: apptErr } = await supabase
+        .from('appointments')
+        .insert([
+          {
+            client_id: user?.id, // registro interno pelo dono (não exige WhatsApp)
+            establishment_id: establishment.id,
+            establishment_code: (establishment as any)?.code,
+            client_name: nome,
+            client_whatsapp: '',
+            service: serviceName,
+            professional: profissionalPadraoId,
+            appointment_date: appointmentDate,
+            appointment_time: appointmentTime,
+            duration: Number.isFinite(serviceDuration) ? serviceDuration : 0,
+            price: Number.isFinite(servicePrice) ? servicePrice : 0,
+            status: 'pending',
+            is_waitlist: true,
+          } as any,
+        ])
+        .select('id')
+        .single();
+
+      if (apptErr) throw apptErr;
+
+      // Criar entrada na fila (sem WhatsApp)
+      const { data: insertedEntry, error: wlErr } = await supabase
+        .from('waitlist_entries')
+        .insert({
+          establishment_id: establishment.id,
+          appointment_id: insertedAppointment?.id || null,
+          client_name: nome,
+          client_whatsapp: '',
+          service_id: serviceId,
+          service_name: serviceName,
+          service_price: Number.isFinite(servicePrice) ? servicePrice : null,
+          service_duration_minutes: Number.isFinite(serviceDuration) ? serviceDuration : null,
+          professional_id: profissionalPadraoId,
+          source: 'dashboard',
+          status: 'waiting',
+        } as any)
+        .select('id')
+        .single();
+
+      if (wlErr) throw wlErr;
+
+      // Link reverso (opcional)
+      try {
+        await supabase
+          .from('appointments')
+          .update({ waitlist_entry_id: insertedEntry?.id } as any)
+          .eq('id', insertedAppointment?.id);
+      } catch {
+        // ignore
+      }
+
+      toast.success('✅ Cliente adicionado à fila!');
+      setShowAdicionarFilaModal(false);
+      setAdicionarFilaNome('');
+      setAdicionarFilaServiceId('');
+      await fetchFilaEntries();
+    } catch (e: any) {
+      console.error('❌ Erro ao adicionar manualmente à fila:', e);
+      toast.error(e?.message || 'Erro ao adicionar à fila');
+    } finally {
+      setIsAddingFila(false);
+    }
+  }, [
+    adicionarFilaNome,
+    adicionarFilaServiceId,
+    establishment,
+    fetchFilaEntries,
+    filaEsperaAtiva,
+    filaEsperaFechada,
+    filaEsperaProfissionalId,
+    isAddingFila,
+    user?.id,
+  ]);
+
+  const salvarFilaFechada = useCallback(
+    async (next: boolean) => {
+      if (!establishment?.id) return;
+      try {
+        const { error } = await supabase
+          .from('establishments')
+          .update({ fila_espera_fechada: next } as any)
+          .eq('id', establishment.id);
+
+        if (error) {
+          const msg = String((error as any)?.message || '');
+          // Fallback caso ainda não tenha coluna no banco
+          if (msg.includes('does not exist') && msg.includes('fila_espera_fechada')) {
+            toast.error('Seu banco ainda não tem a coluna fila_espera_fechada. Rode o SQL da fila novamente.');
+            return;
+          }
+          throw error;
+        }
+
+        setFilaEsperaFechada(next);
+        setEstablishment((prev: any) => (prev ? { ...prev, fila_espera_fechada: next } : prev));
+        toast.success(next ? '✅ Fila fechada (clientes não conseguem entrar).' : '✅ Fila aberta (clientes podem entrar).');
+      } catch (e: any) {
+        console.error('❌ Erro ao salvar fila_espera_fechada:', e);
+        toast.error(e?.message || 'Erro ao salvar fechamento da fila');
+      }
+    },
+    [establishment?.id]
+  );
+
+  const toggleFilaParaAgendamento = useCallback(
+    async (appointment: any) => {
+      if (!establishment?.id) return;
+      const existing = (filaEntries || []).find((e: any) => e.appointment_id === appointment.id);
+      try {
+        if (existing) {
+          await removerDaFila(existing.id);
+          toast.success('Removido da fila de espera');
+          return;
+        }
+
+        const phone = normalizePhoneDigits(appointment.client_whatsapp || '');
+        const { error } = await supabase.from('waitlist_entries').insert({
+          establishment_id: establishment.id,
+          appointment_id: appointment.id,
+          client_name: String(appointment.client_name || 'Cliente').trim() || 'Cliente',
+          client_whatsapp: phone || String(appointment.client_whatsapp || ''),
+          service_id: null,
+          service_name: String(appointment.service || 'Serviço').trim() || 'Serviço',
+          source: 'dashboard',
+          status: 'waiting',
+        } as any);
+        if (error) throw error;
+        toast.success('✅ Adicionado na fila de espera');
+        const updated = await fetchFilaEntries();
+        if (updated) {
+          void tentarNotificarUmAntes(updated);
+        }
+      } catch (e: any) {
+        console.error('❌ Erro ao alternar fila para agendamento:', e);
+        toast.error(e?.message || 'Erro ao atualizar fila de espera');
+      }
+    },
+    [establishment?.id, filaEntries, fetchFilaEntries, removerDaFila, tentarNotificarUmAntes]
+  );
+
+  // ✅ Card Mercado Pago (reutilizável em dois lugares: configurações + atalho no menu lateral)
+  const MercadoPagoCard = ({ wrapperClassName = 'mt-6' }: { wrapperClassName?: string }) => (
+    <div
+      className={`${wrapperClassName ? `${wrapperClassName} ` : ''}relative overflow-hidden rounded-xl p-[1px] shadow-[0_0_0_1px_rgba(0,158,227,0.2)]`}
+      style={{
+        background: 'linear-gradient(135deg, rgba(0,158,227,0.3), rgba(0,158,227,0.15), rgba(0,158,227,0.05))',
+      }}
+    >
+      {/* Efeito de brilho */}
+      <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-[#009EE3]/20 blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-[#009EE3]/10 blur-3xl pointer-events-none" />
+
+      <div className="bg-[#0f1112] border border-[#009EE3]/30 rounded-xl p-6 relative z-10">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-[#009EE3]/20 flex items-center justify-center">
+              <span className="text-2xl">💳</span>
+            </div>
+            <div>
+              <div className="text-white font-extrabold text-lg">Mercado Pago</div>
+              <div className="text-xs text-gray-300 mt-0.5">
+                Status:{' '}
+                <span className="font-mono text-[#009EE3]">
+                  {String((establishment as any)?.mercadopago_access_token || '').trim()
+                    ? `Conectado (ID: ${String((establishment as any).mercadopago_user_id || '').slice(0, 8)}...)`
+                    : 'Não conectado'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+          Crie ou conecte sua conta Mercado Pago, e receba pagamentos adiantados dos clientes, evite furos e lucre mais.
+        </p>
+
+        {/* Informações de Taxas e Exemplo */}
+        {String((establishment as any)?.mercadopago_access_token || '').trim() && (
+          <div className="mb-6 p-4 bg-gradient-to-br from-[#009EE3]/10 to-[#009EE3]/5 border border-[#009EE3]/20 rounded-lg">
+            <div className="text-white font-bold text-sm mb-3 flex items-center gap-2">
+              <span>💰</span>
+              <span>Taxas do Mercado Pago</span>
+            </div>
+            <div className="space-y-2 text-xs text-gray-300 mb-4">
+              <div className="flex justify-between items-center">
+                <span>PIX:</span>
+                <span className="font-semibold text-white">0,99%</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Débito:</span>
+                <span className="font-semibold text-white">1,99%</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Crédito:</span>
+                <span className="font-semibold text-white">4,99%</span>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t border-[#009EE3]/20">
+                <span>Taxa da plataforma:</span>
+                <span className="font-semibold text-white">R$ 0,50 fixo</span>
+              </div>
+            </div>
+
+            {/* Exemplo de cálculo */}
+            <div className="mt-4 p-3 bg-black/30 rounded-lg border border-[#009EE3]/20">
+              <div className="text-white font-bold text-xs mb-2">📊 Exemplo: Serviço de R$ 50,00</div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between text-gray-300">
+                  <span>Valor do serviço:</span>
+                  <span className="text-white font-semibold">R$ 50,00</span>
+                </div>
+                <div className="flex justify-between text-gray-300">
+                  <span>Taxa Mercado Pago (PIX 0,99%):</span>
+                  <span className="text-red-300">- R$ 0,50</span>
+                </div>
+                <div className="flex justify-between text-gray-300">
+                  <span>Taxa da plataforma:</span>
+                  <span className="text-red-300">- R$ 0,50</span>
+                </div>
+                <div className="flex justify-between text-[#009EE3] font-bold pt-2 border-t border-[#009EE3]/20">
+                  <span>Você recebe:</span>
+                  <span className="text-lg">R$ 49,00</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Informação sobre recebimento */}
+            <div className="mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <div className="flex items-start gap-2">
+                <span className="text-lg">⚡</span>
+                <div className="flex-1">
+                  <div className="text-green-200 font-bold text-xs mb-1">Recebimento Instantâneo</div>
+                  <div className="text-green-200/80 text-xs leading-relaxed">
+                    O dinheiro cai na hora na sua conta do Mercado Pago. Você pode sacar via PIX para sua conta bancária
+                    normal ou deixar no Mercado Pago.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={async () => {
+            if (!establishment?.id) {
+              toast.error('ID do estabelecimento não encontrado');
+              return;
+            }
+
+            try {
+              const authorizeUrl = import.meta.env.PROD
+                ? `/.netlify/functions/mercadopago-oauth-authorize?establishmentId=${establishment.id}`
+                : `/api/mercadopago/oauth/authorize?establishmentId=${establishment.id}`;
+
+              const response = await fetch(authorizeUrl);
+              if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Erro ao gerar URL de autorização');
+              }
+
+              const data = await response.json();
+              if (data.authorization_url) {
+                window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
+                toast.success('Redirecionando para conectar conta do Mercado Pago...');
+              } else {
+                throw new Error('URL de autorização não retornada');
+              }
+            } catch (error: any) {
+              console.error('❌ Erro ao iniciar OAuth Mercado Pago:', error);
+              toast.error(error.message || 'Erro ao conectar Mercado Pago');
+            }
+          }}
+          disabled={!establishment?.id}
+          className="w-full px-5 py-3 bg-gradient-to-r from-[#009EE3] to-[#0088C7] text-white rounded-xl hover:from-[#0088C7] hover:to-[#0077B6] transition-all font-extrabold shadow-lg hover:shadow-xl transform hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+        >
+          {String((establishment as any)?.mercadopago_access_token || '').trim()
+            ? '🔄 Reconectar conta Mercado Pago'
+            : '🔗 Conectar conta Mercado Pago'}
+        </button>
+
+        {String((establishment as any)?.mercadopago_access_token || '').trim() && (
+          <div className="mt-4 space-y-4">
+            <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <p className="text-sm text-green-200 font-semibold flex items-center gap-2">
+                <span>✅</span>
+                <span>
+                  Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no
+                  checkout.
+                </span>
+              </p>
+            </div>
+
+            {/* Configuração de Pagamento Antecipado Mercado Pago */}
+            <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-3 space-y-2">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={exigirPagamentoAntecipadoMercadoPago}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setExigirPagamentoAntecipadoMercadoPago(next);
+
+                    // Se desativar a exigência, também desativa a opção "não obrigatório"
+                    const nextOpcional = next ? pagamentoAdiantadoOpcionalMercadoPago : false;
+                    if (!next) setPagamentoAdiantadoOpcionalMercadoPago(false);
+
+                    // Salva imediatamente (sem debounce) para não perder ao dar F5
+                    void autoSaveAmenities({
+                      exigirPagamentoAntecipadoMercadoPago: next,
+                      pagamentoAdiantadoOpcionalMercadoPago: nextOpcional,
+                    });
+                  }}
+                  className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
+                />
+                <span className="text-white text-sm font-semibold">Exigir pagamento antecipado via Mercado Pago</span>
+              </label>
+
+              {exigirPagamentoAntecipadoMercadoPago && (
+                <label className="flex items-center space-x-2 ml-6">
+                  <input
+                    type="checkbox"
+                    checked={pagamentoAdiantadoOpcionalMercadoPago}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setPagamentoAdiantadoOpcionalMercadoPago(next);
+
+                      // Salva imediatamente (sem debounce) para não perder ao dar F5
+                      void autoSaveAmenities({ pagamentoAdiantadoOpcionalMercadoPago: next });
+                    }}
+                    className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-white text-xs">Não ser obrigatório cliente pagar para agendar</span>
+                    <span className="text-xs text-gray-400">
+                      Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora.
+                    </span>
+                  </div>
+                </label>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={async () => {
+                if (!establishment?.id) {
+                  toast.error('ID do estabelecimento não encontrado');
+                  return;
+                }
+
+                const confirmMsg =
+                  'Tem certeza que deseja desconectar o Mercado Pago? Isso irá remover a conexão e você precisará conectar novamente para usar Mercado Pago.';
+                if (!window.confirm(confirmMsg)) {
+                  return;
+                }
+
+                try {
+                  const { error } = await supabase
+                    .from('establishments')
+                    .update({
+                      mercadopago_user_id: null,
+                      mercadopago_access_token: null,
+                      mercadopago_refresh_token: null,
+                      mercadopago_token_expires_at: null,
+                      exigir_pagamento_antecipado_mercadopago: false,
+                      pagamento_adiantado_opcional_mercadopago: false,
+                    })
+                    .eq('id', establishment.id);
+
+                  if (error) {
+                    throw error;
+                  }
+
+                  setEstablishment({
+                    ...establishment,
+                    mercadopago_user_id: null,
+                    mercadopago_access_token: null,
+                    mercadopago_refresh_token: null,
+                    mercadopago_token_expires_at: null,
+                  } as any);
+                  setExigirPagamentoAntecipadoMercadoPago(false);
+                  setPagamentoAdiantadoOpcionalMercadoPago(false);
+
+                  toast.success('Mercado Pago desconectado com sucesso');
+                  fetchEstablishment(); // Recarregar dados
+                } catch (error: any) {
+                  console.error('❌ Erro ao desconectar Mercado Pago:', error);
+                  toast.error(error.message || 'Erro ao desconectar Mercado Pago');
+                }
+              }}
+              className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold text-sm"
+            >
+              Desconectar Mercado Pago
+            </button>
+
+            {/* Saldo de vendas Mercado Pago */}
+            <div className="mt-4 rounded-xl border-2 border-[#009EE3]/40 bg-gradient-to-br from-[#009EE3]/10 to-black/30 p-5 shadow-lg">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex-1">
+                  <div className="text-xs text-gray-300 mb-1">Total vendido via Mercado Pago</div>
+                  <div className="text-3xl font-extrabold text-[#009EE3] mb-2">
+                    {isLoadingSaldoMercadoPago ? 'Calculando...' : fmtBRL(saldoMercadoPago)}
+                  </div>
+                  <div className="mt-1 text-[11px] text-gray-300/80">
+                    * Valor líquido já com taxas descontadas (Mercado Pago + R$ 0,50 da plataforma).
+                  </div>
+                  {saldoMercadoPagoErro && <div className="mt-2 text-[11px] text-red-200/90">{saldoMercadoPagoErro}</div>}
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    disabled={isLoadingSaldoMercadoPago}
+                    onClick={() => {
+                      if (isLoadingSaldoMercadoPago) return;
+                      carregarSaldoMercadoPago();
+                    }}
+                    className="px-5 py-2.5 bg-[#009EE3]/20 hover:bg-[#009EE3]/30 border border-[#009EE3]/40 text-[#009EE3] rounded-lg transition-all font-bold disabled:opacity-60 disabled:cursor-not-allowed text-sm shadow-md hover:shadow-lg"
+                  >
+                    🔄 Atualizar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   const getPagarmeDraftStorageKey = useCallback((establishmentId: string) => {
     return `pagarme_draft_${establishmentId}`;
   }, []);
@@ -1145,6 +2045,7 @@ const EstablishmentDashboard = () => {
   const [showInfoModal, setShowInfoModal] = useState(false); // Modal de informações mobile
   const [infoModalContent, setInfoModalContent] = useState<{ title: string; content: string } | null>(null); // Conteúdo do modal
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false); // Modal upgrade (Plano Prata)
+  const [showMercadoPagoModal, setShowMercadoPagoModal] = useState(false); // Modal do card Mercado Pago (atalho no menu)
 
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
@@ -1193,8 +2094,34 @@ const EstablishmentDashboard = () => {
     };
   }, [showPlanUpgradeModal]);
 
+  // ✅ Evitar scroll do fundo quando modal do Mercado Pago estiver aberto
+  useEffect(() => {
+    if (!showMercadoPagoModal) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [showMercadoPagoModal]);
+
   const openPlanUpgradeModal = () => setShowPlanUpgradeModal(true);
   const closePlanUpgradeModal = () => setShowPlanUpgradeModal(false);
+
+  // ✅ Plano Prata (ativado no Admin): bloquear abas premium (inclui Fila de Espera)
+  useEffect(() => {
+    if (!establishment) return;
+    if (!Boolean((establishment as any)?.plan_prata_active)) return;
+    if (activeTab === 'subscribers' || activeTab === 'products' || activeTab === 'fila-espera') {
+      openPlanUpgradeModal();
+      // volta para um tab seguro
+      setActiveTab('appointments');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, establishment]);
 
   const redirectUpgradeToOuroWhatsapp = () => {
     const phone = '5548991265320';
@@ -1215,6 +2142,65 @@ const EstablishmentDashboard = () => {
       '- Mensagens ilimitadas para clientes aniversariantes\n\n' +
       'Quero adicionar +R$ 49,99 na minha fatura mensal.';
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  const getClienteChanceFalta = (client: Client) => {
+    const faltas = Number(client.faltas || 0);
+    const realizados = Number(client.completedCount || 0);
+    const denom = faltas + realizados;
+    if (denom <= 0) return 0;
+    return Math.round((faltas / denom) * 100);
+  };
+
+  const getClienteNivel = (chance: number): 'bom' | 'medio' | 'risco' => {
+    if (chance <= 20) return 'bom';
+    if (chance <= 40) return 'medio';
+    return 'risco';
+  };
+
+  const getNivelLabel = (nivel: 'bom' | 'medio' | 'risco') => {
+    if (nivel === 'bom') return 'Cliente Bom';
+    if (nivel === 'medio') return 'Cliente Médio';
+    return 'Cliente de Risco';
+  };
+
+  const getNivelClasses = (nivel: 'bom' | 'medio' | 'risco') => {
+    if (nivel === 'bom') return { badge: 'bg-green-100 text-green-800 border border-green-200', card: 'border-green-300' };
+    if (nivel === 'medio') return { badge: 'bg-amber-100 text-amber-900 border border-amber-200', card: 'border-amber-300' };
+    return { badge: 'bg-red-100 text-red-800 border border-red-200', card: 'border-red-300' };
+  };
+
+  const ajustarFaltaCliente = async (client: Client, delta: 1 | -1) => {
+    if (!establishment?.id) return;
+    if (isSavingFalta) return;
+    setIsSavingFalta(true);
+    try {
+      const cleanPhone = String(client.whatsapp || '').replace(/\D/g, '');
+      const { data, error } = await supabase.rpc('adjust_client_no_show', {
+        p_establishment_id: establishment.id,
+        p_client_whatsapp: cleanPhone,
+        p_delta: delta,
+      } as any);
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (msg.includes('does not exist') || msg.includes('schema cache')) {
+          toast.error('Faltas ainda não configuradas no banco. Rode o SQL de faltas.');
+          return;
+        }
+        throw error;
+      }
+
+      const novo = Number(data || 0);
+      setClients((prev) => prev.map((c) => (c.whatsapp === client.whatsapp ? { ...c, faltas: novo } : c)));
+      setSelectedClientInfo((prev) => (prev && prev.whatsapp === client.whatsapp ? { ...prev, faltas: novo } : prev));
+      toast.success(delta === 1 ? '✅ Falta registrada (-1).' : '✅ Falta removida (+1).');
+    } catch (e: any) {
+      console.error('❌ Erro ao ajustar falta do cliente:', e);
+      toast.error(e?.message || 'Erro ao registrar falta');
+    } finally {
+      setIsSavingFalta(false);
+    }
   };
 
   // Estados para edição de valor do agendamento
@@ -4763,6 +5749,10 @@ Estamos te aguardando! 😎✂️`;
         setPagamentoAdiantadoOpcional((establishmentData as any).pagamento_adiantado_opcional ?? false);
         setExigirPagamentoAntecipadoMercadoPago((establishmentData as any).exigir_pagamento_antecipado_mercadopago ?? false); // Pagamento antecipado Mercado Pago
         setPagamentoAdiantadoOpcionalMercadoPago((establishmentData as any).pagamento_adiantado_opcional_mercadopago ?? false);
+        setFilaEsperaAtiva((establishmentData as any).fila_espera_ativa ?? false);
+        setFilaEsperaProfissionalId(String((establishmentData as any).fila_espera_profissional_id || ''));
+        setFilaEsperaFechada((establishmentData as any).fila_espera_fechada ?? false);
+        setProfissionalFinanceiroFilaId(String((establishmentData as any).fila_espera_profissional_id || ''));
         // Dados bancários / recebedor Pagar.me
         // ✅ Priorizar rascunho local (draft) caso a página tenha sido recarregada ao sair/voltar do app
         let draft: any = null;
@@ -7527,10 +8517,10 @@ Estamos te aguardando! 😎✂️`;
     console.log('🔄 Iniciando fetchClients...');
 
     try {
-      // Busca todos os agendamentos do estabelecimento para obter os client_ids
+      // Busca todos os agendamentos do estabelecimento para obter os clientes + estatísticas
       const { data: appointmentsData, error: appointmentsError } = await supabase
         .from('appointments')
-        .select('client_id, client_name, client_whatsapp')
+        .select('client_id, client_name, client_whatsapp, status, price, total_price')
         .eq('establishment_id', establishment.id)
         .not('client_whatsapp', 'is', null) // Apenas agendamentos com WhatsApp
         .order('created_at', { ascending: false });
@@ -7628,10 +8618,34 @@ Estamos te aguardando! 😎✂️`;
       });
 
       // Mapeia e agrupa os clientes a partir dos dados de agendamento e perfis
-      const clientsMap = new Map<string, { id: string; name: string; count: number; isSubscriber: boolean; birthday: string | null }>();
+      const clientsMap = new Map<
+        string,
+        { id: string; name: string; count: number; completed: number; spent: number; isSubscriber: boolean; birthday: string | null }
+      >();
+
+      const normalizeWhatsappKey = (raw: any) => {
+        const digits = String(raw || '').replace(/\D/g, '');
+        if (!digits) return '';
+        // Corrigir caso "55" duplicado antes de outro DDI (ex: 5554...)
+        if (digits.startsWith('55')) {
+          const after = digits.slice(2);
+          const known = [
+            { code: '351', minLength: 12 },
+            { code: '244', minLength: 12 },
+            { code: '54', minLength: 12 },
+            { code: '56', minLength: 11 },
+            { code: '55', minLength: 12 },
+            { code: '34', minLength: 11 },
+            { code: '1', minLength: 11 }
+          ];
+          const hasOther = known.some(({ code, minLength }) => after.startsWith(code) && after.length >= minLength);
+          if (hasOther) return after;
+        }
+        return digits;
+      };
 
       appointmentsData.forEach(appointment => {
-        const whatsapp = appointment.client_whatsapp?.replace(/\D/g, '');
+        const whatsapp = normalizeWhatsappKey((appointment as any).client_whatsapp);
         if (whatsapp) {
           const currentClient = clientsMap.get(whatsapp);
           const profileInfo = profilesMapForClients.get(appointment.client_id); // Buscar pelo client_id (que corresponde ao user_id)
@@ -7642,11 +8656,18 @@ Estamos te aguardando! 😎✂️`;
           // Usa o nome do perfil se disponível e mais recente, ou o nome do agendamento
           const clientName = profileInfo?.name || appointment.client_name || 'Cliente Desconhecido';
 
+          const st = String((appointment as any).status || '');
+          const isDone = st === 'completed';
+          const baseValue = Number((appointment as any).total_price ?? (appointment as any).price ?? 0);
+          const safeValue = Number.isFinite(baseValue) ? baseValue : 0;
+
           if (currentClient) {
             clientsMap.set(whatsapp, {
               id: profileId, // Usar o ID real do perfil
               name: clientName,
               count: currentClient.count + 1,
+              completed: currentClient.completed + (isDone ? 1 : 0),
+              spent: currentClient.spent + (isDone ? safeValue : 0),
               isSubscriber: currentClient.isSubscriber || isSubscriber,
               birthday: birthday || currentClient.birthday // Manter o birthday se já existe
             });
@@ -7655,6 +8676,8 @@ Estamos te aguardando! 😎✂️`;
               id: profileId, // Usar o ID real do perfil
               name: clientName,
               count: 1,
+              completed: isDone ? 1 : 0,
+              spent: isDone ? safeValue : 0,
               isSubscriber: isSubscriber,
               birthday: birthday
             });
@@ -7663,11 +8686,13 @@ Estamos te aguardando! 😎✂️`;
       });
 
       // Converte o mapa de clientes para um array e atualiza o estado
-      const uniqueClients: Client[] = Array.from(clientsMap, ([whatsapp, { id, name, count, isSubscriber, birthday }]) => ({
+      const uniqueClients: Client[] = Array.from(clientsMap, ([whatsapp, { id, name, count, completed, spent, isSubscriber, birthday }]) => ({
         id, // Adicionar o ID
         whatsapp,
         name,
         appointmentCount: count,
+        completedCount: completed,
+        totalSpent: spent,
         isSubscriber: isSubscriber,
         birthday: birthday
       }));
@@ -7679,9 +8704,9 @@ Estamos te aguardando! 😎✂️`;
       // Adicionar clientes manuais que ainda não existem na lista
       Object.values(manualClients).forEach((manualClient: any) => {
         // Garantir que o WhatsApp está limpo para comparação
-        const cleanManualWhatsapp = String(manualClient.whatsapp).replace(/\D/g, '');
+        const cleanManualWhatsapp = normalizeWhatsappKey(manualClient.whatsapp);
         const existingClient = uniqueClients.find(c => {
-          const cleanClientWhatsapp = String(c.whatsapp).replace(/\D/g, '');
+          const cleanClientWhatsapp = normalizeWhatsappKey(c.whatsapp);
           return cleanClientWhatsapp === cleanManualWhatsapp;
         });
 
@@ -7737,6 +8762,37 @@ Estamos te aguardando! 😎✂️`;
           console.log(`⚠️ Alerta aplicado ao cliente ${client.name}:`, savedAlert.alert);
         }
       });
+
+      // ✅ Buscar faltas no banco (interno) e mesclar por WhatsApp
+      try {
+        const whList = uniqueClients.map((c) => String(c.whatsapp || '').replace(/\D/g, '')).filter(Boolean);
+        if (whList.length > 0) {
+          const { data: faltasData, error: faltasErr } = await supabase
+            .from('client_no_shows')
+            .select('client_whatsapp, misses')
+            .eq('establishment_id', establishment.id)
+            .in('client_whatsapp', whList);
+
+          if (!faltasErr) {
+            const map = new Map<string, number>();
+            (faltasData as any[])?.forEach((r: any) => {
+              map.set(String(r.client_whatsapp || '').replace(/\D/g, ''), Number(r.misses || 0));
+            });
+            uniqueClients.forEach((c) => {
+              const key = String(c.whatsapp || '').replace(/\D/g, '');
+              c.faltas = map.get(key) ?? 0;
+            });
+          } else {
+            const msg = String((faltasErr as any)?.message || '');
+            console.warn('⚠️ Não foi possível carregar faltas (client_no_shows):', faltasErr);
+            if (msg.includes('does not exist') || msg.includes('schema cache')) {
+              uniqueClients.forEach((c) => (c.faltas = 0));
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Falha ao mesclar faltas no fetchClients:', e);
+      }
 
       console.log('🔍 Clientes finais processados:', uniqueClients.map(c => ({
         name: c.name,
@@ -8648,21 +9704,33 @@ Estamos te aguardando! 😎✂️`;
       console.log('✅ Links salvos automaticamente');
 
       // Atualizar o estado do establishment para manter sincronizado
-      setEstablishment({
-        ...establishment,
+      setEstablishment((prev: any) =>
+        prev
+          ? {
+              ...prev,
         review_link: reviewLink.trim(),
         social_media_link: socialMediaLink.trim(),
         pix_payment_link: pixPaymentLink.trim(),
-        location_link: locationLink.trim()
-      });
+              location_link: locationLink.trim(),
+            }
+          : prev
+      );
     } catch (error) {
       console.error('❌ Erro ao salvar links automaticamente:', error);
     }
   }, [establishment, reviewLink, socialMediaLink, pixPaymentLink, locationLink]);
 
   // ✅ Auto-save para Comodidades
-  const autoSaveAmenities = useCallback(async () => {
+  const autoSaveAmenities = useCallback(async (overrides?: {
+    exigirPagamentoAntecipadoMercadoPago?: boolean;
+    pagamentoAdiantadoOpcionalMercadoPago?: boolean;
+  }) => {
     if (!establishment?.id) return;
+
+    const nextExigirMP =
+      overrides?.exigirPagamentoAntecipadoMercadoPago ?? exigirPagamentoAntecipadoMercadoPago;
+    const nextOpcionalMP =
+      overrides?.pagamentoAdiantadoOpcionalMercadoPago ?? pagamentoAdiantadoOpcionalMercadoPago;
 
     try {
       const { error } = await supabase
@@ -8679,8 +9747,8 @@ Estamos te aguardando! 😎✂️`;
           require_cpf: requireCpf,
           exigir_pagamento_antecipado: exigirPagamentoAntecipado,
           pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
-          exigir_pagamento_antecipado_mercadopago: exigirPagamentoAntecipadoMercadoPago,
-          pagamento_adiantado_opcional_mercadopago: pagamentoAdiantadoOpcionalMercadoPago,
+          exigir_pagamento_antecipado_mercadopago: nextExigirMP,
+          pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
           enable_whatsapp_notifications: enableWhatsAppNotifications
           // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
         })
@@ -8703,8 +9771,10 @@ Estamos te aguardando! 😎✂️`;
       console.log('✅ Comodidades salvas automaticamente');
       // require_cancel_password não é salvo aqui, é salvo imediatamente quando o checkbox muda
 
-      setEstablishment({
-        ...establishment,
+      setEstablishment((prev: any) =>
+        prev
+          ? ({
+              ...prev,
         has_wifi: hasWifi,
         has_parking: hasParking,
         has_accessibility: hasAccessibility,
@@ -8716,15 +9786,33 @@ Estamos te aguardando! 😎✂️`;
         require_cpf: requireCpf,
         exigir_pagamento_antecipado: exigirPagamentoAntecipado,
         pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
-        exigir_pagamento_antecipado_mercadopago: exigirPagamentoAntecipadoMercadoPago,
-        pagamento_adiantado_opcional_mercadopago: pagamentoAdiantadoOpcionalMercadoPago,
-        enable_whatsapp_notifications: enableWhatsAppNotifications
+              exigir_pagamento_antecipado_mercadopago: nextExigirMP,
+              pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
+              enable_whatsapp_notifications: enableWhatsAppNotifications,
         // require_cancel_password é salvo imediatamente, não precisa do auto-save
-      } as any);
+            } as any)
+          : prev
+      );
     } catch (error) {
       console.error('❌ Erro ao salvar comodidades automaticamente:', error);
     }
-  }, [establishment, hasWifi, hasParking, hasAccessibility, hasAirConditioning, wifiPassword, wifiNetworkName, requireCancellationRequest, preventSameDayReschedule, requireCpf, exigirPagamentoAntecipado, pagamentoAdiantadoOpcional, enableWhatsAppNotifications, requireCancelPassword]);
+  }, [
+    establishment,
+    hasWifi,
+    hasParking,
+    hasAccessibility,
+    hasAirConditioning,
+    wifiPassword,
+    wifiNetworkName,
+    requireCancellationRequest,
+    preventSameDayReschedule,
+    requireCpf,
+    exigirPagamentoAntecipado,
+    pagamentoAdiantadoOpcional,
+    exigirPagamentoAntecipadoMercadoPago,
+    pagamentoAdiantadoOpcionalMercadoPago,
+    enableWhatsAppNotifications,
+  ]);
 
   const handleSaveBankData = useCallback(async () => {
     if (!establishment?.id) return;
@@ -11034,6 +12122,198 @@ Estamos te aguardando! 😎✂️`;
   return (
     // Fundo principal sempre claro; o toggle só controla sidebar/elementos, não o fundo geral
     <div className="min-h-screen overflow-x-hidden bg-white">
+      {/* Modal: Ativar Fila de Espera (seleção de profissional padrão) */}
+      {showAtivarFilaModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+          onClick={() => setShowAtivarFilaModal(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl shadow-2xl border border-gray-800 bg-[#0B0B0B] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🕒</span>
+                <div className="text-sm font-extrabold text-white">Ativar Fila de Espera</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAtivarFilaModal(false)}
+                className="p-2 rounded-lg hover:bg-white/5"
+                aria-label="Fechar"
+                title="Fechar"
+              >
+                <span className="text-gray-200">✕</span>
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="text-sm text-white/80">
+                Escolha o <strong>profissional padrão</strong> para contabilizar os valores da fila no dashboard do profissional.
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs text-white/70">Profissional</label>
+                <select
+                  value={profissionalSelecionadoFila}
+                  onChange={(e) => setProfissionalSelecionadoFila(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                >
+                  <option value="">Selecione</option>
+                  {(((establishment as any)?.professionals || []) as any[]).map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!profissionalSelecionadoFila || isSavingFilaEsperaAtiva}
+                  onClick={async () => {
+                    if (!profissionalSelecionadoFila) return;
+                    await salvarFilaEsperaAtiva(true, { profissionalId: profissionalSelecionadoFila });
+                    setShowAtivarFilaModal(false);
+                  }}
+                  className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${
+                    !profissionalSelecionadoFila
+                      ? 'bg-white/10 text-white/50 cursor-not-allowed'
+                      : 'bg-white text-black hover:bg-gray-100'
+                  } ${isSavingFilaEsperaAtiva ? 'opacity-60 cursor-not-allowed' : ''}`}
+                >
+                  Ativar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAtivarFilaModal(false)}
+                  className="px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Adicionar à fila (manual) */}
+      {showAdicionarFilaModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+          onClick={() => setShowAdicionarFilaModal(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl shadow-2xl border border-gray-800 bg-[#0B0B0B] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">➕</span>
+                <div className="text-sm font-extrabold text-white">Adicionar à fila</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdicionarFilaModal(false)}
+                className="p-2 rounded-lg hover:bg-white/5"
+                aria-label="Fechar"
+                title="Fechar"
+              >
+                <span className="text-gray-200">✕</span>
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="text-sm text-white/80">
+                Use isso quando o cliente chegou no local e você quer colocar ele na fila rapidamente (sem WhatsApp).
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs text-white/70">Nome</label>
+                <input
+                  value={adicionarFilaNome}
+                  onChange={(e) => setAdicionarFilaNome(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                  placeholder="Nome do cliente"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs text-white/70">Serviço</label>
+                <select
+                  value={adicionarFilaServiceId}
+                  onChange={(e) => setAdicionarFilaServiceId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                >
+                  <option value="">Selecione</option>
+                  {(((establishment as any)?.services_with_prices || []) as any[]).map((s: any) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isAddingFila}
+                  onClick={adicionarFilaManual}
+                  className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${
+                    isAddingFila ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white text-black hover:bg-gray-100'
+                  }`}
+                >
+                  {isAddingFila ? 'Adicionando...' : 'Adicionar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAdicionarFilaModal(false)}
+                  className="px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Mercado Pago (atalho pelo menu lateral) */}
+      {showMercadoPagoModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+          onClick={() => setShowMercadoPagoModal(false)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-2xl shadow-2xl border border-gray-800 bg-[#0B0B0B] max-h-[85vh] overflow-y-auto overscroll-contain"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">💳</span>
+                <div className="text-sm font-extrabold text-white">Mercado Pago</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMercadoPagoModal(false)}
+                className="p-2 rounded-lg hover:bg-white/5"
+                aria-label="Fechar"
+                title="Fechar"
+              >
+                <span className="text-gray-200">✕</span>
+              </button>
+            </div>
+
+            <div className="p-3 sm:p-4">
+              <MercadoPagoCard wrapperClassName="" />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex" style={{ minHeight: '100vh' }}>
         {/* Sidebar */}
         <Sidebar
@@ -11062,6 +12342,8 @@ Estamos te aguardando! 😎✂️`;
           }}
           useLightLayout={useLightLayout}
           onToggleLayoutTheme={toggleLayoutTheme}
+          onReceberAdiantadoClick={() => setShowMercadoPagoModal(true)}
+          isReceberAdiantadoOpen={showMercadoPagoModal}
         />
 
         {/* Conteúdo principal */}
@@ -12448,8 +13730,28 @@ Estamos te aguardando! 😎✂️`;
 
                                             </div>
 
-                                            {/* Linha 3: Botão de Observações */}
-                                            <div className="mt-2">
+                                            {/* Linha 3: Fila de espera + Observações */}
+                                            <div className="mt-2 space-y-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (!filaEsperaAtiva) {
+                                                    toast.error('Ative a FILA DE ESPERA no menu lateral para usar este recurso.');
+                                                    return;
+                                                  }
+                                                  toggleFilaParaAgendamento(appointment);
+                                                }}
+                                                className={`w-full px-2 py-1 text-xs font-extrabold rounded transition-colors ${
+                                                  (filaEntries || []).some((e: any) => e.appointment_id === appointment.id)
+                                                    ? 'bg-fuchsia-700 text-white hover:bg-fuchsia-800'
+                                                    : 'bg-fuchsia-600 text-white hover:bg-fuchsia-700'
+                                                }`}
+                                                title="Adicionar/remover este agendamento na fila de espera"
+                                              >
+                                                ⏳ Fila de espera{' '}
+                                                {(filaEntries || []).some((e: any) => e.appointment_id === appointment.id) ? '(ATIVO)' : ''}
+                                              </button>
+
                                               <button
                                                 onClick={() => handleOpenObservationModal(appointment.id, appointment.establishment_observation)}
                                                 className="w-full px-2 py-1 text-xs font-medium rounded transition-colors bg-purple-600 text-white hover:bg-purple-700"
@@ -12704,6 +14006,345 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'fila-espera' && (
+                <div className="space-y-6 w-full">
+                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-purple-700 to-fuchsia-700 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xl sm:text-2xl">🕒</span>
+                      </div>
+                      <div>
+                        <h2 className="text-xl sm:text-2xl font-extrabold text-gray-900">Fila de Espera</h2>
+                        <p className="text-gray-600 text-sm">Fila única do estabelecimento (não é por profissional)</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <p className="text-gray-800 text-base sm:text-lg leading-relaxed">
+                        Aqui você pode ativar o sistema de Fila de Espera,
+                        <br />
+                        uma nova modalidade incrível e única, criada pelo Agendei Fácil.
+                      </p>
+
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-extrabold text-gray-900">Ativar Fila de Espera</div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            Ao ativar, o booking público exibirá o botão <strong>Fila de espera</strong>.
+                          </div>
+                          {filaEsperaProfissionalId && (
+                            <div className="mt-2 text-[11px] text-gray-700">
+                              Profissional padrão da fila:{' '}
+                              <strong>
+                                {(() => {
+                                  const profs = (establishment as any)?.professionals || [];
+                                  const prof = profs.find((p: any) => String(p?.id) === String(filaEsperaProfissionalId));
+                                  return prof?.name || 'Selecionado';
+                                })()}
+                              </strong>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isSavingFilaEsperaAtiva}
+                          onClick={() => {
+                            if (!filaEsperaAtiva) {
+                              const profs = (establishment as any)?.professionals || [];
+                              const pre = String(filaEsperaProfissionalId || (profs?.[0]?.id ?? '')).trim();
+                              setProfissionalSelecionadoFila(pre);
+                              setShowAtivarFilaModal(true);
+                              return;
+                            }
+                            // Desativar (mantém o profissional padrão salvo)
+                            salvarFilaEsperaAtiva(false).catch(() => {});
+                          }}
+                          className={`px-4 py-2 rounded-lg font-extrabold transition-colors ${
+                            filaEsperaAtiva
+                              ? 'bg-green-600 text-white hover:bg-green-700'
+                              : 'bg-black text-white hover:bg-gray-800'
+                          } ${isSavingFilaEsperaAtiva ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                          {filaEsperaAtiva ? '✅ ATIVADO' : 'Ativar agora'}
+                        </button>
+                      </div>
+
+                      <div className="rounded-xl border border-purple-200 bg-purple-50 p-4">
+                        <div className="text-sm sm:text-base font-extrabold text-purple-900 mb-2">
+                          Entenda como funciona o sistema de Fila de Espera
+                        </div>
+                        <div className="text-sm text-purple-900/90 leading-relaxed space-y-2">
+                          <p>
+                            Seus clientes, ao acessarem sua página de agendamentos, verão um novo botão logo abaixo de
+                            “Reservar agora”, chamado “Fila de espera”.
+                          </p>
+                          <p>
+                            Ao clicar nesse botão, o cliente poderá visualizar os atendimentos por ordem de chegada e
+                            entrar na lista de espera do estabelecimento.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Financeiro (exclusivo da fila) */}
+                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                      <div>
+                        <div className="text-lg font-extrabold text-gray-900">Financeiro da fila (por profissional)</div>
+                        <div className="text-xs text-gray-600">Separado dos agendamentos normais.</div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                        <select
+                          value={profissionalFinanceiroFilaId}
+                          onChange={(e) => setProfissionalFinanceiroFilaId(e.target.value)}
+                          className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm font-bold"
+                        >
+                          <option value="">Selecione o profissional</option>
+                          {(((establishment as any)?.professionals || []) as any[]).map((p: any) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setFiltroHistoricoFila('dia')}
+                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${
+                              filtroHistoricoFila === 'dia' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
+                            }`}
+                          >
+                            Hoje
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFiltroHistoricoFila('mes')}
+                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${
+                              filtroHistoricoFila === 'mes' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
+                            }`}
+                          >
+                            Mês
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFiltroHistoricoFila('todos')}
+                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${
+                              filtroHistoricoFila === 'todos' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
+                            }`}
+                          >
+                            Todos
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <div className="text-xs text-gray-600 font-bold">Saldo do dia (fila)</div>
+                        <div className="text-xl font-extrabold text-gray-900">{fmtBRL(saldoFilaDia)}</div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <div className="text-xs text-gray-600 font-bold">Saldo do mês (fila)</div>
+                        <div className="text-xl font-extrabold text-gray-900">{fmtBRL(saldoFilaMes)}</div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <div className="text-xs text-gray-600 font-bold">Total do filtro</div>
+                        <div className="text-xl font-extrabold text-gray-900">{fmtBRL(saldoFilaTotal)}</div>
+                      </div>
+                    </div>
+
+                    {filaFinanceiroTabelaOk === false ? (
+                      <div className="text-sm text-red-700 font-semibold">
+                        ⚠️ O financeiro da fila ainda não foi criado no banco. Rode novamente o <strong>SQL FINAL da fila</strong> no Supabase.
+                      </div>
+                    ) : !profissionalFinanceiroFilaId ? (
+                      <div className="text-sm text-gray-700">Selecione um profissional para ver o histórico da fila.</div>
+                    ) : isLoadingHistoricoFila ? (
+                      <div className="text-sm text-gray-700">Carregando histórico...</div>
+                    ) : historicoFila.length === 0 ? (
+                      <div className="text-sm text-gray-700">Nenhum atendimento finalizado pela fila nesse período.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {historicoFila.map((h: any) => (
+                          <div key={h.id} className="rounded-xl border border-gray-200 bg-white p-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-sm font-extrabold text-gray-900 truncate">
+                                  {h.client_name} — {h.service_name}
+                                </div>
+                                <div className="text-xs text-gray-600 mt-1">
+                                  WhatsApp: <strong className="text-gray-900">{h.client_whatsapp}</strong> •{' '}
+                                  <strong className="text-gray-900">
+                                    {String(new Date(h.occurred_at).toLocaleString('pt-BR'))}
+                                  </strong>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-xs text-gray-600 font-bold">Valor / Profissional</div>
+                                <div className="text-sm font-extrabold text-gray-900">
+                                  {fmtBRL(Number(h.gross_amount || 0))} → {fmtBRL(Number(h.professional_amount || 0))}
+                                </div>
+                                <div className="text-[11px] text-gray-600">{Number(h.professional_percentage || 0)}%</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Lista/controle simples da fila (para o estabelecimento) */}
+                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div>
+                        <div className="text-lg font-extrabold text-gray-900">Fila atual</div>
+                        <div className="text-xs text-gray-600">
+                          Mostra a ordem por chegada. O primeiro é o “em atendimento”.
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="hidden sm:flex items-center gap-2 mr-2">
+                          <div className="px-2 py-1 rounded-lg bg-gray-100 text-gray-900 text-xs font-extrabold">
+                            Hoje: {fmtBRL(saldoFilaDia)}
+                          </div>
+                          <div className="px-2 py-1 rounded-lg bg-gray-100 text-gray-900 text-xs font-extrabold">
+                            Mês: {fmtBRL(saldoFilaMes)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowAdicionarFilaModal(true)}
+                          className="px-3 py-2 rounded-lg bg-purple-700 text-white hover:bg-purple-800 transition-colors text-sm font-extrabold"
+                        >
+                          ➕ Adicionar à fila
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => salvarFilaFechada(!filaEsperaFechada)}
+                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-extrabold ${
+                            filaEsperaFechada
+                              ? 'bg-green-600 text-white hover:bg-green-700'
+                              : 'bg-red-600 text-white hover:bg-red-700'
+                          }`}
+                          title={filaEsperaFechada ? 'Abrir fila (permitir entrar no booking)' : 'Fechar fila (bloquear entrada no booking)'}
+                        >
+                          {filaEsperaFechada ? '✅ Abrir fila' : '⛔ Fechar fila'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => fetchFilaEntries()}
+                          className="px-3 py-2 rounded-lg bg-black text-white hover:bg-gray-800 transition-colors text-sm font-bold"
+                        >
+                          🔄 Atualizar
+                        </button>
+                      </div>
+                    </div>
+
+                    {isLoadingFilaEntries ? (
+                      <div className="text-sm text-gray-600">Carregando fila...</div>
+                    ) : filaEntries.length === 0 ? (
+                      <div className="text-sm text-gray-600">Nenhuma pessoa na fila no momento.</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {filaEntries.map((e: any, idx: number) => (
+                          <div
+                            key={e.id}
+                            className="rounded-xl border border-gray-200 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-gray-900 truncate">
+                                {idx === 0 ? `${e.client_name} — em atendimento` : `Próximo: ${e.client_name}`}
+                              </div>
+                              <div className="text-xs text-gray-600 mt-1">
+                                Serviço: <strong>{e.service_name}</strong>
+                                {e.client_whatsapp ? (
+                                  <>
+                                    {' '}
+                                    • WhatsApp: <strong>{e.client_whatsapp}</strong>
+                                  </>
+                                ) : null}
+                                {Number.isFinite(Number(e.service_price)) && (
+                                  <>
+                                    {' '}
+                                    • Valor: <strong>{fmtBRL(Number(e.service_price))}</strong>
+                                  </>
+                                )}
+                                {(() => {
+                                  const bruto = Number(e.service_price ?? 0);
+                                  const profKey = String(e.professional_id || filaEsperaProfissionalId || '').trim();
+                                  if (!profKey || !Number.isFinite(bruto) || bruto <= 0) return null;
+                                  const { pct, liquido } = calcularLiquidoProfissionalFila(bruto, profKey);
+                                  return (
+                                    <>
+                                      {' '}
+                                      • Profissional ({pct}%): <strong>{fmtBRL(liquido)}</strong>
+                                    </>
+                                  );
+                                })()}
+                                {idx === 0 && e.started_at && (
+                                  <>
+                                    {' '}
+                                    • Início:{' '}
+                                    <strong>
+                                      {String(new Date(e.started_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))}
+                                    </strong>
+                                  </>
+                                )}
+                              </div>
+                              {e.notified_one_ahead && idx === 1 && (
+                                <div className="mt-1 text-[11px] text-green-700 font-semibold">
+                                  ✅ Notificação “1 antes” já foi enfileirada
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {idx === 0 ? (
+                                <>
+                                  {!e.started_at && (
+                                    <button
+                                      type="button"
+                                      onClick={() => iniciarAtendimentoFila(e.id)}
+                                      className="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors text-sm font-extrabold"
+                                    >
+                                      Iniciar atendimento
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => removerDaFila(e.id)}
+                                    className="px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors text-sm font-extrabold"
+                                  >
+                                    Cancelar atendimento
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => finalizarAtendimentoFila(e.id)}
+                                    className="px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors text-sm font-extrabold"
+                                  >
+                                    Finalizar atendimento
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => removerDaFila(e.id)}
+                                  className="px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors text-sm font-extrabold"
+                                >
+                                  Remover
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -14057,285 +15698,7 @@ Estamos te aguardando! 😎✂️`;
                         )}
 
                         {/* Seção Mercado Pago */}
-                        <div className="mt-6 relative overflow-hidden rounded-xl p-[1px] shadow-[0_0_0_1px_rgba(0,158,227,0.2)]"
-                          style={{
-                            background: 'linear-gradient(135deg, rgba(0,158,227,0.3), rgba(0,158,227,0.15), rgba(0,158,227,0.05))',
-                          }}
-                        >
-                          {/* Efeito de brilho */}
-                          <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-[#009EE3]/20 blur-3xl pointer-events-none" />
-                          <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-[#009EE3]/10 blur-3xl pointer-events-none" />
-                          
-                          <div className="bg-[#0f1112] border border-[#009EE3]/30 rounded-xl p-6 relative z-10">
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-lg bg-[#009EE3]/20 flex items-center justify-center">
-                                  <span className="text-2xl">💳</span>
-                                </div>
-                                <div>
-                                  <div className="text-white font-extrabold text-lg">Mercado Pago</div>
-                                  <div className="text-xs text-gray-300 mt-0.5">
-                                    Status:{' '}
-                                    <span className="font-mono text-[#009EE3]">
-                                      {String((establishment as any)?.mercadopago_access_token || '').trim()
-                                        ? `Conectado (ID: ${String((establishment as any).mercadopago_user_id || '').slice(0, 8)}...)`
-                                        : 'Não conectado'}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <p className="text-sm text-gray-300 mb-6 leading-relaxed">
-                              Crie ou conecte sua conta Mercado Pago, e receba pagamentos adiantados dos clientes, evite furos e lucre mais.
-                            </p>
-
-                            {/* Informações de Taxas e Exemplo */}
-                            {String((establishment as any)?.mercadopago_access_token || '').trim() && (
-                              <div className="mb-6 p-4 bg-gradient-to-br from-[#009EE3]/10 to-[#009EE3]/5 border border-[#009EE3]/20 rounded-lg">
-                                <div className="text-white font-bold text-sm mb-3 flex items-center gap-2">
-                                  <span>💰</span>
-                                  <span>Taxas do Mercado Pago</span>
-                                </div>
-                                <div className="space-y-2 text-xs text-gray-300 mb-4">
-                                  <div className="flex justify-between items-center">
-                                    <span>PIX:</span>
-                                    <span className="font-semibold text-white">0,99%</span>
-                                  </div>
-                                  <div className="flex justify-between items-center">
-                                    <span>Débito:</span>
-                                    <span className="font-semibold text-white">1,99%</span>
-                                  </div>
-                                  <div className="flex justify-between items-center">
-                                    <span>Crédito:</span>
-                                    <span className="font-semibold text-white">4,99%</span>
-                                  </div>
-                                  <div className="flex justify-between items-center pt-2 border-t border-[#009EE3]/20">
-                                    <span>Taxa da plataforma:</span>
-                                    <span className="font-semibold text-white">R$ 0,50 fixo</span>
-                                  </div>
-                                </div>
-                                
-                                {/* Exemplo de cálculo */}
-                                <div className="mt-4 p-3 bg-black/30 rounded-lg border border-[#009EE3]/20">
-                                  <div className="text-white font-bold text-xs mb-2">📊 Exemplo: Serviço de R$ 50,00</div>
-                                  <div className="space-y-1.5 text-xs">
-                                    <div className="flex justify-between text-gray-300">
-                                      <span>Valor do serviço:</span>
-                                      <span className="text-white font-semibold">R$ 50,00</span>
-                                    </div>
-                                    <div className="flex justify-between text-gray-300">
-                                      <span>Taxa Mercado Pago (PIX 0,99%):</span>
-                                      <span className="text-red-300">- R$ 0,50</span>
-                                    </div>
-                                    <div className="flex justify-between text-gray-300">
-                                      <span>Taxa da plataforma:</span>
-                                      <span className="text-red-300">- R$ 0,50</span>
-                                    </div>
-                                    <div className="flex justify-between text-[#009EE3] font-bold pt-2 border-t border-[#009EE3]/20">
-                                      <span>Você recebe:</span>
-                                      <span className="text-lg">R$ 49,00</span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Informação sobre recebimento */}
-                                <div className="mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                                  <div className="flex items-start gap-2">
-                                    <span className="text-lg">⚡</span>
-                                    <div className="flex-1">
-                                      <div className="text-green-200 font-bold text-xs mb-1">Recebimento Instantâneo</div>
-                                      <div className="text-green-200/80 text-xs leading-relaxed">
-                                        O dinheiro cai na hora na sua conta do Mercado Pago. Você pode sacar via PIX para sua conta bancária normal ou deixar no Mercado Pago.
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (!establishment?.id) {
-                                  toast.error('ID do estabelecimento não encontrado');
-                                  return;
-                                }
-
-                                try {
-                                  const authorizeUrl = import.meta.env.PROD
-                                    ? `/.netlify/functions/mercadopago-oauth-authorize?establishmentId=${establishment.id}`
-                                    : `/api/mercadopago/oauth/authorize?establishmentId=${establishment.id}`;
-
-                                  const response = await fetch(authorizeUrl);
-                                  if (!response.ok) {
-                                    const error = await response.json();
-                                    throw new Error(error.error || 'Erro ao gerar URL de autorização');
-                                  }
-
-                                  const data = await response.json();
-                                  if (data.authorization_url) {
-                                    window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
-                                    toast.success('Redirecionando para conectar conta do Mercado Pago...');
-                                  } else {
-                                    throw new Error('URL de autorização não retornada');
-                                  }
-                                } catch (error: any) {
-                                  console.error('❌ Erro ao iniciar OAuth Mercado Pago:', error);
-                                  toast.error(error.message || 'Erro ao conectar Mercado Pago');
-                                }
-                              }}
-                              disabled={!establishment?.id}
-                              className="w-full px-5 py-3 bg-gradient-to-r from-[#009EE3] to-[#0088C7] text-white rounded-xl hover:from-[#0088C7] hover:to-[#0077B6] transition-all font-extrabold shadow-lg hover:shadow-xl transform hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
-                            >
-                              {String((establishment as any)?.mercadopago_access_token || '').trim()
-                                ? '🔄 Reconectar conta Mercado Pago'
-                                : '🔗 Conectar conta Mercado Pago'}
-                            </button>
-
-                            {String((establishment as any)?.mercadopago_access_token || '').trim() && (
-                              <div className="mt-4 space-y-4">
-                                <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                                  <p className="text-sm text-green-200 font-semibold flex items-center gap-2">
-                                    <span>✅</span>
-                                    <span>Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.</span>
-                                  </p>
-                                </div>
-
-                              {/* Configuração de Pagamento Antecipado Mercado Pago */}
-                              <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-3 space-y-2">
-                                <label className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={exigirPagamentoAntecipadoMercadoPago}
-                                    onChange={(e) => {
-                                      setExigirPagamentoAntecipadoMercadoPago(e.target.checked);
-                                      if (amenitiesAutoSaveTimeoutRef.current) {
-                                        clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                                      }
-                                      amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                                        autoSaveAmenities();
-                                      }, 1000);
-                                    }}
-                                    className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
-                                  />
-                                  <span className="text-white text-sm font-semibold">Exigir pagamento antecipado via Mercado Pago</span>
-                                </label>
-
-                                {exigirPagamentoAntecipadoMercadoPago && (
-                                  <label className="flex items-center space-x-2 ml-6">
-                                    <input
-                                      type="checkbox"
-                                      checked={pagamentoAdiantadoOpcionalMercadoPago}
-                                      onChange={(e) => {
-                                        setPagamentoAdiantadoOpcionalMercadoPago(e.target.checked);
-                                        if (amenitiesAutoSaveTimeoutRef.current) {
-                                          clearTimeout(amenitiesAutoSaveTimeoutRef.current);
-                                        }
-                                        amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
-                                          autoSaveAmenities();
-                                        }, 1000);
-                                      }}
-                                      className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
-                                    />
-                                    <div className="flex flex-col">
-                                      <span className="text-white text-xs">Não ser obrigatório cliente pagar para agendar</span>
-                                      <span className="text-xs text-gray-400">
-                                        Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora.
-                                      </span>
-                                    </div>
-                                  </label>
-                                )}
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!establishment?.id) {
-                                    toast.error('ID do estabelecimento não encontrado');
-                                    return;
-                                  }
-
-                                  const confirmMsg = 'Tem certeza que deseja desconectar o Mercado Pago? Isso irá remover a conexão e você precisará conectar novamente para usar Mercado Pago.';
-                                  if (!window.confirm(confirmMsg)) {
-                                    return;
-                                  }
-
-                                  try {
-                                    const { error } = await supabase
-                                      .from('establishments')
-                                      .update({
-                                        mercadopago_user_id: null,
-                                        mercadopago_access_token: null,
-                                        mercadopago_refresh_token: null,
-                                        mercadopago_token_expires_at: null,
-                                        exigir_pagamento_antecipado_mercadopago: false,
-                                        pagamento_adiantado_opcional_mercadopago: false,
-                                      })
-                                      .eq('id', establishment.id);
-
-                                    if (error) {
-                                      throw error;
-                                    }
-
-                                    setEstablishment({
-                                      ...establishment,
-                                      mercadopago_user_id: null,
-                                      mercadopago_access_token: null,
-                                      mercadopago_refresh_token: null,
-                                      mercadopago_token_expires_at: null,
-                                    } as any);
-                                    setExigirPagamentoAntecipadoMercadoPago(false);
-                                    setPagamentoAdiantadoOpcionalMercadoPago(false);
-
-                                    toast.success('Mercado Pago desconectado com sucesso');
-                                    fetchEstablishment(); // Recarregar dados
-                                  } catch (error: any) {
-                                    console.error('❌ Erro ao desconectar Mercado Pago:', error);
-                                    toast.error(error.message || 'Erro ao desconectar Mercado Pago');
-                                  }
-                                }}
-                                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold text-sm"
-                              >
-                                Desconectar Mercado Pago
-                              </button>
-
-                                {/* Saldo de vendas Mercado Pago */}
-                                <div className="mt-4 rounded-xl border-2 border-[#009EE3]/40 bg-gradient-to-br from-[#009EE3]/10 to-black/30 p-5 shadow-lg">
-                                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                                    <div className="flex-1">
-                                      <div className="text-xs text-gray-300 mb-1">Total vendido via Mercado Pago</div>
-                                      <div className="text-3xl font-extrabold text-[#009EE3] mb-2">
-                                        {isLoadingSaldoMercadoPago ? 'Calculando...' : fmtBRL(saldoMercadoPago)}
-                                      </div>
-                                      <div className="mt-1 text-[11px] text-gray-300/80">
-                                        * Valor líquido já com taxas descontadas (Mercado Pago + R$ 0,50 da plataforma).
-                                      </div>
-                                      {saldoMercadoPagoErro && (
-                                        <div className="mt-2 text-[11px] text-red-200/90">
-                                          {saldoMercadoPagoErro}
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div>
-                                      <button
-                                        type="button"
-                                        disabled={isLoadingSaldoMercadoPago}
-                                        onClick={() => {
-                                          if (isLoadingSaldoMercadoPago) return;
-                                          carregarSaldoMercadoPago();
-                                        }}
-                                        className="px-5 py-2.5 bg-[#009EE3]/20 hover:bg-[#009EE3]/30 border border-[#009EE3]/40 text-[#009EE3] rounded-lg transition-all font-bold disabled:opacity-60 disabled:cursor-not-allowed text-sm shadow-md hover:shadow-lg"
-                                      >
-                                        🔄 Atualizar
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                        <MercadoPagoCard wrapperClassName="mt-6" />
 
                         <label className="flex items-center space-x-2">
                           <input
@@ -16956,8 +18319,15 @@ Estamos te aguardando! 😎✂️`;
                         <p className="text-gray-500">Nenhum cliente encontrado.</p>
                       </div>
                     ) : (
-                      filteredClients.map((client, index) => (
-                        <div key={`${client.whatsapp}-${client.id}-${index}`} className={`rounded-lg p-4 border-2 shadow-sm ${client.alert ? 'bg-gray-50 border-gray-400' : 'bg-white border-gray-300'}`}>
+                      filteredClients.map((client, index) => {
+                        const chance = getClienteChanceFalta(client);
+                        const nivel = getClienteNivel(chance);
+                        const nivelUi = getNivelClasses(nivel);
+                        return (
+                        <div
+                          key={`${client.whatsapp}-${client.id}-${index}`}
+                          className={`rounded-lg p-4 border-2 shadow-sm ${client.alert ? 'bg-gray-50 border-gray-400' : 'bg-white border-gray-300'} ${nivelUi.card}`}
+                        >
                           {/* Header com nome e botões de ação */}
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -17017,6 +18387,15 @@ Estamos te aguardando! 😎✂️`;
                             </div>
                           </div>
 
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
+                              {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
+                            </span>
+                            <span className="text-[11px] text-gray-600">
+                              Faltas: <strong className="text-gray-900">{Number(client.faltas || 0)}</strong>
+                            </span>
+                          </div>
+
                           {/* WhatsApp */}
                           <div className="text-gray-700 flex items-center gap-2 mb-1">
                             <Phone className="h-4 w-4 text-gray-600" />
@@ -17035,6 +18414,10 @@ Estamos te aguardando! 😎✂️`;
                           <p className="text-gray-700 flex items-center gap-2 mb-1">
                             <Calendar className="h-4 w-4 text-gray-600" />
                             Agendamentos: {client.appointmentCount}
+                          </p>
+                          <p className="text-gray-700 flex items-center gap-2 mb-1">
+                            <span className="text-gray-600">✅</span>
+                            Realizados: {Number(client.completedCount || 0)}
                           </p>
 
                           {/* Campo de aniversário */}
@@ -17152,6 +18535,29 @@ Estamos te aguardando! 😎✂️`;
                             )}
                           </div>
 
+                          <div className="flex items-center gap-2 mb-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedClientInfo(client);
+                                setShowClientInfoModal(true);
+                              }}
+                              className="flex-1 px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-xs font-extrabold"
+                            >
+                              INFORMAÇÕES
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSavingFalta}
+                              onClick={() => ajustarFaltaCliente(client, 1)}
+                              className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${
+                                isSavingFalta ? 'bg-red-200 text-red-900 opacity-70 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'
+                              }`}
+                            >
+                              FALTOU
+                            </button>
+                          </div>
+
                           <a
                             href={(() => {
                               let phoneNumber = client.whatsapp.replace(/\D/g, '');
@@ -17181,7 +18587,8 @@ Estamos te aguardando! 😎✂️`;
                             Enviar Mensagem
                           </a>
                         </div>
-                      ))
+                      );
+                      })
                     )}
                   </div>
                 </div>
@@ -21800,6 +23207,83 @@ Estamos te aguardando! 😎✂️`;
                 Entendi!
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Informações do cliente (faltas internas) */}
+      {showClientInfoModal && selectedClientInfo && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4" onClick={() => setShowClientInfoModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-5 border border-gray-200" onClick={(e) => e.stopPropagation()}>
+            {(() => {
+              const chance = getClienteChanceFalta(selectedClientInfo);
+              const nivel = getClienteNivel(chance);
+              const nivelUi = getNivelClasses(nivel);
+              const faltas = Number(selectedClientInfo.faltas || 0);
+              const realizados = Number(selectedClientInfo.completedCount || 0);
+              const gastos = Number(selectedClientInfo.totalSpent || 0);
+              return (
+                <>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <div className="text-lg font-extrabold text-gray-900">INFORMAÇÕES</div>
+                      <div className="text-sm font-semibold text-gray-800 truncate">{selectedClientInfo.name}</div>
+                      <div className="text-xs text-gray-600">{selectedClientInfo.whatsapp}</div>
+                    </div>
+                    <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
+                      {getNivelLabel(nivel)} • {chance}% {chance > 40 ? '⚠️' : ''}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
+                      <div className="text-[11px] text-gray-600 font-bold">Faltas</div>
+                      <div className="text-lg font-extrabold text-gray-900">{faltas}</div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
+                      <div className="text-[11px] text-gray-600 font-bold">Realizados</div>
+                      <div className="text-lg font-extrabold text-gray-900">{realizados}</div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
+                      <div className="text-[11px] text-gray-600 font-bold">Gasto total</div>
+                      <div className="text-lg font-extrabold text-gray-900">{formatCurrency(gastos)}</div>
+                    </div>
+                  </div>
+
+                  <div className="text-sm text-gray-700 mb-4">
+                    <div>
+                      Agendamentos (total): <strong className="text-gray-900">{Number(selectedClientInfo.appointmentCount || 0)}</strong>
+                    </div>
+                    <div>
+                      Probabilidade de falta: <strong className="text-gray-900">{chance}%</strong>
+                      <span className="text-gray-500"> (faltas ÷ (faltas + realizados))</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isSavingFalta || faltas <= 0}
+                      onClick={() => ajustarFaltaCliente(selectedClientInfo, -1)}
+                      className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${
+                        faltas <= 0 || isSavingFalta
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      }`}
+                    >
+                      Remover 1 falta
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowClientInfoModal(false)}
+                      className="px-4 py-3 rounded-xl font-extrabold bg-black text-white hover:bg-gray-800 transition-colors"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

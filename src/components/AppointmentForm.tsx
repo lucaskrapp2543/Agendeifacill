@@ -1167,7 +1167,45 @@ export function AppointmentForm({
       return;
     }
 
-    const whatsappNumbers = clientWhatsapp.replace(/\D/g, '');
+    const normalizeWhatsappForStorage = (raw: string) => {
+      const digits = String(raw || '').replace(/\D/g, '');
+      if (!digits) return '';
+
+      // Se veio com "55" duplicado antes de outro DDI (ex: 5554...), remove o primeiro 55
+      if (digits.startsWith('55') && digits.length >= 4) {
+        const after = digits.slice(2);
+        const known = [
+          { code: '351', minLength: 12 },
+          { code: '244', minLength: 12 },
+          { code: '54', minLength: 12 },
+          { code: '56', minLength: 11 },
+          { code: '55', minLength: 12 },
+          { code: '34', minLength: 11 },
+          { code: '1', minLength: 11 },
+        ];
+        const hasOtherCountryCode = known.some(({ code, minLength }) => after.startsWith(code) && after.length >= minLength);
+        if (hasOtherCountryCode) return after;
+      }
+
+      // Se já tem DDI válido, mantém
+      const known = [
+        { code: '351', minLength: 12 },
+        { code: '244', minLength: 12 },
+        { code: '54', minLength: 12 },
+        { code: '56', minLength: 11 },
+        { code: '55', minLength: 12 },
+        { code: '34', minLength: 11 },
+        { code: '1', minLength: 11 },
+      ];
+      const hasCountryCode = known.some(({ code, minLength }) => digits.startsWith(code) && digits.length >= minLength);
+      if (hasCountryCode) return digits;
+
+      // Senão, assume BR e adiciona 55 (para 10/11 dígitos)
+      if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
+      return digits;
+    };
+
+    const whatsappNumbers = normalizeWhatsappForStorage(clientWhatsapp);
 
     setIsLoading(true);
     try {

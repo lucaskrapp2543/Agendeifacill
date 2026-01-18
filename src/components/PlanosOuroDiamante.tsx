@@ -18,6 +18,7 @@ const recursos: ItemRecurso[] = [
   { texto: 'Profissionais ilimitado', inclusoNoOuro: true, inclusoNoDiamante: true },
   { texto: 'Agendamentos ilimitado', inclusoNoOuro: true, inclusoNoDiamante: true },
   { texto: 'Página de agendamentos exclusiva sua', inclusoNoOuro: true, inclusoNoDiamante: true },
+  { texto: 'Sistema de fila de espera', inclusoNoOuro: true, inclusoNoDiamante: true },
   { texto: 'Sistema de estoque', inclusoNoOuro: true, inclusoNoDiamante: true },
   { texto: 'Sistema completo de assinantes', inclusoNoOuro: true, inclusoNoDiamante: true },
   { texto: 'Relatórios detalhados financeiro', inclusoNoOuro: true, inclusoNoDiamante: true },

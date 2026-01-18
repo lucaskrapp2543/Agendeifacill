@@ -6,12 +6,14 @@ import {
   ChevronRight,
   Clock,
   Crown,
+  CreditCard,
   DollarSign,
   Gift,
   Layers,
   Link,
   Lock,
   LogOut,
+  ListOrdered,
   MessageCircle,
   MessageSquare,
   Package,
@@ -40,6 +42,7 @@ type TabType =
   | 'missing-clients'
   | 'draw'
   | 'passo-a-passo'
+  | 'fila-espera'
   | 'client-page'
   | 'indication'
   | 'whatsapp-reminders'
@@ -61,6 +64,8 @@ interface SidebarProps {
   onBlockedItemClick?: () => void; // Callback quando clicar em item bloqueado
   useLightLayout?: boolean; // controla se o layout claro está ativo
   onToggleLayoutTheme?: () => void; // alterna layout claro/escuro
+  onReceberAdiantadoClick?: () => void; // Atalho para Mercado Pago
+  isReceberAdiantadoOpen?: boolean; // destaca o botão quando modal estiver aberto
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -78,7 +83,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   onboardingStep = 4,
   onBlockedItemClick,
   useLightLayout = false,
-  onToggleLayoutTheme
+  onToggleLayoutTheme,
+  onReceberAdiantadoClick,
+  isReceberAdiantadoOpen = false
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
@@ -133,7 +140,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Função para verificar se um item deve estar bloqueado
   const isItemLocked = (itemId: string): boolean => {
     // ✅ BLOQUEIO POR PLANO PRATA
-    if (isPlanoPrataAtivo && (itemId === 'subscribers' || itemId === 'products')) return true;
+    if (isPlanoPrataAtivo && (itemId === 'subscribers' || itemId === 'products' || itemId === 'fila-espera')) return true;
 
     // Se onboarding completo (step >= 4), nada está bloqueado
     if (onboardingStep >= 4) return false;
@@ -157,7 +164,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const isPlanLockedItem = (itemId: string) =>
-    isPlanoPrataAtivo && (itemId === 'subscribers' || itemId === 'products');
+    isPlanoPrataAtivo && (itemId === 'subscribers' || itemId === 'products' || itemId === 'fila-espera');
 
   // Detectar mudanças no tamanho da tela
   useEffect(() => {
@@ -840,6 +847,105 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* ✅ Atalho destacado abaixo do "Quero 1 mês grátis" */}
+                {item.id === 'indication' && (
+                  <div className="relative mt-2">
+                    <button
+                      onClick={() => {
+                        if (!onReceberAdiantadoClick) return;
+                        handleItemClick(onReceberAdiantadoClick);
+                      }}
+                      disabled={!onReceberAdiantadoClick}
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
+                        isReceberAdiantadoOpen
+                          ? 'bg-white text-black shadow-md'
+                          : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white hover:from-[#0088C7] hover:to-[#006AA3] shadow-md'
+                      } ${!onReceberAdiantadoClick ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      title={isExpanded ? '' : 'Receber adiantado'}
+                      aria-label="Receber adiantado"
+                    >
+                      <CreditCard
+                        className={`h-5 w-5 flex-shrink-0 ${
+                          isReceberAdiantadoOpen ? 'text-black' : 'text-white'
+                        }`}
+                      />
+                      {isExpanded && (
+                        <>
+                          <span className={`text-sm font-medium whitespace-nowrap ${isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`}>
+                            Receber adiantado
+                          </span>
+                          <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`} />
+                        </>
+                      )}
+                    </button>
+
+                    {/* Tooltip para menu recolhido */}
+                    {!isExpanded && onReceberAdiantadoClick && (
+                      <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
+                        Receber adiantado
+                      </div>
+                    )}
+
+                    {/* ✅ Botão "FILA DE ESPERA" (aba lateral/painel) abaixo de "Receber adiantado" */}
+                    <div className="relative mt-2">
+                      <button
+                        onClick={() => {
+                          if (isPlanLockedItem('fila-espera')) {
+                            openUpgradeModal();
+                            return;
+                          }
+                          handleItemClick(() => onTabChange('fila-espera'));
+                        }}
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
+                          activeTab === 'fila-espera'
+                            ? 'bg-white text-black shadow-md'
+                            : isPlanLockedItem('fila-espera')
+                              ? 'bg-white/5 text-gray-400 opacity-60 cursor-not-allowed'
+                              : 'bg-gradient-to-r from-purple-600 to-fuchsia-700 text-white hover:from-purple-700 hover:to-fuchsia-800 shadow-md'
+                        }`}
+                        title={isExpanded ? '' : 'Fila de espera'}
+                        aria-label="Fila de espera"
+                      >
+                        <div className="relative">
+                          <ListOrdered
+                            className={`h-5 w-5 flex-shrink-0 ${
+                              activeTab === 'fila-espera' ? 'text-black' : isPlanLockedItem('fila-espera') ? 'text-gray-500' : 'text-white'
+                            }`}
+                          />
+                          {isPlanLockedItem('fila-espera') && (
+                            <span className="absolute -bottom-1 -right-1">
+                              <Lock className="h-3 w-3 text-gray-500" />
+                            </span>
+                          )}
+                        </div>
+                        {isExpanded && (
+                          <>
+                            <span
+                              className={`text-sm font-extrabold whitespace-nowrap ${
+                                activeTab === 'fila-espera' ? 'text-black' : isPlanLockedItem('fila-espera') ? 'text-gray-300' : 'text-white'
+                              }`}
+                            >
+                              FILA DE ESPERA
+                            </span>
+                            <ChevronRight
+                              className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${
+                                activeTab === 'fila-espera' ? 'text-black' : isPlanLockedItem('fila-espera') ? 'text-gray-400' : 'text-white'
+                              }`}
+                            />
+                          </>
+                        )}
+                      </button>
+
+                      {!isExpanded && (
+                        <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
+                          Fila de espera
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Divisória entre botões */}
                 {!isLastItem && (
                   <div className={`h-px w-full ${item.isActive ? 'bg-black opacity-20' : 'bg-white opacity-50'}`}></div>
