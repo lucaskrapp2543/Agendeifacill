@@ -1,3 +1,5 @@
+import { endOfDay, endOfMonth, format, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import {
   AlertTriangle,
   Building2,
@@ -5,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   DollarSign,
-  Edit,
   Eye,
   EyeOff,
   FileText,
@@ -18,17 +19,15 @@ import {
   X,
   XCircle
 } from 'lucide-react';
-import { format, startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { AdminEstablishmentWhatsappReminders } from '../../modules/whatsapp-reminders/ui/AdminEstablishmentWhatsappReminders';
 import { AppDownloadLinks } from '../components/AppDownloadLinks';
 import { NewRegistrations } from '../components/NewRegistrations';
 import { PWADownloadLink } from '../components/PWADownloadLink';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { AdminEstablishmentWhatsappReminders } from '../../modules/whatsapp-reminders/ui/AdminEstablishmentWhatsappReminders';
 
 interface Establishment {
   id: string;
@@ -54,6 +53,8 @@ interface Establishment {
   whatsapp?: string; // WhatsApp do estabelecimento
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar "Pagamento adiantado" ao barbeiro
 }
+
+// (removido) AdminCostRow
 
 const AdminDashboard = () => {
   const { user, signOut } = useAuth();
@@ -85,12 +86,14 @@ const AdminDashboard = () => {
   const [selectedEstablishmentForInfo, setSelectedEstablishmentForInfo] = useState<Establishment | null>(null);
   const [establishmentInfo, setEstablishmentInfo] = useState<{ email?: string; password?: string; whatsapp?: string } | null>(null);
   const [isLoadingEstablishmentInfo, setIsLoadingEstablishmentInfo] = useState(false);
-  
+
   // Estados para contagem de agendamentos
   const [selectedDateForAppointments, setSelectedDateForAppointments] = useState<Record<string, Date>>({});
   const [selectedMonthForAppointments, setSelectedMonthForAppointments] = useState<Record<string, Date>>({});
   const [appointmentCounts, setAppointmentCounts] = useState<Record<string, { day: number; month: number }>>({});
   const [isLoadingAppointmentCounts, setIsLoadingAppointmentCounts] = useState<Record<string, boolean>>({});
+
+  // (removido) custo por estabelecimento (storage + banco)
 
   // Função para buscar contagem de agendamentos (dia e mês)
   const fetchAppointmentCounts = async (establishment: Establishment, date: Date, month: Date) => {
@@ -101,7 +104,7 @@ const AdminDashboard = () => {
       // Contar agendamentos do DIA
       const dayStart = format(startOfDay(date), 'yyyy-MM-dd');
       const dayEnd = format(endOfDay(date), 'yyyy-MM-dd');
-      
+
       const { count: dayCount, error: dayError } = await supabase
         .from('appointments')
         .select('*', { count: 'exact', head: true })
@@ -116,7 +119,7 @@ const AdminDashboard = () => {
       // Contar agendamentos do MÊS
       const monthStart = format(startOfMonth(month), 'yyyy-MM-dd');
       const monthEnd = format(endOfMonth(month), 'yyyy-MM-dd');
-      
+
       const { count: monthCount, error: monthError } = await supabase
         .from('appointments')
         .select('*', { count: 'exact', head: true })
@@ -178,7 +181,7 @@ const AdminDashboard = () => {
     // Evitar carregar múltiplas vezes
     if (isLoadingAppointmentCounts[establishment.id]) return;
     if (appointmentCounts[establishment.id]) return; // Já carregado
-    
+
     const date = getSelectedDateForEstablishment(establishment.id);
     const month = getSelectedMonthForEstablishment(establishment.id);
     await fetchAppointmentCounts(establishment, date, month);
@@ -282,6 +285,9 @@ const AdminDashboard = () => {
   const [ouroLink, setOuroLink] = useState('');
   const [isLoadingOuroLink, setIsLoadingOuroLink] = useState(false);
   const [isSavingOuroLink, setIsSavingOuroLink] = useState(false);
+  const [prataLink, setPrataLink] = useState('');
+  const [isLoadingPrataLink, setIsLoadingPrataLink] = useState(false);
+  const [isSavingPrataLink, setIsSavingPrataLink] = useState(false);
   const [diamanteLink, setDiamanteLink] = useState('');
   const [isLoadingDiamanteLink, setIsLoadingDiamanteLink] = useState(false);
   const [isSavingDiamanteLink, setIsSavingDiamanteLink] = useState(false);
@@ -314,9 +320,9 @@ const AdminDashboard = () => {
         prev.map(e =>
           e.id === establishmentId
             ? {
-                ...e,
-                pagamento_adiantado_liberado_admin: next,
-              }
+              ...e,
+              pagamento_adiantado_liberado_admin: next,
+            }
             : e
         )
       );
@@ -365,6 +371,8 @@ const AdminDashboard = () => {
     const liquido = bruto - taxaPlataforma - bruto * taxaPixPercent;
     return Math.max(0, Math.round(liquido * 100) / 100);
   };
+
+  // (removido) carregarCostMetrics
 
   const carregarSaldosEmVendas = async (establishmentsList: Establishment[]) => {
     const ids = (establishmentsList || []).map(e => e.id).filter(Boolean);
@@ -662,21 +670,24 @@ const AdminDashboard = () => {
 
   const loadAdminBillingLinks = async () => {
     setIsLoadingOuroLink(true);
+    setIsLoadingPrataLink(true);
     setIsLoadingDiamanteLink(true);
     try {
       const { data, error } = await supabase
         .from('admin_billing_links')
-        .select('id, ouro_link, diamante_link')
+        .select('id, ouro_link, prata_link, diamante_link')
         .eq('id', 'global')
         .maybeSingle();
 
       if (error) throw error;
       setOuroLink(String((data as any)?.ouro_link || ''));
+      setPrataLink(String((data as any)?.prata_link || ''));
       setDiamanteLink(String((data as any)?.diamante_link || ''));
     } catch (e) {
       console.error('Erro ao carregar links do admin:', e);
     } finally {
       setIsLoadingOuroLink(false);
+      setIsLoadingPrataLink(false);
       setIsLoadingDiamanteLink(false);
     }
   };
@@ -734,6 +745,60 @@ const AdminDashboard = () => {
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
   };
 
+  const savePrataLink = async () => {
+    const link = prataLink.trim();
+    setIsSavingPrataLink(true);
+    try {
+      const { error } = await supabase
+        .from('admin_billing_links')
+        .upsert(
+          {
+            id: 'global',
+            prata_link: link.length ? link : null,
+            updated_at: new Date().toISOString(),
+          } as any,
+          { onConflict: 'id' }
+        );
+
+      if (error) {
+        toast.error('Erro ao salvar link do Prata. Aplique a migration `admin_billing_links` no Supabase.');
+        console.error(error);
+        return;
+      }
+
+      toast.success('Link do Prata salvo!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao salvar link do Prata.');
+    } finally {
+      setIsSavingPrataLink(false);
+    }
+  };
+
+  const sendPrataWhatsapp = async () => {
+    const link = prataLink.trim();
+    if (!link) {
+      toast.error('Cole o link do Prata primeiro.');
+      return;
+    }
+
+    // salvar antes de enviar
+    await savePrataLink();
+
+    const cnpjPix = '57436351000167';
+    // Observação: o valor do PRATA também existe em `PlanosCards.tsx` (WhatsApp). Ajuste quando quiser.
+    const valorPrata = 'R$ 27,90';
+    const message =
+      `🎉 Parabéns! Você está prestes a ser Plano Prata Agendei Fácil! 🥈\n\n` +
+      `✨ Basta acessar esse link e efetuar o pagamento:\n${link}\n\n` +
+      `💳 Ou se preferir, faça um PIX direto para esse CNPJ:\n${cnpjPix}\n` +
+      `💰 Valor: ${valorPrata}\n\n` +
+      `✅ Me avise assim que pagar ou envie o comprovante aqui para seguirmos com sua ativação! 😊`;
+
+    // wa.me sem número => abre seletor de contato
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
   const saveDiamanteLink = async () => {
     const link = diamanteLink.trim();
     setIsSavingDiamanteLink(true);
@@ -775,7 +840,7 @@ const AdminDashboard = () => {
     await saveDiamanteLink();
 
     const cnpjPix = '57436351000167';
-    const valorDiamante = 'R$ 69,90';
+    const valorDiamante = 'R$ 77,90';
     const message =
       `🎉 Parabéns! Você está prestes a ser Plano Diamante Agendei Fácil! 💎\n\n` +
       `✨ Basta acessar esse link e efetuar o pagamento:\n${link}\n\n` +
@@ -1996,6 +2061,8 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {/* (removido) Custo por estabelecimento (storage + banco) */}
+
         {/* Filters */}
         <div className="bg-white rounded-lg shadow p-4 mb-6">
           <div className="flex flex-col sm:flex-row gap-3">
@@ -2081,6 +2148,31 @@ const AdminDashboard = () => {
                     disabled={isLoadingOuroLink || isSavingOuroLink || !ouroLink.trim()}
                     className="w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-bold border border-gray-900 bg-gray-900 text-white hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                     title="Abrir WhatsApp e escolher contato (Plano Ouro)"
+                  >
+                    Link
+                  </button>
+                </div>
+
+                {/* Botão Prata */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 flex-1">
+                  <span className="inline-flex items-center px-2 py-1 text-[11px] font-extrabold rounded bg-gray-300 text-black border border-gray-400 whitespace-nowrap">
+                    PRATA
+                  </span>
+                  <input
+                    type="url"
+                    value={prataLink}
+                    onChange={(e) => setPrataLink(e.target.value)}
+                    onBlur={savePrataLink}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900"
+                    placeholder={isLoadingPrataLink ? 'Carregando...' : 'Cole o link do Plano Prata aqui'}
+                    disabled={isLoadingPrataLink}
+                  />
+                  <button
+                    type="button"
+                    onClick={sendPrataWhatsapp}
+                    disabled={isLoadingPrataLink || isSavingPrataLink || !prataLink.trim()}
+                    className="w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-bold border border-gray-900 bg-gray-900 text-white hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    title="Abrir WhatsApp e escolher contato (Plano Prata)"
                   >
                     Link
                   </button>
@@ -2179,384 +2271,376 @@ const AdminDashboard = () => {
                           : 'bg-amber-300';
 
                     return (
-                    <tr
-                      key={establishment.id}
-                      className={`${bg} ${rowAccent} border-l-8 border-b border-gray-200 hover:bg-blue-50/40 transition-colors`}
-                    >
-                      <td className="px-3 py-4">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
-                          <button
-                            onClick={() => handleOpenEstablishmentInfo(establishment)}
-                            className="px-2 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
-                            title="Ver informações do estabelecimento"
-                          >
-                            Informações
-                          </button>
-                          
-                          {/* Contador de Agendamentos */}
-                          <div 
-                            className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg border border-gray-300 text-xs cursor-pointer hover:bg-gray-200 transition-colors"
-                            onMouseEnter={() => {
-                              // Carregar automaticamente quando passar o mouse (só se ainda não tiver carregado)
-                              if (!appointmentCounts[establishment.id]) {
-                                loadAppointmentCounts(establishment);
-                              }
-                            }}
-                            title="Contagem de agendamentos (dia e mês)"
-                          >
-                            {/* Dia */}
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigateDayBack(establishment);
-                                }}
-                                className="p-0.5 hover:bg-gray-300 rounded transition-colors"
-                                title="Dia anterior"
-                              >
-                                <ChevronLeft className="h-3 w-3 text-gray-600" />
-                              </button>
-                              <span className="text-gray-700 font-medium">
-                                📅 {isLoadingAppointmentCounts[establishment.id] ? '...' : (appointmentCounts[establishment.id]?.day ?? '-')}
-                              </span>
-                              <span className="text-gray-500 text-[10px]">
-                                {format(getSelectedDateForEstablishment(establishment.id), 'dd/MM', { locale: ptBR })}
-                              </span>
-                            </div>
-                            
-                            <span className="text-gray-400">|</span>
-                            
-                            {/* Mês */}
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigateMonthBack(establishment);
-                                }}
-                                className="p-0.5 hover:bg-gray-300 rounded transition-colors"
-                                title="Mês anterior"
-                              >
-                                <ChevronLeft className="h-3 w-3 text-gray-600" />
-                              </button>
-                              <span className="text-gray-700 font-medium">
-                                📆 {isLoadingAppointmentCounts[establishment.id] ? '...' : (appointmentCounts[establishment.id]?.month ?? '-')}
-                              </span>
-                              <span className="text-gray-500 text-[10px]">
-                                {format(getSelectedMonthForEstablishment(establishment.id), 'MMM/yyyy', { locale: ptBR })}
-                              </span>
+                      <tr
+                        key={establishment.id}
+                        className={`${bg} ${rowAccent} border-l-8 border-b border-gray-200 hover:bg-blue-50/40 transition-colors`}
+                      >
+                        <td className="px-3 py-4">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
+                            <button
+                              onClick={() => handleOpenEstablishmentInfo(establishment)}
+                              className="px-2 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
+                              title="Ver informações do estabelecimento"
+                            >
+                              Informações
+                            </button>
+
+                            {/* Contador de Agendamentos */}
+                            <div
+                              className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg border border-gray-300 text-xs cursor-pointer hover:bg-gray-200 transition-colors"
+                              onMouseEnter={() => {
+                                // Carregar automaticamente quando passar o mouse (só se ainda não tiver carregado)
+                                if (!appointmentCounts[establishment.id]) {
+                                  loadAppointmentCounts(establishment);
+                                }
+                              }}
+                              title="Contagem de agendamentos (dia e mês)"
+                            >
+                              {/* Dia */}
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigateDayBack(establishment);
+                                  }}
+                                  className="p-0.5 hover:bg-gray-300 rounded transition-colors"
+                                  title="Dia anterior"
+                                >
+                                  <ChevronLeft className="h-3 w-3 text-gray-600" />
+                                </button>
+                                <span className="text-gray-700 font-medium">
+                                  📅 {isLoadingAppointmentCounts[establishment.id] ? '...' : (appointmentCounts[establishment.id]?.day ?? '-')}
+                                </span>
+                                <span className="text-gray-500 text-[10px]">
+                                  {format(getSelectedDateForEstablishment(establishment.id), 'dd/MM', { locale: ptBR })}
+                                </span>
+                              </div>
+
+                              <span className="text-gray-400">|</span>
+
+                              {/* Mês */}
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigateMonthBack(establishment);
+                                  }}
+                                  className="p-0.5 hover:bg-gray-300 rounded transition-colors"
+                                  title="Mês anterior"
+                                >
+                                  <ChevronLeft className="h-3 w-3 text-gray-600" />
+                                </button>
+                                <span className="text-gray-700 font-medium">
+                                  📆 {isLoadingAppointmentCounts[establishment.id] ? '...' : (appointmentCounts[establishment.id]?.month ?? '-')}
+                                </span>
+                                <span className="text-gray-500 text-[10px]">
+                                  {format(getSelectedMonthForEstablishment(establishment.id), 'MMM/yyyy', { locale: ptBR })}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {new Date(establishment.created_at).toLocaleDateString('pt-BR')}
-                        </div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={profitInputByEstablishment[establishment.id] ?? ''}
-                            onChange={(e) =>
-                              setProfitInputByEstablishment(prev => ({ ...prev, [establishment.id]: e.target.value }))
-                            }
-                            className="w-28 px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900"
-                            placeholder="0,00"
-                            title="Valor manual de lucro (admin)"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => saveProfitValue(establishment)}
-                            disabled={Boolean(isSavingProfitByEstablishment[establishment.id])}
-                            className="px-2 py-1 text-xs rounded border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Salvar valor"
-                          >
-                            {isSavingProfitByEstablishment[establishment.id] ? 'Salvando...' : 'Salvar'}
-                          </button>
-                        </div>
+                          <div className="text-xs text-gray-500">
+                            {new Date(establishment.created_at).toLocaleDateString('pt-BR')}
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={profitInputByEstablishment[establishment.id] ?? ''}
+                              onChange={(e) =>
+                                setProfitInputByEstablishment(prev => ({ ...prev, [establishment.id]: e.target.value }))
+                              }
+                              className="w-28 px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900"
+                              placeholder="0,00"
+                              title="Valor manual de lucro (admin)"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveProfitValue(establishment)}
+                              disabled={Boolean(isSavingProfitByEstablishment[establishment.id])}
+                              className="px-2 py-1 text-xs rounded border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Salvar valor"
+                            >
+                              {isSavingProfitByEstablishment[establishment.id] ? 'Salvando...' : 'Salvar'}
+                            </button>
+                          </div>
 
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="inline-flex items-center px-2 py-1 text-[11px] font-bold rounded bg-red-600 text-white">
-                            LINK
-                          </span>
-                          <input
-                            type="url"
-                            value={paymentLinkInputByEstablishment[establishment.id] ?? ''}
-                            onChange={(e) =>
-                              setPaymentLinkInputByEstablishment(prev => ({ ...prev, [establishment.id]: e.target.value }))
-                            }
-                            onPaste={() => {
-                              // salvar logo após colar (após o state atualizar)
-                              setTimeout(() => savePaymentLinkById(establishment.id), 0);
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="inline-flex items-center px-2 py-1 text-[11px] font-bold rounded bg-red-600 text-white">
+                              LINK
+                            </span>
+                            <input
+                              type="url"
+                              value={paymentLinkInputByEstablishment[establishment.id] ?? ''}
+                              onChange={(e) =>
+                                setPaymentLinkInputByEstablishment(prev => ({ ...prev, [establishment.id]: e.target.value }))
+                              }
+                              onPaste={() => {
+                                // salvar logo após colar (após o state atualizar)
+                                setTimeout(() => savePaymentLinkById(establishment.id), 0);
+                              }}
+                              onInput={() => scheduleAutoSavePaymentLink(establishment.id)}
+                              onBlur={() => savePaymentLinkById(establishment.id)}
+                              className="w-64 px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900"
+                              placeholder="Cole o link aqui"
+                              title="Link de pagamento (admin)"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => savePaymentLink(establishment)}
+                              disabled={Boolean(isSavingPaymentLinkByEstablishment[establishment.id])}
+                              className="px-2 py-1 text-xs rounded border border-red-600 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Salvar link"
+                            >
+                              {isSavingPaymentLinkByEstablishment[establishment.id] ? 'Salvando...' : 'Salvar'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendChargeWhatsapp(establishment)}
+                              className="px-3 py-1 text-xs rounded border border-gray-900 bg-gray-900 text-white hover:bg-black"
+                              title="Enviar cobrança no WhatsApp"
+                            >
+                              Enviar cobrança
+                            </button>
+                          </div>
+                        </td>
+
+                        <td className="px-2 py-4">
+                          <button
+                            onClick={() => {
+                              const bookingUrl = `https://agendeifacil.com/booking/${establishment.code}`;
+                              window.open(bookingUrl, '_blank');
                             }}
-                            onInput={() => scheduleAutoSavePaymentLink(establishment.id)}
-                            onBlur={() => savePaymentLinkById(establishment.id)}
-                            className="w-64 px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900"
-                            placeholder="Cole o link aqui"
-                            title="Link de pagamento (admin)"
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 hover:text-blue-900 transition-colors cursor-pointer"
+                            title={`Abrir booking: agendeifacil.com/booking/${establishment.code}`}
+                          >
+                            {establishment.code}
+                          </button>
+                        </td>
+
+                        <td className="px-2 py-4">
+                          <div className="flex items-center">
+                            {getStatusIcon(establishment)}
+                            <span className={`ml-1 text-xs font-medium ${getStatusColor(establishment)}`}>
+                              {establishment.is_blocked ? 'Bloqueado' :
+                                establishment.payment_status === 'paid' ? 'Pago' :
+                                  establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date) ? 'Vencido' : 'Pendente'}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="px-2 py-4">
+                          <select
+                            value={establishment.plan_type}
+                            onChange={(e) => updatePlanType(establishment.id, e.target.value as 'monthly' | 'annual' | 'trial')}
+                            className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
+                          >
+                            <option value="monthly">Mensal</option>
+                            <option value="annual">Anual</option>
+                            <option value="trial">7 dias</option>
+                          </select>
+                        </td>
+
+                        <td className="px-2 py-4">
+                          <input
+                            type="date"
+                            value={establishment.payment_due_date.split('T')[0]}
+                            onChange={(e) => updatePaymentDueDate(establishment.id, e.target.value)}
+                            className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
                           />
-                          <button
-                            type="button"
-                            onClick={() => savePaymentLink(establishment)}
-                            disabled={Boolean(isSavingPaymentLinkByEstablishment[establishment.id])}
-                            className="px-2 py-1 text-xs rounded border border-red-600 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Salvar link"
-                          >
-                            {isSavingPaymentLinkByEstablishment[establishment.id] ? 'Salvando...' : 'Salvar'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => sendChargeWhatsapp(establishment)}
-                            className="px-3 py-1 text-xs rounded border border-gray-900 bg-gray-900 text-white hover:bg-black"
-                            title="Enviar cobrança no WhatsApp"
-                          >
-                            Enviar cobrança
-                          </button>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="px-2 py-4">
-                        <button
-                          onClick={() => {
-                            const bookingUrl = `https://agendeifacil.com/booking/${establishment.code}`;
-                            window.open(bookingUrl, '_blank');
-                          }}
-                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 hover:text-blue-900 transition-colors cursor-pointer"
-                          title={`Abrir booking: agendeifacil.com/booking/${establishment.code}`}
-                        >
-                          {establishment.code}
-                        </button>
-                      </td>
+                        <td className="px-2 py-4">
+                          <div className="text-xs">
+                            <span className={`font-medium ${establishment.last_access ? 'text-green-600' : 'text-gray-400'
+                              }`}>
+                              {formatLastAccess(establishment.last_access)}
+                            </span>
+                          </div>
+                        </td>
 
-                      <td className="px-2 py-4">
-                        <div className="flex items-center">
-                          {getStatusIcon(establishment)}
-                          <span className={`ml-1 text-xs font-medium ${getStatusColor(establishment)}`}>
-                            {establishment.is_blocked ? 'Bloqueado' :
-                              establishment.payment_status === 'paid' ? 'Pago' :
-                                establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date) ? 'Vencido' : 'Pendente'}
-                          </span>
-                        </div>
-                      </td>
+                        <td className="px-2 py-4">
+                          <div className="text-xs font-semibold text-gray-900">
+                            {isLoadingSaldos ? '...' : fmtBRL(Number(saldosPorEstabelecimento[establishment.id] || 0))}
+                          </div>
+                          <div className="text-[10px] text-gray-500">
+                            {qtdPixPagoPorEstabelecimento[establishment.id]
+                              ? `${qtdPixPagoPorEstabelecimento[establishment.id]} PIX pago(s)`
+                              : '—'}
+                          </div>
+                        </td>
 
-                      <td className="px-2 py-4">
-                        <select
-                          value={establishment.plan_type}
-                          onChange={(e) => updatePlanType(establishment.id, e.target.value as 'monthly' | 'annual' | 'trial')}
-                          className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
-                        >
-                          <option value="monthly">Mensal</option>
-                          <option value="annual">Anual</option>
-                          <option value="trial">7 dias</option>
-                        </select>
-                      </td>
-
-                      <td className="px-2 py-4">
-                        <input
-                          type="date"
-                          value={establishment.payment_due_date.split('T')[0]}
-                          onChange={(e) => updatePaymentDueDate(establishment.id, e.target.value)}
-                          className="text-xs border border-gray-300 rounded px-1 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 w-full"
-                        />
-                      </td>
-
-                      <td className="px-2 py-4">
-                        <div className="text-xs">
-                          <span className={`font-medium ${establishment.last_access ? 'text-green-600' : 'text-gray-400'
-                            }`}>
-                            {formatLastAccess(establishment.last_access)}
-                          </span>
-                        </div>
-                      </td>
-
-                      <td className="px-2 py-4">
-                        <div className="text-xs font-semibold text-gray-900">
-                          {isLoadingSaldos ? '...' : fmtBRL(Number(saldosPorEstabelecimento[establishment.id] || 0))}
-                        </div>
-                        <div className="text-[10px] text-gray-500">
-                          {qtdPixPagoPorEstabelecimento[establishment.id]
-                            ? `${qtdPixPagoPorEstabelecimento[establishment.id]} PIX pago(s)`
-                            : '—'}
-                        </div>
-                      </td>
-
-                      <td className="px-3 py-4 text-sm font-medium">
-                        <div className="flex flex-wrap gap-1">
-                          <button
-                            onClick={() => togglePaymentAlert(establishment.id, establishment.payment_alert_enabled || false)}
-                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
-                              establishment.payment_alert_enabled
+                        <td className="px-3 py-4 text-sm font-medium">
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              onClick={() => togglePaymentAlert(establishment.id, establishment.payment_alert_enabled || false)}
+                              className={`text-xs px-2 py-0.5 border rounded font-medium ${establishment.payment_alert_enabled
                                 ? 'text-orange-600 border-orange-300 bg-orange-50 hover:bg-orange-100'
                                 : 'text-gray-600 border-gray-300 hover:bg-gray-50'
-                            }`}
-                            title={establishment.payment_alert_enabled ? 'Desativar Alerta' : 'Ativar Alerta'}
-                          >
-                            ALERTA
-                          </button>
-                          <button
-                            onClick={() => toggleBookingBlock(establishment.id, establishment.booking_blocked || false)}
-                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
-                              establishment.booking_blocked
+                                }`}
+                              title={establishment.payment_alert_enabled ? 'Desativar Alerta' : 'Ativar Alerta'}
+                            >
+                              ALERTA
+                            </button>
+                            <button
+                              onClick={() => toggleBookingBlock(establishment.id, establishment.booking_blocked || false)}
+                              className={`text-xs px-2 py-0.5 border rounded font-medium ${establishment.booking_blocked
                                 ? 'text-red-600 border-red-300 bg-red-50 hover:bg-red-100'
                                 : 'text-gray-600 border-gray-300 hover:bg-gray-50'
-                            }`}
-                            title={establishment.booking_blocked ? 'Desbloquear PG' : 'Bloquear PG'}
-                          >
-                            Bloquear PG
-                          </button>
-                          <button
-                            onClick={() => togglePromotion(establishment.id, establishment.promotion_enabled || false)}
-                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
-                              establishment.promotion_enabled
+                                }`}
+                              title={establishment.booking_blocked ? 'Desbloquear PG' : 'Bloquear PG'}
+                            >
+                              Bloquear PG
+                            </button>
+                            <button
+                              onClick={() => togglePromotion(establishment.id, establishment.promotion_enabled || false)}
+                              className={`text-xs px-2 py-0.5 border rounded font-medium ${establishment.promotion_enabled
                                 ? 'text-purple-600 border-purple-300 bg-purple-50 hover:bg-purple-100'
                                 : 'text-gray-600 border-gray-300 hover:bg-gray-50'
-                            }`}
-                            title={establishment.promotion_enabled ? 'Desativar Propaganda' : 'Ativar Propaganda'}
-                          >
-                            PROPAGANDA
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => togglePlanPrata(establishment)}
-                            className={`text-xs px-2 py-0.5 border rounded font-extrabold ${
-                              establishment.plan_prata_active
+                                }`}
+                              title={establishment.promotion_enabled ? 'Desativar Propaganda' : 'Ativar Propaganda'}
+                            >
+                              PROPAGANDA
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => togglePlanPrata(establishment)}
+                              className={`text-xs px-2 py-0.5 border rounded font-extrabold ${establishment.plan_prata_active
                                 ? 'text-white border-gray-900 bg-gray-900 hover:bg-black'
                                 : 'text-gray-700 border-gray-300 bg-gray-50 hover:bg-gray-100'
-                            }`}
-                            title={establishment.plan_prata_active ? 'PRATA ATIVO (clique para desativar)' : 'Ativar PRATA (bloqueia assinantes e produtos)'}
-                          >
-                            PRATA
-                          </button>
-                          <button
-                            onClick={() => handleMarkPaidAll(establishment)}
-                            disabled={Boolean(isPayingByEstablishment[`paidall:${establishment.id}`])}
-                            className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title='Marcar "Pago" + "Esse mês" + "Pagamento AD"'
-                          >
-                            Pago
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => togglePaidThisMonth(establishment)}
-                            disabled={Boolean(isPayingByEstablishment[`paidmonth:${establishment.id}`])}
-                            className={`text-xs px-2 py-0.5 border rounded disabled:opacity-50 disabled:cursor-not-allowed ${
-                              isPaidMarkedInCurrentMonth(establishment)
+                                }`}
+                              title={establishment.plan_prata_active ? 'PRATA ATIVO (clique para desativar)' : 'Ativar PRATA (bloqueia assinantes e produtos)'}
+                            >
+                              PRATA
+                            </button>
+                            <button
+                              onClick={() => handleMarkPaidAll(establishment)}
+                              disabled={Boolean(isPayingByEstablishment[`paidall:${establishment.id}`])}
+                              className="text-green-600 hover:text-green-900 text-xs px-1 py-0.5 border border-green-300 rounded hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title='Marcar "Pago" + "Esse mês" + "Pagamento AD"'
+                            >
+                              Pago
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => togglePaidThisMonth(establishment)}
+                              disabled={Boolean(isPayingByEstablishment[`paidmonth:${establishment.id}`])}
+                              className={`text-xs px-2 py-0.5 border rounded disabled:opacity-50 disabled:cursor-not-allowed ${isPaidMarkedInCurrentMonth(establishment)
                                 ? 'text-white border-blue-600 bg-blue-600 hover:bg-blue-700'
                                 : 'text-blue-700 border-blue-300 hover:bg-blue-50 hover:text-blue-900'
-                            }`}
-                            title="Alternar marcação do mês (apenas para o card Saldo mês)"
-                          >
-                            ESSE MÊS
-                          </button>
-                          <button
-                            onClick={() => updatePaymentStatus(establishment.id, 'unpaid')}
-                            className="text-yellow-600 hover:text-yellow-900 text-xs px-1 py-0.5 border border-yellow-300 rounded hover:bg-yellow-50"
-                            title="Marcar Pendente"
-                          >
-                            Pend
-                          </button>
-                          <button
-                            onClick={() => updatePaymentStatus(establishment.id, 'expired')}
-                            className="text-red-600 hover:text-red-900 text-xs px-1 py-0.5 border border-red-300 rounded hover:bg-red-50"
-                            title="Marcar Vencido"
-                          >
-                            Venc
-                          </button>
-                          <button
-                            onClick={() => openNotesModal(establishment)}
-                            className={`text-xs px-2 py-0.5 border rounded flex items-center gap-1 ${
-                              establishment.admin_notes
+                                }`}
+                              title="Alternar marcação do mês (apenas para o card Saldo mês)"
+                            >
+                              ESSE MÊS
+                            </button>
+                            <button
+                              onClick={() => updatePaymentStatus(establishment.id, 'unpaid')}
+                              className="text-yellow-600 hover:text-yellow-900 text-xs px-1 py-0.5 border border-yellow-300 rounded hover:bg-yellow-50"
+                              title="Marcar Pendente"
+                            >
+                              Pend
+                            </button>
+                            <button
+                              onClick={() => updatePaymentStatus(establishment.id, 'expired')}
+                              className="text-red-600 hover:text-red-900 text-xs px-1 py-0.5 border border-red-300 rounded hover:bg-red-50"
+                              title="Marcar Vencido"
+                            >
+                              Venc
+                            </button>
+                            <button
+                              onClick={() => openNotesModal(establishment)}
+                              className={`text-xs px-2 py-0.5 border rounded flex items-center gap-1 ${establishment.admin_notes
                                 ? 'text-blue-600 border-blue-300 bg-blue-50 hover:bg-blue-100'
                                 : 'text-gray-600 border-gray-300 hover:bg-gray-50'
-                            }`}
-                            title={establishment.admin_notes ? 'Ver/Editar Observação' : 'Adicionar Observação'}
-                          >
-                            <FileText className="h-3 w-3" />
-                            {establishment.admin_notes && <span className="text-[10px]">Obs</span>}
-                          </button>
-                          <button
-                            onClick={() => toggleBlockEstablishment(establishment.id, establishment.is_blocked || false)}
-                            className={`text-xs px-1 py-0.5 border rounded flex items-center ${establishment.is_blocked
-                              ? 'text-green-600 border-green-300 hover:bg-green-50 hover:text-green-900'
-                              : 'text-red-600 border-red-300 hover:bg-red-50 hover:text-red-900'
-                              }`}
-                            title={establishment.is_blocked ? 'Desbloquear' : 'Bloquear'}
-                          >
-                            {establishment.is_blocked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                          </button>
-                          <button
-                            onClick={() => removeFromList(establishment.id)}
-                            className="text-gray-600 hover:text-gray-900 text-xs px-1 py-0.5 border border-gray-300 rounded hover:bg-gray-50"
-                            title="Remover da Lista"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                          {establishment.whatsapp && (
-                            <button
-                              onClick={() => {
-                                let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
-                                // Adicionar código do país se não tiver
-                                if (!phoneNumber.startsWith('55')) {
-                                  phoneNumber = '55' + phoneNumber;
-                                }
-                                window.open(`https://wa.me/${phoneNumber}`, '_blank');
-                              }}
-                              className="text-green-600 hover:text-green-900 text-xs px-2 py-0.5 border border-green-300 rounded hover:bg-green-50 font-medium"
-                              title="Abrir WhatsApp"
+                                }`}
+                              title={establishment.admin_notes ? 'Ver/Editar Observação' : 'Adicionar Observação'}
                             >
-                              WHATSAPP
+                              <FileText className="h-3 w-3" />
+                              {establishment.admin_notes && <span className="text-[10px]">Obs</span>}
                             </button>
-                          )}
-                          <button
-                            onClick={() =>
-                              togglePagamentoAdiantadoAdmin(
-                                establishment.id,
-                                Boolean(establishment.pagamento_adiantado_liberado_admin)
-                              )
-                            }
-                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
-                              establishment.pagamento_adiantado_liberado_admin
+                            <button
+                              onClick={() => toggleBlockEstablishment(establishment.id, establishment.is_blocked || false)}
+                              className={`text-xs px-1 py-0.5 border rounded flex items-center ${establishment.is_blocked
+                                ? 'text-green-600 border-green-300 hover:bg-green-50 hover:text-green-900'
+                                : 'text-red-600 border-red-300 hover:bg-red-50 hover:text-red-900'
+                                }`}
+                              title={establishment.is_blocked ? 'Desbloquear' : 'Bloquear'}
+                            >
+                              {establishment.is_blocked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                            </button>
+                            <button
+                              onClick={() => removeFromList(establishment.id)}
+                              className="text-gray-600 hover:text-gray-900 text-xs px-1 py-0.5 border border-gray-300 rounded hover:bg-gray-50"
+                              title="Remover da Lista"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                            {establishment.whatsapp && (
+                              <button
+                                onClick={() => {
+                                  let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
+                                  // Adicionar código do país se não tiver
+                                  if (!phoneNumber.startsWith('55')) {
+                                    phoneNumber = '55' + phoneNumber;
+                                  }
+                                  window.open(`https://wa.me/${phoneNumber}`, '_blank');
+                                }}
+                                className="text-green-600 hover:text-green-900 text-xs px-2 py-0.5 border border-green-300 rounded hover:bg-green-50 font-medium"
+                                title="Abrir WhatsApp"
+                              >
+                                WHATSAPP
+                              </button>
+                            )}
+                            <button
+                              onClick={() =>
+                                togglePagamentoAdiantadoAdmin(
+                                  establishment.id,
+                                  Boolean(establishment.pagamento_adiantado_liberado_admin)
+                                )
+                              }
+                              className={`text-xs px-2 py-0.5 border rounded font-medium ${establishment.pagamento_adiantado_liberado_admin
                                 ? 'text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100'
                                 : 'text-gray-600 border-gray-300 hover:bg-gray-50'
-                            }`}
-                            title={
-                              establishment.pagamento_adiantado_liberado_admin
-                                ? 'Bloquear Pagamento Adiantado (e desativar no booking)'
-                                : 'Liberar Pagamento Adiantado para este estabelecimento'
-                            }
-                          >
-                            PAGAMENTO AD
-                          </button>
-                          <button
-                            onClick={() => registrarPagamentoSaldoTotal(establishment)}
-                            disabled={Boolean(isPayingByEstablishment[establishment.id]) || Number(saldosPorEstabelecimento[establishment.id] || 0) <= 0}
-                            className={`text-xs px-2 py-0.5 border rounded font-medium ${
-                              Number(saldosPorEstabelecimento[establishment.id] || 0) > 0
+                                }`}
+                              title={
+                                establishment.pagamento_adiantado_liberado_admin
+                                  ? 'Bloquear Pagamento Adiantado (e desativar no booking)'
+                                  : 'Liberar Pagamento Adiantado para este estabelecimento'
+                              }
+                            >
+                              PAGAMENTO AD
+                            </button>
+                            <button
+                              onClick={() => registrarPagamentoSaldoTotal(establishment)}
+                              disabled={Boolean(isPayingByEstablishment[establishment.id]) || Number(saldosPorEstabelecimento[establishment.id] || 0) <= 0}
+                              className={`text-xs px-2 py-0.5 border rounded font-medium ${Number(saldosPorEstabelecimento[establishment.id] || 0) > 0
                                 ? 'text-green-700 border-green-300 bg-green-50 hover:bg-green-100'
                                 : 'text-gray-400 border-gray-200 bg-gray-50 cursor-not-allowed'
-                            }`}
-                            title="Registrar pagamento do saldo total (zera o saldo)"
-                          >
-                            PAGAR
-                          </button>
-                          <button
-                            onClick={() => abrirHistoricoPagamentos(establishment)}
-                            className="text-xs px-2 py-0.5 border rounded font-medium text-blue-700 border-blue-300 bg-blue-50 hover:bg-blue-100"
-                            title="Ver histórico de pagamentos (admin)"
-                          >
-                            HISTÓRICO
-                          </button>
-                          {isSupportAccount && (
-                            <button
-                              onClick={() => openWhatsappRemindersModal(establishment)}
-                              className="text-xs px-2 py-0.5 border rounded font-medium text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"
-                              title="Configurar lembretes automáticos por WhatsApp (WaSender)"
+                                }`}
+                              title="Registrar pagamento do saldo total (zera o saldo)"
                             >
-                              📣 Lembretes WhatsApp
+                              PAGAR
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                            <button
+                              onClick={() => abrirHistoricoPagamentos(establishment)}
+                              className="text-xs px-2 py-0.5 border rounded font-medium text-blue-700 border-blue-300 bg-blue-50 hover:bg-blue-100"
+                              title="Ver histórico de pagamentos (admin)"
+                            >
+                              HISTÓRICO
+                            </button>
+                            {isSupportAccount && (
+                              <button
+                                onClick={() => openWhatsappRemindersModal(establishment)}
+                                className="text-xs px-2 py-0.5 border rounded font-medium text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"
+                                title="Configurar lembretes automáticos por WhatsApp (WaSender)"
+                              >
+                                📣 Lembretes WhatsApp
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
                     );
                   })}
                 </tbody>
@@ -2954,7 +3038,7 @@ const AdminDashboard = () => {
                 <X className="h-6 w-6" />
               </button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-6">
               <div className="space-y-4">
                 <div>
