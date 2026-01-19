@@ -8,16 +8,6 @@ const RecoveryPassword = () => {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const enviarWhatsappSuporte = (emailDigitado: string) => {
-    const emailTrim = String(emailDigitado || '').trim();
-    if (!emailTrim) return;
-
-    const phone = '5548991265320'; // +55 48 99126-5320
-    const message = `ola, esqueci minha senha desejo mudar, e o email é (${emailTrim})`;
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
-  };
-
   const handleRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -46,9 +36,6 @@ const RecoveryPassword = () => {
 
       console.log('✅ Email enviado com sucesso!');
       toast.success('Email de recuperação enviado! Verifique sua caixa de entrada.');
-
-      // Além do e-mail, enviar também uma mensagem para o suporte via WhatsApp
-      enviarWhatsappSuporte(email);
       setEmail('');
     } catch (error: any) {
       console.error('❌ Erro geral:', error);

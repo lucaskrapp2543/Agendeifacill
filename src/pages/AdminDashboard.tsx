@@ -2191,11 +2191,6 @@ const AdminDashboard = () => {
                   className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
                 />
               </div>
-              <div className="mt-1 text-[11px] text-gray-500">
-                Mostrando <strong className="text-gray-800">{filteredEstablishments.length}</strong> de{' '}
-                <strong className="text-gray-800">{establishments.length}</strong>
-                {searchTerm.trim() ? ' (filtro aplicado)' : ''}
-              </div>
             </div>
 
             <select

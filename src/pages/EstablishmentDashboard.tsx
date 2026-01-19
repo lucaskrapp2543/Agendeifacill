@@ -5700,19 +5700,6 @@ Estamos te aguardando! 😎✂️`;
   const fetchEstablishment = async () => {
     try {
       setIsEstablishmentLoading(true);
-      // ⚠️ Pode existir mais de 1 estabelecimento por owner_id (por erro/duplicação).
-      // Nesses casos, .single() quebra e o usuário cai na tela de "Criar novo".
-      // Aqui escolhemos SEMPRE 1 estabelecimento ativo (não deletado), priorizando o mais "completo".
-      const { count: activeCount } = await supabase
-        .from('establishments')
-        .select('id', { count: 'exact', head: true })
-        .eq('owner_id', user?.id)
-        .or('is_deleted.is.null,is_deleted.eq.false');
-
-      if (activeCount && activeCount > 1) {
-        toast('Detectamos mais de 1 estabelecimento nesta conta. Usando o mais completo.', 'error');
-      }
-
       const { data: establishmentData, error } = await supabase
         .from('establishments')
         .select(`
@@ -5721,19 +5708,9 @@ Estamos te aguardando! 😎✂️`;
           services_with_prices:services_with_prices
         `)
         .eq('owner_id', user?.id)
-        .or('is_deleted.is.null,is_deleted.eq.false')
-        .order('onboarding_step', { ascending: false })
-        .order('updated_at', { ascending: false })
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+        .single();
 
       if (error) throw error;
-      if (!establishmentData) {
-        // Nenhum estabelecimento ativo encontrado -> cai no fluxo de criar novo
-        setEstablishment(null as any);
-        return;
-      }
 
       // Verificar se o estabelecimento está bloqueado
       if (establishmentData && establishmentData.is_blocked) {
