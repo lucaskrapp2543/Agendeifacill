@@ -110,8 +110,8 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
     }
 
     try {
-      const { data: currentAdminUser } = await supabase.auth.getUser();
-      const token = String(currentAdminUser?.session?.access_token || '');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = String(sessionData?.session?.access_token || '');
       if (!token) {
         toast.error('Sessão do admin inválida. Faça login novamente.');
         return;
@@ -151,8 +151,8 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
       return;
     }
     try {
-      const { data: currentAdminUser } = await supabase.auth.getUser();
-      const token = String(currentAdminUser?.session?.access_token || '');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = String(sessionData?.session?.access_token || '');
       if (!token) {
         toast.error('Sessão do admin inválida. Faça login novamente.');
         return;
