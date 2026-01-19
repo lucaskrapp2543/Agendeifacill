@@ -938,7 +938,7 @@ const EstablishmentDashboard = () => {
   }, [establishment?.id, filtroHistoricoFila, profissionalFinanceiroFilaId]);
 
   const fetchFilaEntries = useCallback(async (): Promise<any[] | null> => {
-    if (!establishment?.id) return;
+    if (!establishment?.id) return null;
     setIsLoadingFilaEntries(true);
     try {
       const { data, error } = await supabase
@@ -3884,6 +3884,7 @@ const EstablishmentDashboard = () => {
   }, [establishment?.professionals_pins]);
 
   const durationOptions = [
+    { value: 0, label: '0 minuto' },
     { value: 5, label: '5 minutos' },
     { value: 10, label: '10 minutos' },
     { value: 15, label: '15 minutos' },
@@ -3897,7 +3898,8 @@ const EstablishmentDashboard = () => {
   ];
 
   const formatDuration = (minutes: number): string => {
-    if (!minutes) return '';
+    if (minutes === null || minutes === undefined) return '';
+    if (minutes === 0) return '0min';
     if (minutes >= 60) {
       const hours = Math.floor(minutes / 60);
       const remainingMinutes = minutes % 60;
@@ -8392,10 +8394,10 @@ Estamos te aguardando! 😎✂️`;
       // Atualizar duração real no banco de dados
       const { error } = await supabase
         .from('appointments')
-        .update({ 
+        .update({
           duration: actualDuration,
           // Adicionar uma observação automática sobre o tempo liberado
-          establishment_observation: appointment.establishment_observation 
+          establishment_observation: appointment.establishment_observation
             ? `${appointment.establishment_observation}\n\n⏱️ Terminei antes: Duração real ${actualDuration}min (${timeReleased}min liberados)`
             : `⏱️ Terminei antes: Duração real ${actualDuration}min (${timeReleased}min liberados)`
         })
@@ -9707,12 +9709,12 @@ Estamos te aguardando! 😎✂️`;
       setEstablishment((prev: any) =>
         prev
           ? {
-              ...prev,
-        review_link: reviewLink.trim(),
-        social_media_link: socialMediaLink.trim(),
-        pix_payment_link: pixPaymentLink.trim(),
-              location_link: locationLink.trim(),
-            }
+            ...prev,
+            review_link: reviewLink.trim(),
+            social_media_link: socialMediaLink.trim(),
+            pix_payment_link: pixPaymentLink.trim(),
+            location_link: locationLink.trim(),
+          }
           : prev
       );
     } catch (error) {
@@ -9774,23 +9776,23 @@ Estamos te aguardando! 😎✂️`;
       setEstablishment((prev: any) =>
         prev
           ? ({
-              ...prev,
-        has_wifi: hasWifi,
-        has_parking: hasParking,
-        has_accessibility: hasAccessibility,
-        has_air_conditioning: hasAirConditioning,
-        wifi_password: wifiPassword.trim(),
-        wifi_network_name: wifiNetworkName.trim(),
-        require_cancellation_request: requireCancellationRequest,
-        prevent_same_day_reschedule: preventSameDayReschedule,
-        require_cpf: requireCpf,
-        exigir_pagamento_antecipado: exigirPagamentoAntecipado,
-        pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
-              exigir_pagamento_antecipado_mercadopago: nextExigirMP,
-              pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
-              enable_whatsapp_notifications: enableWhatsAppNotifications,
-        // require_cancel_password é salvo imediatamente, não precisa do auto-save
-            } as any)
+            ...prev,
+            has_wifi: hasWifi,
+            has_parking: hasParking,
+            has_accessibility: hasAccessibility,
+            has_air_conditioning: hasAirConditioning,
+            wifi_password: wifiPassword.trim(),
+            wifi_network_name: wifiNetworkName.trim(),
+            require_cancellation_request: requireCancellationRequest,
+            prevent_same_day_reschedule: preventSameDayReschedule,
+            require_cpf: requireCpf,
+            exigir_pagamento_antecipado: exigirPagamentoAntecipado,
+            pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
+            exigir_pagamento_antecipado_mercadopago: nextExigirMP,
+            pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
+            enable_whatsapp_notifications: enableWhatsAppNotifications,
+            // require_cancel_password é salvo imediatamente, não precisa do auto-save
+          } as any)
           : prev
       );
     } catch (error) {
@@ -12178,11 +12180,10 @@ Estamos te aguardando! 😎✂️`;
                     await salvarFilaEsperaAtiva(true, { profissionalId: profissionalSelecionadoFila });
                     setShowAtivarFilaModal(false);
                   }}
-                  className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${
-                    !profissionalSelecionadoFila
-                      ? 'bg-white/10 text-white/50 cursor-not-allowed'
-                      : 'bg-white text-black hover:bg-gray-100'
-                  } ${isSavingFilaEsperaAtiva ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${!profissionalSelecionadoFila
+                    ? 'bg-white/10 text-white/50 cursor-not-allowed'
+                    : 'bg-white text-black hover:bg-gray-100'
+                    } ${isSavingFilaEsperaAtiva ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   Ativar
                 </button>
@@ -12261,9 +12262,8 @@ Estamos te aguardando! 😎✂️`;
                   type="button"
                   disabled={isAddingFila}
                   onClick={adicionarFilaManual}
-                  className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${
-                    isAddingFila ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white text-black hover:bg-gray-100'
-                  }`}
+                  className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${isAddingFila ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white text-black hover:bg-gray-100'
+                    }`}
                 >
                   {isAddingFila ? 'Adicionando...' : 'Adicionar'}
                 </button>
@@ -13741,11 +13741,10 @@ Estamos te aguardando! 😎✂️`;
                                                   }
                                                   toggleFilaParaAgendamento(appointment);
                                                 }}
-                                                className={`w-full px-2 py-1 text-xs font-extrabold rounded transition-colors ${
-                                                  (filaEntries || []).some((e: any) => e.appointment_id === appointment.id)
-                                                    ? 'bg-fuchsia-700 text-white hover:bg-fuchsia-800'
-                                                    : 'bg-fuchsia-600 text-white hover:bg-fuchsia-700'
-                                                }`}
+                                                className={`w-full px-2 py-1 text-xs font-extrabold rounded transition-colors ${(filaEntries || []).some((e: any) => e.appointment_id === appointment.id)
+                                                  ? 'bg-fuchsia-700 text-white hover:bg-fuchsia-800'
+                                                  : 'bg-fuchsia-600 text-white hover:bg-fuchsia-700'
+                                                  }`}
                                                 title="Adicionar/remover este agendamento na fila de espera"
                                               >
                                                 ⏳ Fila de espera{' '}
@@ -14061,13 +14060,12 @@ Estamos te aguardando! 😎✂️`;
                               return;
                             }
                             // Desativar (mantém o profissional padrão salvo)
-                            salvarFilaEsperaAtiva(false).catch(() => {});
+                            salvarFilaEsperaAtiva(false).catch(() => { });
                           }}
-                          className={`px-4 py-2 rounded-lg font-extrabold transition-colors ${
-                            filaEsperaAtiva
-                              ? 'bg-green-600 text-white hover:bg-green-700'
-                              : 'bg-black text-white hover:bg-gray-800'
-                          } ${isSavingFilaEsperaAtiva ? 'opacity-60 cursor-not-allowed' : ''}`}
+                          className={`px-4 py-2 rounded-lg font-extrabold transition-colors ${filaEsperaAtiva
+                            ? 'bg-green-600 text-white hover:bg-green-700'
+                            : 'bg-black text-white hover:bg-gray-800'
+                            } ${isSavingFilaEsperaAtiva ? 'opacity-60 cursor-not-allowed' : ''}`}
                         >
                           {filaEsperaAtiva ? '✅ ATIVADO' : 'Ativar agora'}
                         </button>
@@ -14116,27 +14114,24 @@ Estamos te aguardando! 😎✂️`;
                           <button
                             type="button"
                             onClick={() => setFiltroHistoricoFila('dia')}
-                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${
-                              filtroHistoricoFila === 'dia' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
-                            }`}
+                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${filtroHistoricoFila === 'dia' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
+                              }`}
                           >
                             Hoje
                           </button>
                           <button
                             type="button"
                             onClick={() => setFiltroHistoricoFila('mes')}
-                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${
-                              filtroHistoricoFila === 'mes' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
-                            }`}
+                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${filtroHistoricoFila === 'mes' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
+                              }`}
                           >
                             Mês
                           </button>
                           <button
                             type="button"
                             onClick={() => setFiltroHistoricoFila('todos')}
-                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${
-                              filtroHistoricoFila === 'todos' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
-                            }`}
+                            className={`px-3 py-2 rounded-lg text-xs font-extrabold border ${filtroHistoricoFila === 'todos' ? 'bg-black text-white border-black' : 'bg-white text-gray-900 border-gray-300'
+                              }`}
                           >
                             Todos
                           </button>
@@ -14227,11 +14222,10 @@ Estamos te aguardando! 😎✂️`;
                         <button
                           type="button"
                           onClick={() => salvarFilaFechada(!filaEsperaFechada)}
-                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-extrabold ${
-                            filaEsperaFechada
-                              ? 'bg-green-600 text-white hover:bg-green-700'
-                              : 'bg-red-600 text-white hover:bg-red-700'
-                          }`}
+                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-extrabold ${filaEsperaFechada
+                            ? 'bg-green-600 text-white hover:bg-green-700'
+                            : 'bg-red-600 text-white hover:bg-red-700'
+                            }`}
                           title={filaEsperaFechada ? 'Abrir fila (permitir entrar no booking)' : 'Fechar fila (bloquear entrada no booking)'}
                         >
                           {filaEsperaFechada ? '✅ Abrir fila' : '⛔ Fechar fila'}
@@ -18324,270 +18318,269 @@ Estamos te aguardando! 😎✂️`;
                         const nivel = getClienteNivel(chance);
                         const nivelUi = getNivelClasses(nivel);
                         return (
-                        <div
-                          key={`${client.whatsapp}-${client.id}-${index}`}
-                          className={`rounded-lg p-4 border-2 shadow-sm ${client.alert ? 'bg-gray-50 border-gray-400' : 'bg-white border-gray-300'} ${nivelUi.card}`}
-                        >
-                          {/* Header com nome e botões de ação */}
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div
+                            key={`${client.whatsapp}-${client.id}-${index}`}
+                            className={`rounded-lg p-4 border-2 shadow-sm ${client.alert ? 'bg-gray-50 border-gray-400' : 'bg-white border-gray-300'} ${nivelUi.card}`}
+                          >
+                            {/* Header com nome e botões de ação */}
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                {editingClient === client.whatsapp ? (
+                                  <input
+                                    type="text"
+                                    value={editClientName}
+                                    onChange={(e) => setEditClientName(e.target.value)}
+                                    className="text-lg font-medium text-gray-900 border border-gray-300 rounded px-2 py-1 flex-1"
+                                    placeholder="Nome do cliente"
+                                  />
+                                ) : (
+                                  <h3 className="text-lg font-medium text-gray-900 truncate">{client.name}</h3>
+                                )}
+                                {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />} {/* COROA PARA ASSINANTES */}
+                              </div>
+                              <div className="flex items-center gap-1 ml-2">
+                                {editingClient === client.whatsapp ? (
+                                  <>
+                                    <button
+                                      onClick={saveClientEdit}
+                                      className="text-gray-700 hover:text-black p-1"
+                                      title="Salvar"
+                                    >
+                                      ✓
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditingClient(null);
+                                        setEditClientName('');
+                                        setEditClientWhatsapp('');
+                                      }}
+                                      className="text-gray-600 hover:text-gray-900 p-1"
+                                      title="Cancelar"
+                                    >
+                                      ✗
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => handleEditClient(client)}
+                                      className="text-gray-600 hover:text-black p-1"
+                                      title="Editar cliente"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteClient(client.whatsapp)}
+                                      className="text-gray-600 hover:text-black p-1"
+                                      title="Excluir cliente"
+                                    >
+                                      🗑️
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
+                                {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
+                              </span>
+                              <span className="text-[11px] text-gray-600">
+                                Faltas: <strong className="text-gray-900">{Number(client.faltas || 0)}</strong>
+                              </span>
+                            </div>
+
+                            {/* WhatsApp */}
+                            <div className="text-gray-700 flex items-center gap-2 mb-1">
+                              <Phone className="h-4 w-4 text-gray-600" />
                               {editingClient === client.whatsapp ? (
                                 <input
                                   type="text"
-                                  value={editClientName}
-                                  onChange={(e) => setEditClientName(e.target.value)}
-                                  className="text-lg font-medium text-gray-900 border border-gray-300 rounded px-2 py-1 flex-1"
-                                  placeholder="Nome do cliente"
+                                  value={editClientWhatsapp}
+                                  onChange={(e) => setEditClientWhatsapp(e.target.value)}
+                                  className="border border-gray-300 rounded px-2 py-1 flex-1 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-500"
+                                  placeholder="WhatsApp do cliente"
                                 />
                               ) : (
-                                <h3 className="text-lg font-medium text-gray-900 truncate">{client.name}</h3>
+                                <span className="text-gray-700">{client.whatsapp}</span>
                               )}
-                              {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />} {/* COROA PARA ASSINANTES */}
                             </div>
-                            <div className="flex items-center gap-1 ml-2">
-                              {editingClient === client.whatsapp ? (
-                                <>
+                            <p className="text-gray-700 flex items-center gap-2 mb-1">
+                              <Calendar className="h-4 w-4 text-gray-600" />
+                              Agendamentos: {client.appointmentCount}
+                            </p>
+                            <p className="text-gray-700 flex items-center gap-2 mb-1">
+                              <span className="text-gray-600">✅</span>
+                              Realizados: {Number(client.completedCount || 0)}
+                            </p>
+
+                            {/* Campo de aniversário */}
+                            <div className="text-gray-700 flex items-center gap-2 mb-4">
+                              <span className="text-gray-500">🎂</span>
+                              {editingClientBirthday === client.whatsapp ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="date"
+                                    value={newBirthday}
+                                    onChange={(e) => setNewBirthday(e.target.value)}
+                                    className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                                  />
                                   <button
-                                    onClick={saveClientEdit}
-                                    className="text-gray-700 hover:text-black p-1"
+                                    onClick={() => saveBirthday(client.whatsapp, newBirthday)}
+                                    className="text-gray-700 hover:text-black"
                                     title="Salvar"
                                   >
                                     ✓
                                   </button>
                                   <button
                                     onClick={() => {
-                                      setEditingClient(null);
-                                      setEditClientName('');
-                                      setEditClientWhatsapp('');
+                                      setEditingClientBirthday(null);
+                                      setNewBirthday('');
                                     }}
-                                    className="text-gray-600 hover:text-gray-900 p-1"
+                                    className="text-gray-600 hover:text-gray-900"
                                     title="Cancelar"
                                   >
                                     ✗
                                   </button>
-                                </>
+                                </div>
                               ) : (
-                                <>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm">
+                                    {client.birthday
+                                      ? new Date(client.birthday + 'T12:00:00').toLocaleDateString('pt-BR')
+                                      : 'Não informado'
+                                    }
+                                  </span>
                                   <button
-                                    onClick={() => handleEditClient(client)}
-                                    className="text-gray-600 hover:text-black p-1"
-                                    title="Editar cliente"
+                                    onClick={() => {
+                                      console.log('🎯 Cliente clicado para editar:', {
+                                        clientWhatsapp: client.whatsapp,
+                                        clientName: client.name,
+                                        currentBirthday: client.birthday
+                                      });
+                                      setEditingClientBirthday(client.whatsapp);
+                                      setNewBirthday(client.birthday || '');
+                                    }}
+                                    className="text-gray-600 hover:text-black text-xs"
+                                    title="Editar aniversário"
                                   >
                                     ✏️
                                   </button>
-                                  <button
-                                    onClick={() => handleDeleteClient(client.whatsapp)}
-                                    className="text-gray-600 hover:text-black p-1"
-                                    title="Excluir cliente"
-                                  >
-                                    🗑️
-                                  </button>
-                                </>
+                                </div>
+                              )}
+                              {client.birthday && isBirthdayThisMonth(client.birthday) && (
+                                <span className="text-gray-700 text-xs font-medium">• Aniversário este mês!</span>
                               )}
                             </div>
-                          </div>
 
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
-                              {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
-                            </span>
-                            <span className="text-[11px] text-gray-600">
-                              Faltas: <strong className="text-gray-900">{Number(client.faltas || 0)}</strong>
-                            </span>
-                          </div>
+                            {/* Campo de alerta */}
+                            <div className="text-gray-700 flex items-center gap-2 mb-4">
+                              <span className="text-red-500">⚠️</span>
+                              {editingClientAlert === client.whatsapp ? (
+                                <div className="flex items-center gap-2 flex-1">
+                                  <input
+                                    type="text"
+                                    value={newAlert}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      if (value.length <= 100) {
+                                        setNewAlert(value);
+                                      }
+                                    }}
+                                    maxLength={100}
+                                    placeholder="Digite o alerta (máx. 100 caracteres)"
+                                    className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary flex-1"
+                                  />
+                                  <span className="text-xs text-gray-500">{newAlert.length}/100</span>
+                                  <button
+                                    onClick={() => saveAlert(client.whatsapp, newAlert)}
+                                    className="text-gray-700 hover:text-black"
+                                    title="Salvar"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingClientAlert(null);
+                                      setNewAlert('');
+                                    }}
+                                    className="text-gray-600 hover:text-gray-900"
+                                    title="Cancelar"
+                                  >
+                                    ✗
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 flex-1">
+                                  <span className={`text-sm ${client.alert ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
+                                    {client.alert || 'Nenhum alerta'}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setEditingClientAlert(client.whatsapp);
+                                      setNewAlert(client.alert || '');
+                                    }}
+                                    className="text-gray-600 hover:text-black text-xs"
+                                    title="Editar alerta"
+                                  >
+                                    ✏️
+                                  </button>
+                                </div>
+                              )}
+                            </div>
 
-                          {/* WhatsApp */}
-                          <div className="text-gray-700 flex items-center gap-2 mb-1">
-                            <Phone className="h-4 w-4 text-gray-600" />
-                            {editingClient === client.whatsapp ? (
-                              <input
-                                type="text"
-                                value={editClientWhatsapp}
-                                onChange={(e) => setEditClientWhatsapp(e.target.value)}
-                                className="border border-gray-300 rounded px-2 py-1 flex-1 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-500"
-                                placeholder="WhatsApp do cliente"
-                              />
-                            ) : (
-                              <span className="text-gray-700">{client.whatsapp}</span>
-                            )}
-                          </div>
-                          <p className="text-gray-700 flex items-center gap-2 mb-1">
-                            <Calendar className="h-4 w-4 text-gray-600" />
-                            Agendamentos: {client.appointmentCount}
-                          </p>
-                          <p className="text-gray-700 flex items-center gap-2 mb-1">
-                            <span className="text-gray-600">✅</span>
-                            Realizados: {Number(client.completedCount || 0)}
-                          </p>
+                            <div className="flex items-center gap-2 mb-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedClientInfo(client);
+                                  setShowClientInfoModal(true);
+                                }}
+                                className="flex-1 px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-xs font-extrabold"
+                              >
+                                INFORMAÇÕES
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSavingFalta}
+                                onClick={() => ajustarFaltaCliente(client, 1)}
+                                className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${isSavingFalta ? 'bg-red-200 text-red-900 opacity-70 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'
+                                  }`}
+                              >
+                                FALTOU
+                              </button>
+                            </div>
 
-                          {/* Campo de aniversário */}
-                          <div className="text-gray-700 flex items-center gap-2 mb-4">
-                            <span className="text-gray-500">🎂</span>
-                            {editingClientBirthday === client.whatsapp ? (
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="date"
-                                  value={newBirthday}
-                                  onChange={(e) => setNewBirthday(e.target.value)}
-                                  className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary"
-                                />
-                                <button
-                                  onClick={() => saveBirthday(client.whatsapp, newBirthday)}
-                                  className="text-gray-700 hover:text-black"
-                                  title="Salvar"
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setEditingClientBirthday(null);
-                                    setNewBirthday('');
-                                  }}
-                                  className="text-gray-600 hover:text-gray-900"
-                                  title="Cancelar"
-                                >
-                                  ✗
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm">
-                                  {client.birthday
-                                    ? new Date(client.birthday + 'T12:00:00').toLocaleDateString('pt-BR')
-                                    : 'Não informado'
-                                  }
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    console.log('🎯 Cliente clicado para editar:', {
-                                      clientWhatsapp: client.whatsapp,
-                                      clientName: client.name,
-                                      currentBirthday: client.birthday
-                                    });
-                                    setEditingClientBirthday(client.whatsapp);
-                                    setNewBirthday(client.birthday || '');
-                                  }}
-                                  className="text-gray-600 hover:text-black text-xs"
-                                  title="Editar aniversário"
-                                >
-                                  ✏️
-                                </button>
-                              </div>
-                            )}
-                            {client.birthday && isBirthdayThisMonth(client.birthday) && (
-                              <span className="text-gray-700 text-xs font-medium">• Aniversário este mês!</span>
-                            )}
-                          </div>
-
-                          {/* Campo de alerta */}
-                          <div className="text-gray-700 flex items-center gap-2 mb-4">
-                            <span className="text-red-500">⚠️</span>
-                            {editingClientAlert === client.whatsapp ? (
-                              <div className="flex items-center gap-2 flex-1">
-                                <input
-                                  type="text"
-                                  value={newAlert}
-                                  onChange={(e) => {
-                                    const value = e.target.value;
-                                    if (value.length <= 100) {
-                                      setNewAlert(value);
-                                    }
-                                  }}
-                                  maxLength={100}
-                                  placeholder="Digite o alerta (máx. 100 caracteres)"
-                                  className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary flex-1"
-                                />
-                                <span className="text-xs text-gray-500">{newAlert.length}/100</span>
-                                <button
-                                  onClick={() => saveAlert(client.whatsapp, newAlert)}
-                                  className="text-gray-700 hover:text-black"
-                                  title="Salvar"
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setEditingClientAlert(null);
-                                    setNewAlert('');
-                                  }}
-                                  className="text-gray-600 hover:text-gray-900"
-                                  title="Cancelar"
-                                >
-                                  ✗
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2 flex-1">
-                                <span className={`text-sm ${client.alert ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
-                                  {client.alert || 'Nenhum alerta'}
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    setEditingClientAlert(client.whatsapp);
-                                    setNewAlert(client.alert || '');
-                                  }}
-                                  className="text-gray-600 hover:text-black text-xs"
-                                  title="Editar alerta"
-                                >
-                                  ✏️
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 mb-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedClientInfo(client);
-                                setShowClientInfoModal(true);
-                              }}
-                              className="flex-1 px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-xs font-extrabold"
+                            <a
+                              href={(() => {
+                                let phoneNumber = client.whatsapp.replace(/\D/g, '');
+                                // Lista de códigos de países comuns
+                                const countryCodes = [
+                                  { code: '351', minLength: 12 },
+                                  { code: '244', minLength: 12 },
+                                  { code: '54', minLength: 12 },
+                                  { code: '56', minLength: 11 },
+                                  { code: '55', minLength: 12 },
+                                  { code: '34', minLength: 11 },
+                                  { code: '1', minLength: 11 }
+                                ];
+                                const hasCountryCode = countryCodes.some(({ code, minLength }) =>
+                                  phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                                );
+                                if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                                  phoneNumber = '55' + phoneNumber;
+                                }
+                                return `https://wa.me/${phoneNumber}`;
+                              })()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                             >
-                              INFORMAÇÕES
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isSavingFalta}
-                              onClick={() => ajustarFaltaCliente(client, 1)}
-                              className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${
-                                isSavingFalta ? 'bg-red-200 text-red-900 opacity-70 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'
-                              }`}
-                            >
-                              FALTOU
-                            </button>
+                              <MessageSquare className="h-5 w-5" />
+                              Enviar Mensagem
+                            </a>
                           </div>
-
-                          <a
-                            href={(() => {
-                              let phoneNumber = client.whatsapp.replace(/\D/g, '');
-                              // Lista de códigos de países comuns
-                              const countryCodes = [
-                                { code: '351', minLength: 12 },
-                                { code: '244', minLength: 12 },
-                                { code: '54', minLength: 12 },
-                                { code: '56', minLength: 11 },
-                                { code: '55', minLength: 12 },
-                                { code: '34', minLength: 11 },
-                                { code: '1', minLength: 11 }
-                              ];
-                              const hasCountryCode = countryCodes.some(({ code, minLength }) =>
-                                phoneNumber.startsWith(code) && phoneNumber.length >= minLength
-                              );
-                              if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
-                                phoneNumber = '55' + phoneNumber;
-                              }
-                              return `https://wa.me/${phoneNumber}`;
-                            })()}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
-                          >
-                            <MessageSquare className="h-5 w-5" />
-                            Enviar Mensagem
-                          </a>
-                        </div>
-                      );
+                        );
                       })
                     )}
                   </div>
@@ -21278,11 +21271,10 @@ Estamos te aguardando! 😎✂️`;
                       handleAddProfessional();
                     }}
                     disabled={professionals.length >= 10}
-                    className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 border ${
-                      Boolean((establishment as any)?.plan_prata_active) && professionals.length >= 1
-                        ? 'bg-[#242628] text-gray-400 border-gray-700 opacity-80'
-                        : 'bg-[#242628] text-white border-gray-700 hover:bg-[#2a2b2d]'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 border ${Boolean((establishment as any)?.plan_prata_active) && professionals.length >= 1
+                      ? 'bg-[#242628] text-gray-400 border-gray-700 opacity-80'
+                      : 'bg-[#242628] text-white border-gray-700 hover:bg-[#2a2b2d]'
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     <Plus className="h-4 w-4" />
                     <span>Adicionar</span>
@@ -22734,7 +22726,7 @@ Estamos te aguardando! 😎✂️`;
                 <br />
                 Duração planejada: <strong>{selectedAppointmentForFinishEarly.duration || 30} minutos</strong>
               </p>
-              
+
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Quanto tempo durou o serviço? (em minutos)
@@ -22744,11 +22736,10 @@ Estamos te aguardando! 😎✂️`;
                     <button
                       key={duration}
                       onClick={() => setSelectedActualDuration(duration)}
-                      className={`px-3 py-2 text-sm font-medium rounded transition-colors ${
-                        selectedActualDuration === duration
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={`px-3 py-2 text-sm font-medium rounded transition-colors ${selectedActualDuration === duration
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
                     >
                       {duration}
                     </button>
@@ -22770,12 +22761,12 @@ Estamos te aguardando! 😎✂️`;
                         endTime.setHours(hours);
                         endTime.setMinutes(minutes + selectedActualDuration);
                         const availableStartTime = `${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`;
-                        
+
                         const originalEndTime = new Date();
                         originalEndTime.setHours(hours);
                         originalEndTime.setMinutes(minutes + (selectedAppointmentForFinishEarly.duration || 30));
                         const originalEndTimeStr = `${String(originalEndTime.getHours()).padStart(2, '0')}:${String(originalEndTime.getMinutes()).padStart(2, '0')}`;
-                        
+
                         return `${availableStartTime} até ${originalEndTimeStr}`;
                       })()}
                     </strong>
@@ -23206,11 +23197,10 @@ Estamos te aguardando! 😎✂️`;
                       type="button"
                       disabled={isSavingFalta || faltas <= 0}
                       onClick={() => ajustarFaltaCliente(selectedClientInfo, -1)}
-                      className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${
-                        faltas <= 0 || isSavingFalta
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      }`}
+                      className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${faltas <= 0 || isSavingFalta
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        }`}
                     >
                       Remover 1 falta
                     </button>
@@ -23262,16 +23252,14 @@ Estamos te aguardando! 😎✂️`;
           onClick={closePlanUpgradeModal}
         >
           <div
-            className={`w-full max-w-md rounded-2xl shadow-2xl border ${
-              useLightLayout ? 'bg-white border-gray-200' : 'bg-[#0B0B0B] border-gray-800'
-            } max-h-[85vh] overflow-y-auto overscroll-contain`}
+            className={`w-full max-w-md rounded-2xl shadow-2xl border ${useLightLayout ? 'bg-white border-gray-200' : 'bg-[#0B0B0B] border-gray-800'
+              } max-h-[85vh] overflow-y-auto overscroll-contain`}
             style={{ WebkitOverflowScrolling: 'touch' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
-              className={`flex items-center justify-between px-4 py-3 border-b ${
-                useLightLayout ? 'border-gray-200' : 'border-gray-800'
-              }`}
+              className={`flex items-center justify-between px-4 py-3 border-b ${useLightLayout ? 'border-gray-200' : 'border-gray-800'
+                }`}
             >
               <div className="flex items-center gap-2">
                 <span className="text-lg">✨</span>
@@ -23301,9 +23289,8 @@ Estamos te aguardando! 😎✂️`;
               </div>
 
               <div
-                className={`mt-2 rounded-xl p-3 border ${
-                  useLightLayout ? 'bg-amber-50 border-amber-200' : 'bg-white/5 border-amber-300/30'
-                }`}
+                className={`mt-2 rounded-xl p-3 border ${useLightLayout ? 'bg-amber-50 border-amber-200' : 'bg-white/5 border-amber-300/30'
+                  }`}
               >
                 <div className={`${useLightLayout ? 'text-gray-900' : 'text-gray-100'} text-sm font-extrabold`}>
                   🥇 No Plano OURO você libera:
@@ -23328,9 +23315,8 @@ Estamos te aguardando! 😎✂️`;
               </button>
 
               <div
-                className={`mt-2 rounded-xl p-3 border ${
-                  useLightLayout ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-800'
-                }`}
+                className={`mt-2 rounded-xl p-3 border ${useLightLayout ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-800'
+                  }`}
               >
                 <div className={`${useLightLayout ? 'text-gray-900' : 'text-gray-100'} text-sm font-extrabold`}>
                   👉 Ou você pode escolher o Plano DIAMANTE 💎
@@ -23365,11 +23351,10 @@ Estamos te aguardando! 😎✂️`;
               <button
                 type="button"
                 onClick={closePlanUpgradeModal}
-                className={`w-full px-4 py-2 rounded-xl font-semibold border transition-all ${
-                  useLightLayout
-                    ? 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
-                    : 'bg-transparent border-gray-700 text-gray-200 hover:bg-white/5'
-                }`}
+                className={`w-full px-4 py-2 rounded-xl font-semibold border transition-all ${useLightLayout
+                  ? 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
+                  : 'bg-transparent border-gray-700 text-gray-200 hover:bg-white/5'
+                  }`}
               >
                 Agora não
               </button>

@@ -209,7 +209,7 @@ export function SpecificServiceModal({
                   </label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
                     value={newService.duration}
                     onChange={(e) => setNewService(prev => ({ ...prev, duration: e.target.value }))}
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"

@@ -1073,6 +1073,28 @@ export function AppointmentForm({
           missingFields.push('forma de pagamento');
         }
       }
+
+      // ✅ Bloquear caso o cliente tente agendar apenas serviço(s) sem tempo (0 min)
+      // Regra: precisa ter pelo menos 5 minutos no total para seguir (0 min só pode ser extra junto com outro)
+      const duracaoSelecionada = (() => {
+        if (useMultiService) {
+          return (selectedServices || []).reduce((sum, s) => sum + (Number((s as any)?.duration) || 0), 0);
+        }
+        if (useCategoryService) {
+          if (useMultiCategoryService) {
+            return (selectedCategoryServices || []).reduce((sum, s: any) => sum + (Number(s?.duration) || 0), 0);
+          }
+          return Number((selectedSubcategory as any)?.duration) || 0;
+        }
+        return Number((selectedService as any)?.duration) || 0;
+      })();
+
+      if (duracaoSelecionada < 5) {
+        toast.error(
+          'Esse serviço não adiciona tempo. Para agendar, selecione outro serviço junto (mínimo 5 minutos).'
+        );
+        return;
+      }
     }
 
     if (!selectedProfessional) {
@@ -1395,8 +1417,48 @@ export function AppointmentForm({
     }
   };
 
+  const getDuracaoTotalServicosSelecionados = (): number => {
+    if (isSubscriberBooking) return subscriberService?.service_duration || 30;
+    // multi-serviço (lista)
+    if (useMultiService) {
+      return (selectedServices || []).reduce((sum, s) => sum + (Number((s as any)?.duration) || 0), 0);
+    }
+    // categorias
+    if (useCategoryService) {
+      if (useMultiCategoryService) {
+        return (selectedCategoryServices || []).reduce((sum, s: any) => sum + (Number(s?.duration) || 0), 0);
+      }
+      return Number((selectedSubcategory as any)?.duration) || 0;
+    }
+    // serviço único
+    return Number((selectedService as any)?.duration) || 0;
+  };
+
+  const bloquearServicoSemTempo = (): boolean => {
+    // Regra: serviço de 0 min pode existir, mas NÃO pode ser agendado sozinho.
+    // Para avançar, a duração total precisa ser pelo menos 5 min.
+    if (isSubscriberBooking) return false;
+    const totalDuracao = getDuracaoTotalServicosSelecionados();
+    if (totalDuracao >= 5) return false;
+
+    // Só exibir se realmente existe seleção de serviço
+    const temServicoSelecionado =
+      Boolean(selectedService) ||
+      (selectedServices && selectedServices.length > 0) ||
+      (selectedCategoryServices && selectedCategoryServices.length > 0) ||
+      Boolean(selectedSubcategory);
+
+    if (!temServicoSelecionado) return false;
+
+    toast.error(
+      'Esse serviço não adiciona tempo. Para agendar, selecione outro serviço junto (mínimo 5 minutos).'
+    );
+    return true;
+  };
+
   // Função para avançar para o próximo step
   const goToNextStep = () => {
+    if (currentStep === 2 && bloquearServicoSemTempo()) return;
     if (canGoToNextStep() && currentStep < totalSteps) {
       setCurrentStep(currentStep + 1);
       // Não fazer scroll - deixar o usuário continuar descendo naturalmente
@@ -2386,6 +2448,14 @@ export function AppointmentForm({
                 }}
                 onBookServices={(services) => {
                   setSelectedServices(services);
+                  // Bloquear se selecionar apenas serviços sem tempo (ex: 0 min)
+                  const total = (services || []).reduce((sum, s) => sum + (Number((s as any)?.duration) || 0), 0);
+                  if (!isSubscriberBooking && total < 5) {
+                    toast.error(
+                      'Esse serviço não adiciona tempo. Para agendar, selecione outro serviço junto (mínimo 5 minutos).'
+                    );
+                    return;
+                  }
                   // Avançar automaticamente para a etapa de data
                   setTimeout(() => {
                     setCurrentStep(3);
@@ -2407,6 +2477,14 @@ export function AppointmentForm({
                 onSelectService={setSelectedService}
                 onBookService={(service) => {
                   setSelectedService(service);
+                  // Bloquear se o serviço não adiciona tempo (ex: 0 min)
+                  const dur = Number((service as any)?.duration) || 0;
+                  if (!isSubscriberBooking && dur < 5) {
+                    toast.error(
+                      'Esse serviço não adiciona tempo. Para agendar, selecione outro serviço junto (mínimo 5 minutos).'
+                    );
+                    return;
+                  }
                   // Avançar automaticamente para a etapa de data
                   setTimeout(() => {
                     setCurrentStep(3);
