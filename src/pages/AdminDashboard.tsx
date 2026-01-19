@@ -365,6 +365,29 @@ const AdminDashboard = () => {
 
   const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
+  const normalizarTexto = (v: string) =>
+    String(v || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const parseValorCents = (token: string): number | null => {
+    const t = String(token || '').trim();
+    // Só considera "dinheiro" quando tiver separador decimal (27,90 / 27.90)
+    if (!/[,.]/.test(t)) return null;
+    const cleaned = t.replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
+    const n = Number(cleaned);
+    if (!Number.isFinite(n)) return null;
+    return Math.round(n * 100);
+  };
+
+  const valorCents = (v: unknown): number | null => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return Math.round(n * 100);
+  };
+
   const calcularLiquidoPix = (bruto: number) => {
     const taxaPlataforma = 0.5; // R$ 0,50
     const taxaPixPercent = 1.19 / 100; // 1,19%
@@ -1789,9 +1812,60 @@ const AdminDashboard = () => {
 
   const filteredEstablishments = establishments
     .filter(establishment => {
-      const matchesSearch = establishment.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        establishment.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        establishment.owner_email.toLowerCase().includes(searchTerm.toLowerCase());
+      const rawTokens = String(searchTerm || '')
+        .split(/\s+/)
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      const profitCents = valorCents((establishment as any)?.admin_profit_value);
+      const isPrataAtivo = Boolean(establishment.plan_prata_active);
+      const centsPrata = 2790; // R$ 27,90
+      const centsOuro = 4790; // R$ 47,90
+      const centsDiamante = 7790; // R$ 77,90
+
+      const planLabel =
+        profitCents === centsDiamante
+          ? 'diamante'
+          : profitCents === centsOuro
+            ? 'ouro'
+            : profitCents === centsPrata || isPrataAtivo
+              ? 'prata'
+              : '';
+
+      const statusLabel = establishment.is_blocked
+        ? 'bloqueado'
+        : establishment.payment_status === 'paid'
+          ? 'pago'
+          : establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)
+            ? 'vencido'
+            : 'pendente';
+
+      const haystack = [
+        establishment.name,
+        establishment.code,
+        establishment.owner_email || '',
+        String((establishment as any)?.whatsapp || ''),
+        establishment.plan_type || '',
+        statusLabel,
+        planLabel,
+        // permitir buscar pelo valor manual (admin) digitando "27,90" etc.
+        profitCents != null ? String(profitCents) : '',
+      ].map(normalizarTexto);
+
+      const matchesSearch =
+        rawTokens.length === 0 ||
+        rawTokens.every(tok => {
+          const cents = parseValorCents(tok);
+          if (cents != null) {
+            // match por valor do plano (via admin_profit_value) ou por PRATA ativo
+            if (profitCents != null && profitCents === cents) return true;
+            if (isPrataAtivo && cents === centsPrata) return true;
+            return false;
+          }
+          const t = normalizarTexto(tok);
+          if (!t) return true;
+          return haystack.some(h => h.includes(t));
+        });
 
       const matchesStatus = filterStatus === 'all' || establishment.payment_status === filterStatus;
       const matchesPlan = filterPlan === 'all' || establishment.plan_type === filterPlan;
@@ -1822,9 +1896,49 @@ const AdminDashboard = () => {
 
   // Filtrar estabelecimentos da lixeira
   const filteredDeletedEstablishments = deletedEstablishments.filter(establishment => {
-    return establishment.name.toLowerCase().includes(searchTermDeleted.toLowerCase()) ||
-      establishment.code.toLowerCase().includes(searchTermDeleted.toLowerCase()) ||
-      (establishment.owner_email || '').toLowerCase().includes(searchTermDeleted.toLowerCase());
+    const rawTokens = String(searchTermDeleted || '')
+      .split(/\s+/)
+      .map(t => t.trim())
+      .filter(Boolean);
+
+    const profitCents = valorCents((establishment as any)?.admin_profit_value);
+    const isPrataAtivo = Boolean(establishment.plan_prata_active);
+    const centsPrata = 2790;
+    const centsOuro = 4790;
+    const centsDiamante = 7790;
+
+    const planLabel =
+      profitCents === centsDiamante
+        ? 'diamante'
+        : profitCents === centsOuro
+          ? 'ouro'
+          : profitCents === centsPrata || isPrataAtivo
+            ? 'prata'
+            : '';
+
+    const haystack = [
+      establishment.name,
+      establishment.code,
+      establishment.owner_email || '',
+      String((establishment as any)?.whatsapp || ''),
+      planLabel,
+      profitCents != null ? String(profitCents) : '',
+    ].map(normalizarTexto);
+
+    return (
+      rawTokens.length === 0 ||
+      rawTokens.every(tok => {
+        const cents = parseValorCents(tok);
+        if (cents != null) {
+          if (profitCents != null && profitCents === cents) return true;
+          if (isPrataAtivo && cents === centsPrata) return true;
+          return false;
+        }
+        const t = normalizarTexto(tok);
+        if (!t) return true;
+        return haystack.some(h => h.includes(t));
+      })
+    );
   });
 
   // Saldo (lucro) manual total — não inclui lixeira pois establishments já vem filtrado
@@ -2071,11 +2185,16 @@ const AdminDashboard = () => {
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Buscar..."
+                  placeholder="Buscar por nome, código, e-mail, WhatsApp, status (pago/vencido), plano (prata/ouro/diamante) ou valor (ex: 27,90)"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
                 />
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500">
+                Mostrando <strong className="text-gray-800">{filteredEstablishments.length}</strong> de{' '}
+                <strong className="text-gray-800">{establishments.length}</strong>
+                {searchTerm.trim() ? ' (filtro aplicado)' : ''}
               </div>
             </div>
 

@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
 import {
   Building,
   Calendar,
@@ -111,114 +110,79 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
     }
 
     try {
-      // ✅ SALVAR A SESSÃO DO ADMIN ANTES DE CRIAR O USUÁRIO
-      const currentAdminUser = await supabase.auth.getUser();
-      const adminUserId = currentAdminUser.data.user?.id;
-      const adminEmail = currentAdminUser.data.user?.email;
+      const { data: currentAdminUser } = await supabase.auth.getUser();
+      const token = String(currentAdminUser?.session?.access_token || '');
+      if (!token) {
+        toast.error('Sessão do admin inválida. Faça login novamente.');
+        return;
+      }
 
-      // ✅ SOLUÇÃO: Criar usuário usando uma nova instância do cliente Supabase
-      // Isso evita que a sessão atual seja afetada
-      const tempSupabase = createClient(
-        import.meta.env.VITE_SUPABASE_URL || '',
-        import.meta.env.VITE_SUPABASE_ANON_KEY || ''
-      );
-
-      // 1. Criar usuário usando o cliente temporário
-      const { data: authData, error: authError } = await tempSupabase.auth.signUp({
-        email: registration.email,
-        password: registration.password,
-        options: {
-          data: {
-            role: 'establishment',
-            full_name: registration.client_name,
-            establishment_name: registration.establishment_name
-          }
-        }
+      const resp = await fetch('/.netlify/functions/admin-create-establishment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ registrationId: registration.id, mode: 'create' }),
       });
 
-      if (authError) {
-        console.error('Erro ao criar usuário:', authError);
-        toast.error(`Erro ao criar usuário: ${authError.message}`);
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok || !payload?.ok) {
+        console.error('Erro ao criar conta (fn):', payload);
+        if (resp.status === 404) {
+          toast.error('Função não encontrada no localhost. Rode o projeto com `netlify dev` ou teste no deploy.');
+        } else {
+          toast.error(payload?.error || 'Erro ao criar conta');
+        }
         return;
       }
 
-      if (!authData.user) {
-        toast.error('Erro: usuário não foi criado');
-        return;
-      }
-
-      console.log('✅ Usuário criado com sucesso sem afetar a sessão do admin');
-
-      // 2. Gerar código único para o estabelecimento
-      const establishmentCode = Math.floor(1000 + Math.random() * 9000).toString();
-
-      // 3. Criar estabelecimento na tabela establishments
-      const { error: establishmentError } = await supabase
-        .from('establishments')
-        .insert({
-          name: registration.establishment_name,
-          code: establishmentCode,
-          description: `Estabelecimento criado automaticamente para ${registration.client_name}`,
-          owner_id: authData.user.id, // Vincular ao usuário criado
-          business_hours: {
-            monday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            tuesday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            wednesday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            thursday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            friday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            saturday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            sunday: { enabled: false, open1: null, close1: null, open2: null, close2: null }
-          },
-          services_with_prices: [],
-          professionals: [],
-          profile_image_url: null,
-          affiliate_link: null,
-          custom_photo_1_url: null,
-          custom_photo_2_url: null,
-          custom_photo_3_url: null,
-          custom_photo_4_url: null,
-          custom_photo_5_url: null,
-          custom_photo_6_url: null,
-          custom_photo_7_url: null,
-          carousel_position: 'below',
-          has_wifi: false,
-          has_parking: false,
-          has_accessibility: false,
-          wifi_password: null,
-          pin_password: null,
-          professionals_pins: [],
-          whatsapp: registration.client_whatsapp || null,
-          payment_status: 'unpaid',
-          plan_type: 'monthly',
-          payment_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
-          is_deleted: false,
-          is_blocked: false,
-          onboarding_step: 1 // Novas contas começam no onboarding
-        });
-
-      if (establishmentError) {
-        console.error('Erro ao criar estabelecimento:', establishmentError);
-        toast.error(`Erro ao criar estabelecimento: ${establishmentError.message}`);
-        return;
-      }
-
-      // 4. Atualizar status da inscrição para aprovada
-      await supabase
-        .from('registration_forms')
-        .update({
-          status: 'approved',
-          processed_at: new Date().toISOString(),
-          processed_by: adminUserId, // ✅ USAR O ID DO ADMIN SALVO ANTERIORMENTE
-          notes: `Conta criada automaticamente. Código: ${establishmentCode}. Email: ${registration.email}, Senha: ${registration.password}. O usuário pode fazer login imediatamente.`
-        })
-        .eq('id', registration.id);
-
-      toast.success(`Conta criada com sucesso! Código: ${establishmentCode}. Email: ${registration.email}, Senha: ${registration.password}`);
+      toast.success(`Conta criada com sucesso! Código: ${payload.establishmentCode}. O usuário pode fazer login imediatamente.`);
       setSelectedRegistration(null);
       fetchRegistrations();
     } catch (error) {
       console.error('Erro ao criar conta:', error);
       toast.error('Erro ao criar conta');
+    }
+  };
+
+  const repairLogin = async (registration: RegistrationForm) => {
+    if (!confirm(`Reparar login de ${registration.establishment_name}? Isso vai confirmar o e-mail e redefinir a senha para a senha salva na inscrição.`)) {
+      return;
+    }
+    try {
+      const { data: currentAdminUser } = await supabase.auth.getUser();
+      const token = String(currentAdminUser?.session?.access_token || '');
+      if (!token) {
+        toast.error('Sessão do admin inválida. Faça login novamente.');
+        return;
+      }
+
+      const resp = await fetch('/.netlify/functions/admin-create-establishment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ registrationId: registration.id, mode: 'repair' }),
+      });
+
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok || !payload?.ok) {
+        console.error('Erro ao reparar login (fn):', payload);
+        if (resp.status === 404) {
+          toast.error('Função não encontrada no localhost. Rode o projeto com `netlify dev` ou teste no deploy.');
+        } else {
+          toast.error(payload?.error || 'Erro ao reparar login');
+        }
+        return;
+      }
+
+      toast.success(`Login reparado! Agora o usuário deve conseguir entrar. Código: ${payload.establishmentCode}`);
+      fetchRegistrations();
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao reparar login.');
     }
   };
 
@@ -711,6 +675,18 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                   >
                     <UserPlus className="w-4 h-4" />
                     CRIAR CONTA
+                  </button>
+                )}
+
+                {/* Botão REPARAR LOGIN (para aprovados) */}
+                {selectedRegistration.status === 'approved' && (
+                  <button
+                    onClick={() => repairLogin(selectedRegistration)}
+                    className="w-full bg-amber-600 text-white py-2 px-4 rounded-lg hover:bg-amber-700 transition-colors flex items-center justify-center gap-2 mb-3"
+                    title="Confirma e-mail e redefine a senha usando a senha salva na inscrição"
+                  >
+                    <Lock className="w-4 h-4" />
+                    REPARAR LOGIN
                   </button>
                 )}
 
