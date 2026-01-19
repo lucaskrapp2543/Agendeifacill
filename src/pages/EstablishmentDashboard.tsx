@@ -17751,6 +17751,59 @@ Estamos te aguardando! 😎✂️`;
                                 professionalId={professional.id}
                                 professionalName={professional.name}
                                 currentLiquidValue={calculateProfessionalNetValue(professional.name, monthlyAppointments)}
+                                // ✅ Pagar baseado em "Novas Vendas" (desde o último pagamento),
+                                // para não travar quando existe um pagamento antigo no mês (ex.: pagamento do mês anterior registrado no dia 01).
+                                newSalesValue={(() => {
+                                  // Usar apenas pagamentos "normais" (não assinatura) como referência do último pagamento
+                                  const lastPayment = allProfessionalPayments
+                                    .filter((p: any) => p.professional_id === professional.id)
+                                    .filter((p: any) => {
+                                      const src = String((p as any)?.payment_source || '').toLowerCase();
+                                      return !src || src === 'normal';
+                                    })
+                                    .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
+
+                                  const base = monthlyAppointments
+                                    .filter((apt) => apt.professional === professional.id && apt.status === 'completed')
+                                    .filter((apt) => {
+                                      // manter consistente com o cálculo exibido em "Novas Vendas"
+                                      if (!lastPayment) return true;
+                                      const aptDate = new Date((apt as any).created_at);
+                                      const paymentDate = new Date(lastPayment.payment_date);
+                                      return aptDate > paymentDate;
+                                    });
+
+                                  const total = base.reduce((total, apt) => {
+                                    const baseValue = apt.total_price || apt.price || 0;
+                                    let netValue: number;
+
+                                    if (professional.percentage === 100) {
+                                      const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                      if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                        const cardTax = (baseValue * paymentTax) / 100;
+                                        netValue = baseValue - cardTax;
+                                      } else {
+                                        netValue = baseValue;
+                                      }
+                                    } else {
+                                      const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                      if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                        if (establishment?.tax_deducted_by_establishment) {
+                                          netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                        } else {
+                                          const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+                                          netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                        }
+                                      } else {
+                                        netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                      }
+                                    }
+
+                                    return total + netValue;
+                                  }, 0);
+
+                                  return total;
+                                })()}
                                 selectedMonth={selectedMonth}
                                 onPaymentRecorded={() => {
                                   // Recarregar dados se necessário

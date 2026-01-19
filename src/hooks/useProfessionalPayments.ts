@@ -20,7 +20,13 @@ interface PaymentSummary {
 /**
  * Hook para gerenciar pagamentos de profissionais
  */
-export const useProfessionalPayments = (establishmentId: string, selectedMonth?: Date) => {
+export type ProfessionalPaymentSourceFilter = 'normal' | 'subscription' | 'all';
+
+export const useProfessionalPayments = (
+  establishmentId: string,
+  selectedMonth?: Date,
+  paymentSource: ProfessionalPaymentSourceFilter = 'normal'
+) => {
   const [payments, setPayments] = useState<ProfessionalPayment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +44,16 @@ export const useProfessionalPayments = (establishmentId: string, selectedMonth?:
         .select('*')
         .eq('establishment_id', establishmentId);
 
+      // Filtrar por origem do pagamento (se a coluna existir)
+      // - normal: payment_source NULL ou 'normal'
+      // - subscription: payment_source = 'subscription'
+      // - all: sem filtro
+      if (paymentSource === 'subscription') {
+        query = query.eq('payment_source', 'subscription');
+      } else if (paymentSource === 'normal') {
+        query = query.or('payment_source.is.null,payment_source.eq.normal');
+      }
+
       // Se um mês específico foi selecionado, filtrar por esse mês
       if (selectedMonth) {
         const startOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
@@ -48,9 +64,24 @@ export const useProfessionalPayments = (establishmentId: string, selectedMonth?:
           .lte('payment_date', endOfMonth.toISOString());
       }
 
-      const { data, error } = await query.order('payment_date', { ascending: false });
+      let { data, error } = await query.order('payment_date', { ascending: false });
 
-      if (error) throw error;
+      // Fallback: bancos antigos sem coluna payment_source
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (msg.includes('payment_source') && msg.includes('does not exist')) {
+          const { data: legacyData, error: legacyError } = await supabase
+            .from('professional_payments')
+            .select('*')
+            .eq('establishment_id', establishmentId)
+            .order('payment_date', { ascending: false });
+          if (legacyError) throw legacyError;
+          data = legacyData;
+          error = null as any;
+        } else {
+          throw error;
+        }
+      }
 
       setPayments(data || []);
       console.log('💰 Pagamentos carregados para o mês:', selectedMonth?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) || 'todos', ':', data?.length || 0);

@@ -10,6 +10,9 @@ interface ProfessionalPaymentControlProps {
   professionalId: string;
   professionalName: string;
   currentLiquidValue: number;
+  // Quando informado, passa a considerar este valor como "pendente para pagar"
+  // (ex.: novas vendas desde o último pagamento), mesmo que o acumulado do mês tenha ficado "pago a mais".
+  newSalesValue?: number;
   selectedMonth?: Date;
   onPaymentRecorded?: () => void;
 }
@@ -19,6 +22,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   professionalId,
   professionalName,
   currentLiquidValue,
+  newSalesValue,
   selectedMonth,
   onPaymentRecorded
 }) => {
@@ -28,7 +32,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     deletePayment,
     getPaymentSummary,
     getProfessionalPayments
-  } = useProfessionalPayments(establishmentId, selectedMonth);
+  } = useProfessionalPayments(establishmentId, selectedMonth, 'normal');
 
   const [showHistory, setShowHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -51,12 +55,15 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   // O valor original (total do mês) é o currentLiquidValue passado como prop
   // O valor pendente é o que sobra após descontar pagamentos já feitos
   const totalLiquidValue = currentLiquidValue; // Valor total do mês (antes de descontar pagamentos)
+  const overpaidAmount = Math.max(0, totalPaid - totalLiquidValue);
+  const pendingToPay =
+    typeof newSalesValue === 'number' && Number.isFinite(newSalesValue) ? Math.max(0, newSalesValue) : pendingAmount;
 
   const paymentSummary = getPaymentSummary(professionalId);
   const professionalPayments = getProfessionalPayments(professionalId);
 
   const handlePayFullAmount = async () => {
-    if (pendingAmount <= 0) {
+    if (pendingToPay <= 0) {
       toast.error('Não há valor pendente para pagar');
       return;
     }
@@ -69,8 +76,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     setIsProcessing(true);
 
     try {
-      await recordPayment(professionalId, professionalName, pendingAmount);
-      toast.success(`Pagamento de ${formatCurrency(pendingAmount)} registrado para ${professionalName}`);
+      await recordPayment(professionalId, professionalName, pendingToPay);
+      toast.success(`Pagamento de ${formatCurrency(pendingToPay)} registrado para ${professionalName}`);
       onPaymentRecorded?.();
       setShowPaymentOptions(false);
 
@@ -95,8 +102,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       return;
     }
 
-    if (amount > pendingAmount) {
-      toast.error(`Valor não pode ser maior que ${formatCurrency(pendingAmount)}`);
+    if (amount > pendingToPay) {
+      toast.error(`Valor não pode ser maior que ${formatCurrency(pendingToPay)}`);
       return;
     }
 
@@ -129,7 +136,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   };
 
   const handlePaymentClick = () => {
-    if (pendingAmount <= 0) {
+    if (pendingToPay <= 0) {
       toast.error('Não há valor pendente para pagar');
       return;
     }
@@ -330,9 +337,9 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             )}
           </div>
 
-          {pendingAmount > 0 && (
+          {pendingToPay > 0 && (
             <div className="text-sm text-blue-600 font-medium">
-              Pendente: {formatCurrency(pendingAmount)}
+              Pendente: {formatCurrency(pendingToPay)}
             </div>
           )}
         </div>
@@ -340,12 +347,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
         {/* Botões - Layout Mobile */}
         <div className="flex flex-col sm:flex-row gap-2">
           {/* Botão PAGAR */}
-          {pendingAmount > 0 && !showPaymentOptions && (
+          {pendingToPay > 0 && !showPaymentOptions && (
             <button
               onClick={handlePaymentClick}
               disabled={isProcessing || loading}
               className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-              title={`Pagar ${formatCurrency(pendingAmount)} para ${professionalName}`}
+              title={`Pagar ${formatCurrency(pendingToPay)} para ${professionalName}`}
             >
               <Check className="w-4 h-4" />
               <span>PAGAR</span>
@@ -366,10 +373,19 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           )}
 
           {/* Mensagem quando não há valor pendente */}
-          {pendingAmount <= 0 && currentLiquidDisplay <= 0 && !isProcessing && (
-            <div className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-gray-100 text-gray-600 text-sm rounded">
+          {pendingToPay <= 0 && !isProcessing && (
+            <div
+              className={`w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 text-sm rounded ${
+                overpaidAmount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+              }`}
+              title={
+                overpaidAmount > 0
+                  ? `Pago a mais: ${formatCurrency(overpaidAmount)} (ver Histórico para corrigir)`
+                  : 'Sem pendências de pagamento'
+              }
+            >
               <Check className="w-4 h-4" />
-              <span>Em dia</span>
+              <span>{overpaidAmount > 0 ? `Pago a mais: ${formatCurrency(overpaidAmount)}` : 'Em dia'}</span>
             </div>
           )}
 
@@ -387,7 +403,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       </div>
 
       {/* Opções de Pagamento */}
-      {showPaymentOptions && pendingAmount > 0 && (
+      {showPaymentOptions && pendingToPay > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm font-medium text-blue-700">
@@ -409,7 +425,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Check className="w-4 h-4" />
-              <span>Pagar Todo Líquido ({formatCurrency(pendingAmount)})</span>
+              <span>Pagar Pendente ({formatCurrency(pendingToPay)})</span>
             </button>
 
             {/* Pagar Valor Específico */}
@@ -427,7 +443,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                     type="text"
                     value={customAmount}
                     onChange={(e) => setCustomAmount(e.target.value)}
-                    placeholder={`Máximo: ${formatCurrency(pendingAmount)}`}
+                    placeholder={`Máximo: ${formatCurrency(pendingToPay)}`}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <div className="flex space-x-2">
