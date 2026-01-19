@@ -938,6 +938,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           price: totalPrice,
           total_price: totalPrice,
           duration: totalDuration,
+          // ✅ Reserva interna: deixar um padrão (para não ficar "Forma de Pagamento")
+          payment_method: isSubscriber ? 'assinante' : 'dinheiro',
           is_avulso: isAvulso,
           is_subscriber: isSubscriber // Salvar se é assinante
         })

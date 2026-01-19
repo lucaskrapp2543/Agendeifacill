@@ -1961,6 +1961,27 @@ const AdminDashboard = () => {
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
 
+  // Saldo do dia (HOJE): soma do lucro manual apenas de quem PAGOU HOJE
+  const dayStart = startOfDay(now);
+  const dayEnd = endOfDay(now);
+  const paidToday = establishments.filter(est => {
+    if (!est.payment_paid_at) return false;
+    const t = new Date(est.payment_paid_at).getTime();
+    if (!Number.isFinite(t)) return false;
+    return t >= dayStart.getTime() && t <= dayEnd.getTime();
+  });
+  const saldoDiaProfit = paidToday.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+
+  // Clientes (estabelecimentos) criados hoje (para controle rápido, sem query extra)
+  const clientesHojeCount = establishments.filter(est => {
+    const t = new Date(est.created_at).getTime();
+    if (!Number.isFinite(t)) return false;
+    return t >= dayStart.getTime() && t <= dayEnd.getTime();
+  }).length;
+
   // Mostrar loading enquanto verifica autenticação
   if (!user) {
     return (
@@ -2040,7 +2061,7 @@ const AdminDashboard = () => {
 
       <div className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6">
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-9 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <Building2 className="h-8 w-8 text-blue-600" />
@@ -2071,6 +2092,19 @@ const AdminDashboard = () => {
                 <p className="text-xs text-green-800/80 mt-1">
                   {paidThisMonth.length} pago(s) de{' '}
                   {monthStart.toLocaleDateString('pt-BR')} até {now.toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <DollarSign className="h-8 w-8 text-emerald-700" />
+              <div className="ml-4">
+                <p className="text-sm font-medium text-emerald-900">Saldo do dia</p>
+                <p className="text-2xl font-bold text-emerald-900">{fmtBRL(saldoDiaProfit)}</p>
+                <p className="text-xs text-emerald-800/80 mt-1">
+                  {paidToday.length} pago(s) hoje • {clientesHojeCount} novo(s) hoje
                 </p>
               </div>
             </div>

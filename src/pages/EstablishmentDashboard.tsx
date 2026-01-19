@@ -19710,65 +19710,6 @@ Estamos te aguardando! 😎✂️`;
           {activeTab === 'subscribers' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Gerenciar Assinantes</h2>
-
-              {/* Vídeo Tutorial */}
-              {showTutorials.subscribers && (
-                <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                        <span className="text-gray-700 text-xl">📺</span>
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Assinantes</h3>
-                        <p className="text-sm text-gray-600">Aprenda a gerenciar assinantes e acompanhar pagamentos</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => toggleTutorial('subscribers')}
-                      className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
-                    >
-                      Ocultar Tutorial
-                    </button>
-                  </div>
-
-                  <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
-                    <iframe
-                      className="absolute top-0 left-0 w-full h-full"
-                      src="https://www.youtube.com/embed/4diswxWV_f0"
-                      title="Tutorial: Como Gerenciar Assinantes"
-                      frameBorder="0"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                    ></iframe>
-                  </div>
-
-                  <div className="mt-3 text-center">
-                    <a
-                      href="https://youtu.be/4diswxWV_f0"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
-                    >
-                      <span>📺</span>
-                      <span>Assistir no YouTube</span>
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {/* Botão para mostrar tutorial se estiver oculto */}
-              {!showTutorials.subscribers && (
-                <div className="mb-6 text-center">
-                  <button
-                    onClick={() => toggleTutorial('subscribers')}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
-                  >
-                    <span>📺</span>
-                    <span>Mostrar Tutorial</span>
-                  </button>
-                </div>
-              )}
               <SubscribersManager
                 establishmentId={establishment.id}
                 clients={clients}
