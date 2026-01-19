@@ -143,24 +143,25 @@ export const handler: Handler = async (event) => {
       return json(500, { error: 'Falha ao obter userId' });
     }
 
-    // 2) Garantir estabelecimento (não duplicar). Em mode=repair, tenta reaproveitar sempre.
-    const { data: existingEst, error: existingErr } = await supabaseAdmin
+    // 2) Garantir estabelecimento (NÃO duplicar).
+    // - Se já existir algum establishment para este owner_id: reaproveitar (não cria outro, não muda código).
+    // - Se mode=repair e não existir: NÃO cria (retorna erro explicando).
+    const { data: existingEsts, error: existingErr } = await supabaseAdmin
       .from('establishments')
-      .select('id, code')
+      .select('id, code, is_deleted')
       .eq('owner_id', userId)
-      .or('is_deleted.is.null,is_deleted.eq.false')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(5);
 
     if (existingErr) {
-      // se der erro de permissão/schema, seguir para tentativa de insert
-      console.error('Erro ao checar estabelecimento existente:', existingErr);
+      console.error('Erro ao checar estabelecimentos existentes:', existingErr);
+      return json(500, { error: 'Erro ao checar estabelecimentos existentes' });
     }
 
-    if (existingEst?.code) {
-      const establishmentCode = String((existingEst as any).code || '').trim();
-      // 3) Marcar inscrição como aprovada (mesmo em repair, registra atividade)
+    const activeExisting = (existingEsts || []).find((e: any) => e?.code && !e?.is_deleted) as any;
+    if (activeExisting?.code) {
+      const establishmentCode = String(activeExisting.code || '').trim();
+
       await supabaseAdmin
         .from('registration_forms')
         .update({
@@ -170,11 +171,19 @@ export const handler: Handler = async (event) => {
           notes:
             mode === 'repair'
               ? `Login reparado (senha redefinida/confirmado). Código existente: ${establishmentCode}. Email: ${email}.`
-              : `Conta criada automaticamente. Código: ${establishmentCode}. Email: ${email}. O usuário pode fazer login imediatamente.`,
+              : `Conta criada automaticamente. Código existente: ${establishmentCode}. Email: ${email}. O usuário pode fazer login imediatamente.`,
         })
         .eq('id', registrationId);
 
       return json(200, { ok: true, userId, establishmentCode, reused: true, mode });
+    }
+
+    if (mode === 'repair') {
+      // Segurança: reparar login não cria estabelecimento. Só reseta senha/confirma.
+      return json(400, {
+        error:
+          'Não encontrei nenhum estabelecimento existente para este e-mail. REPARAR LOGIN só redefine senha/confirma e-mail (não cria outro). Use CRIAR CONTA se precisar criar.',
+      });
     }
 
     // 2b) Criar estabelecimento (não existe nenhum ainda para esse owner_id)
