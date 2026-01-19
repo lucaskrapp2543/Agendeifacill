@@ -119,18 +119,19 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                 <div className="text-sm font-bold text-emerald-200">Como funciona</div>
                 <div className="mt-2 text-sm text-gray-200 leading-relaxed">
                   Quando estiver ativo, o Agendei Fácil envia automaticamente um lembrete por WhatsApp para o cliente cerca de{' '}
-                  <span className="font-semibold text-white">{settings?.remind_before_minutes ?? 60} minutos</span> antes do
-                  agendamento. As mensagens são enviadas do seu próprio número conectado ao sistema.
+                  <span className="font-semibold text-white">1 hora</span> antes do agendamento. As mensagens são enviadas do seu próprio
+                  número conectado ao sistema.
                 </div>
               </div>
 
               <div className="rounded-xl border border-emerald-500/15 bg-black/30 p-4">
-                <div className="text-sm font-bold text-emerald-200">Qual o valor desse recurso?</div>
+                <div className="text-sm font-bold text-emerald-200">O que preciso para esse recurso?</div>
                 <div className="mt-2 text-sm text-gray-200 leading-relaxed">
-                  Apenas <span className="font-extrabold text-amber-200">R$ 22,00</span> a mais na sua fatura mensal do Agendei Fácil.
+                  Esse recurso é exclusivo do plano{' '}
+                  <span className="font-extrabold text-amber-200">Diamante</span>. Ative seu lembrete abaixo e entre hoje mesmo no Diamante.
                 </div>
-                <div className="mt-2 text-sm text-gray-200 leading-relaxed">
-                  Apenas vinte e dois reais a mais para lembretes ilimitado.
+                <div className="mt-2 text-xs text-gray-400 leading-relaxed">
+                  <span className="font-semibold text-gray-300">Observação:</span> os pagamentos adiantados estão disponíveis em todos os planos.
                 </div>
               </div>
             </div>
@@ -164,15 +165,19 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
               </div>
 
               <div className="mt-2 text-sm text-gray-200 leading-relaxed">
-                Você não paga mensalidade extra. Existe apenas a taxa de processamento do PIX.
+                Você não paga mensalidade extra. Existem apenas taxas de processamento pequenas — leia abaixo.
               </div>
 
               <div className="mt-3 rounded-xl border border-emerald-500/10 bg-black/35 p-3 text-sm text-gray-200">
-                <div className="font-bold text-emerald-200 mb-1">Taxas do PIX</div>
-                <div>• 1,19% no PIX</div>
-                <div>• R$ 0,50 por pagamento</div>
-                <div className="mt-2 text-xs text-gray-400">
-                  * Valores aproximados; pode haver variação por arredondamentos e regras do provedor.
+                <div className="font-bold text-emerald-200 mb-1">Como funciona o recebimento</div>
+                <div className="text-sm text-gray-200 leading-relaxed">
+                  Ao ativar essa opção, quando o cliente pagar (serviço e/ou assinatura), o valor cai direto na sua conta do{' '}
+                  <span className="font-semibold text-white">Mercado Pago</span>. Você pode sacar para sua conta bancária ou deixar no
+                  Mercado Pago e usar normalmente (ele também funciona como banco).
+                </div>
+                <div className="mt-2 text-sm text-gray-200 leading-relaxed">
+                  As taxas são baixas: <span className="font-semibold text-white">R$ 0,50 por pagamento</span> + a taxa do próprio Mercado
+                  Pago (geralmente bem menor do que as taxas de maquininha de cartão).
                 </div>
               </div>
             </div>

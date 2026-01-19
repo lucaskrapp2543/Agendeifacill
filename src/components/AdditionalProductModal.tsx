@@ -32,10 +32,16 @@ const AdditionalProductModal = ({
   const safeInterval = Number.isFinite(intervalMinutes) && intervalMinutes > 0 ? intervalMinutes : 15;
   const safeMax = Number.isFinite(maxDurationMinutes) && maxDurationMinutes > 0 ? maxDurationMinutes : 120;
 
-  const durationOptions: number[] = [];
+  // Sempre oferecer 0 e 5 min, além do intervalo padrão do estabelecimento
+  const durationOptionsSet = new Set<number>();
+  durationOptionsSet.add(0);
+  if (safeMax >= 5) durationOptionsSet.add(5);
+
   for (let m = safeInterval; m <= safeMax; m += safeInterval) {
-    durationOptions.push(m);
+    durationOptionsSet.add(m);
   }
+
+  const durationOptions = Array.from(durationOptionsSet).sort((a, b) => a - b);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +53,7 @@ const AdditionalProductModal = ({
     }
 
     const duration = parseInt(extraDuration, 10);
-    if (!Number.isFinite(duration) || duration <= 0) {
+    if (!Number.isFinite(duration) || duration < 0) {
       alert('Por favor, selecione um tempo válido');
       return;
     }
