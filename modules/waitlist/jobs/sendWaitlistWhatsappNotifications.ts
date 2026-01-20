@@ -8,12 +8,6 @@ type PendingOutboxRow = {
   waitlist_entry_id: string | null;
   phone_to: string;
   message: string;
-  whatsapp_instances?: {
-    api_key_encrypted: string;
-    provider: string;
-    phone_number: string;
-    status: string;
-  } | null;
 };
 
 function sleep(ms: number) {
@@ -37,12 +31,13 @@ export async function runSendWaitlistWhatsappNotificationsOnce() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // Buscar pendências + instancia do estabelecimento (módulo whatsapp-reminders)
-  // Observação: caso o módulo whatsapp-reminders não esteja instalado, essa query pode falhar.
+  // Buscar pendências (outbox) da fila.
+  // OBS: Não fazemos JOIN com whatsapp_instances aqui porque NÃO existe relação (FK) no PostgREST
+  // entre waitlist_whatsapp_outbox e whatsapp_instances (a ligação é por establishment_id).
   const { data, error } = await supabase
     .from('waitlist_whatsapp_outbox')
     .select(
-      'id, establishment_id, waitlist_entry_id, phone_to, message, whatsapp_instances:whatsapp_instances!left(api_key_encrypted, provider, phone_number, status)'
+      'id, establishment_id, waitlist_entry_id, phone_to, message'
     )
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
@@ -62,9 +57,49 @@ export async function runSendWaitlistWhatsappNotificationsOnce() {
   let sent = 0;
   let failed = 0;
 
+  // Buscar instâncias do WhatsApp (WaSender) por establishment_id (cache em memória)
+  const establishmentIds = Array.from(new Set(rows.map((r) => r.establishment_id).filter(Boolean)));
+  const instanceByEstablishment = new Map<
+    string,
+    { api_key_encrypted: string; provider: string; phone_number: string; status: string } | null
+  >();
+
+  try {
+    if (establishmentIds.length > 0) {
+      const { data: instData, error: instErr } = await supabase
+        .from('whatsapp_instances')
+        .select('establishment_id, api_key_encrypted, provider, phone_number, status')
+        .in('establishment_id', establishmentIds);
+
+      if (instErr) {
+        const msg = String((instErr as any)?.message || '');
+        if (msg.includes('whatsapp_instances') && msg.includes('does not exist')) {
+          console.error('❌ Tabela whatsapp_instances não existe (módulo whatsapp-reminders não instalado).');
+        } else {
+          console.error('❌ Erro ao buscar whatsapp_instances:', instErr);
+        }
+        // Mantém o Map vazio — cada envio abaixo vai falhar de forma controlada.
+      } else {
+        const list = (instData as any[]) || [];
+        for (const inst of list) {
+          const key = String(inst.establishment_id || '').trim();
+          if (!key) continue;
+          instanceByEstablishment.set(key, {
+            api_key_encrypted: String(inst.api_key_encrypted || ''),
+            provider: String(inst.provider || ''),
+            phone_number: String(inst.phone_number || ''),
+            status: String(inst.status || ''),
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.error('❌ Falha inesperada ao carregar whatsapp_instances:', e);
+  }
+
   for (const r of rows) {
     try {
-      const inst = r.whatsapp_instances;
+      const inst = instanceByEstablishment.get(r.establishment_id) ?? null;
       if (!inst?.api_key_encrypted) {
         throw new Error('Estabelecimento sem whatsapp_instances configurado (api_key_encrypted ausente).');
       }
