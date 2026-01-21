@@ -95,6 +95,7 @@ export default function BookingPage() {
   // ✅ Fila de espera (booking público)
   const [showWaitlistModal, setShowWaitlistModal] = useState(false);
   const [waitlistEntries, setWaitlistEntries] = useState<any[]>([]);
+  const [waitlistEntriesAll, setWaitlistEntriesAll] = useState<any[]>([]);
   const [isLoadingWaitlist, setIsLoadingWaitlist] = useState(false);
   const [showLeaveWaitlistForm, setShowLeaveWaitlistForm] = useState(false);
   const [leaveWaitlistPhone, setLeaveWaitlistPhone] = useState('');
@@ -102,6 +103,8 @@ export default function BookingPage() {
   const [waitlistName, setWaitlistName] = useState('');
   const [waitlistPhone, setWaitlistPhone] = useState('');
   const [waitlistSelectedServiceIds, setWaitlistSelectedServiceIds] = useState<string[]>([]);
+  const [waitlistQueueProfessionalId, setWaitlistQueueProfessionalId] = useState<string>(''); // nova: fila por profissional
+  const [waitlistQueueCounts, setWaitlistQueueCounts] = useState<Record<string, number>>({});
 
   // Pagamento antecipado (Pagar.me) no booking público
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -1159,8 +1162,42 @@ export default function BookingPage() {
   };
 
   const normalizePhoneDigits = (phone: string) => String(phone || '').replace(/\D/g, '');
+  const normalizeWhatsappForStorage = (input: string): string => {
+    const digits = normalizePhoneDigits(input);
+    if (!digits) return '';
+    // Se já tem código de país conhecido, mantém
+    const known = [
+      { code: '55', minLength: 12 }, // BR
+      { code: '351', minLength: 11 }, // PT
+      { code: '34', minLength: 11 }, // ES
+      { code: '1', minLength: 11 }, // US/CA
+    ];
+    const hasCountryCode = known.some(({ code, minLength }) => digits.startsWith(code) && digits.length >= minLength);
+    if (hasCountryCode) return digits;
+    // Senão, assume BR (10/11 dígitos) e adiciona 55
+    if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
+    return digits;
+  };
   const filaEsperaAtiva = Boolean((establishment as any)?.fila_espera_ativa);
   const filaEsperaFechada = Boolean((establishment as any)?.fila_espera_fechada);
+  const filaEsperaProfissionaisIds = (() => {
+    const ids = (((establishment as any)?.fila_espera_profissional_ids || []) as any[])
+      .map((x: any) => String(x || '').trim())
+      .filter(Boolean);
+    if (ids.length) return ids;
+    const legacy = String((establishment as any)?.fila_espera_profissional_id || '').trim();
+    return legacy ? [legacy] : [];
+  })();
+  const filaEsperaProfissionais = (() => {
+    const profs = (((establishment as any)?.professionals || []) as any[])
+      .filter((p: any) => !p?.hidden_from_booking);
+    const uniqueIds = Array.from(new Set(filaEsperaProfissionaisIds));
+    return uniqueIds.map((pid) => {
+      const p = profs.find((x: any) => String(x?.id) === String(pid));
+      return { id: pid, name: String(p?.name || 'Profissional').trim() || 'Profissional' };
+    });
+  })();
+  const isFilaPorProfissional = filaEsperaProfissionais.length > 1;
 
   // Prefill de nome/telefone para fila (se já coletou no fluxo rápido)
   useEffect(() => {
@@ -1176,7 +1213,7 @@ export default function BookingPage() {
     try {
       const { data, error } = await supabase
         .from('waitlist_entries')
-        .select('id, client_name, client_whatsapp, service_name, service_price, service_duration_minutes, started_at, created_at')
+        .select('id, client_name, client_whatsapp, service_name, service_price, service_duration_minutes, started_at, created_at, professional_id')
         .eq('establishment_id', establishment.id)
         .eq('status', 'waiting')
         .order('created_at', { ascending: true });
@@ -1192,12 +1229,33 @@ export default function BookingPage() {
             .eq('status', 'waiting')
             .order('created_at', { ascending: true });
           if (legacyError) throw legacyError;
-          setWaitlistEntries(((legacyData as any[]) || []).map((r: any) => ({ ...r })));
+          const allLegacy = ((legacyData as any[]) || []).map((r: any) => ({ ...r }));
+          setWaitlistEntriesAll(allLegacy);
+          setWaitlistQueueCounts({});
+          setWaitlistEntries(allLegacy);
           return;
         }
         throw error;
       }
-      setWaitlistEntries((data as any[]) || []);
+      const all = (data as any[]) || [];
+      setWaitlistEntriesAll(all);
+
+      // Contagem por fila (profissional)
+      const counts: Record<string, number> = {};
+      for (const r of all) {
+        const pid = String((r as any)?.professional_id || '').trim();
+        if (!pid) continue;
+        counts[pid] = (counts[pid] || 0) + 1;
+      }
+      setWaitlistQueueCounts(counts);
+
+      // Filtrar conforme fila selecionada (modo por profissional)
+      const selectedPid = String(waitlistQueueProfessionalId || '').trim();
+      if (isFilaPorProfissional && selectedPid) {
+        setWaitlistEntries(all.filter((r: any) => String(r?.professional_id || '').trim() === selectedPid));
+      } else {
+        setWaitlistEntries(all);
+      }
     } catch (e: any) {
       console.error('❌ Erro ao carregar fila (booking):', e);
       toast.error(e?.message || 'Erro ao carregar fila de espera');
@@ -1208,9 +1266,28 @@ export default function BookingPage() {
 
   useEffect(() => {
     if (!showWaitlistModal) return;
+    // Se houver mais de uma fila, escolher a primeira como padrão ao abrir
+    if (!waitlistQueueProfessionalId && filaEsperaProfissionais.length > 0) {
+      setWaitlistQueueProfessionalId(filaEsperaProfissionais[0].id);
+    }
     fetchWaitlist();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showWaitlistModal, establishment?.id]);
+
+  // Refiltrar lista quando o usuário troca a fila selecionada
+  useEffect(() => {
+    if (!showWaitlistModal) return;
+    if (!isFilaPorProfissional) {
+      setWaitlistEntries(waitlistEntriesAll);
+      return;
+    }
+    const selectedPid = String(waitlistQueueProfessionalId || '').trim();
+    if (!selectedPid) {
+      setWaitlistEntries(waitlistEntriesAll);
+      return;
+    }
+    setWaitlistEntries(waitlistEntriesAll.filter((r: any) => String(r?.professional_id || '').trim() === selectedPid));
+  }, [showWaitlistModal, isFilaPorProfissional, waitlistQueueProfessionalId, waitlistEntriesAll]);
 
   const fmtBRL = (v: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
@@ -1277,7 +1354,7 @@ export default function BookingPage() {
     }
 
     const nome = String(waitlistName || '').trim();
-    const phoneDigits = normalizePhoneDigits(waitlistPhone);
+    const phoneDigits = normalizeWhatsappForStorage(waitlistPhone);
     const ids = (waitlistSelectedServiceIds || []).map((x) => String(x)).filter(Boolean);
 
     if (!nome) {
@@ -1303,9 +1380,13 @@ export default function BookingPage() {
       return;
     }
 
-    const profissionalPadraoId = String((establishment as any)?.fila_espera_profissional_id || '').trim();
-    if (!profissionalPadraoId) {
-      toast.error('Fila de espera ainda não foi configurada com um profissional. Peça ao estabelecimento para ativar corretamente no dashboard.');
+    const profissionalPadraoIdLegacy = String((establishment as any)?.fila_espera_profissional_id || '').trim();
+    const profissionalFila =
+      (isFilaPorProfissional ? String(waitlistQueueProfessionalId || '').trim() : '') ||
+      (filaEsperaProfissionais[0]?.id ? String(filaEsperaProfissionais[0].id) : '') ||
+      profissionalPadraoIdLegacy;
+    if (!profissionalFila) {
+      toast.error('Fila de espera ainda não foi configurada com profissional(is). Peça ao estabelecimento para ativar corretamente no dashboard.');
       return;
     }
 
@@ -1330,7 +1411,7 @@ export default function BookingPage() {
         client_name: nome,
         client_whatsapp: phoneDigits,
         service: serviceName,
-        professional: profissionalPadraoId,
+        professional: profissionalFila,
         appointment_date: appointmentDate,
         appointment_time: appointmentTime,
         duration: Number.isFinite(totalDuration) ? totalDuration : 0,
@@ -1392,7 +1473,7 @@ export default function BookingPage() {
           price: Number(s?.price ?? 0),
           duration: Number(s?.duration ?? s?.service_duration ?? 0),
         })),
-        professional_id: profissionalPadraoId,
+        professional_id: profissionalFila,
         source: 'booking',
         status: 'waiting',
       };
@@ -1474,7 +1555,7 @@ export default function BookingPage() {
       return;
     }
 
-    const phoneDigits = normalizePhoneDigits(leaveWaitlistPhone);
+    const phoneDigits = normalizeWhatsappForStorage(leaveWaitlistPhone);
     if (!phoneDigits) {
       toast.error('Informe o telefone/WhatsApp que você usou para entrar na fila.');
       return;
@@ -2907,6 +2988,35 @@ export default function BookingPage() {
                 Veja a fila atual por ordem de chegada e entre na fila de espera.
               </div>
 
+              {isFilaPorProfissional && (
+                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                  <div className="text-xs text-white/70 mb-2">Escolha a fila (profissional)</div>
+                  <div className="flex flex-wrap gap-2">
+                    {filaEsperaProfissionais.map((p) => {
+                      const active = String(waitlistQueueProfessionalId) === String(p.id);
+                      const count = Number(waitlistQueueCounts?.[p.id] || 0);
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setWaitlistQueueProfessionalId(p.id)}
+                          className={`px-3 py-2 rounded-lg text-xs font-extrabold border transition-colors ${
+                            active
+                              ? 'bg-white text-black border-white'
+                              : 'bg-white/5 text-white/90 border-white/10 hover:bg-white/10'
+                          }`}
+                        >
+                          {p.name} <span className={active ? 'text-black/70' : 'text-white/60'}>({count})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 text-[11px] text-white/60">
+                    Dica: escolha a fila com menos pessoas para ser atendido mais rápido.
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                 {isLoadingWaitlist ? (
                   <div className="text-sm text-white/70">Carregando fila...</div>
@@ -3013,6 +3123,23 @@ export default function BookingPage() {
               ) : showJoinWaitlistForm ? (
                 <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3">
                   <div className="text-sm font-extrabold text-white">Entrar na fila</div>
+
+                  {isFilaPorProfissional && (
+                    <div className="space-y-2">
+                      <label className="block text-xs text-white/70">Fila (profissional)</label>
+                      <select
+                        value={waitlistQueueProfessionalId}
+                        onChange={(e) => setWaitlistQueueProfessionalId(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                      >
+                        {filaEsperaProfissionais.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({Number(waitlistQueueCounts?.[p.id] || 0)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <label className="block text-xs text-white/70">Nome</label>

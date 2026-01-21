@@ -885,16 +885,33 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         return `${part1}-${part2}-${part3}-${part4}-${part5}`;
       };
 
+      const normalizeWhatsappForStorage = (input?: string | null): string | null => {
+        const digits = String(input || '').replace(/\D/g, '');
+        if (!digits) return null;
+        // Se já tem código de país conhecido, mantém
+        const known = [
+          { code: '55', minLength: 12 }, // BR
+          { code: '351', minLength: 11 }, // PT
+          { code: '34', minLength: 11 }, // ES
+          { code: '1', minLength: 11 }, // US/CA
+        ];
+        const hasCountryCode = known.some(({ code, minLength }) => digits.startsWith(code) && digits.length >= minLength);
+        if (hasCountryCode) return digits;
+        // Senão, assume BR (10/11 dígitos) e adiciona 55
+        if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
+        return digits;
+      };
+
       // Determinar client_id e client_name
       let clientId: string;
       let clientName: string;
-      let clientWhatsapp: string | undefined;
+      let clientWhatsapp: string | null;
       let isAvulso: boolean;
 
       if (isSubscriber) {
         clientId = user?.id || '';
         clientName = 'ASSINANTE';
-        clientWhatsapp = undefined;
+        clientWhatsapp = null;
         isAvulso = false;
       } else if (isKnownClient) {
         // Se o cliente é manual (id começa com "manual_"), usar o user_id do estabelecimento
@@ -909,12 +926,12 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           clientId = selectedClient.id; // Cliente com UUID válido (deve existir em users)
         }
         clientName = selectedClient.name;
-        clientWhatsapp = selectedClient.whatsapp;
+        clientWhatsapp = normalizeWhatsappForStorage(selectedClient.whatsapp);
         isAvulso = false; // Cliente conhecido não é avulso
       } else {
         clientId = user?.id || '';
         clientName = 'CLIENTE AVULSO';
-        clientWhatsapp = undefined;
+        clientWhatsapp = null;
         isAvulso = true;
       }
 

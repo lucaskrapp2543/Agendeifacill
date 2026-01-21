@@ -40,6 +40,29 @@ function defaultTemplate() {
   );
 }
 
+function normalizePhoneCandidates(raw: string): string[] {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return [];
+  const set = new Set<string>();
+  set.add(digits);
+  // Brasil: se veio sem DDI, tentar prefixar 55 (10 ou 11 dígitos)
+  if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+    set.add(`55${digits}`);
+  }
+  // Se veio com 55 mas talvez o provider espere sem, tentar remover
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    set.add(digits.slice(2));
+  }
+  return Array.from(set).filter(Boolean);
+}
+
+function computeNextAttemptAt(attemptCount: number): string | null {
+  // backoff: 3min, 7min, 15min, 30min...
+  const minutes = attemptCount <= 1 ? 3 : attemptCount === 2 ? 7 : attemptCount === 3 ? 15 : 30;
+  const d = new Date(Date.now() + minutes * 60_000);
+  return d.toISOString();
+}
+
 export async function runSendWhatsappRemindersOnce() {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -90,23 +113,52 @@ export async function runSendWhatsappRemindersOnce() {
         appointment_time: r.appointment_time?.slice(0, 5) || r.appointment_time,
       });
 
-      const sendRes = await wasenderSendMessage({
-        baseUrl: wasenderBaseUrl,
-        apiKey,
-        to: r.client_whatsapp,
-        text: msg,
-      });
+      const toCandidates = normalizePhoneCandidates(r.client_whatsapp);
+      if (toCandidates.length === 0) {
+        throw new Error('Destino inválido (client_whatsapp vazio/sem dígitos).');
+      }
+
+      let sendRes = { ok: false, status: 0, data: undefined as any, errorText: undefined as any };
+      let usedTo = toCandidates[0];
+      for (const cand of toCandidates) {
+        usedTo = cand;
+        sendRes = await wasenderSendMessage({
+          baseUrl: wasenderBaseUrl,
+          apiKey,
+          to: cand,
+          text: msg,
+        });
+        if (sendRes.ok) break;
+      }
 
       const status = sendRes.ok ? 'sent' : 'failed';
+      const providerResponse = JSON.stringify(sendRes.data ?? sendRes.errorText ?? null);
+      const attemptInc = 1;
+      const nextAttemptAt = sendRes.ok ? null : computeNextAttemptAt(attemptInc);
 
-      const { error: logErr } = await supabase.from('whatsapp_reminder_logs').insert({
-        establishment_id: r.establishment_id,
-        appointment_id: r.appointment_id,
-        phone_to: String(r.client_whatsapp || ''),
-        message: msg,
-        status,
-        provider_response: JSON.stringify(sendRes.data ?? sendRes.errorText ?? null),
-      });
+      // ✅ UPSERT para permitir retries (tabela tem UNIQUE(appointment_id))
+      const { data: existingLog } = await supabase
+        .from('whatsapp_reminder_logs')
+        .select('attempt_count')
+        .eq('appointment_id', r.appointment_id)
+        .maybeSingle();
+
+      const nextAttemptCount = Number((existingLog as any)?.attempt_count || 0) + 1;
+      const { error: logErr } = await supabase.from('whatsapp_reminder_logs').upsert(
+        {
+          establishment_id: r.establishment_id,
+          appointment_id: r.appointment_id,
+          phone_to: String(usedTo || ''),
+          message: msg,
+          status,
+          provider_response: providerResponse,
+          attempt_count: nextAttemptCount,
+          last_attempt_at: new Date().toISOString(),
+          next_attempt_at: sendRes.ok ? null : computeNextAttemptAt(nextAttemptCount),
+          last_error: sendRes.ok ? null : `status=${sendRes.status} body=${providerResponse?.slice(0, 500)}`,
+        } as any,
+        { onConflict: 'appointment_id' }
+      );
 
       if (logErr) {
         // Anti-duplicidade: se já existe log (unique appointment_id), não reenviar (já enviamos acima).
@@ -116,11 +168,11 @@ export async function runSendWhatsappRemindersOnce() {
 
       if (sendRes.ok) {
         sent += 1;
-        console.log(`✅ Enviado: appointment_id=${r.appointment_id} to=${r.client_whatsapp}`);
+        console.log(`✅ Enviado: appointment_id=${r.appointment_id} to=${usedTo}`);
       } else {
         failed += 1;
         console.warn(
-          `❌ Falhou: appointment_id=${r.appointment_id} to=${r.client_whatsapp} status=${sendRes.status}`
+          `❌ Falhou: appointment_id=${r.appointment_id} to=${usedTo} status=${sendRes.status} resp=${providerResponse?.slice(0, 300)}`
         );
       }
     } catch (e) {
@@ -133,14 +185,21 @@ export async function runSendWhatsappRemindersOnce() {
 
       // Tentar registrar falha no log (sem quebrar tudo)
       try {
-        await supabase.from('whatsapp_reminder_logs').insert({
-          establishment_id: r.establishment_id,
-          appointment_id: r.appointment_id,
-          phone_to: String(r.client_whatsapp || ''),
-          message: '[ERRO AO GERAR/ENVIAR MENSAGEM]',
-          status: 'failed',
-          provider_response: JSON.stringify({ error: String(e) }),
-        });
+        await supabase.from('whatsapp_reminder_logs').upsert(
+          {
+            establishment_id: r.establishment_id,
+            appointment_id: r.appointment_id,
+            phone_to: String(r.client_whatsapp || ''),
+            message: '[ERRO AO GERAR/ENVIAR MENSAGEM]',
+            status: 'failed',
+            provider_response: JSON.stringify({ error: String(e) }),
+            attempt_count: 1,
+            last_attempt_at: new Date().toISOString(),
+            next_attempt_at: computeNextAttemptAt(1),
+            last_error: String(e).slice(0, 500),
+          } as any,
+          { onConflict: 'appointment_id' }
+        );
       } catch {
         // ignore
       }

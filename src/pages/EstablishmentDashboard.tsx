@@ -776,6 +776,57 @@ const EstablishmentDashboard = () => {
         vendasCount += 1;
       }
 
+      // ✅ Incluir também pagamentos de ASSINATURA (client_subscriptions) via Mercado Pago
+      // Observação: não temos histórico de cada renovação, apenas o último pagamento por assinatura.
+      // Ainda assim, isso resolve o caso mais comum: "paguei assinatura e o saldo ficou 0".
+      try {
+        // Colunas extras existem no banco (migrations), mas podem não existir nos types gerados
+        // então usamos cast para não poluir o arquivo com @ts-expect-error.
+        const subsQuery = supabase.from('client_subscriptions') as any;
+        const { data: subsData, error: subsError } = await subsQuery
+          .select(
+            'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id,subscriptions(value)'
+          )
+          .eq('establishment_id', establishment.id)
+          .eq('payment_status', 'paid');
+
+        if (subsError) throw subsError;
+
+        const subsSeen = new Set<string>();
+        for (const sub of (subsData as any[]) || []) {
+          const sid = String(sub?.id || '').trim();
+          if (!sid || subsSeen.has(sid)) continue;
+          subsSeen.add(sid);
+
+          const provider = String(sub?.subscription_payment_provider || '').toLowerCase().trim();
+          // Só contar assinaturas pagas pelo Mercado Pago (ex: mercadopago_pix / mercadopago_card)
+          if (!provider.startsWith('mercadopago')) continue;
+
+          const bruto = Number((sub as any)?.subscriptions?.value ?? 0);
+          if (!Number.isFinite(bruto) || bruto <= 0) continue;
+
+          // Assinatura por PIX (fluxo atual). Se no futuro tiver cartão, dá pra diferenciar pelo provider.
+          const taxaPercentual = provider.includes('card') ? taxaCreditoPercent : taxaPixPercent;
+          const taxaMercadoPago = bruto * taxaPercentual;
+          const liquido = Math.max(0, bruto - taxaMercadoPago - taxaPlataforma);
+
+          console.log('💳💰 [MP Saldo] Assinatura:', {
+            id: sid,
+            bruto,
+            provider,
+            taxa_percentual: taxaPercentual * 100,
+            taxa_mp: taxaMercadoPago,
+            taxa_plataforma: taxaPlataforma,
+            liquido,
+          });
+
+          total += liquido;
+        }
+      } catch (e) {
+        // Não falhar o saldo inteiro por causa de assinaturas; apenas logar
+        console.warn('⚠️ Não foi possível incluir assinaturas no saldo do Mercado Pago:', e);
+      }
+
       setSaldoMercadoPago(Math.round(total * 100) / 100);
     } catch (e: any) {
       console.error('❌ Erro ao carregar saldo Mercado Pago:', e);
@@ -816,12 +867,14 @@ const EstablishmentDashboard = () => {
   const [filaEsperaAtiva, setFilaEsperaAtiva] = useState(false);
   const [filaEsperaFechada, setFilaEsperaFechada] = useState(false);
   const [filaEsperaProfissionalId, setFilaEsperaProfissionalId] = useState<string>('');
+  const [filaEsperaProfissionalIds, setFilaEsperaProfissionalIds] = useState<string[]>([]); // novo: até 3 filas (por profissional)
   const [filaEntries, setFilaEntries] = useState<any[]>([]);
   const [isLoadingFilaEntries, setIsLoadingFilaEntries] = useState(false);
   const [isSavingFilaEsperaAtiva, setIsSavingFilaEsperaAtiva] = useState(false);
   const [showAtivarFilaModal, setShowAtivarFilaModal] = useState(false);
-  const [profissionalSelecionadoFila, setProfissionalSelecionadoFila] = useState<string>('');
+  const [profissionaisSelecionadosFila, setProfissionaisSelecionadosFila] = useState<string[]>([]); // usado no modal
   const [profissionalFinanceiroFilaId, setProfissionalFinanceiroFilaId] = useState<string>('');
+  const [profissionalFilaSelecionadaId, setProfissionalFilaSelecionadaId] = useState<string>(''); // UI: filtra "Fila atual" por profissional
   const [filtroHistoricoFila, setFiltroHistoricoFila] = useState<'dia' | 'mes' | 'todos'>('dia');
   const [historicoFila, setHistoricoFila] = useState<any[]>([]);
   const [isLoadingHistoricoFila, setIsLoadingHistoricoFila] = useState(false);
@@ -1012,21 +1065,103 @@ const EstablishmentDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [establishment?.id, profissionalFinanceiroFilaId, filtroHistoricoFila]);
 
+  // UX: quando o usuário troca o profissional do "Financeiro da fila", trocar também a fila exibida
+  useEffect(() => {
+    const v = String(profissionalFinanceiroFilaId || '').trim();
+    if (!v) return;
+    setProfissionalFilaSelecionadaId(v);
+  }, [profissionalFinanceiroFilaId]);
+
+  const filaProfissionaisConfig = React.useMemo(() => {
+    const ids = (filaEsperaProfissionalIds && filaEsperaProfissionalIds.length ? filaEsperaProfissionalIds : [])
+      .map((x) => String(x || '').trim())
+      .filter(Boolean);
+    const legacy = String(filaEsperaProfissionalId || '').trim();
+    const finalIds = (ids.length ? ids : legacy ? [legacy] : []).slice(0, 3);
+    const profs = (((establishment as any)?.professionals || []) as any[]) || [];
+    return finalIds.map((id) => {
+      const p = profs.find((x: any) => String(x?.id) === String(id));
+      return { id, name: String(p?.name || 'Profissional').trim() || 'Profissional' };
+    });
+  }, [establishment, filaEsperaProfissionalIds, filaEsperaProfissionalId]);
+
+  const filaCountsByProf = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of (filaEntries as any[]) || []) {
+      const key = String((e as any)?.professional_id || filaEsperaProfissionalId || '').trim();
+      if (!key) continue;
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return counts;
+  }, [filaEntries, filaEsperaProfissionalId]);
+
+  const filaEntriesFiltradas = React.useMemo(() => {
+    const selected =
+      String(profissionalFilaSelecionadaId || '').trim() ||
+      String(profissionalFinanceiroFilaId || '').trim() ||
+      String(filaProfissionaisConfig?.[0]?.id || '').trim() ||
+      '';
+    if (!selected) return (filaEntries as any[]) || [];
+    return ((filaEntries as any[]) || []).filter((e: any) => {
+      const key = String(e?.professional_id || filaEsperaProfissionalId || '').trim();
+      return key === selected;
+    });
+  }, [
+    filaEntries,
+    filaEsperaProfissionalId,
+    profissionalFilaSelecionadaId,
+    profissionalFinanceiroFilaId,
+    filaProfissionaisConfig,
+  ]);
+
+  // Ao abrir o modal de ativação, preencher seleção com configuração atual (compatível com modo antigo)
+  useEffect(() => {
+    if (!showAtivarFilaModal) return;
+    const legacy = String(filaEsperaProfissionalId || '').trim();
+    const ids = (filaEsperaProfissionalIds && filaEsperaProfissionalIds.length ? filaEsperaProfissionalIds : legacy ? [legacy] : [])
+      .map((x) => String(x || '').trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    setProfissionaisSelecionadosFila(ids);
+  }, [showAtivarFilaModal, filaEsperaProfissionalIds, filaEsperaProfissionalId]);
+
   const salvarFilaEsperaAtiva = useCallback(
-    async (next: boolean, overrides?: { profissionalId?: string }) => {
+    async (next: boolean, overrides?: { profissionalId?: string; profissionalIds?: string[] }) => {
       if (!establishment?.id) return;
       if (isSavingFilaEsperaAtiva) return;
       setIsSavingFilaEsperaAtiva(true);
       try {
-        const profissionalId = String(overrides?.profissionalId ?? filaEsperaProfissionalId ?? '').trim() || null;
+        const rawIds = (overrides?.profissionalIds ?? filaEsperaProfissionalIds ?? [])
+          .map((x) => String(x || '').trim())
+          .filter(Boolean);
+        const uniqueIds = Array.from(new Set(rawIds)).slice(0, 3);
+
+        // Profissional "padrão" (fallback do modo antigo / financeiro)
+        const profissionalId =
+          String(overrides?.profissionalId || '').trim() ||
+          (uniqueIds[0] ? String(uniqueIds[0]).trim() : '') ||
+          String(filaEsperaProfissionalId || '').trim() ||
+          null;
+
         const { error } = await supabase
           .from('establishments')
-          .update({ fila_espera_ativa: next, fila_espera_profissional_id: profissionalId } as any)
+          .update(
+            {
+              fila_espera_ativa: next,
+              fila_espera_profissional_id: profissionalId,
+              // novo: filas por profissional (até 3)
+              fila_espera_profissional_ids: uniqueIds.length ? uniqueIds : null,
+            } as any
+          )
           .eq('id', establishment.id);
         if (error) {
           const msg = String((error as any)?.message || '');
-          // Fallback para banco ainda não migrado (coluna fila_espera_profissional_id não existe)
-          if (msg.includes('does not exist') && msg.includes('fila_espera_profissional_id')) {
+          // Fallback para banco ainda não migrado (colunas novas não existem)
+          if (
+            (msg.includes('does not exist') && msg.includes('fila_espera_profissional_id')) ||
+            (msg.includes('does not exist') && msg.includes('fila_espera_profissional_ids')) ||
+            msg.toLowerCase().includes('column') && msg.toLowerCase().includes('fila_espera_profissional_ids')
+          ) {
             const { error: legacyErr } = await supabase
               .from('establishments')
               .update({ fila_espera_ativa: next } as any)
@@ -1038,7 +1173,18 @@ const EstablishmentDashboard = () => {
         }
         setFilaEsperaAtiva(next);
         setFilaEsperaProfissionalId(profissionalId ? String(profissionalId) : '');
-        setEstablishment((prev: any) => (prev ? { ...prev, fila_espera_ativa: next } : prev));
+        setFilaEsperaProfissionalIds(uniqueIds);
+        setProfissionalFinanceiroFilaId(profissionalId ? String(profissionalId) : '');
+        setEstablishment((prev: any) =>
+          prev
+            ? {
+              ...prev,
+              fila_espera_ativa: next,
+              fila_espera_profissional_id: profissionalId,
+              fila_espera_profissional_ids: uniqueIds.length ? uniqueIds : null,
+            }
+            : prev
+        );
         toast.success(next ? '✅ Fila de espera ativada!' : '✅ Fila de espera desativada!');
 
         // Se desativou, zerar a fila (cancela entradas e agendamentos ligados)
@@ -1071,7 +1217,7 @@ const EstablishmentDashboard = () => {
         setIsSavingFilaEsperaAtiva(false);
       }
     },
-    [establishment?.id, isSavingFilaEsperaAtiva, filaEsperaProfissionalId]
+    [establishment?.id, isSavingFilaEsperaAtiva, filaEsperaProfissionalId, filaEsperaProfissionalIds]
   );
 
   const tentarNotificarUmAntes = useCallback(
@@ -1294,9 +1440,13 @@ const EstablishmentDashboard = () => {
       return;
     }
 
-    const profissionalPadraoId = String(filaEsperaProfissionalId || '').trim();
-    if (!profissionalPadraoId) {
-      toast.error('Selecione um profissional padrão ao ativar a fila.');
+    const profissionalFila =
+      String(profissionalFilaSelecionadaId || '').trim() ||
+      String(profissionalFinanceiroFilaId || '').trim() ||
+      (filaEsperaProfissionalIds?.[0] ? String(filaEsperaProfissionalIds[0]) : '') ||
+      String(filaEsperaProfissionalId || '').trim();
+    if (!profissionalFila) {
+      toast.error('Selecione pelo menos 1 profissional ao ativar a fila.');
       return;
     }
 
@@ -1318,7 +1468,7 @@ const EstablishmentDashboard = () => {
             client_name: nome,
             client_whatsapp: '',
             service: serviceName,
-            professional: profissionalPadraoId,
+            professional: profissionalFila,
             appointment_date: appointmentDate,
             appointment_time: appointmentTime,
             duration: Number.isFinite(serviceDuration) ? serviceDuration : 0,
@@ -1354,7 +1504,7 @@ const EstablishmentDashboard = () => {
           price: Number(s?.price ?? 0),
           duration: Number(s?.duration ?? s?.service_duration ?? 0),
         })),
-        professional_id: profissionalPadraoId,
+        professional_id: profissionalFila,
         source: 'dashboard',
         status: 'waiting',
       };
@@ -1382,7 +1532,7 @@ const EstablishmentDashboard = () => {
                 service_name: serviceName,
                 service_price: Number.isFinite(servicePrice) ? servicePrice : null,
                 service_duration_minutes: Number.isFinite(serviceDuration) ? serviceDuration : null,
-                professional_id: profissionalPadraoId,
+                professional_id: profissionalFila,
                 source: 'dashboard',
                 status: 'waiting',
               } as any)
@@ -1431,6 +1581,9 @@ const EstablishmentDashboard = () => {
     filaEsperaAtiva,
     filaEsperaFechada,
     filaEsperaProfissionalId,
+    filaEsperaProfissionalIds,
+    profissionalFilaSelecionadaId,
+    profissionalFinanceiroFilaId,
     isAddingFila,
     user?.id,
   ]);
@@ -1611,9 +1764,12 @@ const EstablishmentDashboard = () => {
             }
 
             try {
-              const authorizeUrl = import.meta.env.PROD
-                ? `/.netlify/functions/mercadopago-oauth-authorize?establishmentId=${establishment.id}`
-                : `/api/mercadopago/oauth/authorize?establishmentId=${establishment.id}`;
+              // ✅ IMPORTANTE (iOS/PWA): abrir a janela SINCRONAMENTE no clique.
+              // Se abrir depois de await/fetch, muitos navegadores bloqueiam o popup e "não vai pra lugar nenhum".
+              const popup = window.open('about:blank', '_blank');
+
+              // Usar sempre /api (Netlify _redirects aponta para functions; em dev também funciona)
+              const authorizeUrl = `/api/mercadopago/oauth/authorize?establishmentId=${establishment.id}`;
 
               const response = await fetch(authorizeUrl);
               if (!response.ok) {
@@ -1623,7 +1779,18 @@ const EstablishmentDashboard = () => {
 
               const data = await response.json();
               if (data.authorization_url) {
-                window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
+                // Preferir reutilizar o popup já aberto (não bloqueia em iOS/PWA)
+                if (popup && !popup.closed) {
+                  try {
+                    popup.location.href = data.authorization_url;
+                  } catch {
+                    // fallback: se o navegador bloquear setar location no popup
+                    window.location.assign(data.authorization_url);
+                  }
+                } else {
+                  // fallback: se popup foi bloqueado, redirecionar na mesma aba
+                  window.location.assign(data.authorization_url);
+                }
                 toast.success('Redirecionando para conectar conta do Mercado Pago...');
               } else {
                 throw new Error('URL de autorização não retornada');
@@ -1764,7 +1931,7 @@ const EstablishmentDashboard = () => {
                     {isLoadingSaldoMercadoPago ? 'Calculando...' : fmtBRL(saldoMercadoPago)}
                   </div>
                   <div className="mt-1 text-[11px] text-gray-300/80">
-                    * Valor líquido já com taxas descontadas (Mercado Pago + R$ 0,50 da plataforma).
+                    * Valor líquido já com taxas descontadas (Mercado Pago + R$ 0,50 da plataforma). Inclui agendamentos confirmados e assinaturas pagas via Mercado Pago.
                   </div>
                   {saldoMercadoPagoErro && <div className="mt-2 text-[11px] text-red-200/90">{saldoMercadoPagoErro}</div>}
                 </div>
@@ -5954,6 +6121,15 @@ Estamos te aguardando! 😎✂️`;
         setPagamentoAdiantadoOpcionalMercadoPago((establishmentData as any).pagamento_adiantado_opcional_mercadopago ?? false);
         setFilaEsperaAtiva((establishmentData as any).fila_espera_ativa ?? false);
         setFilaEsperaProfissionalId(String((establishmentData as any).fila_espera_profissional_id || ''));
+        // novo: filas por profissional (até 3) — fallback para legado
+        {
+          const idsRaw = (((establishmentData as any).fila_espera_profissional_ids || []) as any[])
+            .map((x: any) => String(x || '').trim())
+            .filter(Boolean);
+          const legacy = String((establishmentData as any).fila_espera_profissional_id || '').trim();
+          const ids = idsRaw.length ? idsRaw.slice(0, 3) : legacy ? [legacy] : [];
+          setFilaEsperaProfissionalIds(ids);
+        }
         setFilaEsperaFechada((establishmentData as any).fila_espera_fechada ?? false);
         setProfissionalFinanceiroFilaId(String((establishmentData as any).fila_espera_profissional_id || ''));
         // Dados bancários / recebedor Pagar.me
@@ -7436,12 +7612,30 @@ Estamos te aguardando! 😎✂️`;
         new_whatsapp: editClientWhatsapp.trim()
       });
 
-      // Atualizar nome e WhatsApp do cliente
+      const normalizeWhatsappForStorage = (input: string): string => {
+        const digits = String(input || '').replace(/\D/g, '');
+        if (!digits) return '';
+        // Se já tem código de país conhecido, mantém
+        const known = [
+          { code: '55', minLength: 12 }, // BR
+          { code: '351', minLength: 11 }, // PT
+          { code: '34', minLength: 11 }, // ES
+          { code: '1', minLength: 11 }, // US/CA
+        ];
+        const hasCountryCode = known.some(({ code, minLength }) => digits.startsWith(code) && digits.length >= minLength);
+        if (hasCountryCode) return digits;
+        if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
+        return digits;
+      };
+
+      const newWhatsappNormalized = normalizeWhatsappForStorage(editClientWhatsapp.trim());
+
+      // Atualizar nome e WhatsApp do cliente (appointments)
       const { error } = await supabase
         .from('appointments')
         .update({
           client_name: editClientName.trim(),
-          client_whatsapp: editClientWhatsapp.trim()
+          client_whatsapp: newWhatsappNormalized
         })
         .eq('client_whatsapp', editingClient);
 
@@ -7451,8 +7645,8 @@ Estamos te aguardando! 😎✂️`;
       }
 
       // Atualizar também no Supabase se for cliente manual
-      const cleanOldWhatsapp = editingClient.replace(/\D/g, '');
-      const cleanNewWhatsapp = editClientWhatsapp.trim().replace(/\D/g, '');
+      const cleanOldWhatsapp = normalizeWhatsappForStorage(editingClient);
+      const cleanNewWhatsapp = newWhatsappNormalized;
 
       // Verificar se é cliente manual no Supabase
       const { data: existingManualClientData, error: checkError } = await supabase
@@ -12353,35 +12547,59 @@ Estamos te aguardando! 😎✂️`;
 
             <div className="p-4 space-y-4">
               <div className="text-sm text-white/80">
-                Escolha o <strong>profissional padrão</strong> para contabilizar os valores da fila no dashboard do profissional.
+                Selecione até <strong>3 profissionais</strong> para ter <strong>filas separadas</strong> no booking (ex: “Fila do João”, “Fila do Pedro”).
+                <div className="mt-2 text-[11px] text-white/60">
+                  O primeiro selecionado vira o <strong>profissional padrão</strong> (fallback/compatibilidade com o modo antigo).
+                </div>
               </div>
 
               <div className="space-y-2">
-                <label className="block text-xs text-white/70">Profissional</label>
-                <select
-                  value={profissionalSelecionadoFila}
-                  onChange={(e) => setProfissionalSelecionadoFila(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
-                >
-                  <option value="">Selecione</option>
-                  {(((establishment as any)?.professionals || []) as any[]).map((p: any) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-xs text-white/70">Profissionais (máx. 3)</label>
+                <div className="rounded-lg border border-white/10 bg-black/30 p-2 max-h-64 overflow-y-auto space-y-2">
+                  {(((establishment as any)?.professionals || []) as any[]).map((p: any) => {
+                    const pid = String(p?.id || '').trim();
+                    if (!pid) return null;
+                    const checked = profissionaisSelecionadosFila.includes(pid);
+                    const disabled = !checked && profissionaisSelecionadosFila.length >= 3;
+                    return (
+                      <label
+                        key={pid}
+                        className={`flex items-center gap-2 px-2 py-2 rounded-md border ${checked ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-white/10 bg-black/20'
+                          } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={disabled}
+                          onChange={() => {
+                            setProfissionaisSelecionadosFila((prev) => {
+                              if (prev.includes(pid)) return prev.filter((x) => x !== pid);
+                              if (prev.length >= 3) return prev;
+                              return [...prev, pid];
+                            });
+                          }}
+                        />
+                        <span className="text-xs text-white/90">{String(p?.name || 'Profissional')}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="text-[11px] text-white/60">
+                  Selecionados: <span className="font-semibold text-white/80">{profissionaisSelecionadosFila.length}</span>/3
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  disabled={!profissionalSelecionadoFila || isSavingFilaEsperaAtiva}
+                  disabled={profissionaisSelecionadosFila.length === 0 || isSavingFilaEsperaAtiva}
                   onClick={async () => {
-                    if (!profissionalSelecionadoFila) return;
-                    await salvarFilaEsperaAtiva(true, { profissionalId: profissionalSelecionadoFila });
+                    if (profissionaisSelecionadosFila.length === 0) return;
+                    const first = String(profissionaisSelecionadosFila[0] || '').trim();
+                    await salvarFilaEsperaAtiva(true, { profissionalId: first, profissionalIds: profissionaisSelecionadosFila });
                     setShowAtivarFilaModal(false);
                   }}
-                  className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${!profissionalSelecionadoFila
+                  className={`flex-1 px-4 py-3 rounded-xl font-extrabold transition-colors ${profissionaisSelecionadosFila.length === 0
                     ? 'bg-white/10 text-white/50 cursor-not-allowed'
                     : 'bg-white text-black hover:bg-gray-100'
                     } ${isSavingFilaEsperaAtiva ? 'opacity-60 cursor-not-allowed' : ''}`}
@@ -14322,9 +14540,6 @@ Estamos te aguardando! 😎✂️`;
                           disabled={isSavingFilaEsperaAtiva}
                           onClick={() => {
                             if (!filaEsperaAtiva) {
-                              const profs = (establishment as any)?.professionals || [];
-                              const pre = String(filaEsperaProfissionalId || (profs?.[0]?.id ?? '')).trim();
-                              setProfissionalSelecionadoFila(pre);
                               setShowAtivarFilaModal(true);
                               return;
                             }
@@ -14473,6 +14688,21 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        {filaProfissionaisConfig.length > 1 && (
+                          <select
+                            value={profissionalFilaSelecionadaId || profissionalFinanceiroFilaId || ''}
+                            onChange={(e) => setProfissionalFilaSelecionadaId(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm font-bold"
+                            title="Filtrar fila por profissional"
+                          >
+                            <option value="">Todas as filas</option>
+                            {filaProfissionaisConfig.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({Number(filaCountsByProf?.[p.id] || 0)})
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <div className="hidden sm:flex items-center gap-2 mr-2">
                           <div className="px-2 py-1 rounded-lg bg-gray-100 text-gray-900 text-xs font-extrabold">
                             Hoje: {fmtBRL(saldoFilaDia)}
@@ -14511,11 +14741,11 @@ Estamos te aguardando! 😎✂️`;
 
                     {isLoadingFilaEntries ? (
                       <div className="text-sm text-gray-600">Carregando fila...</div>
-                    ) : filaEntries.length === 0 ? (
+                    ) : filaEntriesFiltradas.length === 0 ? (
                       <div className="text-sm text-gray-600">Nenhuma pessoa na fila no momento.</div>
                     ) : (
                       <div className="space-y-3">
-                        {filaEntries.map((e: any, idx: number) => (
+                        {filaEntriesFiltradas.map((e: any, idx: number) => (
                           <div
                             key={e.id}
                             className="rounded-xl border border-gray-200 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"

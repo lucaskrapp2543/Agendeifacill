@@ -63,6 +63,11 @@ export interface Database {
           has_accessibility?: boolean; // Nova coluna para comodidade Acessibilidade
           wifi_password?: string; // Senha do Wi-Fi disponibilizada pelo estabelecimento
           onboarding_step?: number; // Controla o progresso do onboarding (1=página agendamento, 2=profissional, 3=serviço, 4=completo)
+          // ✅ Fila de Espera
+          fila_espera_ativa?: boolean;
+          fila_espera_fechada?: boolean;
+          fila_espera_profissional_id?: string | null; // modo legado (fila única)
+          fila_espera_profissional_ids?: string[] | null; // novo: até 3 filas (por profissional)
         }
       },
       premium_subscribers: {
