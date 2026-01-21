@@ -244,8 +244,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
     if (provider.startsWith('mercadopago_')) {
       const checkStatusUrl = import.meta.env.PROD
-        ? `/.netlify/functions/mercadopago-check-status?paymentId=${orderId}`
-        : `/api/mercadopago/check-status?paymentId=${orderId}`;
+        ? `/.netlify/functions/mercadopago-check-status?paymentId=${orderId}&establishmentId=${establishmentId}`
+        : `/api/mercadopago/check-status?paymentId=${orderId}&establishmentId=${establishmentId}`;
       const r = await fetch(checkStatusUrl);
       if (!r.ok) throw new Error('Erro ao verificar status');
       const data = await r.json();
