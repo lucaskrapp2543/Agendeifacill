@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { ArrowLeft, Calendar, Eye, EyeOff, MapPin } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { BusinessHoursSelector } from '../components/BusinessHoursSelector';
 import ReadMore from '../components/ReadMore';
@@ -20,6 +20,9 @@ const EstablishmentDirectBooking: React.FC = () => {
   const [establishment, setEstablishment] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ✅ Serviços por categorias (dropdown). Se existir, usamos isso no booking; senão, caímos no legado services_with_prices.
+  const [categoriasDeServicos, setCategoriasDeServicos] = useState<any[]>([]);
 
   // Estados do agendamento  
   const [selectedService, setSelectedService] = useState<any>(null);
@@ -276,6 +279,96 @@ const EstablishmentDirectBooking: React.FC = () => {
 
     loadEstablishment();
   }, [slug]);
+
+  // ✅ Buscar categorias/subcategorias para refletir serviços criados via "Meus serviços" (dropdown) no dashboard
+  useEffect(() => {
+    const fetchCategorias = async () => {
+      if (!establishment?.id) return;
+
+      try {
+        const { data: categories, error: categoriesError } = await supabase
+          .from('service_categories')
+          .select('*')
+          .eq('establishment_id', establishment.id)
+          .eq('is_active', true)
+          .order('display_order', { ascending: true });
+
+        if (categoriesError) {
+          console.error('❌ DirectBooking - Erro ao buscar categorias:', categoriesError);
+          setCategoriasDeServicos([]);
+          return;
+        }
+
+        const { data: subcategories, error: subcategoriesError } = await supabase
+          .from('service_subcategories')
+          .select(
+            `
+            *,
+            service_categories (
+              establishment_id
+            )
+          `
+          )
+          .eq('is_active', true)
+          .eq('service_categories.establishment_id', establishment.id)
+          .order('display_order', { ascending: true });
+
+        if (subcategoriesError) {
+          console.error('❌ DirectBooking - Erro ao buscar subcategorias:', subcategoriesError);
+          setCategoriasDeServicos([]);
+          return;
+        }
+
+        const categoriesWithSubcategories = (categories || []).map((category: any) => ({
+          ...category,
+          subcategories: (subcategories || []).filter((sub: any) => sub.category_id === category.id),
+        }));
+
+        setCategoriasDeServicos(categoriesWithSubcategories);
+        console.log('✅ DirectBooking - Categorias/Subcategorias carregadas:', {
+          categorias: categoriesWithSubcategories.length,
+          subcategorias: (subcategories || []).length,
+        });
+      } catch (err) {
+        console.error('💥 DirectBooking - Erro ao buscar categorias/subcategorias:', err);
+        setCategoriasDeServicos([]);
+      }
+    };
+
+    fetchCategorias();
+  }, [establishment?.id]);
+
+  // ✅ Fonte única de serviços para seleção: categorias (se houver) > services_with_prices (fallback)
+  const servicosDisponiveis = useMemo(() => {
+    const temCategoriasComServicos = categoriasDeServicos.some(
+      (c: any) => Array.isArray(c?.subcategories) && c.subcategories.length > 0
+    );
+
+    if (temCategoriasComServicos) {
+      return categoriasDeServicos.flatMap((c: any) =>
+        (c.subcategories || []).map((sub: any) => ({
+          id: sub.id,
+          name: sub.name,
+          price: Number(sub.price),
+          duration: Number(sub.duration || 30),
+          _categoria: c.name,
+        }))
+      );
+    }
+
+    return Array.isArray(establishment?.services_with_prices) ? establishment.services_with_prices : [];
+  }, [categoriasDeServicos, establishment?.services_with_prices]);
+
+  // Se a lista mudou e o serviço selecionado não existe mais, limpar seleção
+  useEffect(() => {
+    if (!selectedService) return;
+    const selectedKey = String(selectedService?.id ?? selectedService?.name ?? '');
+    const stillExists = servicosDisponiveis.some((s: any) => String(s?.id ?? s?.name ?? '') === selectedKey);
+    if (!stillExists) {
+      setSelectedService(null);
+      setSelectedTime('');
+    }
+  }, [servicosDisponiveis, selectedService]);
 
   // Buscar agendamentos quando data e profissional mudarem (funciona para todos)
   useEffect(() => {
@@ -598,11 +691,11 @@ const EstablishmentDirectBooking: React.FC = () => {
             </div>
 
             {/* Serviços */}
-            {establishment?.services_with_prices && Array.isArray(establishment.services_with_prices) && establishment.services_with_prices.length > 0 && (
+            {Array.isArray(servicosDisponiveis) && servicosDisponiveis.length > 0 && (
               <div className="mt-6">
                 <h3 className="font-semibold mb-3">Serviços:</h3>
                 <div className="space-y-2">
-                  {establishment.services_with_prices.map((service: any, index: number) => {
+                  {servicosDisponiveis.map((service: any, index: number) => {
                     // Verificar se service é um objeto válido
                     if (!service || typeof service !== 'object') return null;
 
@@ -611,7 +704,12 @@ const EstablishmentDirectBooking: React.FC = () => {
 
                     return (
                       <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                        <span>{service.name || 'Serviço'}</span>
+                        <span>
+                          {service.name || 'Serviço'}
+                          {service._categoria ? (
+                            <span className="ml-2 text-xs text-gray-500">({service._categoria})</span>
+                          ) : null}
+                        </span>
                         <span className="font-semibold text-blue-600">R$ {formattedPrice}</span>
                       </div>
                     );
@@ -681,21 +779,27 @@ const EstablishmentDirectBooking: React.FC = () => {
                       Serviço
                     </label>
                     <div className="grid grid-cols-1 gap-2">
-                      {establishment?.services_with_prices?.map((service: any) => {
+                      {servicosDisponiveis?.map((service: any) => {
                         if (!service || typeof service !== 'object') return null;
                         const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
                         const isSelected = selectedService?.id === service.id;
 
                         return (
                           <button
-                            key={service.id}
+                            key={service.id ?? `${service.name}-${formattedPrice}-${service.duration ?? 0}`}
                             type="button"
-                            onClick={() => setSelectedService(service)}
+                            onClick={() => {
+                              setSelectedService(service);
+                              setSelectedTime('');
+                            }}
                             className={`w-full p-4 rounded-lg ${isSelected ? 'bg-[#242628] text-white' : 'bg-gray-50 text-gray-900'
                               }`}
                           >
                             <div className="flex flex-col items-start gap-1">
                               <span className="text-base font-medium">{service.name}</span>
+                              {service._categoria && (
+                                <span className="text-xs opacity-70">Categoria: {service._categoria}</span>
+                              )}
                               <span className="text-sm opacity-80">R$ {formattedPrice}</span>
                               <span className="text-sm opacity-80">{service.duration}min</span>
                             </div>

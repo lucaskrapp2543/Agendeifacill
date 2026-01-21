@@ -3555,6 +3555,7 @@ const EstablishmentDashboard = () => {
         .insert({
           establishment_id: establishment.id,
           name: newCategory.name.trim().toUpperCase(),
+          is_active: true,
           display_order: 0
         });
 
@@ -3588,6 +3589,7 @@ const EstablishmentDashboard = () => {
               .insert({
                 establishment_id: establishment.id,
                 name: newCategory.name.trim().toUpperCase(),
+                is_active: true,
                 display_order: 0
               });
 
@@ -3638,6 +3640,10 @@ const EstablishmentDashboard = () => {
     }
 
     try {
+      const nomeServico = newSubcategory.name.trim();
+      const displayOrder =
+        serviceSubcategories.filter(sub => sub.category_id === selectedCategoryForSubcategory).length;
+
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone/mobile)
       try {
         const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
@@ -3652,15 +3658,18 @@ const EstablishmentDashboard = () => {
         // Continuar mesmo assim
       }
 
-      const { error } = await supabase
+      const { data: insertedSubcategory, error } = await supabase
         .from('service_subcategories')
         .insert({
           category_id: selectedCategoryForSubcategory,
-          name: newSubcategory.name.trim(),
+          name: nomeServico,
           price: price,
           duration: duration,
-          display_order: serviceSubcategories.filter(sub => sub.category_id === selectedCategoryForSubcategory).length
-        });
+          is_active: true,
+          display_order: displayOrder
+        })
+        .select('*')
+        .single();
 
       if (error) {
         console.error('❌ Erro ao adicionar subcategoria:', error);
@@ -3687,21 +3696,34 @@ const EstablishmentDashboard = () => {
             await supabase.auth.setSession(session);
 
             // Tentar inserir novamente
-            const { error: retryError } = await supabase
+            const { data: insertedRetry, error: retryError } = await supabase
               .from('service_subcategories')
               .insert({
                 category_id: selectedCategoryForSubcategory,
-                name: newSubcategory.name.trim(),
+                name: nomeServico,
                 price: price,
                 duration: duration,
-                display_order: serviceSubcategories.filter(sub => sub.category_id === selectedCategoryForSubcategory).length
-              });
+                is_active: true,
+                display_order: displayOrder
+              })
+              .select('*')
+              .single();
 
             if (retryError) {
               // ⚠️ MOSTRAR ERRO COMPLETO
               toast(`Erro: ${retryError.code || 'RLS'} - ${retryError.message || 'Tente fazer logout e login novamente'}`, 'error');
               console.error('🚨 ERRO NO RETRY:', retryError);
               return;
+            }
+
+            // ✅ Atualização imediata da UI (não depender só do fetch)
+            if (insertedRetry) {
+              setServiceSubcategories(prev => {
+                if (prev.some(s => s.id === insertedRetry.id)) return prev;
+                return [...prev, insertedRetry as any].sort(
+                  (a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0)
+                );
+              });
             }
           } else {
             toast('Sessão expirada. Faça login novamente.', 'error');
@@ -3717,8 +3739,20 @@ const EstablishmentDashboard = () => {
       setNewSubcategory({ name: '', price: '', duration: '30' });
       setShowAddSubcategoryModal(false);
       setSelectedCategoryForSubcategory(null);
-      fetchServiceSubcategories();
-      toast(`Serviço "${newSubcategory.name}" adicionado com sucesso!`, 'success');
+
+      // ✅ Atualização imediata da UI (não depender só do fetch)
+      if (insertedSubcategory) {
+        setServiceSubcategories(prev => {
+          if (prev.some(s => s.id === insertedSubcategory.id)) return prev;
+          return [...prev, insertedSubcategory as any].sort(
+            (a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0)
+          );
+        });
+      }
+
+      // Revalidar do banco para garantir consistência
+      await fetchServiceSubcategories();
+      toast(`Serviço "${nomeServico}" adicionado com sucesso!`, 'success');
     } catch (error: any) {
       console.error('❌ Erro ao adicionar subcategoria (catch):', error);
 

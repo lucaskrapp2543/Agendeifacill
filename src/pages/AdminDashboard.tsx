@@ -297,6 +297,9 @@ const AdminDashboard = () => {
   const [clientsMonthCount, setClientsMonthCount] = useState<number>(0);
   const [isLoadingClientsMonth, setIsLoadingClientsMonth] = useState(false);
 
+  // ✅ Saldo do dia: permitir navegar por dia (hoje / dia anterior / etc.)
+  const [saldoDiaDate, setSaldoDiaDate] = useState<Date>(() => new Date());
+
   const togglePagamentoAdiantadoAdmin = async (establishmentId: string, current: boolean) => {
     try {
       const next = !current;
@@ -1332,6 +1335,8 @@ const AdminDashboard = () => {
   };
 
   const isSameMonthYear = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
   const getMonthRange = (date: Date) => {
     const start = new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
@@ -1962,21 +1967,21 @@ const AdminDashboard = () => {
   }, 0);
 
   // Saldo do dia (HOJE): soma do lucro manual apenas de quem PAGOU HOJE
-  const dayStart = startOfDay(now);
-  const dayEnd = endOfDay(now);
-  const paidToday = establishments.filter(est => {
+  const dayStart = startOfDay(saldoDiaDate);
+  const dayEnd = endOfDay(saldoDiaDate);
+  const paidOnDay = establishments.filter(est => {
     if (!est.payment_paid_at) return false;
     const t = new Date(est.payment_paid_at).getTime();
     if (!Number.isFinite(t)) return false;
     return t >= dayStart.getTime() && t <= dayEnd.getTime();
   });
-  const saldoDiaProfit = paidToday.reduce((sum, est) => {
+  const saldoDiaProfit = paidOnDay.reduce((sum, est) => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
 
   // Clientes (estabelecimentos) criados hoje (para controle rápido, sem query extra)
-  const clientesHojeCount = establishments.filter(est => {
+  const clientesDiaCount = establishments.filter(est => {
     const t = new Date(est.created_at).getTime();
     if (!Number.isFinite(t)) return false;
     return t >= dayStart.getTime() && t <= dayEnd.getTime();
@@ -2101,10 +2106,34 @@ const AdminDashboard = () => {
             <div className="flex items-center">
               <DollarSign className="h-8 w-8 text-emerald-700" />
               <div className="ml-4">
-                <p className="text-sm font-medium text-emerald-900">Saldo do dia</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-emerald-900">Saldo do dia</p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSaldoDiaDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 1))}
+                      className="p-1 rounded hover:bg-emerald-100 text-emerald-800"
+                      title="Dia anterior"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSaldoDiaDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 1))}
+                      disabled={isSameDay(saldoDiaDate, new Date())}
+                      className="p-1 rounded hover:bg-emerald-100 text-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Próximo dia"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-emerald-800/80 mt-1">
+                  {isSameDay(saldoDiaDate, new Date()) ? 'Hoje' : format(saldoDiaDate, 'dd/MM/yyyy', { locale: ptBR })}
+                </p>
                 <p className="text-2xl font-bold text-emerald-900">{fmtBRL(saldoDiaProfit)}</p>
                 <p className="text-xs text-emerald-800/80 mt-1">
-                  {paidToday.length} pago(s) hoje • {clientesHojeCount} novo(s) hoje
+                  {paidOnDay.length} pago(s) • {clientesDiaCount} novo(s)
                 </p>
               </div>
             </div>
