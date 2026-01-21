@@ -2587,6 +2587,8 @@ const EstablishmentDashboard = () => {
   // Estados para categorias de serviços
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
   const [serviceSubcategories, setServiceSubcategories] = useState<ServiceSubcategory[]>([]);
+  // Evita condição de corrida: um fetch antigo terminar depois e sobrescrever o estado mais recente
+  const fetchServiceSubcategoriesRequestIdRef = useRef(0);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
   const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
@@ -3490,16 +3492,19 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     try {
+      const requestId = ++fetchServiceSubcategoriesRequestIdRef.current;
       const { data, error } = await supabase
         .from('service_subcategories')
         .select(`
           *,
-          service_categories (
+          service_categories!inner (
             establishment_id
           )
         `)
         .eq('is_active', true)
         .eq('service_categories.establishment_id', establishment.id)
+        // Ordenação estável: primeiro por categoria, depois por ordem do serviço
+        .order('category_id', { ascending: true })
         .order('display_order', { ascending: true });
 
       if (error) {
@@ -3507,7 +3512,53 @@ const EstablishmentDashboard = () => {
         return;
       }
 
-      setServiceSubcategories(data || []);
+      // Se houver um fetch mais recente em andamento, ignora este resultado
+      if (requestId !== fetchServiceSubcategoriesRequestIdRef.current) return;
+
+      // ✅ Normalizar (remove o embed) + deduplicar por id (caso PostgREST retorne repetido)
+      const list = (data || []) as any[];
+      const normalized: ServiceSubcategory[] = list
+        .map((item: any) => ({
+          id: String(item?.id || ''),
+          category_id: String(item?.category_id || ''),
+          name: String(item?.name || ''),
+          price: Number(item?.price || 0),
+          duration: Number(item?.duration || 30),
+          is_active: Boolean(item?.is_active),
+          display_order: Number(item?.display_order || 0),
+          created_at: String(item?.created_at || ''),
+          updated_at: String(item?.updated_at || ''),
+        }))
+        .filter((s: ServiceSubcategory) => Boolean(s.id) && Boolean(s.category_id));
+
+      const byId = new Map<string, ServiceSubcategory>();
+      for (const s of normalized) {
+        if (!byId.has(s.id)) byId.set(s.id, s);
+      }
+      const unique = Array.from(byId.values());
+
+      console.log('🧩 SERVICES DEBUG - fetchServiceSubcategories:', {
+        establishmentId: establishment.id,
+        total: normalized.length,
+        unique: unique.length,
+        sample: unique.slice(0, 5).map((s: any) => ({
+          id: s?.id,
+          name: s?.name,
+          category_id: s?.category_id,
+          display_order: s?.display_order,
+        })),
+      });
+
+      // Garantir ordenação estável também no estado (independente do backend)
+      unique.sort((a, b) => {
+        const cat = a.category_id.localeCompare(b.category_id);
+        if (cat !== 0) return cat;
+        const order = (a.display_order ?? 0) - (b.display_order ?? 0);
+        if (order !== 0) return order;
+        return a.name.localeCompare(b.name);
+      });
+
+      setServiceSubcategories(unique);
     } catch (error) {
       console.error('Erro ao buscar subcategorias de serviços:', error);
     }
@@ -3641,8 +3692,11 @@ const EstablishmentDashboard = () => {
 
     try {
       const nomeServico = newSubcategory.name.trim();
-      const displayOrder =
-        serviceSubcategories.filter(sub => sub.category_id === selectedCategoryForSubcategory).length;
+      const orders = serviceSubcategories
+        .filter(sub => sub.category_id === selectedCategoryForSubcategory)
+        .map((s: any) => Number(s?.display_order ?? -1))
+        .filter((n: number) => Number.isFinite(n));
+      const displayOrder = orders.length ? Math.max(...orders) + 1 : 0;
 
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone/mobile)
       try {
@@ -3670,6 +3724,19 @@ const EstablishmentDashboard = () => {
         })
         .select('*')
         .single();
+
+      console.log('🧩 SERVICES DEBUG - insert subcategory result:', {
+        ok: !error,
+        inserted: insertedSubcategory
+          ? {
+            id: (insertedSubcategory as any)?.id,
+            name: (insertedSubcategory as any)?.name,
+            category_id: (insertedSubcategory as any)?.category_id,
+            display_order: (insertedSubcategory as any)?.display_order,
+          }
+          : null,
+        error,
+      });
 
       if (error) {
         console.error('❌ Erro ao adicionar subcategoria:', error);
@@ -3720,9 +3787,15 @@ const EstablishmentDashboard = () => {
             if (insertedRetry) {
               setServiceSubcategories(prev => {
                 if (prev.some(s => s.id === insertedRetry.id)) return prev;
-                return [...prev, insertedRetry as any].sort(
-                  (a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0)
-                );
+                const next = [...prev, insertedRetry as any] as ServiceSubcategory[];
+                next.sort((a, b) => {
+                  const cat = a.category_id.localeCompare(b.category_id);
+                  if (cat !== 0) return cat;
+                  const order = (a.display_order ?? 0) - (b.display_order ?? 0);
+                  if (order !== 0) return order;
+                  return a.name.localeCompare(b.name);
+                });
+                return next;
               });
             }
           } else {
@@ -3744,9 +3817,15 @@ const EstablishmentDashboard = () => {
       if (insertedSubcategory) {
         setServiceSubcategories(prev => {
           if (prev.some(s => s.id === insertedSubcategory.id)) return prev;
-          return [...prev, insertedSubcategory as any].sort(
-            (a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0)
-          );
+          const next = [...prev, insertedSubcategory as any] as ServiceSubcategory[];
+          next.sort((a, b) => {
+            const cat = a.category_id.localeCompare(b.category_id);
+            if (cat !== 0) return cat;
+            const order = (a.display_order ?? 0) - (b.display_order ?? 0);
+            if (order !== 0) return order;
+            return a.name.localeCompare(b.name);
+          });
+          return next;
         });
       }
 
@@ -20507,7 +20586,10 @@ Estamos te aguardando! 😎✂️`;
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {categorySubcategories.map((subcategory, index) => (
-                              <div key={subcategory.id} className="bg-gray-50 border-2 border-gray-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-gray-100 transition-all">
+                              <div
+                                key={subcategory.id}
+                                className="bg-gray-50 border-2 border-gray-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-gray-100 transition-all"
+                              >
                                 <div className="flex items-center justify-between mb-2">
                                   <h4 className="font-medium text-gray-900">{subcategory.name}</h4>
                                   <div className="flex items-center gap-1">

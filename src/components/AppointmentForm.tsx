@@ -437,12 +437,13 @@ export function AppointmentForm({
         .from('service_subcategories')
         .select(`
           *,
-          service_categories (
+          service_categories!inner (
             establishment_id
           )
         `)
         .eq('is_active', true)
         .eq('service_categories.establishment_id', establishment.id)
+        .order('category_id', { ascending: true })
         .order('display_order', { ascending: true });
 
       if (subcategoriesError) {

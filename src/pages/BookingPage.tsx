@@ -453,8 +453,67 @@ export default function BookingPage() {
         return;
       }
 
-      console.log('✅ Estabelecimento encontrado:', data);
-      setEstablishment(data);
+      // ✅ Preferir serviços do sistema novo (categorias/subcategorias).
+      // Importante: buscar direto via join (!inner) para não depender de listar categorias antes.
+      let servicesFromCategories: any[] = [];
+      try {
+        const { data: subs, error: subErr } = await supabase
+          .from('service_subcategories')
+          .select(
+            `
+            id,
+            name,
+            price,
+            duration,
+            display_order,
+            is_active,
+            service_categories!inner (
+              establishment_id,
+              display_order
+            )
+          `
+          )
+          .eq('is_active', true)
+          .eq('service_categories.establishment_id', data.id)
+          .order('service_categories(display_order)', { ascending: true })
+          .order('display_order', { ascending: true });
+
+        if (subErr) {
+          console.warn('⚠️ BookingPage - erro ao buscar serviços por categorias (subcategorias):', subErr);
+        } else {
+          servicesFromCategories = (subs || [])
+            .filter((s: any) => s?.id && s?.name)
+            .map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              price: Number(s.price || 0),
+              duration: Number(s.duration || 30),
+            }));
+        }
+      } catch (e) {
+        console.warn('⚠️ BookingPage - erro inesperado ao buscar serviços por categorias:', e);
+      }
+
+      const usingCategories = servicesFromCategories.length > 0;
+      const resolvedServices = usingCategories
+        ? servicesFromCategories
+        : (data as any)?.services_with_prices || [];
+
+      console.log('🧩 BOOKING SERVICES SOURCE:', {
+        establishmentId: data.id,
+        usingCategories,
+        categoriesCount: servicesFromCategories.length,
+        legacyCount: Array.isArray((data as any)?.services_with_prices) ? (data as any).services_with_prices.length : 0,
+        sample: resolvedServices.slice(0, 10).map((s: any) => ({ id: s?.id, name: s?.name })),
+      });
+
+      const resolvedEstablishment = {
+        ...data,
+        services_with_prices: resolvedServices,
+      };
+
+      console.log('✅ Estabelecimento encontrado:', resolvedEstablishment);
+      setEstablishment(resolvedEstablishment);
       setIsBookingBlocked(false);
 
     } catch (error: any) {
