@@ -1,5 +1,5 @@
 import { CheckCircle2, CreditCard, Loader2, MessageCircle, QrCode, X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
 import { CardPaymentBrick } from './CardPaymentBrick';
@@ -37,6 +37,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [pixQrCode, setPixQrCode] = useState('');
   const [pixQrCodeUrl, setPixQrCodeUrl] = useState('');
   const [isPaid, setIsPaid] = useState(false);
+  const [currentPaymentId, setCurrentPaymentId] = useState<string>('');
+  const [currentPaymentProvider, setCurrentPaymentProvider] = useState<'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card' | ''>('');
+  const [lastCheckError, setLastCheckError] = useState<string>('');
   const [cpf, setCpf] = useState('');
   const [nome, setNome] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
@@ -54,6 +57,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [billingUf, setBillingUf] = useState('');
   const [cardRefusedReason, setCardRefusedReason] = useState('');
   const countdownRef = useRef<number | null>(null);
+  const statusIntervalRef = useRef<number | null>(null);
   const [expiresInSeconds, setExpiresInSeconds] = useState(90);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   // ✅ NOVO: Estados para verificar Mercado Pago e dados do Brick
@@ -146,6 +150,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setPixQrCode('');
     setPixQrCodeUrl('');
     setIsPaid(false);
+    setCurrentPaymentId('');
+    setCurrentPaymentProvider('');
+    setLastCheckError('');
     setExpiresInSeconds(90);
     setRemainingSeconds(0);
     setCardRefusedReason('');
@@ -175,90 +182,121 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     };
   }, [pixQrCode, isCheckingPayment, remainingSeconds]);
 
+  // Se o tempo do PIX zerar, parar verificação para não ficar preso na tela
+  useEffect(() => {
+    if (remainingSeconds > 0) return;
+    if (statusIntervalRef.current) {
+      window.clearInterval(statusIntervalRef.current);
+      statusIntervalRef.current = null;
+    }
+    if (isCheckingPayment) {
+      setIsCheckingPayment(false);
+    }
+  }, [remainingSeconds, isCheckingPayment]);
+
   const formatMMSS = (totalSeconds: number) => {
     const m = Math.floor(totalSeconds / 60);
     const s = totalSeconds % 60;
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  const checkPaymentStatusPeriodically = async (orderId: string, provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card') => {
+  const confirmSubscription = async (
+    orderId: string,
+    provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card'
+  ) => {
+    const confirmUrl = import.meta.env.PROD ? '/.netlify/functions/subscription-confirm-pix' : '/api/subscribers/confirm-subscription-pix';
+    const resp = await fetch(confirmUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId,
+        establishmentId,
+        subscriptionId: subscription.id,
+        provider,
+        customer: {
+          name: nome.trim(),
+          whatsapp: whatsapp,
+          email: email?.trim() || undefined,
+          document: String(cpf || '').replace(/\D/g, ''),
+        },
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      const msg = err?.error || `Erro ${resp.status}`;
+      const detailsMsg =
+        typeof err?.details === 'string'
+          ? err.details
+          : err?.details?.message || err?.details?.hint || err?.details?.code || '';
+      throw new Error(detailsMsg ? `${msg} (${detailsMsg})` : msg);
+    }
+
+    return await resp.json().catch(() => ({}));
+  };
+
+  const checkPaymentStatusOnce = async (
+    orderId: string,
+    provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card'
+  ): Promise<{ normalized: string; reason?: string }> => {
+    let status = '';
+    let reason: string | undefined;
+
+    if (provider.startsWith('mercadopago_')) {
+      const checkStatusUrl = import.meta.env.PROD
+        ? `/.netlify/functions/mercadopago-check-status?paymentId=${orderId}`
+        : `/api/mercadopago/check-status?paymentId=${orderId}`;
+      const r = await fetch(checkStatusUrl);
+      if (!r.ok) throw new Error('Erro ao verificar status');
+      const data = await r.json();
+      status = data.status || '';
+      reason = data.status_detail || undefined;
+    } else {
+      const checkStatusUrl = import.meta.env.PROD
+        ? `/.netlify/functions/pagarme-check-status?orderId=${orderId}`
+        : `/api/pagarme/check-status?orderId=${orderId}`;
+      const r = await fetch(checkStatusUrl);
+      if (!r.ok) throw new Error('Erro ao verificar status');
+      const result = await r.json();
+      status = result.status || '';
+      reason = result.reason || undefined;
+    }
+
+    return { normalized: String(status || '').toLowerCase(), reason };
+  };
+
+  const checkPaymentStatusPeriodically = async (
+    orderId: string,
+    provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card'
+  ) => {
     const maxAttempts = 60;
     let attempts = 0;
-    const interval = window.setInterval(async () => {
+
+    if (statusIntervalRef.current) {
+      window.clearInterval(statusIntervalRef.current);
+      statusIntervalRef.current = null;
+    }
+
+    statusIntervalRef.current = window.setInterval(async () => {
       attempts++;
       try {
-        let status: string;
-        let reason: string | undefined;
-        
-        if (provider.startsWith('mercadopago_')) {
-          // Verificar status Mercado Pago
-          const checkStatusUrl = import.meta.env.PROD
-            ? `/.netlify/functions/mercadopago-check-status?paymentId=${orderId}`
-            : `/api/mercadopago/check-status?paymentId=${orderId}`;
-
-          const r = await fetch(checkStatusUrl);
-          if (!r.ok) throw new Error('Erro ao verificar status');
-          const data = await r.json();
-          status = data.status || '';
-          reason = data.status_detail || undefined;
-        } else {
-          // Verificar status Pagar.me
-          const checkStatusUrl = import.meta.env.PROD
-            ? `/.netlify/functions/pagarme-check-status?orderId=${orderId}`
-            : `/api/pagarme/check-status?orderId=${orderId}`;
-
-          const r = await fetch(checkStatusUrl);
-          if (!r.ok) throw new Error('Erro ao verificar status');
-          const result = await r.json();
-          status = result.status || '';
-          reason = result.reason || undefined;
-        }
-
-        const normalized = String(status || '').toLowerCase();
+        const { normalized, reason } = await checkPaymentStatusOnce(orderId, provider);
+        setLastCheckError('');
 
         if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
-          window.clearInterval(interval);
+          if (statusIntervalRef.current) {
+            window.clearInterval(statusIntervalRef.current);
+            statusIntervalRef.current = null;
+          }
           setIsCheckingPayment(false);
           try {
-            const confirmUrl = import.meta.env.PROD
-              ? '/.netlify/functions/subscription-confirm-pix'
-              : '/api/subscribers/confirm-subscription-pix';
-
-            const resp = await fetch(confirmUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                orderId,
-                establishmentId,
-                subscriptionId: subscription.id,
-                provider,
-                customer: {
-                  name: nome.trim(),
-                  whatsapp: whatsapp,
-                  email: email?.trim() || undefined,
-                  document: String(cpf || '').replace(/\D/g, ''),
-                },
-              }),
-            });
-
-            if (!resp.ok) {
-              const err = await resp.json().catch(() => ({}));
-              const msg = err?.error || `Erro ${resp.status}`;
-              const detailsMsg =
-                typeof err?.details === 'string'
-                  ? err.details
-                  : err?.details?.message || err?.details?.hint || err?.details?.code || '';
-              throw new Error(detailsMsg ? `${msg} (${detailsMsg})` : msg);
-            }
-
-            // ✅ Log de sucesso para debug
-            const successData = await resp.json().catch(() => ({}));
+            const successData = await confirmSubscription(orderId, provider);
             console.log('✅ Assinatura registrada com sucesso:', successData);
             toast.success('Assinatura registrada! Você já aparece em "Meus Assinantes" do barbeiro.');
           } catch (e: any) {
             console.error('❌ Erro ao registrar assinatura:', e);
-            toast.error(`Pagamento confirmado, mas não consegui registrar como assinante: ${e?.message || 'erro'}`);
-            return;
+            // ✅ NÃO prender o usuário: marcar como pago e permitir fechar/reverificar depois.
+            toast.error(`Pagamento confirmado, mas falhou registrar no sistema: ${e?.message || 'erro'}`);
           }
 
           setIsPaid(true);
@@ -271,7 +309,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           normalized === 'cancelled' ||
           normalized === 'voided'
         ) {
-          window.clearInterval(interval);
+          if (statusIntervalRef.current) {
+            window.clearInterval(statusIntervalRef.current);
+            statusIntervalRef.current = null;
+          }
           setIsCheckingPayment(false);
           const reasonStr = String(reason || '');
 
@@ -285,20 +326,42 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
           toast.error(reasonStr ? `Pagamento recusado/cancelado: ${reasonStr}` : 'Pagamento recusado ou cancelado');
         } else if (attempts >= maxAttempts) {
-          window.clearInterval(interval);
+          if (statusIntervalRef.current) {
+            window.clearInterval(statusIntervalRef.current);
+            statusIntervalRef.current = null;
+          }
           setIsCheckingPayment(false);
           toast.error('Tempo limite de pagamento excedido');
         }
-      } catch {
+      } catch (e: any) {
+        const msg = String(e?.message || 'Erro ao verificar status');
+        setLastCheckError(msg);
         if (attempts >= maxAttempts) {
-          window.clearInterval(interval);
+          if (statusIntervalRef.current) {
+            window.clearInterval(statusIntervalRef.current);
+            statusIntervalRef.current = null;
+          }
           setIsCheckingPayment(false);
         }
       }
     }, 5000);
   };
 
+  // Limpar intervalos ao fechar/desmontar
+  useEffect(() => {
+    if (isOpen) return;
+    if (statusIntervalRef.current) {
+      window.clearInterval(statusIntervalRef.current);
+      statusIntervalRef.current = null;
+    }
+  }, [isOpen]);
+
   const handleGeneratePix = async () => {
+    // Evitar gerar múltiplos PIX enquanto há um pendente
+    if (isCheckingPayment && currentPaymentId) {
+      toast.error('Você já tem um PIX gerado. Aguarde a confirmação ou clique em "Verificar agora".');
+      return;
+    }
     if (paymentProvider === 'mercadopago') {
       // Fluxo Mercado Pago
       if (!amountInCents || amountInCents <= 0) {
@@ -388,6 +451,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         setExpiresInSeconds(expiresIn);
         setRemainingSeconds(expiresIn);
         setIsCheckingPayment(true);
+        setCurrentPaymentId(String(result.id || ''));
+        setCurrentPaymentProvider('mercadopago_pix');
         checkPaymentStatusPeriodically(result.id, 'mercadopago_pix');
       } catch (err: any) {
         const isAbort = err?.name === 'AbortError';
@@ -492,6 +557,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       setExpiresInSeconds(safeExpiresIn);
       setRemainingSeconds(safeExpiresIn);
       setIsCheckingPayment(true);
+      setCurrentPaymentId(String(result.id || ''));
+      setCurrentPaymentProvider('pagarme_pix');
       checkPaymentStatusPeriodically(result.id, 'pagarme_pix');
     } catch (err: any) {
       const isAbort = err?.name === 'AbortError';
@@ -949,14 +1016,27 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   }, [isOpen]);
 
+  const handleSafeClose = useCallback(() => {
+    if (statusIntervalRef.current) {
+      window.clearInterval(statusIntervalRef.current);
+      statusIntervalRef.current = null;
+    }
+    if (countdownRef.current) {
+      window.clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setIsCheckingPayment(false);
+    onClose();
+  }, [onClose]);
+
   if (!isOpen) return null;
 
   return (
     <div 
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isProcessing && !isCheckingPayment) {
-          onClose();
+        if (e.target === e.currentTarget && !isProcessing) {
+          handleSafeClose();
         }
       }}
     >
@@ -968,7 +1048,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             Assinatura
           </h2>
           {!isProcessing && (
-            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+            <button onClick={handleSafeClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
               <X className="h-5 w-5 text-gray-300" />
             </button>
           )}
@@ -1349,12 +1429,70 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
               </button>
             </div>
 
-            {isCheckingPayment && (
-              <div className="flex items-center justify-center gap-2 text-blue-300">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span>Aguardando confirmação do pagamento...</span>
-              </div>
-            )}
+            <div className="space-y-2">
+              {isCheckingPayment && (
+                <div className="flex items-center justify-center gap-2 text-blue-300">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Aguardando confirmação do pagamento...</span>
+                </div>
+              )}
+
+              {lastCheckError && isCheckingPayment && (
+                <div className="text-center text-xs text-red-300">
+                  Falha ao verificar status: {lastCheckError}
+                </div>
+              )}
+
+              {(pixQrCode || currentPaymentId) && (
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={async () => {
+                      const id = String(currentPaymentId || '').trim();
+                      const provider =
+                        currentPaymentProvider ||
+                        (paymentProvider === 'mercadopago' ? 'mercadopago_pix' : 'pagarme_pix');
+
+                      if (!id) {
+                        toast.error('Nenhum pagamento para verificar. Gere o PIX novamente.');
+                        return;
+                      }
+
+                      setIsCheckingPayment(true);
+                      try {
+                        const { normalized } = await checkPaymentStatusOnce(id, provider);
+                        if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
+                          try {
+                            await confirmSubscription(id, provider);
+                          } catch (e: any) {
+                            toast.error(`Pagamento confirmado, mas falhou registrar: ${e?.message || 'erro'}`);
+                          }
+                          setIsPaid(true);
+                          setIsCheckingPayment(false);
+                          toast.success('Pagamento confirmado!');
+                        } else {
+                          toast.error(`Ainda não confirmado (status: ${normalized || 'desconhecido'})`);
+                        }
+                      } catch (e: any) {
+                        toast.error(e?.message || 'Erro ao verificar');
+                      }
+                    }}
+                    className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Verificar agora
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSafeClose}
+                    className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
         </div>

@@ -22,6 +22,10 @@ export interface Database {
           is_avulso?: boolean; // Nova coluna para indicar se é reserva avulsa
           is_squeeze?: boolean; // Indica se é um encaixe (tempo manual)
           price?: number; // Preço do agendamento
+          price_original?: number | null; // Preço original (antes de cupom)
+          coupon_code?: string | null; // Cupom aplicado (código)
+          coupon_discount_percent?: number | null; // Desconto em %
+          coupon_discount_amount?: number | null; // Valor do desconto em R$
           total_price?: number; // Preço total incluindo produtos extras
         }
       },
@@ -106,6 +110,29 @@ export interface Database {
           value?: number;
           duration_months?: number;
           custom_link?: string | null;
+        };
+      };
+      discount_coupons: {
+        Row: {
+          id: string;
+          establishment_id: string;
+          code: string;
+          discount_percent: number;
+          is_active: boolean;
+          usage_count: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          establishment_id: string;
+          code: string;
+          discount_percent: number;
+          is_active?: boolean;
+        };
+        Update: {
+          code?: string;
+          discount_percent?: number;
+          is_active?: boolean;
         };
       };
       client_subscriptions: {

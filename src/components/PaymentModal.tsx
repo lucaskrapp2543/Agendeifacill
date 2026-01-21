@@ -1,5 +1,5 @@
 import { CreditCard, Loader2, QrCode, Wallet, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useToast } from './ui/Toaster';
 // Import removido - agora usa API Routes
 import { supabase } from '../lib/supabase';
@@ -46,6 +46,9 @@ export const PaymentModal = ({
   const [pixExpiresInSeconds, setPixExpiresInSeconds] = useState<number>(90);
   const [pixRemainingSeconds, setPixRemainingSeconds] = useState<number>(0);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
+  const [currentPaymentId, setCurrentPaymentId] = useState<string>('');
+  const [currentPaymentProvider, setCurrentPaymentProvider] = useState<'pagarme' | 'mercadopago' | ''>('');
+  const [lastCheckError, setLastCheckError] = useState<string>('');
   const [cpfCliente, setCpfCliente] = useState<string>(customerData.document || '');
   // ✅ NÃO preencher automaticamente com email de guest - cliente deve preencher manualmente
   const [payerEmail, setPayerEmail] = useState<string>(() => {
@@ -79,6 +82,7 @@ export const PaymentModal = ({
   const [isBrickReady, setIsBrickReady] = useState(false);
   const { toast } = useToast();
   const pixCountdownIntervalRef = useRef<number | null>(null);
+  const pagarmeStatusIntervalRef = useRef<number | null>(null);
   const isCheckingPaymentRef = useRef<boolean>(false);
   const currentPaymentIdRef = useRef<number | null>(null);
 
@@ -125,11 +129,18 @@ export const PaymentModal = ({
         window.clearInterval(pixCountdownIntervalRef.current);
         pixCountdownIntervalRef.current = null;
       }
+      if (pagarmeStatusIntervalRef.current) {
+        window.clearInterval(pagarmeStatusIntervalRef.current);
+        pagarmeStatusIntervalRef.current = null;
+      }
       setIsCheckingPayment(false);
       isCheckingPaymentRef.current = false;
       currentPaymentIdRef.current = null;
       setPixQrCode('');
       setPixRemainingSeconds(0);
+      setCurrentPaymentId('');
+      setCurrentPaymentProvider('');
+      setLastCheckError('');
       setHasPagarMeError(false);
       // ✅ NÃO limpar dados do cartão e endereço - manter para o usuário não perder ao voltar
       // setBrickCardToken(null);
@@ -140,6 +151,27 @@ export const PaymentModal = ({
       // etc...
     }
   }, [isOpen, establishmentId]);
+
+  // ✅ Se já existe transação pendente no agendamento, reaproveitar pra evitar “pagar duas vezes”
+  useEffect(() => {
+    if (!isOpen || !appointmentId) return;
+
+    (async () => {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('payment_transaction_id, payment_status')
+        .eq('id', appointmentId)
+        .single();
+
+      if (error) return;
+      const tx = String((data as any)?.payment_transaction_id || '').trim();
+      const status = String((data as any)?.payment_status || '').toLowerCase();
+      if (!tx || status === 'paid') return;
+
+      setCurrentPaymentId(tx);
+      setCurrentPaymentProvider(/^\d+$/.test(tx) ? 'mercadopago' : 'pagarme');
+    })().catch(() => {});
+  }, [isOpen, appointmentId]);
 
   // ✅ NOVO: Salvar dados do endereço e email no localStorage para persistir
   useEffect(() => {
@@ -317,6 +349,12 @@ export const PaymentModal = ({
       return;
     }
 
+    // ✅ Guardrail: evita gerar/pagar duas vezes
+    if ((isCheckingPaymentRef.current || isCheckingPayment) && currentPaymentId) {
+      toast('Você já tem um pagamento pendente. Clique em "Verificar agora".', 'warning');
+      return;
+    }
+
     // ✅ IMPORTANTE: Definir selectedMethod antes de processar
     setSelectedMethod('credit_card');
 
@@ -421,10 +459,18 @@ export const PaymentModal = ({
       const paymentResult = await paymentResponse.json();
       console.log('✅ [MP Payment] Pagamento criado:', paymentResult);
 
+      if (paymentResult?.id) {
+        setCurrentPaymentId(String(paymentResult.id));
+        setCurrentPaymentProvider('mercadopago');
+        setLastCheckError('');
+      }
+
       if (paymentResult.status === 'approved' || paymentResult.status === 'authorized') {
         await confirmAppointment(String(paymentResult.id));
       } else {
         setIsCheckingPayment(true);
+        isCheckingPaymentRef.current = true;
+        currentPaymentIdRef.current = paymentResult.id;
         checkMercadoPagoPaymentStatus(paymentResult.id);
       }
     } catch (error: any) {
@@ -438,6 +484,12 @@ export const PaymentModal = ({
   const handleMercadoPagoPayment = async (method: 'pix' | 'credit_card' = 'pix') => {
     if (!hasMercadoPago) {
       toast('Estabelecimento não possui conta do Mercado Pago conectada', 'error');
+      return;
+    }
+
+    // ✅ Guardrail: evita gerar/pagar duas vezes
+    if ((isCheckingPaymentRef.current || isCheckingPayment) && currentPaymentId) {
+      toast('Você já tem um pagamento pendente. Clique em "Verificar agora".', 'warning');
       return;
     }
 
@@ -657,6 +709,12 @@ export const PaymentModal = ({
 
       const paymentResult = await paymentResponse.json();
 
+      if (paymentResult?.id) {
+        setCurrentPaymentId(String(paymentResult.id));
+        setCurrentPaymentProvider('mercadopago');
+        setLastCheckError('');
+      }
+
       // Salvar transaction_id no Supabase
       try {
         if (paymentResult?.id) {
@@ -692,6 +750,8 @@ export const PaymentModal = ({
           setIsCheckingPayment(true);
           isCheckingPaymentRef.current = true;
           currentPaymentIdRef.current = paymentResult.id;
+          setCurrentPaymentId(String(paymentResult.id));
+          setCurrentPaymentProvider('mercadopago');
           
           // Iniciar contador imediatamente
           pixCountdownIntervalRef.current = window.setInterval(() => {
@@ -714,6 +774,8 @@ export const PaymentModal = ({
           setIsCheckingPayment(true);
           isCheckingPaymentRef.current = true;
           currentPaymentIdRef.current = paymentResult.id;
+          setCurrentPaymentId(String(paymentResult.id));
+          setCurrentPaymentProvider('mercadopago');
           checkMercadoPagoPaymentStatus(paymentResult.id);
           setIsProcessing(false);
         }
@@ -749,6 +811,10 @@ export const PaymentModal = ({
         } else {
           toast('Pagamento processado. Aguardando confirmação...', 'warning');
           setIsCheckingPayment(true);
+          isCheckingPaymentRef.current = true;
+          currentPaymentIdRef.current = paymentResult.id;
+          setCurrentPaymentId(String(paymentResult.id));
+          setCurrentPaymentProvider('mercadopago');
           checkMercadoPagoPaymentStatus(paymentResult.id);
           setIsProcessing(false);
         }
@@ -815,6 +881,7 @@ export const PaymentModal = ({
           setIsCheckingPayment(false);
           isCheckingPaymentRef.current = false;
           currentPaymentIdRef.current = null;
+          setLastCheckError('');
           await confirmAppointment(String(paymentId));
         } else if (payment.status === 'rejected' || payment.status === 'cancelled' || payment.status === 'refunded') {
           const statusDetail = payment.status_detail || '';
@@ -842,6 +909,7 @@ export const PaymentModal = ({
           setIsCheckingPayment(false);
           isCheckingPaymentRef.current = false;
           currentPaymentIdRef.current = null;
+          setLastCheckError('');
           toast(errorMessage, 'error');
           setHasPagarMeError(true);
           
@@ -863,6 +931,7 @@ export const PaymentModal = ({
         }
       } catch (error: any) {
         console.error('❌ [MP] Erro ao verificar status:', error);
+        setLastCheckError(String(error?.message || 'Erro ao verificar status'));
         attempts++;
         // Continuar tentando mesmo com erro (pode ser temporário)
         if (isCheckingPaymentRef.current && currentPaymentIdRef.current === paymentId) {
@@ -877,6 +946,12 @@ export const PaymentModal = ({
   const handlePayment = async (method: PaymentMethod) => {
     if (!method) return;
 
+    // ✅ Guardrail: evita gerar/pagar duas vezes
+    if ((isCheckingPaymentRef.current || isCheckingPayment) && currentPaymentId) {
+      toast('Você já tem um pagamento pendente. Clique em "Verificar agora".', 'warning');
+      return;
+    }
+
     // CPF/CNPJ costuma ser exigido na Pagar.me (PIX e cartão)
     const docDigits = String(cpfCliente || '').replace(/\D/g, '');
     if (!(docDigits.length === 11 || docDigits.length === 14)) {
@@ -889,6 +964,7 @@ export const PaymentModal = ({
     setIsProcessing(true);
     setPixQrCode('');
     setPixQrCodeUrl('');
+    setLastCheckError('');
     // limpar banner de fallback quando tentar pagar de novo
     setCardRefusedReason('');
     setHasPagarMeError(false); // Limpar erro anterior ao tentar novamente
@@ -1034,6 +1110,12 @@ export const PaymentModal = ({
 
       const paymentResult = await paymentResponse.json();
 
+      // Guardar referência local para permitir “Verificar agora” e evitar duplicidade
+      if (paymentResult?.id) {
+        setCurrentPaymentId(String(paymentResult.id));
+        setCurrentPaymentProvider('pagarme');
+      }
+
       // ✅ Importante: persistir o ID da transação no Supabase assim que o pagamento é criado.
       // Isso evita perder referência caso o usuário feche/recarregue a página antes da confirmação,
       // e permite reconciliação futura.
@@ -1068,6 +1150,11 @@ export const PaymentModal = ({
 
         // Iniciar verificação de pagamento
         setIsCheckingPayment(true);
+        isCheckingPaymentRef.current = true;
+        if (pagarmeStatusIntervalRef.current) {
+          window.clearInterval(pagarmeStatusIntervalRef.current);
+          pagarmeStatusIntervalRef.current = null;
+        }
         checkPaymentStatusPeriodically(paymentResult.id);
         setIsProcessing(false);
       } else if (paymentResult.status === 'paid' || paymentResult.status === 'authorized') {
@@ -1077,6 +1164,11 @@ export const PaymentModal = ({
         toast('Pagamento processado. Aguardando confirmação...', 'warning');
         // Verificar status periodicamente
         setIsCheckingPayment(true);
+        isCheckingPaymentRef.current = true;
+        if (pagarmeStatusIntervalRef.current) {
+          window.clearInterval(pagarmeStatusIntervalRef.current);
+          pagarmeStatusIntervalRef.current = null;
+        }
         checkPaymentStatusPeriodically(paymentResult.id);
         setIsProcessing(false);
       }
@@ -1091,6 +1183,7 @@ export const PaymentModal = ({
       );
       setIsProcessing(false);
       setIsCheckingPayment(false);
+      isCheckingPaymentRef.current = false;
       setSelectedMethod(null);
       setHasPagarMeError(true); // Marcar que houve erro no Pagar.me
       // Não chamar onPaymentFailure() aqui - deixar o usuário tentar com Mercado Pago
@@ -1150,13 +1243,112 @@ export const PaymentModal = ({
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  const handleSafeClose = useCallback(() => {
+    // parar timers/polling antes de fechar (evita ficar “preso” e evita estados zumbis)
+    if (pixCountdownIntervalRef.current) {
+      window.clearInterval(pixCountdownIntervalRef.current);
+      pixCountdownIntervalRef.current = null;
+    }
+    if (pagarmeStatusIntervalRef.current) {
+      window.clearInterval(pagarmeStatusIntervalRef.current);
+      pagarmeStatusIntervalRef.current = null;
+    }
+
+    setIsCheckingPayment(false);
+    isCheckingPaymentRef.current = false;
+    currentPaymentIdRef.current = null;
+    onClose();
+  }, [onClose]);
+
+  const checkPagarmeStatusOnce = async (transactionId: string): Promise<{ normalized: string; reason?: string }> => {
+    const checkStatusUrl = import.meta.env.PROD
+      ? `/.netlify/functions/pagarme-check-status?orderId=${transactionId}`
+      : `/api/pagarme/check-status?orderId=${transactionId}`;
+
+    const statusResponse = await fetch(checkStatusUrl);
+    if (!statusResponse.ok) throw new Error('Erro ao verificar status');
+    const { status, reason } = await statusResponse.json();
+    return { normalized: String(status || '').toLowerCase(), reason: reason ? String(reason) : undefined };
+  };
+
+  const checkMercadoPagoStatusOnce = async (paymentId: number): Promise<{ normalized: string; reason?: string }> => {
+    const checkStatusUrl = import.meta.env.PROD
+      ? `/.netlify/functions/mercadopago-check-status?paymentId=${paymentId}&establishmentId=${establishmentId}`
+      : `/api/mercadopago/check-status?paymentId=${paymentId}&establishmentId=${establishmentId}`;
+
+    const response = await fetch(checkStatusUrl);
+    if (!response.ok) throw new Error('Erro ao verificar status');
+    const payment = await response.json();
+    const normalized = String(payment?.status || '').toLowerCase();
+    const reason = payment?.status_detail ? String(payment.status_detail) : undefined;
+    return { normalized, reason };
+  };
+
+  const verifyPaymentNow = useCallback(async () => {
+    const id = String(currentPaymentId || '').trim();
+    const provider = currentPaymentProvider;
+    if (!id || !provider) {
+      toast('Nenhum pagamento pendente para verificar.', 'warning');
+      return;
+    }
+
+    setIsCheckingPayment(true);
+    isCheckingPaymentRef.current = true;
+    setLastCheckError('');
+
+    try {
+      if (provider === 'mercadopago') {
+        const pid = Number(id);
+        if (!Number.isFinite(pid)) throw new Error('paymentId inválido');
+        const { normalized, reason } = await checkMercadoPagoStatusOnce(pid);
+        if (normalized === 'approved' || normalized === 'authorized') {
+          await confirmAppointment(String(pid));
+          return;
+        }
+        if (normalized === 'rejected' || normalized === 'cancelled' || normalized === 'refunded') {
+          toast(reason ? `Pagamento recusado/cancelado: ${reason}` : 'Pagamento recusado ou cancelado', 'error');
+          return;
+        }
+        toast(`Ainda não confirmado (status: ${normalized || 'pendente'})`, 'warning');
+        return;
+      }
+
+      const { normalized, reason } = await checkPagarmeStatusOnce(id);
+      if (normalized === 'paid' || normalized === 'authorized') {
+        await confirmAppointment(id);
+        return;
+      }
+      if (
+        normalized === 'refused' ||
+        normalized === 'pending_refund' ||
+        normalized === 'failed' ||
+        normalized === 'canceled' ||
+        normalized === 'cancelled' ||
+        normalized === 'voided'
+      ) {
+        toast(reason ? `Pagamento recusado/cancelado: ${reason}` : 'Pagamento recusado ou cancelado', 'error');
+        return;
+      }
+      toast(`Ainda não confirmado (status: ${normalized || 'pendente'})`, 'warning');
+    } catch (e: any) {
+      const msg = String(e?.message || 'Erro ao verificar status');
+      setLastCheckError(msg);
+      toast(msg, 'error');
+    }
+  }, [currentPaymentId, currentPaymentProvider, establishmentId, toast]);
+
   const checkPaymentStatusPeriodically = async (transactionId: string) => {
     // ✅ Se pagamento é obrigatório, reduzir tempo de espera para cancelar mais rápido
     // Se opcional, dar mais tempo (5 minutos). Se obrigatório, cancelar em 2 minutos (24 tentativas * 5s)
     const maxAttempts = cancelAppointmentOnFailure ? 24 : 60; // 2 minutos se obrigatório, 5 minutos se opcional
     let attempts = 0;
 
-    const checkInterval = setInterval(async () => {
+    if (pagarmeStatusIntervalRef.current) {
+      window.clearInterval(pagarmeStatusIntervalRef.current);
+      pagarmeStatusIntervalRef.current = null;
+    }
+
+    const checkInterval = window.setInterval(async () => {
       attempts++;
 
       try {
@@ -1174,9 +1366,12 @@ export const PaymentModal = ({
         const { status, reason } = await statusResponse.json();
 
         const normalized = String(status || '').toLowerCase();
+        setLastCheckError('');
         if (normalized === 'paid' || normalized === 'authorized') {
           clearInterval(checkInterval);
+          pagarmeStatusIntervalRef.current = null;
           setIsCheckingPayment(false);
+          isCheckingPaymentRef.current = false;
           await confirmAppointment(transactionId);
         } else if (
           normalized === 'refused' ||
@@ -1187,7 +1382,9 @@ export const PaymentModal = ({
           normalized === 'voided'
         ) {
           clearInterval(checkInterval);
+          pagarmeStatusIntervalRef.current = null;
           setIsCheckingPayment(false);
+          isCheckingPaymentRef.current = false;
           const reasonStr = String(reason || '');
 
           // ✅ Qualquer recusa no cartão -> oferecer PIX sem zerar o atendimento
@@ -1215,7 +1412,9 @@ export const PaymentModal = ({
           onPaymentFailure();
         } else if (attempts >= maxAttempts) {
           clearInterval(checkInterval);
+          pagarmeStatusIntervalRef.current = null;
           setIsCheckingPayment(false);
+          isCheckingPaymentRef.current = false;
           toast('Tempo limite de pagamento excedido', 'error');
           // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
           if (cancelAppointmentOnFailure) {
@@ -1228,9 +1427,12 @@ export const PaymentModal = ({
         }
       } catch (error: any) {
         console.error('❌ Erro ao verificar status do pagamento:', error);
+        setLastCheckError(String(error?.message || 'Erro ao verificar status'));
         if (attempts >= maxAttempts) {
           clearInterval(checkInterval);
+          pagarmeStatusIntervalRef.current = null;
           setIsCheckingPayment(false);
+          isCheckingPaymentRef.current = false;
           if (cancelAppointmentOnFailure) {
             await cancelAppointment();
           } else {
@@ -1240,6 +1442,8 @@ export const PaymentModal = ({
         }
       }
     }, 5000); // Verificar a cada 5 segundos
+
+    pagarmeStatusIntervalRef.current = checkInterval;
   };
 
   const markAppointmentPaymentUnpaid = async () => {
@@ -1406,8 +1610,8 @@ export const PaymentModal = ({
     <div 
       className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 overflow-y-auto"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isProcessing && !isCheckingPayment) {
-          onClose();
+        if (e.target === e.currentTarget && !isProcessing) {
+          handleSafeClose();
         }
       }}
     >
@@ -1418,9 +1622,9 @@ export const PaymentModal = ({
             <CreditCard className="h-6 w-6" />
             Pagamento Antecipado
           </h2>
-          {!isProcessing && !isCheckingPayment && (
+          {!isProcessing && (
             <button
-              onClick={onClose}
+              onClick={handleSafeClose}
               className="p-2 hover:bg-gray-700 rounded-full transition-colors"
             >
               <X className="h-5 w-5 text-gray-400" />
@@ -1432,6 +1636,23 @@ export const PaymentModal = ({
         <div className="flex-1 overflow-y-auto px-6 pb-6" style={{ minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
           {!selectedMethod ? (
           <div className="space-y-4">
+            {currentPaymentId ? (
+              <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
+                <p className="text-sm text-yellow-200 font-semibold">
+                  ⚠️ Pagamento pendente detectado
+                </p>
+                <p className="text-xs text-yellow-200/90 mt-1">
+                  Para evitar pagar duas vezes, clique em <span className="font-semibold">“Verificar agora”</span> antes de gerar um novo PIX/cartão.
+                </p>
+                <button
+                  type="button"
+                  onClick={verifyPaymentNow}
+                  className="w-full mt-3 px-4 py-3 rounded-lg bg-white/10 hover:bg-white/15 text-white font-extrabold transition-colors"
+                >
+                  Verificar agora
+                </button>
+              </div>
+            ) : null}
             {cardRefusedReason ? (
               <div className="bg-red-900/30 border border-red-700/60 rounded-lg p-4">
                 <p className="text-sm text-red-200 font-semibold">
@@ -1813,6 +2034,32 @@ export const PaymentModal = ({
                 <span>Aguardando confirmação do pagamento...</span>
               </div>
             )}
+
+            {lastCheckError && isCheckingPayment && (
+              <div className="text-center text-xs text-red-300">
+                Falha ao verificar status: {lastCheckError}
+              </div>
+            )}
+
+            {(currentPaymentId || pixQrCode) && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2">
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={verifyPaymentNow}
+                  className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Verificar agora
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSafeClose}
+                  className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -1823,6 +2070,32 @@ export const PaymentModal = ({
               <div className="flex items-center justify-center gap-2 text-blue-400">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span>{isCheckingPayment ? 'Aguardando confirmação do pagamento...' : 'Processando...'}</span>
+              </div>
+            )}
+
+            {lastCheckError && isCheckingPayment && (
+              <div className="text-center text-xs text-red-300">
+                Falha ao verificar status: {lastCheckError}
+              </div>
+            )}
+
+            {(currentPaymentId && !isProcessing) && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2">
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={verifyPaymentNow}
+                  className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Verificar agora
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSafeClose}
+                  className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors"
+                >
+                  Fechar
+                </button>
               </div>
             )}
           </div>

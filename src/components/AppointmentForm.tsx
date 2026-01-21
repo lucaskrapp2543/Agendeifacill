@@ -416,6 +416,19 @@ export function AppointmentForm({
   const [observation, setObservation] = useState<string>('');
   const [isChildService, setIsChildService] = useState<boolean | null>(null);
 
+  // ✅ Cupom de desconto (booking)
+  const [cupomInput, setCupomInput] = useState<string>('');
+  const [cupomAplicado, setCupomAplicado] = useState<{ code: string; percent: number } | null>(null);
+  const [isApplyingCupom, setIsApplyingCupom] = useState(false);
+
+  // Se virar agendamento de assinante, cupom não se aplica
+  useEffect(() => {
+    if (isSubscriberBooking) {
+      setCupomAplicado(null);
+      setCupomInput('');
+    }
+  }, [isSubscriberBooking]);
+
   // Função para buscar categorias de serviços
   const fetchServiceCategories = async () => {
     if (!establishment?.id) return;
@@ -495,6 +508,73 @@ export function AppointmentForm({
     }
   }, [serviceCategories, selectedProfessional, selectedCategory]);
   const [isLoading, setIsLoading] = useState(false);
+
+  const normalizeCupom = (raw: string) =>
+    String(raw || '')
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, '');
+
+  const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+  // Valor base atual (sem cupom), para recalcular UI e payload
+  const getPrecoBaseAtual = () => {
+    if (isSubscriberBooking && subscriberService) return 0;
+    if (useMultiService) {
+      return (selectedServices || []).reduce((sum, s) => sum + (Number((s as any)?.price) || 0), 0);
+    }
+    if (useCategoryService) {
+      if (useMultiCategoryService) {
+        return (selectedCategoryServices || []).reduce((sum, s: any) => sum + (Number(s?.price) || 0), 0);
+      }
+      return Number((selectedSubcategory as any)?.price) || 0;
+    }
+    return Number((selectedService as any)?.price) || 0;
+  };
+
+  const precoBaseAtual = getPrecoBaseAtual();
+  const descontoPercent = cupomAplicado ? Number(cupomAplicado.percent) || 0 : 0;
+  const descontoValorAtual = cupomAplicado ? round2((precoBaseAtual * descontoPercent) / 100) : 0;
+  const precoFinalAtual = cupomAplicado ? Math.max(0, round2(precoBaseAtual - descontoValorAtual)) : precoBaseAtual;
+
+  const aplicarCupom = async () => {
+    if (!establishment?.id) return;
+    if (isSubscriberBooking) return;
+
+    const code = normalizeCupom(cupomInput);
+    if (!code) {
+      toast.error('Digite um cupom (ex: NEY1)');
+      return;
+    }
+    setIsApplyingCupom(true);
+    try {
+      const { data, error } = await supabase.rpc('validate_discount_coupon', {
+        p_establishment_id: establishment.id,
+        p_code: code,
+      });
+      if (error) {
+        console.error('❌ Erro ao validar cupom:', error);
+        toast.error(error.message || 'Erro ao validar cupom');
+        return;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      const valid = Boolean(row?.valid);
+      const percent = Number(row?.discount_percent);
+      if (!valid || !Number.isFinite(percent) || percent <= 0) {
+        toast.error('Cupom inválido ou inativo');
+        setCupomAplicado(null);
+        return;
+      }
+      setCupomAplicado({ code, percent });
+      setCupomInput(code);
+      toast.success(`Cupom aplicado: -${percent}%`);
+    } catch (e: any) {
+      console.error('❌ Erro inesperado ao aplicar cupom:', e);
+      toast.error(e?.message || 'Erro ao aplicar cupom');
+    } finally {
+      setIsApplyingCupom(false);
+    }
+  };
 
 
   // ✅ FUNÇÃO PARA COMBINAR SERVIÇOS GERAIS COM SERVIÇOS ESPECÍFICOS DO PROFISSIONAL
@@ -1267,6 +1347,11 @@ export function AppointmentForm({
       const formattedDate = format(selectedDate, 'yyyy-MM-dd');
       console.log('🔍 DEBUG - Data formatada:', formattedDate);
 
+      const basePrice = isSubscriberBooking && subscriberService ? 0 : Number(totalPrice || 0);
+      const appliedPercent = cupomAplicado ? Number(cupomAplicado.percent) || 0 : 0;
+      const discountAmount = cupomAplicado ? round2((basePrice * appliedPercent) / 100) : 0;
+      const finalPrice = cupomAplicado ? Math.max(0, round2(basePrice - discountAmount)) : basePrice;
+
       const appointmentData = {
         client_name: isSubscriberBooking ? `${clientName} (ASSINANTE)` : clientName, // Adicionar (ASSINANTE) apenas no envio
         client_whatsapp: whatsappNumbers,
@@ -1276,7 +1361,11 @@ export function AppointmentForm({
         appointment_date: formattedDate,
         appointment_time: selectedTime,
         duration: isSubscriberBooking && subscriberService ? (subscriberService.service_duration || 30) : totalDuration, // Usar duração total
-        price: isSubscriberBooking && subscriberService ? 0 : totalPrice, // Preço total
+        price_original: cupomAplicado ? basePrice : null,
+        coupon_code: cupomAplicado ? cupomAplicado.code : null,
+        coupon_discount_percent: cupomAplicado ? appliedPercent : null,
+        coupon_discount_amount: cupomAplicado ? discountAmount : null,
+        price: isSubscriberBooking && subscriberService ? 0 : finalPrice, // Preço final (com cupom se houver)
         payment_method: isSubscriberBooking ? 'assinante' : (requireAdvancePayment ? 'pendente' : selectedPaymentMethod),
         observation: observation.trim() || null, // Adicionar observação (null se vazia)
         is_child_service: isChildService === true, // Adicionar serviço infantil (garantir boolean)
@@ -2961,6 +3050,86 @@ export function AppointmentForm({
               </div>
             )}
 
+            {/* CUPOM DE DESCONTO - abaixo do serviço infantil */}
+            {selectedTime && !isSubscriberBooking && (
+              <div
+                className="mt-4 p-4 rounded-2xl"
+                style={{
+                  background: '#151515',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+                }}
+              >
+                <label className="block text-sm font-extrabold mb-2" style={{ color: '#E6C78B' }}>
+                  Cupom de desconto (opcional)
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                  <input
+                    value={cupomInput}
+                    onChange={(e) => setCupomInput(e.target.value)}
+                    placeholder="Ex: NEY1"
+                    className="flex-1 px-4 py-3 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#E6C78B]/25"
+                    style={{
+                      background: '#0F0F0F',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                    disabled={isApplyingCupom}
+                  />
+                  <button
+                    type="button"
+                    onClick={aplicarCupom}
+                    disabled={isApplyingCupom}
+                    className="px-4 py-3 rounded-xl font-extrabold transition-colors disabled:opacity-60"
+                    style={{ background: '#E6C78B', color: '#0B0B0B' }}
+                  >
+                    {isApplyingCupom ? 'Aplicando...' : 'Aplicar cupom'}
+                  </button>
+                  {cupomAplicado && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCupomAplicado(null);
+                        toast.success('Cupom removido');
+                      }}
+                      className="px-4 py-3 rounded-xl font-extrabold transition-colors"
+                      style={{ background: '#2A2A2A', color: '#FFFFFF' }}
+                    >
+                      Remover
+                    </button>
+                  )}
+                </div>
+
+                {cupomAplicado && (
+                  <div className="mt-3 text-sm" style={{ color: '#A1A1A1' }}>
+                    <div>
+                      <strong className="text-white">Cupom aplicado:</strong> {cupomAplicado.code} —{' '}
+                      <strong className="text-white">-{Number(cupomAplicado.percent).toFixed(2).replace('.', ',')}%</strong>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                      <span>
+                        Valor original:{' '}
+                        <strong className="text-white">
+                          R$ {Number(precoBaseAtual || 0).toFixed(2).replace('.', ',')}
+                        </strong>
+                      </span>
+                      <span>
+                        Desconto:{' '}
+                        <strong className="text-white">
+                          -R$ {Number(descontoValorAtual || 0).toFixed(2).replace('.', ',')}
+                        </strong>
+                      </span>
+                      <span>
+                        Total com cupom:{' '}
+                        <strong style={{ color: '#E6C78B' }}>
+                          R$ {Number(precoFinalAtual || 0).toFixed(2).replace('.', ',')}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* RESUMO DO AGENDAMENTO - Fluxo Normal */}
             {(selectedPaymentMethod || requireAdvancePayment) && ((selectedService && selectedProfessional && selectedTime) ||
               (useMultiService && selectedServices.length > 0 && selectedProfessional && selectedTime) ||
@@ -3010,6 +3179,15 @@ export function AppointmentForm({
                     )}
                     {selectedProfessional && selectedProfessional.offers_child_service && (
                       <div><strong className="text-white">Serviço infantil:</strong> {isChildService === null ? 'Não informado' : (isChildService ? 'Sim' : 'Não')}</div>
+                    )}
+                    {cupomAplicado && !isSubscriberBooking && (
+                      <div>
+                        <strong className="text-white">Cupom aplicado:</strong> {cupomAplicado.code} (
+                        -{Number(cupomAplicado.percent).toFixed(2).replace('.', ',')}%) —{' '}
+                        <strong style={{ color: '#E6C78B' }}>
+                          Total: R$ {Number(precoFinalAtual || 0).toFixed(2).replace('.', ',')}
+                        </strong>
+                      </div>
                     )}
                   </div>
                 </div>

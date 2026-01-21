@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
+import { DiscountCouponsModal } from '../components/DiscountCouponsModal';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
 import { ExpensesManager } from '../components/ExpensesManager';
 import { FinancialDashboard } from '../components/FinancialDashboard';
@@ -831,9 +832,28 @@ const EstablishmentDashboard = () => {
   const [showAdicionarFilaModal, setShowAdicionarFilaModal] = useState(false);
   const [adicionarFilaNome, setAdicionarFilaNome] = useState('');
   const [adicionarFilaServiceId, setAdicionarFilaServiceId] = useState('');
+  const [adicionarFilaSelectedServiceIds, setAdicionarFilaSelectedServiceIds] = useState<string[]>([]);
   const [isAddingFila, setIsAddingFila] = useState(false);
+  const [showFinalizarFilaModal, setShowFinalizarFilaModal] = useState(false);
+  const [finalizarFilaEntryId, setFinalizarFilaEntryId] = useState<string | null>(null);
+  const [finalizarFilaValor, setFinalizarFilaValor] = useState<string>('');
+  const [isFinalizandoFila, setIsFinalizandoFila] = useState(false);
 
   const normalizePhoneDigits = (phone: string) => String(phone || '').replace(/\D/g, '');
+
+  const parseValorBR = (raw: string): number => {
+    const s = String(raw || '').trim();
+    if (!s) return 0;
+    // remove R$, espaços e separadores de milhar comuns
+    const cleaned = s
+      .replace(/\s/g, '')
+      .replace(/^R\$/i, '')
+      .replace(/\./g, '')
+      .replace(',', '.')
+      .replace(/[^\d.-]/g, '');
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  };
 
   const getPercentualProfissionalFila = useCallback(
     (professionalIdOrName: string): number => {
@@ -1106,7 +1126,7 @@ const EstablishmentDashboard = () => {
   );
 
   const finalizarAtendimentoFila = useCallback(
-    async (entryId: string) => {
+    async (entryId: string, valorBrutoFinal?: number) => {
       if (!establishment?.id) return;
       try {
         const entry = (filaEntries || []).find((e: any) => e.id === entryId);
@@ -1116,7 +1136,12 @@ const EstablishmentDashboard = () => {
         // Se tiver appointment ligado, marcar como completed (contabiliza pro profissional)
         if (entry?.appointment_id) {
           try {
-            await supabase.from('appointments').update({ status: 'completed' } as any).eq('id', entry.appointment_id);
+            // Atualizar status e (opcional) valor final do atendimento
+            const updatePayload: any = { status: 'completed' };
+            if (Number.isFinite(valorBrutoFinal as any)) {
+              updatePayload.price = Math.max(0, Number(valorBrutoFinal));
+            }
+            await supabase.from('appointments').update(updatePayload).eq('id', entry.appointment_id);
           } catch {
             // ignore
           }
@@ -1124,7 +1149,8 @@ const EstablishmentDashboard = () => {
 
         // Registrar histórico financeiro exclusivo da fila (por profissional)
         try {
-          const bruto = Number(entry?.service_price ?? 0);
+          const brutoBase = Number(entry?.service_price ?? 0);
+          const bruto = Number.isFinite(valorBrutoFinal as any) ? Math.max(0, Number(valorBrutoFinal)) : brutoBase;
           const professionalKey = String(entry?.professional_id || filaEsperaProfissionalId || '').trim();
           const { pct, liquido } = calcularLiquidoProfissionalFila(bruto, professionalKey);
 
@@ -1241,20 +1267,32 @@ const EstablishmentDashboard = () => {
     if (isAddingFila) return;
 
     const nome = String(adicionarFilaNome || '').trim();
-    const serviceId = String(adicionarFilaServiceId || '').trim();
+    const ids = (adicionarFilaSelectedServiceIds || []).map((x) => String(x)).filter(Boolean);
     if (!nome) {
       toast.error('Informe o nome do cliente.');
       return;
     }
-    if (!serviceId) {
-      toast.error('Selecione o serviço.');
+    if (ids.length === 0) {
+      toast.error('Selecione 1 ou mais serviços.');
       return;
     }
 
-    const servico = ((establishment as any)?.services_with_prices || []).find((s: any) => String(s.id) === serviceId);
-    const serviceName = String(servico?.name || 'Serviço').trim() || 'Serviço';
-    const servicePrice = Number(servico?.price ?? 0);
-    const serviceDuration = Number(servico?.duration ?? servico?.service_duration ?? 0);
+    const todos = ((establishment as any)?.services_with_prices || []) as any[];
+    const selected = ids
+      .map((id) => todos.find((s: any) => String(s.id) === String(id)))
+      .filter(Boolean);
+    if (selected.length === 0) {
+      toast.error('Seleção inválida. Tente novamente.');
+      return;
+    }
+    const nomes = selected.map((s: any) => String(s?.name || '').trim()).filter(Boolean);
+    const serviceName = nomes.length ? nomes.join(' + ') : 'Serviço';
+    const servicePrice = selected.reduce((sum: number, s: any) => sum + Number(s?.price ?? 0), 0);
+    const serviceDuration = selected.reduce((sum: number, s: any) => sum + Number(s?.duration ?? s?.service_duration ?? 0), 0);
+    if (!Number.isFinite(serviceDuration) || serviceDuration < 5) {
+      toast.error('Selecione serviços que somem pelo menos 5 minutos.');
+      return;
+    }
 
     const profissionalPadraoId = String(filaEsperaProfissionalId || '').trim();
     if (!profissionalPadraoId) {
@@ -1295,31 +1333,78 @@ const EstablishmentDashboard = () => {
       if (apptErr) throw apptErr;
 
       // Criar entrada na fila (sem WhatsApp)
-      const { data: insertedEntry, error: wlErr } = await supabase
-        .from('waitlist_entries')
-        .insert({
-          establishment_id: establishment.id,
-          appointment_id: insertedAppointment?.id || null,
-          client_name: nome,
-          client_whatsapp: '',
-          service_id: serviceId,
-          service_name: serviceName,
-          service_price: Number.isFinite(servicePrice) ? servicePrice : null,
-          service_duration_minutes: Number.isFinite(serviceDuration) ? serviceDuration : null,
-          professional_id: profissionalPadraoId,
-          source: 'dashboard',
-          status: 'waiting',
-        } as any)
-        .select('id')
-        .single();
+      const firstId = String(ids[0] || '').trim();
+      const isUuid = (v: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v || '').trim());
+      const serviceIdForDb = isUuid(firstId) ? firstId : null;
 
-      if (wlErr) throw wlErr;
+      const waitlistPayload: any = {
+        establishment_id: establishment.id,
+        appointment_id: insertedAppointment?.id || null,
+        client_name: nome,
+        client_whatsapp: '',
+        service_id: serviceIdForDb,
+        service_name: serviceName,
+        service_price: Number.isFinite(servicePrice) ? servicePrice : null,
+        service_duration_minutes: Number.isFinite(serviceDuration) ? serviceDuration : null,
+        service_ids: ids,
+        services_json: selected.map((s: any) => ({
+          id: String(s?.id ?? ''),
+          name: String(s?.name ?? ''),
+          price: Number(s?.price ?? 0),
+          duration: Number(s?.duration ?? s?.service_duration ?? 0),
+        })),
+        professional_id: profissionalPadraoId,
+        source: 'dashboard',
+        status: 'waiting',
+      };
+
+      let insertedEntryId: string | null = null;
+      {
+        const { data: insertedEntry, error: wlErr } = await supabase
+          .from('waitlist_entries')
+          .insert(waitlistPayload)
+          .select('id')
+          .single();
+
+        if (wlErr) {
+          const msg = String((wlErr as any)?.message || '');
+          // Fallback para banco ainda não migrado (colunas novas não existem)
+          if (msg.includes('schema cache') || msg.includes('column')) {
+            const { data: insertedLegacy, error: wlLegacyErr } = await supabase
+              .from('waitlist_entries')
+              .insert({
+                establishment_id: establishment.id,
+                appointment_id: insertedAppointment?.id || null,
+                client_name: nome,
+                client_whatsapp: '',
+                service_id: serviceIdForDb,
+                service_name: serviceName,
+                service_price: Number.isFinite(servicePrice) ? servicePrice : null,
+                service_duration_minutes: Number.isFinite(serviceDuration) ? serviceDuration : null,
+                professional_id: profissionalPadraoId,
+                source: 'dashboard',
+                status: 'waiting',
+              } as any)
+              .select('id')
+              .single();
+            if (wlLegacyErr) throw wlLegacyErr;
+            insertedEntryId = insertedLegacy?.id || null;
+          } else {
+            throw wlErr;
+          }
+        } else {
+          insertedEntryId = insertedEntry?.id || null;
+        }
+      }
+
+      if (!insertedEntryId) throw new Error('Não foi possível adicionar à fila.');
 
       // Link reverso (opcional)
       try {
         await supabase
           .from('appointments')
-          .update({ waitlist_entry_id: insertedEntry?.id } as any)
+          .update({ waitlist_entry_id: insertedEntryId } as any)
           .eq('id', insertedAppointment?.id);
       } catch {
         // ignore
@@ -1329,6 +1414,7 @@ const EstablishmentDashboard = () => {
       setShowAdicionarFilaModal(false);
       setAdicionarFilaNome('');
       setAdicionarFilaServiceId('');
+      setAdicionarFilaSelectedServiceIds([]);
       await fetchFilaEntries();
     } catch (e: any) {
       console.error('❌ Erro ao adicionar manualmente à fila:', e);
@@ -1339,6 +1425,7 @@ const EstablishmentDashboard = () => {
   }, [
     adicionarFilaNome,
     adicionarFilaServiceId,
+    adicionarFilaSelectedServiceIds,
     establishment,
     fetchFilaEntries,
     filaEsperaAtiva,
@@ -2593,6 +2680,7 @@ const EstablishmentDashboard = () => {
   const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
   const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
   const [showEditSubcategoryModal, setShowEditSubcategoryModal] = useState(false);
+  const [showDiscountCouponsModal, setShowDiscountCouponsModal] = useState(false);
   const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState({ name: '' });
   const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
@@ -12356,18 +12444,71 @@ Estamos te aguardando! 😎✂️`;
 
               <div className="space-y-2">
                 <label className="block text-xs text-white/70">Serviço</label>
-                <select
-                  value={adicionarFilaServiceId}
-                  onChange={(e) => setAdicionarFilaServiceId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
-                >
-                  <option value="">Selecione</option>
-                  {(((establishment as any)?.services_with_prices || []) as any[]).map((s: any) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="rounded-lg border border-white/10 bg-black/30 p-2 max-h-56 overflow-y-auto space-y-2">
+                  {(((establishment as any)?.services_with_prices || []) as any[]).map((s: any) => {
+                    const id = String(s?.id ?? '');
+                    const checked = adicionarFilaSelectedServiceIds.includes(id);
+                    const disabled = !checked && adicionarFilaSelectedServiceIds.length >= 4;
+                    const preco = Number(s?.price ?? 0);
+                    const dur = Number(s?.duration ?? s?.service_duration ?? 0);
+                    const label = `${String(s?.name || 'Serviço')}${Number.isFinite(dur) && dur > 0 ? ` — ${dur}min` : ''}${Number.isFinite(preco) && preco > 0 ? ` — ${formatCurrency(preco)}` : ''
+                      }`;
+                    return (
+                      <label
+                        key={id}
+                        className={`flex items-center gap-2 px-2 py-2 rounded-md border ${checked ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-white/10 bg-black/20'
+                          } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={disabled}
+                          onChange={() => {
+                            setAdicionarFilaSelectedServiceIds((prev) => {
+                              if (prev.includes(id)) return prev.filter((x) => x !== id);
+                              if (prev.length >= 4) return prev;
+                              return [...prev, id];
+                            });
+                          }}
+                        />
+                        <span className="text-xs text-white/90">{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {adicionarFilaSelectedServiceIds.length > 0 && (
+                  <div className="text-[11px] text-white/70">
+                    {(() => {
+                      const todos = ((establishment as any)?.services_with_prices || []) as any[];
+                      const selected = adicionarFilaSelectedServiceIds
+                        .map((id) => todos.find((s: any) => String(s.id) === String(id)))
+                        .filter(Boolean);
+                      const nomes = selected.map((s: any) => String(s?.name || '').trim()).filter(Boolean);
+                      const totalPrice = selected.reduce((sum: number, s: any) => sum + Number(s?.price ?? 0), 0);
+                      const totalDuration = selected.reduce(
+                        (sum: number, s: any) => sum + Number(s?.duration ?? s?.service_duration ?? 0),
+                        0
+                      );
+                      return (
+                        <>
+                          Selecionado: <span className="font-semibold text-white/85">{nomes.join(' + ')}</span>
+                          {Number.isFinite(totalPrice) && totalPrice > 0 && (
+                            <>
+                              {' '}
+                              • Total: <span className="font-semibold text-white/85">{formatCurrency(totalPrice)}</span>
+                            </>
+                          )}
+                          {Number.isFinite(totalDuration) && totalDuration > 0 && (
+                            <>
+                              {' '}
+                              • Tempo: <span className="font-semibold text-white/85">{totalDuration}min</span>
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -13479,6 +13620,21 @@ Estamos te aguardando! 😎✂️`;
                                         </div>
                                       </div>
 
+                                      {/* Cupom aplicado (se houver) */}
+                                      {(appointment as any)?.coupon_code && (
+                                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                                          <span className="inline-flex items-center px-2 py-1 text-xs font-bold rounded bg-emerald-500/15 text-emerald-200 border border-emerald-400/20">
+                                            CUPOM APLICADO
+                                          </span>
+                                          <span className="text-xs text-white/85">
+                                            {(appointment as any)?.coupon_code}
+                                            {Number.isFinite(Number((appointment as any)?.coupon_discount_percent)) ? (
+                                              <> — -{Number((appointment as any)?.coupon_discount_percent).toFixed(2).replace('.', ',')}%</>
+                                            ) : null}
+                                          </span>
+                                        </div>
+                                      )}
+
                                       <div className="flex flex-col gap-3 mt-3">
                                         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                           <span className="text-sm text-white/80">Valor base:</span>
@@ -14432,7 +14588,14 @@ Estamos te aguardando! 😎✂️`;
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => finalizarAtendimentoFila(e.id)}
+                                    onClick={() => {
+                                      const bruto = Number(e?.service_price ?? 0);
+                                      setFinalizarFilaEntryId(e.id);
+                                      setFinalizarFilaValor(
+                                        Number.isFinite(bruto) ? String(bruto.toFixed(2)).replace('.', ',') : '0,00'
+                                      );
+                                      setShowFinalizarFilaModal(true);
+                                    }}
                                     className="px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors text-sm font-extrabold"
                                   >
                                     Finalizar atendimento
@@ -20381,13 +20544,25 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Botão Adicionar Categoria - Movido para abaixo do vídeo */}
               <div className="mb-6">
-                <button
-                  onClick={() => setShowAddCategoryModal(true)}
-                  className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  Adicionar Categoria
-                </button>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={() => setShowAddCategoryModal(true)}
+                    className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Adicionar Categoria
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!establishment?.id) return;
+                      setShowDiscountCouponsModal(true);
+                    }}
+                    className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Receipt className="h-4 w-4" />
+                    Cupom de desconto
+                  </button>
+                </div>
               </div>
 
               {/* Lembrete/Explicação sobre como usar categorias */}
@@ -22462,6 +22637,114 @@ Estamos te aguardando! 😎✂️`;
           </div>
         )
       }
+
+      {/* Modal: Cupons de desconto */}
+      {showDiscountCouponsModal && establishment?.id && (
+        <DiscountCouponsModal
+          isOpen={showDiscountCouponsModal}
+          onClose={() => setShowDiscountCouponsModal(false)}
+          establishmentId={establishment.id}
+        />
+      )}
+
+      {/* Modal: Finalizar atendimento da fila (editar valor) */}
+      {showFinalizarFilaModal && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-3 sm:p-4"
+          onClick={() => {
+            if (isFinalizandoFila) return;
+            setShowFinalizarFilaModal(false);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 bg-white overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <div className="text-sm font-extrabold text-gray-900">Finalizar atendimento</div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isFinalizandoFila) return;
+                  setShowFinalizarFilaModal(false);
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-700"
+                aria-label="Fechar"
+                title="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              {(() => {
+                const entry = (filaEntries || []).find((e: any) => e.id === finalizarFilaEntryId);
+                const profKey = String(entry?.professional_id || filaEsperaProfissionalId || '').trim();
+                const bruto = parseValorBR(finalizarFilaValor);
+                const { pct, liquido } = calcularLiquidoProfissionalFila(Number.isFinite(bruto) ? bruto : 0, profKey);
+                return (
+                  <>
+                    <div className="text-sm text-gray-700">
+                      Cliente: <strong>{String(entry?.client_name || 'Cliente')}</strong>
+                    </div>
+                    <div className="text-sm text-gray-700">
+                      Serviço: <strong>{String(entry?.service_name || 'Serviço')}</strong>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-semibold text-gray-700">Valor do serviço (R$)</label>
+                      <input
+                        value={finalizarFilaValor}
+                        onChange={(e) => setFinalizarFilaValor(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 text-gray-900 bg-white"
+                        inputMode="decimal"
+                        placeholder="Ex: 50,00"
+                        disabled={isFinalizandoFila}
+                      />
+                      <div className="text-[11px] text-gray-600">
+                        Profissional ({pct}%): <strong>{fmtBRL(Number.isFinite(liquido) ? liquido : 0)}</strong>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowFinalizarFilaModal(false)}
+                        disabled={isFinalizandoFila}
+                        className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-gray-100 text-gray-900 hover:bg-gray-200 disabled:opacity-60"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!finalizarFilaEntryId) return;
+                          const brutoFinal = Math.max(0, parseValorBR(finalizarFilaValor));
+                          setIsFinalizandoFila(true);
+                          try {
+                            await finalizarAtendimentoFila(finalizarFilaEntryId, brutoFinal);
+                            toast.success('Atendimento finalizado!');
+                            setShowFinalizarFilaModal(false);
+                          } catch (e: any) {
+                            console.error('❌ Erro ao finalizar atendimento (modal):', e);
+                            toast.error(e?.message || 'Erro ao finalizar atendimento');
+                          } finally {
+                            setIsFinalizandoFila(false);
+                          }
+                        }}
+                        disabled={isFinalizandoFila}
+                        className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+                      >
+                        {isFinalizandoFila ? 'Salvando...' : 'Finalizar'}
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal para Editar Categoria */}
       {

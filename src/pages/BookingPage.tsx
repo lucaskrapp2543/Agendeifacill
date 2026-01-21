@@ -101,7 +101,7 @@ export default function BookingPage() {
   const [showJoinWaitlistForm, setShowJoinWaitlistForm] = useState(false);
   const [waitlistName, setWaitlistName] = useState('');
   const [waitlistPhone, setWaitlistPhone] = useState('');
-  const [waitlistServiceId, setWaitlistServiceId] = useState('');
+  const [waitlistSelectedServiceIds, setWaitlistSelectedServiceIds] = useState<string[]>([]);
 
   // Pagamento antecipado (Pagar.me) no booking público
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -1225,6 +1225,20 @@ export default function BookingPage() {
     return partes.join(' — ');
   };
 
+  const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v || '').trim());
+
+  const calcularResumoServicosFila = (ids: string[]) => {
+    const todos = ((establishment as any)?.services_with_prices || []) as any[];
+    const selected = (ids || [])
+      .map((id) => todos.find((s: any) => String(s.id) === String(id)))
+      .filter(Boolean);
+    const nomes = selected.map((s: any) => String(s?.name || '').trim()).filter(Boolean);
+    const totalPrice = selected.reduce((sum: number, s: any) => sum + Number(s?.price ?? 0), 0);
+    const totalDuration = selected.reduce((sum: number, s: any) => sum + Number(s?.duration ?? s?.service_duration ?? 0), 0);
+    const serviceName = nomes.length ? nomes.join(' + ') : 'Serviço';
+    return { selected, serviceName, totalPrice, totalDuration };
+  };
+
   const calcularMinutosRestantes = (entries: any[], idx: number): number | null => {
     if (!Array.isArray(entries) || entries.length === 0) return null;
     const first = entries[0];
@@ -1264,7 +1278,7 @@ export default function BookingPage() {
 
     const nome = String(waitlistName || '').trim();
     const phoneDigits = normalizePhoneDigits(waitlistPhone);
-    const serviceId = String(waitlistServiceId || '').trim();
+    const ids = (waitlistSelectedServiceIds || []).map((x) => String(x)).filter(Boolean);
 
     if (!nome) {
       toast.error('Informe seu nome.');
@@ -1274,15 +1288,20 @@ export default function BookingPage() {
       toast.error('Informe seu telefone/WhatsApp.');
       return;
     }
-    if (!serviceId) {
-      toast.error('Selecione um serviço.');
+    if (ids.length === 0) {
+      toast.error('Selecione 1 ou mais serviços.');
       return;
     }
 
-    const servico = ((establishment as any)?.services_with_prices || []).find((s: any) => String(s.id) === serviceId);
-    const serviceName = String(servico?.name || 'Serviço').trim() || 'Serviço';
-    const servicePrice = Number(servico?.price ?? 0);
-    const serviceDuration = Number(servico?.duration ?? servico?.service_duration ?? 0);
+    const { selected, serviceName, totalPrice, totalDuration } = calcularResumoServicosFila(ids);
+    if (selected.length === 0) {
+      toast.error('Seleção inválida. Tente novamente.');
+      return;
+    }
+    if (!Number.isFinite(totalDuration) || totalDuration < 5) {
+      toast.error('Selecione serviços que somem pelo menos 5 minutos.');
+      return;
+    }
 
     const profissionalPadraoId = String((establishment as any)?.fila_espera_profissional_id || '').trim();
     if (!profissionalPadraoId) {
@@ -1300,6 +1319,9 @@ export default function BookingPage() {
       const appointmentDate = format(now, 'yyyy-MM-dd');
       const appointmentTime = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
 
+      const firstId = String(ids[0] || '').trim();
+      const serviceIdForDb = isUuid(firstId) ? firstId : null;
+
       // Criar um "agendamento" ligado à fila para contabilizar no profissional (respeita configs do profissional)
       const insertAppointmentPayload: any = {
         client_id: (guestRes as any)?.user?.id,
@@ -1311,8 +1333,8 @@ export default function BookingPage() {
         professional: profissionalPadraoId,
         appointment_date: appointmentDate,
         appointment_time: appointmentTime,
-        duration: Number.isFinite(serviceDuration) ? serviceDuration : 0,
-        price: Number.isFinite(servicePrice) ? servicePrice : 0,
+        duration: Number.isFinite(totalDuration) ? totalDuration : 0,
+        price: Number.isFinite(totalPrice) ? totalPrice : 0,
         status: 'pending',
         is_waitlist: true,
       };
@@ -1359,10 +1381,17 @@ export default function BookingPage() {
         appointment_id: insertedAppointmentId,
         client_name: nome,
         client_whatsapp: phoneDigits,
-        service_id: serviceId,
+        service_id: serviceIdForDb,
         service_name: serviceName,
-        service_price: Number.isFinite(servicePrice) ? servicePrice : null,
-        service_duration_minutes: Number.isFinite(serviceDuration) ? serviceDuration : null,
+        service_price: Number.isFinite(totalPrice) ? totalPrice : null,
+        service_duration_minutes: Number.isFinite(totalDuration) ? totalDuration : null,
+        service_ids: ids,
+        services_json: selected.map((s: any) => ({
+          id: String(s?.id ?? ''),
+          name: String(s?.name ?? ''),
+          price: Number(s?.price ?? 0),
+          duration: Number(s?.duration ?? s?.service_duration ?? 0),
+        })),
         professional_id: profissionalPadraoId,
         source: 'booking',
         status: 'waiting',
@@ -1379,7 +1408,11 @@ export default function BookingPage() {
         if (wlErr) {
           const msg = String((wlErr as any)?.message || '');
           // Fallback para banco ainda não migrado (colunas novas não existem)
-          if (msg.includes('schema cache') || (msg.includes('does not exist') && msg.includes('waitlist_entries'))) {
+          if (
+            msg.includes('schema cache') ||
+            (msg.includes('does not exist') && msg.includes('waitlist_entries')) ||
+            msg.includes('column') // ex: column "services_json" does not exist
+          ) {
             const { data: insertedLegacy, error: wlLegacyErr } = await supabase
               .from('waitlist_entries')
               .insert({
@@ -1387,8 +1420,10 @@ export default function BookingPage() {
                 appointment_id: insertedAppointmentId,
                 client_name: nome,
                 client_whatsapp: phoneDigits,
-                service_id: serviceId,
+                service_id: serviceIdForDb,
                 service_name: serviceName,
+                service_price: Number.isFinite(totalPrice) ? totalPrice : null,
+                service_duration_minutes: Number.isFinite(totalDuration) ? totalDuration : null,
                 source: 'booking',
                 status: 'waiting',
               } as any)
@@ -1420,7 +1455,7 @@ export default function BookingPage() {
 
       toast.success('✅ Você entrou na fila de espera!');
       setShowJoinWaitlistForm(false);
-      setWaitlistServiceId('');
+      setWaitlistSelectedServiceIds([]);
       await fetchWaitlist();
     } catch (e: any) {
       console.error('❌ Erro ao entrar na fila:', e);
@@ -3002,26 +3037,57 @@ export default function BookingPage() {
 
                   <div className="space-y-2">
                     <label className="block text-xs text-white/70">Serviço</label>
-                    <select
-                      value={waitlistServiceId}
-                      onChange={(e) => setWaitlistServiceId(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
-                    >
-                      <option value="">Selecione um serviço</option>
-                      {((establishment as any)?.services_with_prices || []).map((s: any) => (
-                        <option key={s.id} value={s.id}>
-                          {labelServicoFila(s)}
-                        </option>
-                      ))}
-                    </select>
-                    {waitlistServiceId && (
-                      <div className="text-[11px] text-white/70">
-                        Você escolheu:{' '}
-                        <span className="font-semibold text-white/85">
-                          {labelServicoFila(
-                            ((establishment as any)?.services_with_prices || []).find((s: any) => String(s.id) === String(waitlistServiceId))
-                          )}
-                        </span>
+                    <div className="rounded-lg border border-white/10 bg-black/30 p-2 max-h-56 overflow-y-auto space-y-2">
+                      {(((establishment as any)?.services_with_prices || []) as any[]).map((s: any) => {
+                        const id = String(s?.id ?? '');
+                        const checked = waitlistSelectedServiceIds.includes(id);
+                        const disabled = !checked && waitlistSelectedServiceIds.length >= 4;
+                        return (
+                          <label
+                            key={id}
+                            className={`flex items-center gap-2 px-2 py-2 rounded-md border ${
+                              checked ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-white/10 bg-black/20'
+                            } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={() => {
+                                setWaitlistSelectedServiceIds((prev) => {
+                                  if (prev.includes(id)) return prev.filter((x) => x !== id);
+                                  if (prev.length >= 4) return prev;
+                                  return [...prev, id];
+                                });
+                              }}
+                            />
+                            <span className="text-xs text-white/90">{labelServicoFila(s)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {waitlistSelectedServiceIds.length > 0 && (
+                      <div className="text-[11px] text-white/75">
+                        {(() => {
+                          const { serviceName, totalPrice, totalDuration } = calcularResumoServicosFila(waitlistSelectedServiceIds);
+                          return (
+                            <>
+                              Selecionado: <span className="font-semibold text-white/90">{serviceName}</span>
+                              {Number.isFinite(totalPrice) && totalPrice > 0 && (
+                                <>
+                                  {' '}
+                                  • Total: <span className="font-semibold text-white/90">{fmtBRL(totalPrice)}</span>
+                                </>
+                              )}
+                              {Number.isFinite(totalDuration) && totalDuration > 0 && (
+                                <>
+                                  {' '}
+                                  • Tempo: <span className="font-semibold text-white/90">{totalDuration}min</span>
+                                </>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
