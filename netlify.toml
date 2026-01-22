@@ -98,6 +98,8 @@
   NODE_VERSION = "18.17.0"
   NPM_VERSION = "9.6.7"
   NPM_FLAGS = "--include=dev"
+  # Necessário quando o repositório contém arquivos/pointers do Git LFS
+  GIT_LFS_ENABLED = "true"
 
 # Headers (prioridade alta no Netlify) para reduzir Bandwidth/credits
 # - HTML sem cache (evita index antigo apontando pra assets antigos)
