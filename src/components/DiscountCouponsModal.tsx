@@ -169,6 +169,10 @@ export function DiscountCouponsModal({ isOpen, onClose, establishmentId }: Disco
             <div className="text-xs text-gray-600">
               Você pode criar até <strong>20</strong> cupons. Restantes: <strong>{remaining}</strong>
             </div>
+            <div className="text-xs text-gray-600 mt-2 max-w-xl">
+              Crie um cupom, envie para seu cliente e ele poderá aplicar no agendamento para receber <strong>desconto em %</strong> no valor do(s) serviço(s).
+              O cupom é solicitado <strong>no final</strong> do agendamento, <strong>antes do pagamento</strong> (ou antes da confirmação da reserva).
+            </div>
           </div>
           <button
             type="button"
@@ -182,6 +186,15 @@ export function DiscountCouponsModal({ isOpen, onClose, establishmentId }: Disco
         </div>
 
         <div className="p-5 space-y-4">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="text-sm font-extrabold text-amber-900">Como funciona</div>
+            <div className="mt-1 text-sm text-amber-900/90 leading-relaxed">
+              - **Você cria o cupom** (ex: <strong>NEY1</strong>) e escolhe o desconto (ex: <strong>5%</strong>)<br />
+              - **Você envia o código** para o cliente<br />
+              - **O cliente aplica no final do agendamento**, antes de pagar/confirmar — e o valor final já aparece com o desconto
+            </div>
+          </div>
+
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
             <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
               <div className="flex-1">

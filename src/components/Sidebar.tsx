@@ -707,7 +707,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <div className="relative">
                   <button
                     onClick={item.onClick}
-                    disabled={item.disabled}
+                    // ⚠️ Não desabilitar itens bloqueados pelo onboarding:
+                    // queremos permitir o clique para mostrar a mensagem de "siga o passo a passo".
+                    // Só desabilitamos itens realmente "Em breve" (sem ação).
+                    disabled={item.id === 'hours'}
                     className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${isIndicationItem
                       ? item.isActive
                         ? 'bg-white text-black shadow-md'
@@ -853,6 +856,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <div className="relative mt-2">
                     <button
                       onClick={() => {
+                        if (onboardingStep < 4) {
+                          onBlockedItemClick?.();
+                          return;
+                        }
                         if (!onReceberAdiantadoClick) return;
                         handleItemClick(onReceberAdiantadoClick);
                       }}
@@ -889,8 +896,17 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                     {/* ✅ Botão "FILA DE ESPERA" (aba lateral/painel) abaixo de "Receber adiantado" */}
                     <div className="relative mt-2">
+                      {/*
+                        Regras de bloqueio:
+                        - Plano Prata: bloqueado (upgrade)
+                        - Onboarding incompleto: bloqueado (mostrar passo a passo)
+                      */}
                       <button
                         onClick={() => {
+                          if (isItemLocked('fila-espera')) {
+                            onBlockedItemClick?.();
+                            return;
+                          }
                           if (isPlanLockedItem('fila-espera')) {
                             openUpgradeModal();
                             return;
@@ -900,7 +916,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
                           activeTab === 'fila-espera'
                             ? 'bg-white text-black shadow-md'
-                            : isPlanLockedItem('fila-espera')
+                            : isPlanLockedItem('fila-espera') || isItemLocked('fila-espera')
                               ? 'bg-white/5 text-gray-400 opacity-60 cursor-not-allowed'
                               : 'bg-gradient-to-r from-purple-600 to-fuchsia-700 text-white hover:from-purple-700 hover:to-fuchsia-800 shadow-md'
                         }`}
@@ -910,10 +926,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                         <div className="relative">
                           <ListOrdered
                             className={`h-5 w-5 flex-shrink-0 ${
-                              activeTab === 'fila-espera' ? 'text-black' : isPlanLockedItem('fila-espera') ? 'text-gray-500' : 'text-white'
+                              activeTab === 'fila-espera'
+                                ? 'text-black'
+                                : isPlanLockedItem('fila-espera') || isItemLocked('fila-espera')
+                                  ? 'text-gray-500'
+                                  : 'text-white'
                             }`}
                           />
-                          {isPlanLockedItem('fila-espera') && (
+                          {(isPlanLockedItem('fila-espera') || isItemLocked('fila-espera')) && (
                             <span className="absolute -bottom-1 -right-1">
                               <Lock className="h-3 w-3 text-gray-500" />
                             </span>

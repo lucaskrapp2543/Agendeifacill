@@ -25,6 +25,7 @@ import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 import { TimeSelector } from '../components/TimeSelector';
 import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
+import { YouTubeResumePlayer } from '../components/YouTubeResumePlayer';
 import { useToast } from '../components/ui/Toaster';
 // UpdateButton removido - sistema automático já cuida de tudo
 import { EstablishmentWhatsappRemindersInfo } from '../../modules/whatsapp-reminders/ui/EstablishmentWhatsappRemindersInfo';
@@ -499,13 +500,15 @@ const EstablishmentDashboard = () => {
 
   // Efeito para preencher automaticamente o pixPaymentLink
   useEffect(() => {
-    if (pixKey && pixKey.toLowerCase() !== 'naotenhopix') {
+    const PIX_PLACEHOLDER = '123456789@';
+    const trimmedPixKey = pixKey?.trim?.() ?? '';
+    if (trimmedPixKey && trimmedPixKey.toLowerCase() !== 'naotenhopix' && trimmedPixKey !== PIX_PLACEHOLDER) {
       // Aqui você pode definir a lógica para gerar o link. 
       // Exemplo: Usando um domínio fixo e a chave PIX.
       // Adapte 'seusite.com.br' para o domínio real do seu aplicativo.
-      setPixPaymentLink(`https://agendafacil.com.br/pix/${pixKey}`);
-    } else if (pixKey.toLowerCase() === 'naotenhopix') {
-      setPixPaymentLink(''); // Limpa se for 'naotenhopix'
+      setPixPaymentLink(`https://agendafacil.com.br/pix/${trimmedPixKey}`);
+    } else {
+      setPixPaymentLink(''); // Limpa se não tiver PIX ou for placeholder
     }
   }, [pixKey]);
 
@@ -2257,6 +2260,9 @@ const EstablishmentDashboard = () => {
   const [isNewUser, setIsNewUser] = useState<boolean>(false);
   const [quizCompleted, setQuizCompleted] = useState<boolean>(false); // Quiz foi completado
   const [quizAlertMessage, setQuizAlertMessage] = useState<string>(''); // Mensagem de alerta quando requisito não atendido
+  const [showQuizAmenitiesModal, setShowQuizAmenitiesModal] = useState(false); // Popup bonito quando faltar comodidade no passo 1
+  const [showQuizPixModal, setShowQuizPixModal] = useState(false); // Popup bonito quando faltar PIX no passo 5
+  const [showQuizLinksModal, setShowQuizLinksModal] = useState(false); // Popup bonito quando faltar links no passo 6
 
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
     monday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
@@ -2843,6 +2849,8 @@ const EstablishmentDashboard = () => {
   const [serviceSubcategories, setServiceSubcategories] = useState<ServiceSubcategory[]>([]);
   // Evita condição de corrida: um fetch antigo terminar depois e sobrescrever o estado mais recente
   const fetchServiceSubcategoriesRequestIdRef = useRef(0);
+  const [pendingScrollToCategoryId, setPendingScrollToCategoryId] = useState<string | null>(null);
+  const [highlightedCategoryId, setHighlightedCategoryId] = useState<string | null>(null);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
   const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
@@ -3856,14 +3864,16 @@ const EstablishmentDashboard = () => {
       }
 
       // Criar a nova categoria com display_order: 0 (aparecerá primeiro)
-      const { error } = await supabase
+      const { data: insertedCategory, error } = await supabase
         .from('service_categories')
         .insert({
           establishment_id: establishment.id,
           name: newCategory.name.trim().toUpperCase(),
           is_active: true,
           display_order: 0
-        });
+        })
+        .select('id')
+        .single();
 
       if (error) {
         console.error('❌ Erro ao adicionar categoria:', error);
@@ -3890,20 +3900,28 @@ const EstablishmentDashboard = () => {
             await supabase.auth.setSession(session);
 
             // Tentar inserir novamente
-            const { error: retryError } = await supabase
+            const { data: retryInsertedCategory, error: retryError } = await supabase
               .from('service_categories')
               .insert({
                 establishment_id: establishment.id,
                 name: newCategory.name.trim().toUpperCase(),
                 is_active: true,
                 display_order: 0
-              });
+              })
+              .select('id')
+              .single();
 
             if (retryError) {
               // ⚠️ MOSTRAR ERRO COMPLETO
               toast(`Erro: ${retryError.code || 'RLS'} - ${retryError.message || 'Tente fazer logout e login novamente'}`, 'error');
               console.error('🚨 ERRO NO RETRY:', retryError);
               return;
+            }
+
+            // Scroll/Highlight depois de criar via retry
+            if (retryInsertedCategory?.id) {
+              setPendingScrollToCategoryId(String(retryInsertedCategory.id));
+              setHighlightedCategoryId(String(retryInsertedCategory.id));
             }
           } else {
             toast('Sessão expirada. Faça login novamente.', 'error');
@@ -3918,6 +3936,10 @@ const EstablishmentDashboard = () => {
 
       setNewCategory({ name: '' });
       setShowAddCategoryModal(false);
+      if (insertedCategory?.id) {
+        setPendingScrollToCategoryId(String(insertedCategory.id));
+        setHighlightedCategoryId(String(insertedCategory.id));
+      }
       fetchServiceCategories();
       toast(`Categoria "${newCategory.name.toUpperCase()}" adicionada com sucesso!`, 'success');
     } catch (error: any) {
@@ -3933,6 +3955,34 @@ const EstablishmentDashboard = () => {
       toast(`Erro: ${errorCode} - ${errorMsg}`, 'error');
     }
   };
+
+  // ✅ Após criar uma categoria, rolar até ela e destacar por alguns segundos (evita "jogar pro topo")
+  useEffect(() => {
+    if (!pendingScrollToCategoryId) return;
+    const exists = serviceCategories.some((c) => String(c.id) === String(pendingScrollToCategoryId));
+    if (!exists) return;
+
+    // aguarda um tick pra garantir que o DOM da lista já renderizou
+    const t = setTimeout(() => {
+      const el = document.getElementById(`service-category-${pendingScrollToCategoryId}`);
+      if (el) {
+        const offset = 90;
+        const elementPosition = el.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - offset;
+        window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+      }
+      setPendingScrollToCategoryId(null);
+    }, 50);
+
+    return () => clearTimeout(t);
+  }, [pendingScrollToCategoryId, serviceCategories]);
+
+  useEffect(() => {
+    if (!highlightedCategoryId) return;
+    // manter destaque por mais tempo para ficar bem perceptível
+    const t = setTimeout(() => setHighlightedCategoryId(null), 25000);
+    return () => clearTimeout(t);
+  }, [highlightedCategoryId]);
 
   const handleAddSubcategory = async () => {
     if (!selectedCategoryForSubcategory) return;
@@ -4785,36 +4835,41 @@ const EstablishmentDashboard = () => {
           return; // BLOQUEAR salvamento
         }
 
-        // Verificar se pelo menos UM dia está habilitado
-        const hasEnabledDay = Object.keys(workHours).some(day => {
-          const daySchedule = workHours[day];
-          return daySchedule && daySchedule.enabled === true;
-        });
+        const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 
+        // ✅ Regra nova: precisa ter TODOS os dias decididos (Aberto/Fechado)
+        const missingDecisionDays = WEEK_DAYS.filter((day) => typeof (workHours as any)?.[day]?.enabled !== 'boolean');
+        if (missingDecisionDays.length > 0) {
+          console.log('❌ PROFISSIONAL COM DIAS SEM DECISÃO (ABERTO/FECHADO):', professional.name, missingDecisionDays);
+          toast.error('No horário de trabalho: selecione "Aberto" ou "Fechado" para todos os dias do profissional.');
+          return; // BLOQUEAR salvamento
+        }
+
+        // Verificar se pelo menos UM dia está habilitado (Aberto)
+        const hasEnabledDay = WEEK_DAYS.some((day) => (workHours as any)?.[day]?.enabled === true);
         if (!hasEnabledDay) {
-          console.log('❌ PROFISSIONAL SEM DIA HABILITADO:', professional.name);
-          toast.error('Selecione horário de serviço do profissional');
+          console.log('❌ PROFISSIONAL SEM DIA ABERTO:', professional.name);
+          toast.error('Selecione pelo menos 1 dia como "Aberto" no horário de trabalho do profissional.');
           return; // BLOQUEAR salvamento
         }
 
         // Verificar se o dia habilitado tem entrada e saída configurados
-        const hasValidHours = Object.keys(workHours).some(day => {
-          const daySchedule = workHours[day];
-          if (!daySchedule || !daySchedule.enabled) {
-            return false;
-          }
-          // Verificar se tem entrada e saída válidos
-          const isValid = daySchedule.entry_time &&
+        const openDaysWithInvalidTimes = WEEK_DAYS.filter((day) => {
+          const daySchedule = (workHours as any)?.[day];
+          if (!daySchedule || daySchedule.enabled !== true) return false;
+          const isValid = !!(
+            daySchedule.entry_time &&
             daySchedule.exit_time &&
-            daySchedule.entry_time.trim() !== '' &&
-            daySchedule.exit_time.trim() !== '';
+            String(daySchedule.entry_time).trim() !== '' &&
+            String(daySchedule.exit_time).trim() !== ''
+          );
           console.log(`🔍 Dia ${day}:`, { enabled: daySchedule.enabled, entry_time: daySchedule.entry_time, exit_time: daySchedule.exit_time, isValid });
-          return isValid;
+          return !isValid;
         });
 
-        if (!hasValidHours) {
-          console.log('❌ PROFISSIONAL SEM HORÁRIOS VÁLIDOS:', professional.name);
-          toast.error('Selecione horário de serviço do profissional');
+        if (openDaysWithInvalidTimes.length > 0) {
+          console.log('❌ PROFISSIONAL COM DIAS ABERTOS SEM HORÁRIOS VÁLIDOS:', professional.name, openDaysWithInvalidTimes);
+          toast.error('Preencha "Entrada" e "Saída" em todos os dias marcados como Aberto no horário de trabalho do profissional.');
           return; // BLOQUEAR salvamento
         }
 
@@ -6511,14 +6566,18 @@ Estamos te aguardando! 😎✂️`;
       case 5: // PIX - verificar se preencheu (pode ser opcional, mas vamos exigir para o quiz)
         // Verificar se tem PIX configurado OU se digitou "naotenhopix"
         {
+          const PIX_PLACEHOLDER = '123456789@';
           const hasPix: boolean = !!(
+            (pixKey && pixKey.trim() === PIX_PLACEHOLDER) ||
             (pixKeyType && pixKey && pixKey.trim() !== '' && pixKey.trim().toLowerCase() !== 'naotenhopix') ||
             (pixKey && pixKey.trim().toLowerCase() === 'naotenhopix') ||
-            (establishment?.pix_key && establishment.pix_key.trim() !== '' && establishment.pix_key.trim().toLowerCase() !== 'naotenhopix')
+            (establishment?.pix_key && (establishment.pix_key.trim() === PIX_PLACEHOLDER || (establishment.pix_key.trim() !== '' && establishment.pix_key.trim().toLowerCase() !== 'naotenhopix')))
           );
           return {
             isValid: hasPix,
-            message: hasPix ? '' : 'Preencha os dados do PIX ou digite "naotenhopix" para continuar'
+            message: hasPix
+              ? ''
+              : 'Para continuar, preencha seu PIX e clique em SALVAR. Caso não queira cadastrar agora, digite "123456789@" e clique em SALVAR.'
           };
         }
 
@@ -6532,7 +6591,9 @@ Estamos te aguardando! 😎✂️`;
           );
           return {
             isValid: hasAnyLink,
-            message: hasAnyLink ? '' : 'Adicione ao menos 1 link antes de avançar'
+            message: hasAnyLink
+              ? ''
+              : 'Para continuar, preencha ao menos 1 link (ex: Instagram ou Local). O sistema salva automaticamente — aguarde 1 segundo após digitar.'
           };
         }
 
@@ -6565,6 +6626,45 @@ Estamos te aguardando! 😎✂️`;
     const validation = validateQuizStep(quizStep);
     if (!validation.isValid) {
       setQuizAlertMessage(validation.message);
+      if (quizStep === 1) {
+        setShowQuizAmenitiesModal(true);
+        // garantir que a seção está na tela (ajuda no mobile)
+        setTimeout(() => {
+          const el = document.getElementById('quiz-section-comodidades');
+          if (el) {
+            const offset = 100;
+            const elementPosition = el.getBoundingClientRect().top;
+            const offsetPosition = elementPosition + window.pageYOffset - offset;
+            window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+          }
+        }, 100);
+      }
+      if (quizStep === 5) {
+        setShowQuizPixModal(true);
+        // garantir que a seção está na tela (ajuda no mobile)
+        setTimeout(() => {
+          const el = document.getElementById('quiz-section-pix');
+          if (el) {
+            const offset = 100;
+            const elementPosition = el.getBoundingClientRect().top;
+            const offsetPosition = elementPosition + window.pageYOffset - offset;
+            window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+          }
+        }, 100);
+      }
+      if (quizStep === 6) {
+        setShowQuizLinksModal(true);
+        // garantir que a seção está na tela (ajuda no mobile)
+        setTimeout(() => {
+          const el = document.getElementById('quiz-section-links');
+          if (el) {
+            const offset = 100;
+            const elementPosition = el.getBoundingClientRect().top;
+            const offsetPosition = elementPosition + window.pageYOffset - offset;
+            window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+          }
+        }, 100);
+      }
       return;
     }
 
@@ -9339,9 +9439,14 @@ Estamos te aguardando! 😎✂️`;
     if (!establishment) return;
 
     try {
+      const PIX_PLACEHOLDER = '123456789@';
+      const trimmedPixKey = pixKey.trim();
+      const isPlaceholder = trimmedPixKey === PIX_PLACEHOLDER;
+
       // Tratar valores vazios - converter para null se estiver vazio
-      const finalPixKey = pixKey.trim() || null;
-      const finalPixType = pixKey.trim() ? pixType : null;
+      const finalPixKey = trimmedPixKey || null;
+      // Se for placeholder, não obrigar tipo (evita salvar tipo vazio)
+      const finalPixType = trimmedPixKey && !isPlaceholder ? pixType : null;
 
       const { error } = await supabase
         .from('establishments')
@@ -9355,8 +9460,8 @@ Estamos te aguardando! 😎✂️`;
         throw error;
       }
 
-      setPixKey(pixKey);
-      setPixKeyType(pixType);
+      setPixKey(trimmedPixKey);
+      setPixKeyType(isPlaceholder ? '' : pixType);
       toast('Configurações do PIX salvas com sucesso', 'success');
     } catch (error) {
       console.error('Erro ao salvar configurações do PIX:', error);
@@ -11237,22 +11342,32 @@ Estamos te aguardando! 😎✂️`;
   const handleOpenWorkHoursModal = (professionalId: string) => {
     setSelectedProfessionalForWorkHours(professionalId);
 
-    // Carregar horários de trabalho existentes do profissional
+    const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+    const baseWorkHours: Record<string, any> = {
+      monday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+      tuesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+      wednesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+      thursday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+      friday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+      saturday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' },
+      sunday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' }
+    };
+
+    // Carregar horários de trabalho existentes do profissional (sempre com todos os dias)
     const professional = professionals.find(p => p.id === professionalId);
     if (professional && professional.work_hours) {
-      setWorkHoursData(professional.work_hours);
+      const merged = WEEK_DAYS.reduce((acc: Record<string, any>, day) => {
+        const existing = (professional.work_hours as any)[day] || {};
+        acc[day] = {
+          ...baseWorkHours[day],
+          ...existing,
+          enabled: typeof existing.enabled === 'boolean' ? existing.enabled : baseWorkHours[day].enabled
+        };
+        return acc;
+      }, {} as Record<string, any>);
+      setWorkHoursData(merged);
     } else {
-      // Inicializar com horários padrão desabilitados
-      const defaultWorkHours = {
-        monday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-        tuesday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-        wednesday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-        thursday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-        friday: { enabled: false, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-        saturday: { enabled: false, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' },
-        sunday: { enabled: false, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' }
-      };
-      setWorkHoursData(defaultWorkHours);
+      setWorkHoursData(baseWorkHours);
     }
 
     setShowWorkHoursModal(true);
@@ -11264,12 +11379,12 @@ Estamos te aguardando! 😎✂️`;
     setWorkHoursData({});
   };
 
-  const handleToggleWorkDay = (day: string) => {
+  const handleToggleWorkDay = (day: string, nextEnabled?: boolean) => {
     setWorkHoursData(prev => ({
       ...prev,
       [day]: {
         ...prev[day],
-        enabled: !prev[day].enabled
+        enabled: typeof nextEnabled === 'boolean' ? nextEnabled : !prev[day].enabled
       }
     }));
   };
@@ -11294,6 +11409,34 @@ Estamos te aguardando! 😎✂️`;
     if (!selectedProfessionalForWorkHours || !establishment) return;
 
     try {
+      const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+
+      // ✅ Validação obrigatória: todos os dias precisam estar marcados como Aberto ou Fechado
+      const missingDecisionDays = WEEK_DAYS.filter((day) => typeof (workHoursData as any)?.[day]?.enabled !== 'boolean');
+      if (missingDecisionDays.length > 0) {
+        toast.error('No horário de trabalho: selecione "Aberto" ou "Fechado" para todos os dias antes de salvar.');
+        return;
+      }
+
+      const hasAnyOpenDay = WEEK_DAYS.some((day) => (workHoursData as any)?.[day]?.enabled === true);
+      if (!hasAnyOpenDay) {
+        toast.error('Selecione pelo menos 1 dia como "Aberto" para o profissional.');
+        return;
+      }
+
+      // ✅ Validar horários básicos dos dias abertos
+      const openDaysWithInvalidTimes = WEEK_DAYS.filter((day) => {
+        const d = (workHoursData as any)?.[day];
+        if (!d || d.enabled !== true) return false;
+        const entryOk = typeof d.entry_time === 'string' && d.entry_time.trim() !== '';
+        const exitOk = typeof d.exit_time === 'string' && d.exit_time.trim() !== '';
+        return !(entryOk && exitOk);
+      });
+      if (openDaysWithInvalidTimes.length > 0) {
+        toast.error('Preencha "Entrada" e "Saída" em todos os dias marcados como Aberto.');
+        return;
+      }
+
       const updatedProfessionals = professionals.map((professional: any) => {
         if (professional.id === selectedProfessionalForWorkHours) {
           return { ...professional, work_hours: workHoursData };
@@ -14335,7 +14478,7 @@ Estamos te aguardando! 😎✂️`;
                 <div className="space-y-6 w-full">
                   <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
                     {/* Vídeo importante (aparece ao clicar em "Como funciona o Sistema" no sidebar) */}
-                    <div className="mb-5 sm:mb-7">
+                    <div className="mb-5 sm:mb-7" id="how-it-works-video">
                       <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-3 sm:p-4 mb-3">
                         <p className="text-amber-900 font-extrabold text-sm sm:text-base">
                           🎥 VÍDEO IMPORTANTE — conheça o sistema
@@ -14346,13 +14489,10 @@ Estamos te aguardando! 😎✂️`;
                       </div>
 
                       <div className="aspect-video w-full overflow-hidden rounded-xl border border-gray-200 shadow-md">
-                        <iframe
-                          src="https://www.youtube.com/embed/lLM5KM6NavU"
-                          title="Vídeo importante — conheça o sistema"
+                        <YouTubeResumePlayer
+                          videoId="lLM5KM6NavU"
+                          storageKey={`how_it_works_${establishment?.id || 'global'}`}
                           className="w-full h-full"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          referrerPolicy="strict-origin-when-cross-origin"
-                          allowFullScreen
                         />
                       </div>
                     </div>
@@ -15031,69 +15171,287 @@ Estamos te aguardando! 😎✂️`;
                       )}
                     </div>
                   )}
+
+                  {/* ✅ Popup bonito: precisa selecionar comodidades para continuar */}
+                  {showQuizAmenitiesModal && (
+                    <div
+                      className="fixed inset-0 z-[90] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+                      onClick={() => setShowQuizAmenitiesModal(false)}
+                    >
+                      <div
+                        className="w-full max-w-md rounded-2xl shadow-2xl border border-white/10 bg-[#0f0f10] overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">✨</span>
+                            <div className="text-sm font-extrabold text-white">Antes de continuar</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowQuizAmenitiesModal(false)}
+                            className="p-2 rounded-lg hover:bg-white/5 text-white/90"
+                            aria-label="Fechar"
+                            title="Fechar"
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                          <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3">
+                            <div className="text-xs font-extrabold text-amber-200">Selecione algumas opções para ir para o próximo passo</div>
+                            <div className="text-xs text-amber-100/90 mt-1">
+                              Marque pelo menos <strong>1 comodidade</strong> (Wi‑Fi, estacionamento, acessibilidade ou local climatizado).
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-white/70">
+                            Dica: marque somente o que seu estabelecimento realmente oferece — isso aparece para seus clientes.
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowQuizAmenitiesModal(false);
+                                setTimeout(() => {
+                                  const el = document.getElementById('quiz-section-comodidades');
+                                  if (el) {
+                                    const offset = 100;
+                                    const elementPosition = el.getBoundingClientRect().top;
+                                    const offsetPosition = elementPosition + window.pageYOffset - offset;
+                                    window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+                                  }
+                                }, 50);
+                              }}
+                              className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white text-black hover:bg-gray-100 transition-colors"
+                            >
+                              Selecionar agora
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowQuizAmenitiesModal(false)}
+                              className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                            >
+                              Entendi
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ✅ Popup bonito: precisa preencher/salvar PIX para continuar */}
+                  {showQuizPixModal && (
+                    <div
+                      className="fixed inset-0 z-[90] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+                      onClick={() => setShowQuizPixModal(false)}
+                    >
+                      <div
+                        className="w-full max-w-md rounded-2xl shadow-2xl border border-white/10 bg-[#0f0f10] overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">💠</span>
+                            <div className="text-sm font-extrabold text-white">Configurar PIX</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowQuizPixModal(false)}
+                            className="p-2 rounded-lg hover:bg-white/5 text-white/90"
+                            aria-label="Fechar"
+                            title="Fechar"
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                          <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-3">
+                            <div className="text-xs font-extrabold text-blue-100">
+                              Para continuar, preencha seu PIX e clique em <span className="text-white">SALVAR</span>.
+                            </div>
+                            <div className="text-xs text-blue-100/90 mt-2">
+                              Observação: caso não queira cadastrar agora, digite <strong className="text-white">123456789@</strong> e clique em <strong className="text-white">SALVAR</strong>.
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-white/70">
+                            Isso garante que o sistema entenda que você concluiu esta etapa do passo a passo.
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowQuizPixModal(false);
+                                setTimeout(() => {
+                                  const el = document.getElementById('quiz-section-pix');
+                                  if (el) {
+                                    const offset = 100;
+                                    const elementPosition = el.getBoundingClientRect().top;
+                                    const offsetPosition = elementPosition + window.pageYOffset - offset;
+                                    window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+                                  }
+                                }, 50);
+                              }}
+                              className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white text-black hover:bg-gray-100 transition-colors"
+                            >
+                              Configurar agora
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowQuizPixModal(false)}
+                              className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                            >
+                              Entendi
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ✅ Popup bonito: precisa preencher ao menos 1 link para continuar */}
+                  {showQuizLinksModal && (
+                    <div
+                      className="fixed inset-0 z-[90] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+                      onClick={() => setShowQuizLinksModal(false)}
+                    >
+                      <div
+                        className="w-full max-w-md rounded-2xl shadow-2xl border border-white/10 bg-[#0f0f10] overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">🔗</span>
+                            <div className="text-sm font-extrabold text-white">Adicionar links</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowQuizLinksModal(false)}
+                            className="p-2 rounded-lg hover:bg-white/5 text-white/90"
+                            aria-label="Fechar"
+                            title="Fechar"
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
+                            <div className="text-xs font-extrabold text-emerald-100">
+                              Para continuar, preencha ao menos <span className="text-white">1 link</span> (ex: Instagram ou Local).
+                            </div>
+                            <div className="text-xs text-emerald-100/90 mt-2">
+                              Observação: o sistema salva automaticamente — aguarde <strong className="text-white">1 segundo</strong> após digitar.
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-white/70">
+                            Isso ajuda seus clientes a te encontrarem e aumenta a confiança no agendamento.
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowQuizLinksModal(false);
+                                setTimeout(() => {
+                                  const el = document.getElementById('quiz-section-links');
+                                  if (el) {
+                                    const offset = 100;
+                                    const elementPosition = el.getBoundingClientRect().top;
+                                    const offsetPosition = elementPosition + window.pageYOffset - offset;
+                                    window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+                                  }
+                                }, 50);
+                              }}
+                              className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white text-black hover:bg-gray-100 transition-colors"
+                            >
+                              Preencher agora
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowQuizLinksModal(false)}
+                              className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                            >
+                              Entendi
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Validade Agendei Fácil */}
                   {establishment?.id && (
                     <ValidityDisplay establishmentId={establishment.id} />
                   )}
 
-                  {/* Vídeo Tutorial de Configurações */}
-                  {showTutorials.config && (
-                    <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                            <span className="text-red-600 text-xl">📺</span>
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-medium text-white">Tutorial de Configurações</h3>
-                            <p className="text-sm text-gray-400">Aprenda a configurar seu estabelecimento corretamente</p>
+                  {/* ✅ Alerta chamativo (substitui vídeo) — organizado para PC e celular */}
+                  <div className="rounded-xl border border-[#009EE3]/35 bg-gradient-to-br from-[#009EE3]/15 via-[#1a1b1c] to-black/40 p-4 sm:p-6 mb-6">
+                    <div className="flex justify-center -mt-2 mb-3">
+                      <div className="animate-pulse px-3 py-1 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-200 text-[11px] font-extrabold tracking-widest">
+                        LEIA COM ATENÇÃO
+                      </div>
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                      <div className="w-11 h-11 rounded-xl bg-[#009EE3]/20 border border-[#009EE3]/30 flex items-center justify-center flex-shrink-0">
+                        <span className="text-[#009EE3] text-xl">🧭</span>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <h3 className="text-base sm:text-lg font-extrabold text-white">
+                            Configure seu estabelecimento passo a passo
+                          </h3>
+                          <div className="text-[11px] text-white/60">
+                            Dica: leia com atenção e marque apenas o que seu estabelecimento oferece.
                           </div>
                         </div>
-                        <button
-                          onClick={() => toggleTutorial('config')}
-                          className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
-                        >
-                          Ocultar Tutorial
-                        </button>
-                      </div>
 
-                      <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
-                        <iframe
-                          className="absolute top-0 left-0 w-full h-full"
-                          src="https://www.youtube.com/embed/pB3QZ1H20xA"
-                          title="Tutorial de Configurações"
-                          frameBorder="0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          allowFullScreen
-                        ></iframe>
-                      </div>
+                        <div className="mt-3 space-y-2 text-sm text-white/85 leading-relaxed">
+                          <p>
+                            Aqui você ajusta sua página, horários, regras e integrações. Uma configuração bem feita evita
+                            problemas no agendamento e deixa a experiência do cliente muito mais profissional.
+                          </p>
 
-                      <div className="mt-4 text-center">
-                        <a
-                          href="https://youtu.be/pB3QZ1H20xA"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-gray-400 hover:text-gray-300 text-sm font-medium transition-colors"
-                        >
-                          <span>📺</span>
-                          <span>Assistir no YouTube</span>
-                        </a>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="rounded-lg bg-black/25 border border-white/10 p-3">
+                              <div className="text-xs font-bold text-white/80 mb-1">✅ O que revisar</div>
+                              <ul className="text-xs text-white/70 space-y-1">
+                                <li>- Horários de funcionamento e pausas</li>
+                                <li>- Profissionais e serviços</li>
+                                <li>- Links (localização, redes sociais, avaliações)</li>
+                                <li>- Regras (cancelamento, CPF, etc.)</li>
+                              </ul>
+                            </div>
+
+                            <div className="rounded-lg bg-black/25 border border-white/10 p-3">
+                              <div className="text-xs font-bold text-white/80 mb-1">💳 Mercado Pago (opcional)</div>
+                              <ul className="text-xs text-white/70 space-y-1">
+                                <li>- Conecte sua conta para liberar pagamento antecipado</li>
+                                <li>- Você escolhe: <strong className="text-white/85">obrigatório</strong> ou <strong className="text-white/85">opcional</strong></li>
+                                <li>- O valor cai na hora na sua conta do Mercado Pago</li>
+                              </ul>
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3">
+                            <div className="text-xs font-extrabold text-amber-200">Antes de continuar</div>
+                            <div className="text-xs text-amber-100/90 mt-1">
+                              Se você ainda não tem conta no Mercado Pago, crie uma conta primeiro. Depois volte aqui e
+                              clique em <strong>Conectar conta Mercado Pago</strong> para habilitar a opção de pagamento
+                              antecipado.
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  )}
-
-                  {/* Botão para mostrar tutorial se estiver oculto */}
-                  {!showTutorials.config && (
-                    <div className="mb-6 text-center">
-                      <button
-                        onClick={() => toggleTutorial('config')}
-                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
-                      >
-                        <span>📺</span>
-                        <span>Mostrar Tutorial</span>
-                      </button>
-                    </div>
-                  )}
+                  </div>
 
                   {/* Informações Básicas - Apenas para usuários antigos OU etapa 1 do quiz */}
                   {(!isNewUser || (isNewUser && quizStep === 1)) && (
@@ -15179,21 +15537,44 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                         <div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
-                            <label className="block text-sm font-medium">Senha de 4 dígitos para configurações</label>
-                            <span className="hidden sm:flex text-sm text-yellow-500 items-center gap-1">
-                              <AlertTriangle className="h-4 w-4" />
-                              Senhas salvas aqui servem para abrir (todos os profissionais/alterar senha de cada profissional/trocar % do profissional/cancelar agendamentos do dashboard/e para entrar nas config).
-                            </span>
+                            <label className="block text-sm font-extrabold text-white">🔐 Senha de 4 dígitos (segurança do sistema)</label>
                             <button
                               onClick={() => showInfoModalFunc(
                                 'Senha de 4 dígitos para configurações',
-                                'Senhas salvas aqui servem para abrir (todos os profissionais/alterar senha de cada profissional/trocar % do profissional/cancelar agendamentos do dashboard/e para entrar nas config).'
+                                'Essa senha deixa seu sistema mais restritivo (recomendado). Ela pode ser exigida para acessar áreas sensíveis do sistema e evitar que outros profissionais mexam onde não devem.\n\n' +
+                                'Ela pode bloquear/autorizar, por exemplo:\n' +
+                                '• Entrar em Configurações / Página\n' +
+                                '• Entrar em Meus serviços (criar/editar/excluir serviços)\n' +
+                                '• Entrar no Financeiro e visualizar/alterar dados (inclusive de outros profissionais)\n' +
+                                '• Alterar dados sensíveis dos profissionais (ex: % comissão e senha)\n' +
+                                '• Cancelar agendamentos quando o sistema exigir senha\n\n' +
+                                'Defina uma senha de 4 dígitos e clique em Salvar.'
                               )}
-                              className="sm:hidden text-xs text-yellow-400 hover:text-yellow-300 underline flex items-center gap-1"
+                              className="sm:hidden text-xs text-amber-300 hover:text-amber-200 underline flex items-center gap-1"
                             >
                               <AlertTriangle className="h-3 w-3" />
                               Ver informações
                             </button>
+                          </div>
+                          <div className="mb-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle className="h-5 w-5 text-amber-300 mt-0.5 flex-shrink-0" />
+                              <div className="min-w-0">
+                                <div className="text-sm font-extrabold text-amber-100">
+                                  Importante: isso deixa seu sistema mais restritivo (recomendado)
+                                </div>
+                                <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
+                                  A senha salva aqui pode ser usada para <strong>bloquear/autorizar ações sensíveis</strong>, como:
+                                  <span className="block mt-1">
+                                    • Entrar em <strong>Configurações / Página</strong><br />
+                                    • Entrar em <strong>Meus serviços</strong> (criar/editar/excluir serviços)<br />
+                                    • Entrar no <strong>Financeiro</strong> e ver/alterar dados (inclusive de outros profissionais)<br />
+                                    • Alterar dados dos profissionais (ex: <strong>% comissão</strong> e senha)<br />
+                                    • Cancelar agendamentos quando o sistema exigir senha
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                           <div className="flex gap-2">
                             <input
@@ -15206,9 +15587,9 @@ Estamos te aguardando! 😎✂️`;
                             />
                             <button
                               onClick={handleSavePin}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                              className="px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-extrabold shadow-lg shadow-blue-600/20"
                             >
-                              Salvar Senha
+                              ✅ Salvar Senha
                             </button>
                           </div>
                           <p className="text-sm text-gray-400 mt-1">
@@ -16451,9 +16832,14 @@ Estamos te aguardando! 😎✂️`;
                   {/* Horário de Funcionamento - Etapa 3 do Quiz */}
                   {(!isNewUser || quizStep === 3) && (
                     <div id="quiz-section-funcionamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
-                      <h3 className="text-lg font-medium text-white mb-4">
-                        {isNewUser && quizStep === 3 ? '3. Horário de Funcionamento' : 'Horário de Funcionamento'}
-                      </h3>
+                      <div className="mb-4">
+                        <h3 className="text-lg font-extrabold text-white">
+                          {isNewUser && quizStep === 3 ? '3. Horários e dias de funcionamento' : 'Horários e dias de funcionamento'}
+                        </h3>
+                        <div className="mt-2 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
+                          <span className="font-extrabold">Preencha quais dias e horários seu estabelecimento abre.</span> Marque os dias que abre e ajuste os horários.
+                        </div>
+                      </div>
 
                       {/* Alerta sobre intervalo */}
                       <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
@@ -17155,27 +17541,56 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Configurações de WhatsApp - Etapa 7 do Quiz */}
                   {(!isNewUser || quizStep === 7) && (
-                    <div id="quiz-section-whatsapp" className="mb-6">
-                      <h3 className="text-lg font-medium text-white mb-4">
-                        {isNewUser && quizStep === 7 ? '7. Número de WhatsApp' : 'Configurações de WhatsApp'}
-                      </h3>
+                    <div id="quiz-section-whatsapp" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
+                      <div className="mb-4">
+                        <h3 className="text-lg font-extrabold text-white">
+                          {isNewUser && quizStep === 7 ? '7. WhatsApp do estabelecimento' : 'WhatsApp do estabelecimento'}
+                        </h3>
+                        <div className="mt-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+                          <span className="font-extrabold">Esse é o WhatsApp do seu estabelecimento?</span> É para este número que seus clientes vão chamar, cancelar e receber lembretes.
+                        </div>
+                      </div>
+
                       <div className="space-y-4">
+                        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                          <div className="text-sm text-white font-semibold mb-2">Preencha o número correto</div>
+                          <div className="text-xs text-white/75 space-y-1">
+                            <div>• Use <strong>somente números</strong> (sem +, espaços ou parênteses)</div>
+                            <div>• Inclua <strong>55 + DDD</strong> (ex: <strong>5511999999999</strong>)</div>
+                            <div>• Dica: se estiver errado, pode falhar lembrete/WhatsApp</div>
+                          </div>
+                        </div>
+
                         <div>
-                          <label className="block text-sm font-medium text-gray-400 mb-1">
+                          <label className="block text-sm font-extrabold text-gray-200 mb-1">
                             Seu número de WhatsApp
                           </label>
                           <input
-                            type="text"
+                            type="tel"
+                            inputMode="numeric"
                             value={establishment?.whatsapp || ''}
                             onChange={(e) => handleInputChange('whatsapp', e.target.value)}
-                            placeholder="Ex: 5511999999999 (apenas números)"
-                            className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="Ex: 5511999999999"
+                            className="w-full px-4 py-3 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                           />
-                          <p className="text-sm text-gray-500 mt-1">
-                            Digite apenas números, incluindo código do país (55) e DDD
+                          <p className="text-xs text-gray-400 mt-2">
+                            Digite apenas números, incluindo código do país (55) e DDD.
                           </p>
+
+                          {isNewUser && quizStep === 7 && (
+                            <div className="mt-3">
+                              <button
+                                type="button"
+                                onClick={handleQuizNext}
+                                className="w-full sm:w-auto px-4 py-2 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors border border-white/10"
+                              >
+                                ✅ Seu número já está preenchido? Pode clicar em Próximo
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
+
                       {/* Botões de Navegação - Etapa 7 */}
                       {isNewUser && quizStep === 7 && (
                         <div className="mt-6 flex justify-between">
@@ -17199,9 +17614,15 @@ Estamos te aguardando! 😎✂️`;
                   {/* Configurações de Pagamento - Etapa 8 do Quiz */}
                   {(!isNewUser || quizStep === 8) && (
                     <div id="quiz-section-pagamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
-                      <h3 className="text-lg font-medium text-white mb-4">
-                        {isNewUser && quizStep === 8 ? '8. Configurações de Pagamento' : 'Configurações de Pagamento'}
-                      </h3>
+                      <div className="mb-4">
+                        <h3 className="text-lg font-extrabold text-white">
+                          {isNewUser && quizStep === 8 ? '8. Taxas da maquininha (controle)' : 'Taxas da maquininha (controle)'}
+                        </h3>
+                        <div className="mt-2 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
+                          <span className="font-extrabold">Essas são as taxas da maquininha do seu estabelecimento.</span>{' '}
+                          Preencha para você ter controle de quanto perde em taxas (crédito/débito/bandeiras). Isso não altera o preço do serviço — é só para cálculos e relatórios.
+                        </div>
+                      </div>
                       <div className="space-y-6">
                         <div>
                           <label className="block text-sm font-medium text-gray-400 mb-1">
@@ -17404,13 +17825,18 @@ Estamos te aguardando! 😎✂️`;
                   {/* Formas de Pagamento Disponíveis - Etapa 9 do Quiz */}
                   {(!isNewUser || quizStep === 9) && (
                     <div id="quiz-section-formas-pagamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
-                      <h3 className="text-lg font-medium text-white mb-2">
-                        {isNewUser && quizStep === 9 ? '9. Formas de Pagamento Disponíveis' : 'Formas de Pagamento Disponíveis'}
-                      </h3>
-                      <p className="text-sm text-gray-400 mb-4">
-                        Selecione quais formas de pagamento estarão disponíveis para seus clientes no booking.
-                        <span className="text-yellow-400 font-medium"> Pelo menos uma deve estar ativa.</span>
-                      </p>
+                      <div className="mb-4">
+                        <h3 className="text-lg font-extrabold text-white">
+                          {isNewUser && quizStep === 9 ? '9. Formas de pagamento (controle)' : 'Formas de pagamento (controle)'}
+                        </h3>
+                        <div className="mt-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                          <span className="font-extrabold">Atenção:</span> essas formas de pagamento são para <strong>seu controle</strong>.
+                          Seu cliente seleciona a forma no booking, e você fica ciente de como ele vai pagar (ou pagou).
+                          <br />
+                          Se você conectar o <strong>Mercado Pago</strong>, aqui também aparece a opção de pagamento adiantado (quando ativa).
+                          <span className="text-yellow-300 font-extrabold"> Pelo menos uma deve estar ativa.</span>
+                        </div>
+                      </div>
 
                       <div className="space-y-3">
                         {/* PIX */}
@@ -19593,19 +20019,54 @@ Estamos te aguardando! 😎✂️`;
                     ].map(({ day, dayName }) => (
                       <div key={day} className="bg-gray-800 rounded-lg p-4">
                         <div className="flex items-center justify-between mb-4">
-                          <h4 className="text-white font-medium">{dayName}</h4>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={workHoursData[day]?.enabled || false}
-                              onChange={() => handleToggleWorkDay(day)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
-                          </label>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <h4 className="text-white font-medium truncate">{dayName}</h4>
+                            {typeof workHoursData[day]?.enabled !== 'boolean' ? (
+                              <span className="text-[11px] font-extrabold px-2 py-1 rounded-full border border-yellow-400/30 bg-yellow-500/10 text-yellow-200">
+                                Selecione
+                              </span>
+                            ) : workHoursData[day]?.enabled ? (
+                              <span className="text-[11px] font-extrabold px-2 py-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-200">
+                                Aberto ✓
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-extrabold px-2 py-1 rounded-full border border-red-400/30 bg-red-500/10 text-red-200">
+                                Fechado ✓
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleWorkDay(day, true)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-colors ${workHoursData[day]?.enabled === true
+                                ? 'bg-emerald-600 text-white border-emerald-500'
+                                : 'bg-black/20 text-emerald-200 border-emerald-400/30 hover:bg-emerald-500/10'
+                                }`}
+                            >
+                              Aberto
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleWorkDay(day, false)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-colors ${workHoursData[day]?.enabled === false
+                                ? 'bg-red-600 text-white border-red-500'
+                                : 'bg-black/20 text-red-200 border-red-400/30 hover:bg-red-500/10'
+                                }`}
+                            >
+                              Fechado
+                            </button>
+                          </div>
                         </div>
 
-                        {workHoursData[day]?.enabled && (
+                        {typeof workHoursData[day]?.enabled !== 'boolean' && (
+                          <div className="mb-3 text-xs text-yellow-300 font-semibold">
+                            * Obrigatório: selecione “Aberto” ou “Fechado”
+                          </div>
+                        )}
+
+                        {workHoursData[day]?.enabled === true && (
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div>
                               <label className="block text-sm text-gray-300 mb-2">Entrada</label>
@@ -19665,9 +20126,9 @@ Estamos te aguardando! 😎✂️`;
                     </button>
                     <button
                       onClick={handleSaveWorkHours}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      className="px-5 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-extrabold shadow-lg shadow-blue-600/20 w-full sm:w-auto"
                     >
-                      Salvar Horários de Trabalho
+                      ✅ Salvar Horários de Trabalho
                     </button>
                   </div>
                 </div>
@@ -20699,6 +21160,12 @@ Estamos te aguardando! 😎✂️`;
                           setServicesWithPrices(validServices);
 
                           toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
+                          // ✅ Direcionar para "Como funciona o Sistema" e já carregar o vídeo
+                          setActiveTab('passo-a-passo');
+                          setTimeout(() => {
+                            const el = document.getElementById('how-it-works-video');
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }, 200);
                         } catch (error) {
                           console.error('Erro ao completar onboarding:', error);
                           toast.error('Erro ao salvar. Tente novamente.');
@@ -20713,64 +21180,7 @@ Estamos te aguardando! 😎✂️`;
                 </div>
               )}
 
-              {/* Vídeo Tutorial */}
-              {showTutorials.services && (
-                <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                        <span className="text-gray-700 text-xl">📺</span>
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Serviços</h3>
-                        <p className="text-sm text-gray-600">Aprenda a criar categorias e serviços com dropdown</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => toggleTutorial('services')}
-                      className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
-                    >
-                      Ocultar Tutorial
-                    </button>
-                  </div>
-
-                  <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
-                    <iframe
-                      className="absolute top-0 left-0 w-full h-full"
-                      src="https://www.youtube.com/embed/ABZLLHyMVq0"
-                      title="Tutorial: Como Gerenciar Serviços"
-                      frameBorder="0"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                    ></iframe>
-                  </div>
-
-                  <div className="mt-3 text-center">
-                    <a
-                      href="https://youtu.be/ABZLLHyMVq0"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
-                    >
-                      <span>📺</span>
-                      <span>Assistir no YouTube</span>
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {/* Botão para mostrar tutorial se estiver oculto */}
-              {!showTutorials.services && (
-                <div className="mb-6 text-center">
-                  <button
-                    onClick={() => toggleTutorial('services')}
-                    className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
-                  >
-                    <span>📺</span>
-                    <span>Mostrar Tutorial</span>
-                  </button>
-                </div>
-              )}
+              {/* ✅ Tutorial de vídeo removido (Meus serviços) */}
 
               {/* Botão Adicionar Categoria - Movido para abaixo do vídeo */}
               <div className="mb-6">
@@ -20811,10 +21221,26 @@ Estamos te aguardando! 😎✂️`;
               </div>
 
               {/* Mensagem destacada sobre flexibilidade */}
-              <div className="mb-6 p-4 bg-gray-100 border border-gray-300 rounded-lg">
-                <p className="text-sm text-gray-800 font-semibold">
-                  ⚠️ Você também pode criar apenas uma categoria escrita <strong>"Meus serviços"</strong> e dentro dela colocar todos os seus serviços. A liberdade é sua, se quer ter categoria para cada serviço ou se quer uma apenas para todos.
-                </p>
+              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <span className="text-amber-700 text-2xl">⭐</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-extrabold bg-amber-200 text-amber-900 border border-amber-300">
+                        RECOMENDADO
+                      </span>
+                      <span className="text-sm font-extrabold text-amber-900">
+                        Opção mais simples para organizar seus serviços
+                      </span>
+                    </div>
+                    <p className="text-sm text-amber-900/90 font-semibold leading-relaxed">
+                      Você pode criar apenas <strong>1 categoria</strong> chamada <strong>"Meus serviços"</strong> e colocar <strong>todos</strong> os serviços dentro dela.
+                      Depois, se quiser, você pode separar por categorias (Cabelo, Barba, Estética…) sem problema.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               {/* Botão para salvar serviços e abrir todas as funções */}
@@ -20903,6 +21329,12 @@ Estamos te aguardando! 😎✂️`;
                       setServicesWithPrices(validServices);
 
                       toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
+                      // ✅ Direcionar para "Como funciona o Sistema" e já carregar o vídeo
+                      setActiveTab('passo-a-passo');
+                      setTimeout(() => {
+                        const el = document.getElementById('how-it-works-video');
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 200);
                     } catch (error) {
                       console.error('Erro ao completar onboarding:', error);
                       toast.error('Erro ao salvar. Tente novamente.');
@@ -20930,9 +21362,17 @@ Estamos te aguardando! 😎✂️`;
                 <div className="space-y-6">
                   {serviceCategories.map((category) => {
                     const categorySubcategories = serviceSubcategories.filter(sub => sub.category_id === category.id);
+                    const isHighlighted = highlightedCategoryId === category.id;
 
                     return (
-                      <div key={category.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 md:p-6">
+                      <div
+                        key={category.id}
+                        id={`service-category-${category.id}`}
+                        className={`bg-gray-50 border rounded-lg p-4 md:p-6 transition-all ${isHighlighted
+                          ? 'border-amber-300 ring-4 ring-amber-200 shadow-xl'
+                          : 'border-gray-200'
+                          }`}
+                      >
                         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3 md:gap-2">
                           <h3 className="text-xl font-semibold text-gray-900">{category.name}</h3>
                           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
@@ -20941,10 +21381,13 @@ Estamos te aguardando! 😎✂️`;
                                 setSelectedCategoryForSubcategory(category.id);
                                 setShowAddSubcategoryModal(true);
                               }}
-                              className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                              className={`px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm font-extrabold ${isHighlighted
+                                ? 'bg-gradient-to-r from-emerald-600 to-green-600 text-white hover:from-emerald-500 hover:to-green-500 shadow-lg shadow-emerald-600/25 animate-pulse'
+                                : 'bg-black text-white hover:bg-gray-800'
+                                }`}
                             >
                               <Plus className="h-4 w-4" />
-                              Adicionar Serviço
+                              {isHighlighted ? 'Adicionar Serviço (AGORA)' : 'Adicionar Serviço'}
                             </button>
                             <button
                               onClick={() => {
@@ -20970,10 +21413,21 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         </div>
 
-                        {/* Texto descritivo discreto */}
-                        <p className="text-gray-700 text-sm font-medium mb-3">
-                          Adicione um ou mais serviços aqui dentro
-                        </p>
+                        {/* Texto descritivo */}
+                        {isHighlighted ? (
+                          <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+                            <div className="text-sm font-extrabold text-amber-900">
+                              ✅ Categoria criada! Agora adicione 1 ou mais serviços aqui dentro.
+                            </div>
+                            <div className="text-xs text-amber-900/80 mt-1">
+                              Clique em <strong>Adicionar Serviço</strong> acima para cadastrar o primeiro serviço.
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-gray-700 text-sm font-medium mb-3">
+                            Adicione um ou mais serviços aqui dentro
+                          </p>
+                        )}
 
                         {categorySubcategories.length > 0 && (
                           <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 mb-4">
@@ -21771,42 +22225,36 @@ Estamos te aguardando! 😎✂️`;
                 </div>
               )}
 
-              <div className="bg-[#1a1b1c] rounded-lg p-4 md:p-6 border border-gray-800 mb-6">
-                <h3 className="text-lg font-medium text-white mb-4">Aqui você tem total controle sobre seus profissionais:</h3>
-                <div className="space-y-3 text-sm text-gray-300">
-                  <p className="flex items-start gap-2">
-                    <span className="text-gray-400 mt-1">•</span>
-                    <span>Adicione quantos quiser</span>
-                  </p>
-                  <p className="flex items-start gap-2">
-                    <span className="text-gray-400 mt-1">•</span>
-                    <span>Configure nome, foto, porcentagem de comissão e WhatsApp individual</span>
-                  </p>
-                  <p className="flex items-start gap-2">
-                    <span className="text-gray-400 mt-1">•</span>
-                    <span>Defina uma senha exclusiva (opcional — se não quiser senha, use 0000)</span>
-                  </p>
-                  <p className="flex items-start gap-2">
-                    <span className="text-gray-400 mt-1">•</span>
-                    <span>Determine metas e serviços específicos para cada profissional</span>
-                  </p>
-                  <p className="flex items-start gap-2">
-                    <span className="text-gray-400 mt-1">•</span>
-                    <span>Marque dias ausentes e bloqueie horários</span>
-                  </p>
-                  <p className="flex items-start gap-2">
-                    <span className="text-gray-400 mt-1">•</span>
-                    <span>Escolha se o profissional realiza ou não serviços infantis</span>
-                  </p>
+              <div className="rounded-xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-[#1a1b1c] to-black/40 p-4 md:p-6 mb-6">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-400/25 flex items-center justify-center flex-shrink-0">
+                    <span className="text-emerald-300 text-xl">👥</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-lg font-extrabold text-white">
+                      Aqui você tem total controle sobre seus profissionais
+                    </h3>
+                    <div className="text-sm text-white/70 mt-1">
+                      Configure tudo com calma — isso impacta comissão, horários, serviços e o que aparece no booking.
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-4 p-3 bg-gray-800/20 border border-gray-700/30 rounded-lg">
-                  <p className="text-sm text-gray-300 font-medium mb-2 flex items-start gap-2">
-                    <span>💡</span>
-                    <span className="flex-1"><strong>Importante:</strong></span>
-                  </p>
-                  <div className="space-y-1 text-xs text-gray-200 ml-6">
-                    <p>• Cada profissional pode visualizar o total bruto e líquido do dia</p>
-                    <p>• As alterações só terão efeito após clicar em Salvar Profissionais</p>
+
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-200">
+                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Adicione quantos quiser</div>
+                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Nome, foto, % de comissão e WhatsApp individual</div>
+                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Senha exclusiva (opcional — se não quiser, use <strong>0000</strong>)</div>
+                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Metas e serviços específicos por profissional</div>
+                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Dias ausentes e bloqueio de horários</div>
+                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Definir se faz ou não serviço infantil</div>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4">
+                  <div className="text-sm text-amber-100 font-extrabold mb-2">💡 Importante</div>
+                  <div className="space-y-1 text-xs text-amber-100/90">
+                    <div>• Cada profissional pode visualizar o total <strong>bruto</strong> e <strong>líquido</strong> do dia</div>
+                    <div>• As alterações só terão efeito após clicar em <strong>Salvar Profissionais</strong></div>
+                    <div>• <strong>Horários de trabalho:</strong> agora é obrigatório marcar <strong>Aberto/Fechado</strong> em todos os dias</div>
                   </div>
                 </div>
               </div>
@@ -21857,17 +22305,19 @@ Estamos te aguardando! 😎✂️`;
                   <button
                     type="button"
                     onClick={saveProfessionalsToDatabase}
-                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 font-medium"
+                    className="flex-1 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 text-white hover:from-emerald-500 hover:to-green-500 transition-colors flex items-center justify-center gap-2 font-extrabold shadow-lg shadow-emerald-600/20 border border-emerald-400/20"
                   >
                     <Check className="h-4 w-4" />
-                    <span>Salvar Profissionais</span>
+                    <span>✅ Salvar Profissionais</span>
                   </button>
                 </div>
 
                 {/* Indicador de status */}
                 {professionals.length > 0 && (
-                  <div className="text-xs text-gray-600 text-center">
-                    ⚠ Clique em "Salvar Profissionais" para salvar
+                  <div className="text-center">
+                    <div className="inline-flex items-center gap-2 text-xs font-extrabold px-3 py-2 rounded-full bg-red-500/10 border border-red-400/20 text-red-200">
+                      ⚠ Não esqueça: clique em <span className="text-white">Salvar Profissionais</span> para gravar as alterações
+                    </div>
                   </div>
                 )}
               </div>
@@ -23570,19 +24020,39 @@ Estamos te aguardando! 😎✂️`;
           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
             <div className="p-6">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">⚙️ Config | Página Agendamentos</h2>
-              <p className="text-gray-700 mb-6 text-lg">
-                Aqui você pode configurar toda a sua página de agendamentos, veja o vídeo tutorial para aprender como funciona/usar.
+              <p className="text-gray-700 mb-4 text-base sm:text-lg">
+                Configure seu estabelecimento com calma. Uma configuração bem feita evita conflitos de horário e melhora a experiência do cliente.
               </p>
 
-              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
-                <iframe
-                  className="absolute top-0 left-0 w-full h-full"
-                  src="https://www.youtube.com/embed/pB3QZ1H20xA"
-                  title="Tutorial de Configurações"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                ></iframe>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 border border-blue-200 flex items-center justify-center flex-shrink-0">
+                    <span className="text-blue-700 text-lg">🧭</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm sm:text-base font-extrabold text-gray-900">
+                      Configure seu estabelecimento passo a passo
+                    </div>
+                    <div className="text-sm text-gray-700 mt-2 space-y-2">
+                      <p>
+                        Leia todas as informações e marque apenas o que seu estabelecimento oferece (isso evita confusão para o cliente).
+                      </p>
+                      <ul className="text-sm text-gray-700 space-y-1">
+                        <li>- Horários de funcionamento e pausas</li>
+                        <li>- Profissionais e serviços</li>
+                        <li>- Links (localização, redes sociais, avaliações)</li>
+                        <li>- Regras (cancelamento, CPF, etc.)</li>
+                      </ul>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 mt-2">
+                        <div className="text-sm font-bold text-amber-900">Mercado Pago (opcional)</div>
+                        <div className="text-sm text-amber-900/90 mt-1">
+                          Se você conectar sua conta do Mercado Pago, aparece a opção de <strong>pagamento antecipado</strong> (obrigatório ou opcional).
+                          O dinheiro cai na hora na sua conta Mercado Pago. Se ainda não tiver conta, crie uma antes de continuar.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3 mt-6">
@@ -23907,21 +24377,56 @@ Estamos te aguardando! 😎✂️`;
           <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl shadow-2xl max-w-md w-full p-6 border-4 border-gray-500">
             <div className="text-center">
               <div className="mb-4 text-7xl animate-bounce">🔒</div>
-              <h2 className="text-2xl font-bold text-red-700 mb-4">Função Bloqueada!</h2>
-              <p className="text-gray-800 mb-6 text-lg leading-relaxed">
-                Esta função está bloqueada. Você deve seguir o <strong className="text-red-600">Passo a Passo</strong> para abrir seu estabelecimento e liberar todas as funcionalidades.
+              <h2 className="text-2xl font-extrabold text-gray-900 mb-3">Função bloqueada por configuração</h2>
+              <p className="text-gray-800 mb-4 text-base leading-relaxed">
+                Para liberar essa opção, você precisa <strong>terminar a configuração do seu sistema</strong> seguindo o{' '}
+                <strong className="text-gray-900">Passo a Passo</strong>.
               </p>
-              <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-6 text-left rounded">
-                <p className="text-sm text-yellow-800">
-                  💡 <strong>Dica:</strong> Clique em "Passo a passo" no menu lateral para ver o que precisa fazer.
-                </p>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-4 text-left mb-5">
+                <div className="text-sm font-extrabold text-gray-900 mb-2">O que falta para liberar</div>
+                <div className="space-y-2 text-sm text-gray-800">
+                  <div className={`flex items-center gap-2 ${onboardingStep <= 1 ? 'font-extrabold' : ''}`}>
+                    <span>{onboardingStep <= 1 ? '➡️' : '✅'}</span>
+                    <span>Configurações / Página</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${onboardingStep === 2 ? 'font-extrabold' : ''}`}>
+                    <span>{onboardingStep <= 1 ? '🔒' : onboardingStep === 2 ? '➡️' : '✅'}</span>
+                    <span>Profissionais</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${onboardingStep === 3 ? 'font-extrabold' : ''}`}>
+                    <span>{onboardingStep <= 2 ? '🔒' : onboardingStep === 3 ? '➡️' : '✅'}</span>
+                    <span>Meus serviços</span>
+                  </div>
+                </div>
+                <div className="mt-3 text-xs text-gray-600">
+                  Dica: quando finalizar, clique em <strong>Salvar</strong> dentro de cada etapa.
+                </div>
               </div>
-              <button
-                onClick={() => setShowBlockedItemModal(false)}
-                className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-bold text-lg shadow-lg"
-              >
-                Entendi!
-              </button>
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBlockedItemModal(false);
+                    setActiveTab('passo-a-passo');
+                    setTimeout(() => {
+                      const el = document.getElementById('how-it-works-video');
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 200);
+                  }}
+                  className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-black text-white hover:bg-gray-800 transition-colors shadow-lg"
+                >
+                  Ir para Passo a passo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBlockedItemModal(false)}
+                  className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white border border-gray-300 text-gray-900 hover:bg-gray-50 transition-colors"
+                >
+                  Entendi
+                </button>
+              </div>
             </div>
           </div>
         </div>
