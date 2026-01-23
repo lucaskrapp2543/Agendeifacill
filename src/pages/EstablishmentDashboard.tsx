@@ -18596,8 +18596,12 @@ Estamos te aguardando! 😎✂️`;
 
                     <div className="space-y-5">
                       {professionals.map(professional => {
+                        // IMPORTANTE: `appointments.professional` historicamente pode ser salvo como ID OU como nome.
+                        // Para evitar divergências no financeiro, aceitar ambos (id ou nome).
                         const professionalAppointments = monthlyAppointments.filter(
-                          apt => apt.professional === professional.id && apt.status === 'completed'
+                          (apt) =>
+                            (apt.professional === professional.id || apt.professional === professional.name) &&
+                            apt.status === 'completed'
                         );
 
                         console.log(`🔍 Profissional: ${professional.name}`);
@@ -18608,7 +18612,12 @@ Estamos te aguardando! 😎✂️`;
                             console.log(`💰 Assinante pago - não contabilizado: ${apt.client_name} - R$ ${apt.total_price || apt.price}`);
                             return total; // Não adiciona ao faturamento se for assinante pago
                           }
-                          const appointmentValue = apt.total_price || apt.price || 0;
+                          // Manter consistente com o restante do financeiro:
+                          // Receita do PROFISSIONAL considera serviço + serviços extras (additional_products).
+                          // Produtos V2 (sold_products) não entram aqui (cada estabelecimento decide comissão em outra lógica).
+                          const serviceBasePrice = apt.price || 0;
+                          const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+                          const appointmentValue = serviceBasePrice + additionalServicesTotal;
                           console.log(`💰 Agendamento normal: ${apt.client_name} - R$ ${appointmentValue}`);
                           return total + appointmentValue;
                         }, 0);
@@ -18745,7 +18754,10 @@ Estamos te aguardando! 😎✂️`;
                                     .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
 
                                   const base = monthlyAppointments
-                                    .filter((apt) => apt.professional === professional.id && apt.status === 'completed')
+                                    .filter((apt) =>
+                                      (apt.professional === professional.id || apt.professional === professional.name) &&
+                                      apt.status === 'completed'
+                                    )
                                     .filter((apt) => {
                                       // manter consistente com o cálculo exibido em "Novas Vendas"
                                       if (!lastPayment) return true;
@@ -18755,7 +18767,9 @@ Estamos te aguardando! 😎✂️`;
                                     });
 
                                   const total = base.reduce((total, apt) => {
-                                    const baseValue = apt.total_price || apt.price || 0;
+                                    const serviceBasePrice = apt.price || 0;
+                                    const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+                                    const baseValue = serviceBasePrice + additionalServicesTotal;
                                     let netValue: number;
 
                                     if (professional.percentage === 100) {
@@ -18832,12 +18846,16 @@ Estamos te aguardando! 😎✂️`;
                                           .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter);
 
                                         const grossTotal = filteredAppointments.reduce((total, apt) => {
-                                          const baseValue = apt.total_price || apt.price || 0;
+                                          const serviceBasePrice = apt.price || 0;
+                                          const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+                                          const baseValue = serviceBasePrice + additionalServicesTotal;
                                           return total + baseValue;
                                         }, 0);
 
                                         const netTotal = filteredAppointments.reduce((total, apt) => {
-                                          const baseValue = apt.total_price || apt.price || 0;
+                                          const serviceBasePrice = apt.price || 0;
+                                          const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+                                          const baseValue = serviceBasePrice + additionalServicesTotal;
                                           let netValue;
 
                                           if (professional.percentage === 100) {
@@ -18904,7 +18922,9 @@ Estamos te aguardando! 😎✂️`;
                                               return isAfterPayment;
                                             })
                                             .reduce((total, apt) => {
-                                              const baseValue = apt.total_price || apt.price || 0;
+                                              const serviceBasePrice = apt.price || 0;
+                                              const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+                                              const baseValue = serviceBasePrice + additionalServicesTotal;
                                               let netValue;
                                               if (professional.percentage === 100) {
                                                 const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
