@@ -5953,6 +5953,55 @@ Estamos te aguardando! 😎✂️`;
     setIsLoading(true);
 
     try {
+      // ✅ LIMPEZA AUTOMÁTICA: liberar horários travados por pagamentos pendentes antigos
+      // Problema real: registros em `pending_payment` podem ficar presos (inclusive com transaction_id) se o cliente abandonar.
+      // Isso vira "reservas fantasmas" e prejudica TODO MUNDO.
+      // Estratégia:
+      // - Sem transaction_id: cancelar rapidamente
+      // - Com transaction_id: dar uma janela maior, mas cancelar se ficar velho demais sem confirmação
+      const thresholdNoTxMinutes = 15;
+      const thresholdWithTxMinutes = 90;
+      const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
+      const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
+
+      // 1) Pendências sem transaction_id (antigas): cancelar
+      await supabase
+        .from('appointments')
+        .update({ status: 'cancelled', payment_status: 'failed' } as any)
+        .eq('establishment_id', establishment.id)
+        .eq('status', 'pending_payment')
+        .is('payment_transaction_id', null)
+        .lt('created_at', thresholdNoTxDate);
+
+      // 2) Pendências com transaction_id (muito antigas) e sem confirmação: cancelar por ID
+      const { data: staleWithTx, error: staleWithTxError } = await supabase
+        .from('appointments')
+        .select('id,payment_status,pix_payment_status')
+        .eq('establishment_id', establishment.id)
+        .eq('status', 'pending_payment')
+        .not('payment_transaction_id', 'is', null)
+        .lt('created_at', thresholdWithTxDate);
+
+      if (!staleWithTxError && Array.isArray(staleWithTx) && staleWithTx.length > 0) {
+        const idsToCancel = staleWithTx
+          .filter((row: any) => {
+            const paymentStatus = String(row?.payment_status || '').toLowerCase();
+            const pixStatus = String(row?.pix_payment_status || '').toLowerCase();
+            const isPaid = paymentStatus === 'paid';
+            const isPixConfirmed = pixStatus === 'confirmado' || pixStatus === 'aprovado';
+            return !isPaid && !isPixConfirmed;
+          })
+          .map((row: any) => row.id)
+          .filter(Boolean);
+
+        if (idsToCancel.length > 0) {
+          await supabase
+            .from('appointments')
+            .update({ status: 'cancelled', payment_status: 'failed' } as any)
+            .in('id', idsToCancel);
+        }
+      }
+
       const startOfSelectedDate = format(startOfDay(selectedDate), 'yyyy-MM-dd');
       const endOfSelectedDate = format(endOfDay(selectedDate), 'yyyy-MM-dd');
 
@@ -19884,7 +19933,10 @@ Estamos te aguardando! 😎✂️`;
                           }
 
                           const slots = [];
-                          const interval = 15; // 15 minutos
+                          // Usar a MESMA configuração que a tela já está usando (state),
+                          // porque o objeto `establishment` pode estar desatualizado após autosave/estado local.
+                          // Isso evita cair em 15min mesmo quando o usuário configurou 20min.
+                          const interval = use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15;
 
                           // Primeiro período
                           const startMinutes = parseInt(businessHours.open1.split(':')[0]) * 60 + parseInt(businessHours.open1.split(':')[1]);

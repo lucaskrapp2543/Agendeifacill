@@ -2839,13 +2839,16 @@ export function AppointmentForm({
                   return absences;
                 })()}
                 professionalBlockedHours={(() => {
-                  const dateKey = selectedDate.toISOString().split('T')[0];
+                  // IMPORTANTE: usar data LOCAL (não UTC) para bater com `format(selectedDate, 'yyyy-MM-dd')`
+                  // e com as chaves salvas em `blocked_hours`. `toISOString()` pode deslocar o dia.
+                  const dateKey = format(selectedDate, 'yyyy-MM-dd');
                   const blockedHours = selectedProfessional ? (selectedProfessional as any).blocked_hours?.[dateKey] || [] : [];
                   console.log('🔍 DEBUG BLOCKED HOURS - Professional:', selectedProfessional?.name, 'Date:', dateKey, 'Blocked:', blockedHours);
                   console.log('🔍 DEBUG BLOCKED HOURS - Full blocked_hours object:', selectedProfessional ? (selectedProfessional as any).blocked_hours : 'NO PROFESSIONAL');
                   return blockedHours;
                 })()}
                 professionalWorkHours={selectedProfessional ? (selectedProfessional as any).work_hours || null : null}
+                hideIntervalSlots={true}
               />
             )}
             {/* Botão para avançar após selecionar horário */}

@@ -594,19 +594,57 @@ export default function BookingPage() {
 
     try {
       // ✅ LIMPEZA AUTOMÁTICA: liberar horários presos por pagamento pendente antigo
-      // Se o cliente fechou a aba antes de pagar, o agendamento pode ficar em pending_payment e bloquear a vaga.
-      // Aqui cancelamos pendências antigas para não "travar" o booking.
-      // ✅ CORRIGIDO: NÃO cancelar se tiver payment_transaction_id (pagamento foi iniciado e pode estar sendo processado)
-      // ✅ CORRIGIDO: Aumentar tempo limite para 15 minutos (webhook pode demorar)
-      const thresholdMinutes = 15; // Aumentado de 2 para 15 minutos para dar tempo do webhook processar
-      const thresholdDate = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
+      // Contexto real: em pagamentos antecipados, criamos um agendamento `pending_payment` para "segurar" a vaga.
+      // Se o cliente abandona a tela, esse registro pode ficar preso e travar o horário (inclusive com transaction_id).
+      // Estratégia:
+      // - Sem transaction_id: cancelar mais rápido (ex.: o cliente nem iniciou o pagamento)
+      // - Com transaction_id: dar mais tempo (webhook/polling), mas cancelar se ficar velho demais
+      // Obs: a liberação de horário é mais importante que manter pendências antigas indefinidamente.
+
+      const thresholdNoTxMinutes = 15;
+      const thresholdWithTxMinutes = 90; // janela segura p/ webhook + possíveis atrasos; evita "fantasmas" eternos
+      const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
+      const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
+
+      // 1) Pendências sem transaction_id (mais antigas): cancelar
       await supabase
         .from('appointments')
         .update({ status: 'cancelled', payment_status: 'failed' })
         .eq('establishment_id', establishment.id)
         .eq('status', 'pending_payment')
-        .is('payment_transaction_id', null) // ✅ CORRIGIDO: Só cancelar se NÃO tiver transaction_id (pagamento não foi iniciado)
-        .lt('created_at', thresholdDate);
+        .is('payment_transaction_id', null)
+        .lt('created_at', thresholdNoTxDate);
+
+      // 2) Pendências com transaction_id (muito antigas) e sem confirmação de pagamento: cancelar
+      // PostgREST não facilita expressar (A OR B) AND (C OR D) com a API fluente.
+      // Então buscamos os candidatos e cancelamos por ID de forma determinística.
+      const { data: staleWithTx, error: staleWithTxError } = await supabase
+        .from('appointments')
+        .select('id,payment_status,pix_payment_status')
+        .eq('establishment_id', establishment.id)
+        .eq('status', 'pending_payment')
+        .not('payment_transaction_id', 'is', null)
+        .lt('created_at', thresholdWithTxDate);
+
+      if (!staleWithTxError && Array.isArray(staleWithTx) && staleWithTx.length > 0) {
+        const idsToCancel = staleWithTx
+          .filter((row: any) => {
+            const paymentStatus = String(row?.payment_status || '').toLowerCase();
+            const pixStatus = String(row?.pix_payment_status || '').toLowerCase();
+            const isPaid = paymentStatus === 'paid';
+            const isPixConfirmed = pixStatus === 'confirmado' || pixStatus === 'aprovado';
+            return !isPaid && !isPixConfirmed;
+          })
+          .map((row: any) => row.id)
+          .filter(Boolean);
+
+        if (idsToCancel.length > 0) {
+          await supabase
+            .from('appointments')
+            .update({ status: 'cancelled', payment_status: 'failed' })
+            .in('id', idsToCancel);
+        }
+      }
 
       const { data, error } = await supabase
         .from('appointments')

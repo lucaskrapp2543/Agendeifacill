@@ -69,6 +69,7 @@ interface TimeSlot {
   isEmpty: boolean;
   isOccupied: boolean;
   isBlocked: boolean;
+  isPast?: boolean;
   parentAppointment?: Appointment;
   squeezes?: Appointment[]; // Encaixes para este slot
 }
@@ -258,6 +259,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const start = parse(startTime, 'HH:mm', selectedDate);
       const end = parse(endTime, 'HH:mm', selectedDate);
 
+      // ✅ Ocultar horários do intervalo (break) na visualização "Horários disponíveis"
+      // O booking já trata intervalo; aqui é uma grade de visualização/print e não deve mostrar o intervalo.
+      const breakStart = professionalWorkHours?.break_start
+        ? parse(professionalWorkHours.break_start, 'HH:mm', selectedDate)
+        : null;
+      const breakEnd = professionalWorkHours?.break_end
+        ? parse(professionalWorkHours.break_end, 'HH:mm', selectedDate)
+        : null;
+
       // Determinar o intervalo baseado nas configurações do estabelecimento
       const interval = intervaloAgendaMinutos;
 
@@ -268,7 +278,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       let current = start;
       while (current < end) {
-        allSlots.push(format(current, 'HH:mm'));
+        const isInBreak =
+          Boolean(breakStart && breakEnd) && current >= (breakStart as Date) && current < (breakEnd as Date);
+
+        if (!isInBreak) {
+          allSlots.push(format(current, 'HH:mm'));
+        }
         current = new Date(current.getTime() + interval * 60000);
       }
 
@@ -370,11 +385,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
       // Verificar horários bloqueados para este profissional na data selecionada
       const dateKey = format(selectedDate, 'yyyy-MM-dd');
       const blockedHours = (professional as any).blocked_hours?.[dateKey] || [];
+      const todayKey = format(new Date(), 'yyyy-MM-dd');
+      const isToday = dateKey === todayKey;
+      const now = new Date();
 
       const result: TimeSlot[] = allSlots.map((slot) => {
         const occupied = occupiedSlots.get(slot);
         const isBlocked = blockedHours.includes(slot);
         const squeezesForSlot = squeezeSlotsMap.get(slot) || [];
+        const slotDateTime = parse(slot, 'HH:mm', selectedDate);
+        const isPast = isToday && slotDateTime <= now;
 
         if (occupied?.appointment) {
           return {
@@ -383,6 +403,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             isEmpty: false,
             isOccupied: false,
             isBlocked: false,
+            isPast,
           };
         } else if (occupied?.isOccupied && occupied.isSqueeze) {
           // Slot ocupado por encaixe
@@ -391,6 +412,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             isEmpty: false,
             isOccupied: true,
             isBlocked: false,
+            isPast,
             parentAppointment: occupied.parentAppointment,
           };
         } else if (occupied?.isOccupied) {
@@ -399,6 +421,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             isEmpty: false,
             isOccupied: true,
             isBlocked: false,
+            isPast,
             parentAppointment: occupied.parentAppointment,
           };
         } else if (isBlocked) {
@@ -407,6 +430,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             isEmpty: false,
             isOccupied: false,
             isBlocked: true,
+            isPast,
           };
         } else {
           return {
@@ -414,6 +438,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             isEmpty: true,
             isOccupied: false,
             isBlocked: false,
+            isPast,
           };
         }
       });
@@ -2011,19 +2036,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
               <div className="grid grid-cols-4 gap-2">
                 {availabilitySlots.map((slot, idx) => {
                   const appointment = slot.appointment || slot.parentAppointment;
-                  const isAvailable = slot.isEmpty && !slot.isBlocked;
+                  const isPast = Boolean((slot as any).isPast);
+                  const isAvailable = slot.isEmpty && !slot.isBlocked && !isPast;
                   const isBlocked = slot.isBlocked;
                   const isAvulso = Boolean((appointment as any)?.is_avulso);
                   const isSqueeze = Boolean((appointment as any)?.is_squeeze);
                   const isReserved = Boolean(appointment) && !isAvulso && !isSqueeze;
 
-                  const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isSqueeze;
+                  const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isSqueeze || isPast;
 
                   const badgeText = isAvulso
                     ? 'RESERVA'
                     : isSqueeze
                       ? 'ENCAIXE'
-                      : isBlocked
+                      : isPast
+                        ? 'Já passou'
+                        : isBlocked
                         ? 'Horário Fechado'
                         : isReserved
                           ? 'Horário Reservado'
@@ -2041,7 +2069,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           ? 'bg-orange-100 text-orange-800'
                           : isSqueeze
                             ? 'bg-purple-700 text-white'
-                            : isDisabled
+                            : isPast
+                              ? 'bg-zinc-700 text-white'
+                              : isDisabled
                               ? 'bg-red-600 text-white'
                               : 'bg-green-600 text-white'
                         }

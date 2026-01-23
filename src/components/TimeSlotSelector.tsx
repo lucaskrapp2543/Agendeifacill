@@ -41,6 +41,7 @@ interface TimeSlotSelectorProps {
   selectedProfessional?: string; // Profissional selecionado
   professionalAbsences?: string[]; // Dias de ausência do profissional
   professionalBlockedHours?: string[]; // Horários bloqueados do profissional para a data selecionada
+  hideIntervalSlots?: boolean; // Se true, não exibe horários que caem no intervalo do profissional (uso: booking)
   professionalWorkHours?: {
     [key: string]: {
       enabled: boolean;
@@ -66,6 +67,7 @@ export function TimeSlotSelector({
   selectedProfessional,
   professionalAbsences = [],
   professionalBlockedHours = [],
+  hideIntervalSlots = false,
   professionalWorkHours = null
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
@@ -191,6 +193,26 @@ export function TimeSlotSelector({
       interval = 30; // Horários de 30 em 30 minutos (quando MARCADO)
     }
 
+    // Duração efetiva de cada item de bloqueio salvo no banco.
+    // Histórico do sistema: por muito tempo o modal de bloqueio gerava horários de 15min fixos,
+    // mesmo quando o estabelecimento usava grade de 20/30min. Para não "quebrar" bloqueios antigos,
+    // detectamos se os horários bloqueados estão alinhados com a grade atual. Se não estiverem, assumimos 15min.
+    const blockedSlotDuration = (() => {
+      const blocked = professionalBlockedHours || [];
+      if (blocked.length === 0) return interval;
+
+      const isAligned = (step: number) =>
+        blocked.every((t) => {
+          const parts = String(t).split(':');
+          const mins = Number(parts[1] ?? NaN);
+          return Number.isFinite(mins) && mins % step === 0;
+        });
+
+      if (use20MinuteSchedule) return isAligned(20) ? 20 : 15;
+      if (use15MinuteInterval) return isAligned(30) ? 30 : 15;
+      return 15;
+    })();
+
     // Gerar horários para o primeiro período
     if (effectiveBusinessHours.open1 && effectiveBusinessHours.close1) {
       const startMinutes = timeToMinutes(effectiveBusinessHours.open1);
@@ -254,8 +276,8 @@ export function TimeSlotSelector({
             // Verificar se o serviço (considerando sua duração) ultrapassa ou conflita com algum horário bloqueado
             for (const blockedTime of professionalBlockedHours) {
               const blockedStartMinutes = timeToMinutes(blockedTime);
-              // Assumir que cada horário bloqueado tem duração mínima de 15 minutos (intervalo padrão)
-              const blockedEndMinutes = blockedStartMinutes + 15;
+              // Duração do bloco: compatível com a grade atual (20/30) e com bloqueios legados (15)
+              const blockedEndMinutes = blockedStartMinutes + blockedSlotDuration;
               
               // Verificar se o INÍCIO do serviço está dentro do horário bloqueado
               const serviceStartsInBlocked = minutes >= blockedStartMinutes && minutes < blockedEndMinutes;
@@ -312,6 +334,11 @@ export function TimeSlotSelector({
               });
             }
           }
+        }
+
+        // No booking, não faz sentido exibir o intervalo como slot (evita confusão).
+        if (!isAvailable && conflictReason === 'Horário de Intervalo' && hideIntervalSlots) {
+          continue;
         }
 
         // Verificar conflitos com agendamentos existentes (apenas se não estiver bloqueado)
@@ -415,8 +442,8 @@ export function TimeSlotSelector({
             // Verificar se o serviço (considerando sua duração) ultrapassa ou conflita com algum horário bloqueado
             for (const blockedTime of professionalBlockedHours) {
               const blockedStartMinutes = timeToMinutes(blockedTime);
-              // Assumir que cada horário bloqueado tem duração mínima de 15 minutos (intervalo padrão)
-              const blockedEndMinutes = blockedStartMinutes + 15;
+              // Duração do bloco: compatível com a grade atual (20/30) e com bloqueios legados (15)
+              const blockedEndMinutes = blockedStartMinutes + blockedSlotDuration;
               
               // Verificar se o INÍCIO do serviço está dentro do horário bloqueado
               const serviceStartsInBlocked = minutes >= blockedStartMinutes && minutes < blockedEndMinutes;
@@ -473,6 +500,11 @@ export function TimeSlotSelector({
               });
             }
           }
+        }
+
+        // No booking, não faz sentido exibir o intervalo como slot (evita confusão).
+        if (!isAvailable && conflictReason === 'Horário de Intervalo' && hideIntervalSlots) {
+          continue;
         }
 
         // Verificar conflitos com agendamentos existentes (apenas se não estiver bloqueado)
@@ -559,6 +591,13 @@ export function TimeSlotSelector({
         const isPastTime = reason === 'Horário já passou';
         const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isIntervalTime || isUltrapassedTime || isPastTime;
         const isBlockedGroup = isDisabled && !isReserved && !isAvulso;
+        const blockedLabel = isIntervalTime
+          ? 'INTERVALO'
+          : isUltrapassedTime
+            ? 'FORA DO HORÁRIO'
+            : isPastTime
+              ? 'PASSOU'
+              : 'BLOQUEADO';
 
         return (
           <button
@@ -575,8 +614,10 @@ export function TimeSlotSelector({
                   ? 'bg-orange-500 text-black border-orange-300/40 cursor-not-allowed'
                   : isReserved
                     ? 'bg-amber-400 text-black border-amber-200/50 cursor-not-allowed'
-                    : isBlockedGroup
-                      ? 'bg-red-600 text-white border-red-400/40 cursor-not-allowed'
+                    : isIntervalTime
+                      ? 'bg-indigo-600 text-white border-indigo-400/40 cursor-not-allowed'
+                      : isBlockedGroup
+                        ? 'bg-red-600 text-white border-red-400/40 cursor-not-allowed'
                       : 'bg-emerald-600 text-white border-emerald-300/30 hover:bg-emerald-500 hover:scale-105'
               }
             `}
@@ -590,16 +631,16 @@ export function TimeSlotSelector({
                 <span className="text-[10px] mt-1 font-extrabold text-black/70">RESERVADO</span>
               )}
               {isBlocked && (
-                <span className="text-[10px] mt-1 font-extrabold text-white/80">BLOQUEADO</span>
+                <span className="text-[10px] mt-1 font-extrabold text-white/80">{blockedLabel}</span>
               )}
               {isIntervalTime && (
-                <span className="text-[10px] mt-1 font-extrabold text-white/80">BLOQUEADO</span>
+                <span className="text-[10px] mt-1 font-extrabold text-white/80">{blockedLabel}</span>
               )}
               {isUltrapassedTime && (
-                <span className="text-[10px] mt-1 font-extrabold text-white/80">BLOQUEADO</span>
+                <span className="text-[10px] mt-1 font-extrabold text-white/80">{blockedLabel}</span>
               )}
               {isPastTime && (
-                <span className="text-[10px] mt-1 font-extrabold text-white/80">BLOQUEADO</span>
+                <span className="text-[10px] mt-1 font-extrabold text-white/80">{blockedLabel}</span>
               )}
             </div>
           </button>
