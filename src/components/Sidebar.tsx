@@ -14,6 +14,7 @@ import {
   Lock,
   LogOut,
   ListOrdered,
+  Menu,
   MessageCircle,
   MessageSquare,
   Package,
@@ -89,6 +90,9 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isStandalonePWA, setIsStandalonePWA] = useState(false);
   const isLight = useLightLayout;
 
   // ✅ Evitar scroll do fundo quando o modal estiver aberto
@@ -113,6 +117,11 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const openUpgradeModal = () => setShowPlanUpgradeModal(true);
   const closeUpgradeModal = () => setShowPlanUpgradeModal(false);
+  const openUpgradeModalMobileSafe = () => {
+    // No mobile fullscreen menu, fechar o menu antes para o modal não ficar "atrás"
+    if (isMobile) setIsMobileMenuOpen(false);
+    setShowPlanUpgradeModal(true);
+  };
 
   const redirectUpgradeToWhatsapp = () => {
     const phone = '5548991265320';
@@ -139,9 +148,30 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Função para verificar se um item deve estar bloqueado
   const isItemLocked = (itemId: string): boolean => {
-    // ✅ BLOQUEIO POR PLANO PRATA
-    if (isPlanoPrataAtivo && (itemId === 'subscribers' || itemId === 'products' || itemId === 'fila-espera')) return true;
+    // Se onboarding completo (step >= 4), nada está bloqueado
+    if (onboardingStep >= 4) return false;
 
+    // Step 1: Apenas "settings" (Config) e "passo-a-passo" liberados
+    if (onboardingStep === 1) {
+      return itemId !== 'config' && itemId !== 'passo-a-passo' && itemId !== 'logout';
+    }
+
+    // Step 2: "professionals" também liberado
+    if (onboardingStep === 2) {
+      return itemId !== 'config' && itemId !== 'passo-a-passo' && itemId !== 'professionals' && itemId !== 'logout';
+    }
+
+    // Step 3: "service-categories" também liberado
+    if (onboardingStep === 3) {
+      return itemId !== 'config' && itemId !== 'passo-a-passo' && itemId !== 'professionals' && itemId !== 'service-categories' && itemId !== 'logout';
+    }
+
+    return false;
+  };
+
+  // Bloqueio APENAS do onboarding (primeiro acesso). Não mistura com Plano Prata.
+  // Usado para mostrar a mensagem de "Função bloqueada por configuração".
+  const isItemLockedByOnboarding = (itemId: string): boolean => {
     // Se onboarding completo (step >= 4), nada está bloqueado
     if (onboardingStep >= 4) return false;
 
@@ -179,12 +209,74 @@ const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Detectar se está em mobile
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Detectar se está em modo PWA (standalone)
+  useEffect(() => {
+    const detect = () => {
+      try {
+        const standalone = window.matchMedia('(display-mode: standalone)').matches;
+        const iosStandalone = (window.navigator as any).standalone === true;
+        setIsStandalonePWA(Boolean(standalone || iosStandalone));
+      } catch {
+        setIsStandalonePWA(false);
+      }
+    };
+    detect();
+    // atualiza quando muda display-mode
+    const mq = window.matchMedia('(display-mode: standalone)');
+    const handler = () => detect();
+    // @ts-expect-error compat
+    mq.addEventListener?.('change', handler);
+    // @ts-expect-error compat
+    mq.addListener?.(handler);
+    return () => {
+      // @ts-expect-error compat
+      mq.removeEventListener?.('change', handler);
+      // @ts-expect-error compat
+      mq.removeListener?.(handler);
+    };
+  }, []);
+
+  // Em mobile, não usar o "sidebar recolhível" antigo (evita overlay escuro preso)
+  useEffect(() => {
+    if (!isMobile) return;
+    setIsExpanded(false);
+  }, [isMobile]);
+
+  // No PWA mobile: ao recarregar, abrir o MENU automaticamente (vira a "home")
+  useEffect(() => {
+    if (!isMobile) return;
+    if (!isStandalonePWA) return;
+    setIsMobileMenuOpen(true);
+  }, [isMobile, isStandalonePWA]);
+
+  // Em mobile: evitar scroll do fundo quando o menu em tela cheia estiver aberto
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isMobileMenuOpen]);
+
 
   // Recolher o sidebar quando clicar em um item
   const handleItemClick = (onClick: () => void) => {
     onClick();
-    // Recolhe o sidebar após clicar em um item
-    setIsExpanded(false);
+    // Em mobile, fecha o menu em tela cheia; em desktop mantém o comportamento antigo (recolher)
+    if (isMobile) {
+      setIsMobileMenuOpen(false);
+    } else {
+      setIsExpanded(false);
+    }
   };
 
   const menuItems = [
@@ -266,7 +358,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       icon: Crown,
       onClick: () => {
         if (isPlanLockedItem('subscribers')) {
-          openUpgradeModal();
+          openUpgradeModalMobileSafe();
           return;
         }
         if (isItemLocked('subscribers')) {
@@ -299,7 +391,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       icon: Package,
       onClick: () => {
         if (isPlanLockedItem('products')) {
-          openUpgradeModal();
+          openUpgradeModalMobileSafe();
           return;
         }
         if (isItemLocked('products')) {
@@ -441,12 +533,406 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   ];
 
+  // Textos auxiliares (mobile fullscreen) — estilo CNH Digital
+  const mobileDescriptions: Record<string, string> = {
+    notifications: 'Veja avisos de agendamentos, cancelamentos e compras de assinaturas.',
+    appointments: 'Veja seus agendamentos, crie reservas e acompanhe o dia.',
+    'whatsapp-reminders': 'Ative lembretes automáticos: seu cliente recebe mensagem 1 hora antes do horário.',
+    indication: 'Ganhe 1 mês grátis compartilhando seu link de indicação.',
+    clients: 'Cadastre clientes, veja histórico e anotações importantes.',
+    subscribers: 'Gerencie assinantes e planos mensais do seu estabelecimento.',
+    'service-categories': 'Crie e organize seus serviços e preços (cupons de descontos e etc).',
+    products: 'Cadastre produtos e controle vendas/estoque/comissões.',
+    professionals: 'Gerencie profissionais: horários, ausências e bloqueios.',
+    dashboard: 'Acompanhe faturamento, pagamentos e repasses.',
+    expenses: 'Registre despesas para saber seu lucro real.',
+    taxes: 'Configure taxas e veja relatórios por bandeira.',
+    'client-page': 'Link e página pública para seus clientes agendarem.',
+    support: 'Fale com o suporte para ajuda rápida.',
+    config: 'Configurações do sistema e do seu estabelecimento.',
+    logout: 'Sair da sua conta neste dispositivo.',
+    hours: 'Em breve.',
+  };
+
+  type MobileVariant = 'neutral' | 'brandAmber' | 'brandGreen' | 'brandBlue' | 'brandPurple';
+
+  const getMobileVariant = (id: string): MobileVariant => {
+    if (id === 'whatsapp-reminders') return 'brandAmber';
+    if (id === 'indication') return 'brandGreen';
+    if (id === 'receber-adiantado') return 'brandBlue';
+    if (id === 'fila-espera') return 'brandPurple';
+    return 'neutral';
+  };
+
+  const getMobileCardStyles = (variant: MobileVariant, isActiveCard: boolean, isDisabledCard: boolean) => {
+    // Menos arredondado que antes, mas ainda moderno
+    const shape = 'rounded-2xl';
+
+    if (isActiveCard) {
+      // Ativo: card claro (estilo CNH), com texto legível e borda forte
+      return {
+        card: `bg-white border-white ${shape}`,
+        title: 'text-black',
+        desc: 'text-black/60',
+        icon: 'text-black',
+        chevron: 'text-black',
+      };
+    }
+
+    if (isDisabledCard) {
+      return {
+        card: `${isLight ? `bg-gray-100 border-gray-200` : `bg-black border-white/15`} ${shape} opacity-80`,
+        title: isLight ? 'text-gray-500' : 'text-white/50',
+        desc: isLight ? 'text-gray-400' : 'text-white/35',
+        icon: isLight ? 'text-gray-500' : 'text-white/50',
+        chevron: isLight ? 'text-gray-400' : 'text-white/35',
+      };
+    }
+
+    // Base neutra: bem sóbria
+    const neutral = {
+      // No tema escuro, evitar "preto chapado" e usar um card mais premium (tom grafite)
+      card: `${isLight
+        ? 'bg-white border-gray-200 hover:bg-gray-50'
+        : 'bg-gradient-to-r from-[#121318] to-[#0B0B0C] border-white/10 hover:from-[#161922] hover:to-[#0F1115]'
+        } ${shape}`,
+      title: isLight ? 'text-gray-900' : 'text-white',
+      desc: isLight ? 'text-gray-600' : 'text-white/70',
+      icon: isLight ? 'text-gray-900' : 'text-white',
+      chevron: isLight ? 'text-gray-900' : 'text-white',
+    };
+
+    // Variantes com cores “que fazem sentido” no fundo (sem virar carnaval)
+    const variants: Record<MobileVariant, typeof neutral> = {
+      neutral,
+      brandAmber: {
+        card: `bg-gradient-to-r from-amber-300 to-yellow-400 border-amber-200 ${shape} hover:from-amber-400 hover:to-yellow-500`,
+        title: 'text-black',
+        desc: 'text-black/70',
+        icon: 'text-black',
+        chevron: 'text-black',
+      },
+      brandGreen: {
+        card: `bg-gradient-to-r from-green-500 to-emerald-600 border-emerald-400/40 ${shape} hover:from-green-600 hover:to-emerald-700`,
+        title: 'text-white',
+        desc: 'text-white/80',
+        icon: 'text-white',
+        chevron: 'text-white',
+      },
+      brandBlue: {
+        card: `bg-gradient-to-r from-[#009EE3] to-[#0077B6] border-white/10 ${shape} hover:from-[#0088C7] hover:to-[#006AA3]`,
+        title: 'text-white',
+        desc: 'text-white/80',
+        icon: 'text-white',
+        chevron: 'text-white',
+      },
+      brandPurple: {
+        card: `bg-gradient-to-r from-purple-600 to-fuchsia-700 border-white/10 ${shape} hover:from-purple-700 hover:to-fuchsia-800`,
+        title: 'text-white',
+        desc: 'text-white/80',
+        icon: 'text-white',
+        chevron: 'text-white',
+      },
+    };
+
+    return variants[variant] || neutral;
+  };
+
   return (
     <>
+      {/* Topbar mobile (estilo CNH Digital): só um botão para abrir menu */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-40">
+        <div
+          className={`h-14 px-3 flex items-center justify-between border-b ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-r from-gray-900 to-black border-gray-800'
+            }`}
+          style={{ paddingTop: 'env(safe-area-inset-top)' }}
+        >
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(true)}
+            className={`h-10 px-3 rounded-xl flex items-center gap-2 transition-colors ${isLight ? 'hover:bg-gray-100 text-gray-900' : 'hover:bg-white/10 text-white'
+              }`}
+            aria-label="Abrir menu"
+            title="Menu"
+          >
+            <Menu className="h-6 w-6" />
+            <span className="text-[13px] font-extrabold tracking-wide">MENU</span>
+          </button>
+          <div className={`text-sm font-extrabold truncate ${isLight ? 'text-gray-900' : 'text-white'}`}>
+            {establishment?.name ? String(establishment.name) : 'Agendei Fácil'}
+          </div>
+          <div className="h-10 w-10" />
+        </div>
+        {/* Espaçador para o conteúdo não ficar por baixo da topbar */}
+        <div className="h-14" />
+      </div>
+
+      {/* Menu mobile em TELA CHEIA */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-[90] md:hidden">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+          <div
+            className={`absolute inset-0 ${isLight ? 'bg-white' : 'bg-gradient-to-b from-gray-900 via-black to-black'} flex flex-col`}
+            onClick={(e) => e.stopPropagation()}
+            style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            <div className={`h-14 px-3 flex items-center gap-2 border-b ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`h-10 w-10 rounded-xl flex items-center justify-center transition-colors ${isLight ? 'hover:bg-gray-100' : 'hover:bg-white/10'
+                  }`}
+                aria-label="Voltar"
+                title="Voltar"
+              >
+                <ChevronLeft className={isLight ? 'h-6 w-6 text-gray-900' : 'h-6 w-6 text-white'} />
+              </button>
+              <div className={`text-base font-extrabold ${isLight ? 'text-gray-900' : 'text-white'}`}>
+                Menu
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Banner (igual ao topo do sistema) */}
+              <div className="w-full flex justify-center">
+                <img
+                  src="/SIS.png"
+                  alt="SIS"
+                  className="w-full max-w-md h-auto rounded-2xl shadow-lg"
+                />
+              </div>
+
+              {/* Botão Passo a Passo (destaque) */}
+              <button
+                type="button"
+                onClick={() => handleItemClick(() => onTabChange('passo-a-passo'))}
+                className={`w-full flex items-center gap-4 px-5 py-5 rounded-2xl border shadow-sm transition-all ${isLight
+                  ? activeTab === 'passo-a-passo'
+                    ? 'bg-gray-900 text-white border-gray-900'
+                    : 'bg-white text-gray-900 border-gray-200 hover:bg-gray-50'
+                  : activeTab === 'passo-a-passo'
+                    ? 'bg-white text-black border-white'
+                    : 'bg-black text-white border-white/15 hover:bg-white/5'
+                  }`}
+              >
+                <Rocket className="h-6 w-6 flex-shrink-0" />
+                <div className="text-left">
+                  <div className="text-base font-extrabold">Como funciona o Sistema</div>
+                  <div
+                    className={`text-[12px] mt-1 leading-snug ${isLight
+                      ? activeTab === 'passo-a-passo'
+                        ? 'text-white/75'
+                        : 'text-gray-600'
+                      : activeTab === 'passo-a-passo'
+                        ? 'text-black/60'
+                        : 'text-white/70'
+                      }`}
+                  >
+                    Tutorial e primeiros passos
+                  </div>
+                </div>
+              </button>
+
+              {/* Menu por seções (estilo CNH Digital) */}
+              {(() => {
+                const mapById = new Map(menuItems.map((i) => [i.id, i]));
+
+                const sections: Array<{ title: string; ids: string[] }> = [
+                  { title: 'Atalhos', ids: ['notifications', 'appointments'] },
+                  { title: 'Destaques', ids: ['whatsapp-reminders', 'indication', 'receber-adiantado', 'fila-espera'] },
+                  { title: 'Gestão', ids: ['clients', 'subscribers', 'service-categories', 'products', 'professionals'] },
+                  { title: 'Financeiro', ids: ['dashboard', 'expenses', 'taxes'] },
+                  { title: 'Configurações', ids: ['client-page', 'support', 'config', 'logout'] },
+                ];
+
+                const renderCard = (p: {
+                  id: string;
+                  label: string;
+                  icon: any;
+                  onClick: () => void;
+                  isActive: boolean;
+                  disabled?: boolean;
+                  showBadge?: boolean;
+                  badgeCount?: number;
+                  tooltip?: string;
+                  lockedByPlan?: boolean;
+                  lockedByOnboarding?: boolean;
+                }) => {
+                  // "disabled" aqui é somente para desabilitar de verdade (ex.: item 'hours' ou ação inexistente).
+                  // Bloqueios por plano/onboarding NÃO devem desabilitar o clique (precisam mostrar mensagem/modal).
+                  const isHardDisabled = Boolean(p.disabled) || p.id === 'hours';
+                  const variant = getMobileVariant(p.id);
+                  const baseStyles = getMobileCardStyles(variant, p.isActive, isHardDisabled);
+                  const description = mobileDescriptions[p.id] || '';
+
+                  // Cores específicas para itens BLOQUEADOS (diferenciar visualmente)
+                  const isLockedByPlan = Boolean(p.lockedByPlan);
+                  const isLockedByOnboarding = Boolean(p.lockedByOnboarding);
+
+                  const lockedStyles = (() => {
+                    if (!isLockedByPlan && !isLockedByOnboarding) return null;
+
+                    // Plano Prata: tom âmbar
+                    if (isLockedByPlan) {
+                      return {
+                        card: isLight
+                          ? 'bg-amber-50 border-amber-200 hover:bg-amber-50'
+                          : 'bg-amber-900/15 border-amber-300/25 hover:bg-amber-900/20',
+                        title: isLight ? 'text-gray-900' : 'text-white',
+                        desc: isLight ? 'text-amber-800' : 'text-amber-200/90',
+                        icon: isLight ? 'text-amber-700' : 'text-amber-200',
+                        chevron: isLight ? 'text-amber-700' : 'text-amber-200',
+                      };
+                    }
+
+                    // Primeiro acesso/onboarding:
+                    // Visual NORMAL (igual aos demais) + apenas indicador de cadeado.
+                    return null;
+                  })();
+
+                  const styles = lockedStyles ? { ...baseStyles, ...lockedStyles } : baseStyles;
+
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        // Se abrir modal/bloqueio, fecha o menu antes para não ficar "atrás"
+                        setIsMobileMenuOpen(false);
+                        p.onClick();
+                      }}
+                      disabled={p.id === 'hours'}
+                      className={`w-full flex items-center gap-4 px-5 py-5 border shadow-sm transition-all text-left ${styles.card}`}
+                    >
+                      <div className="relative flex items-center gap-2">
+                        {p.lockedByOnboarding && (
+                          <Lock className={`h-4 w-4 ${isLight ? 'text-gray-500' : 'text-white/60'}`} />
+                        )}
+                        <p.icon className={`h-6 w-6 flex-shrink-0 ${styles.icon}`} />
+                        {p.lockedByPlan && (
+                          <span className="absolute -bottom-1 -right-1">
+                            <Lock className="h-3 w-3 text-gray-500" />
+                          </span>
+                        )}
+                        {p.showBadge && (
+                          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 min-w-5 px-1 flex items-center justify-center">
+                            {p.badgeCount}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-base font-extrabold ${styles.title}`}>{p.label}</div>
+                        <div className={`text-[12px] mt-1 leading-snug whitespace-normal break-words ${styles.desc}`}>
+                          {p.tooltip ? String(p.tooltip) : description}
+                        </div>
+                      </div>
+
+                      <ChevronRight className={`h-5 w-5 opacity-60 ${styles.chevron}`} />
+                    </button>
+                  );
+                };
+
+                // Itens extras (não fazem parte do menuItems original)
+                const receberAdiantadoItem = {
+                  id: 'receber-adiantado',
+                  label: 'Receber adiantado de clientes',
+                  icon: CreditCard,
+                  onClick: () => {
+                    if (onboardingStep < 4) {
+                      onBlockedItemClick?.();
+                      return;
+                    }
+                    if (!onReceberAdiantadoClick) return;
+                    handleItemClick(onReceberAdiantadoClick);
+                  },
+                  isActive: Boolean(isReceberAdiantadoOpen),
+                  disabled: !onReceberAdiantadoClick,
+                  tooltip: 'Conecte e receba pagamentos antecipados (Mercado Pago).',
+                };
+
+                const filaEsperaItem = {
+                  id: 'fila-espera',
+                  label: 'Fila de espera',
+                  icon: ListOrdered,
+                  onClick: () => {
+                    if (isPlanLockedItem('fila-espera')) {
+                      openUpgradeModalMobileSafe();
+                      return;
+                    }
+                    if (isItemLockedByOnboarding('fila-espera')) {
+                      onBlockedItemClick?.();
+                      return;
+                    }
+                    handleItemClick(() => onTabChange('fila-espera'));
+                  },
+                  isActive: activeTab === 'fila-espera',
+                  // NÃO desabilitar: precisa permitir clique para abrir upgrade/mensagem
+                  disabled: false,
+                  tooltip: 'Organize a fila e chame o próximo cliente com 1 clique.',
+                  lockedByPlan: isPlanLockedItem('fila-espera'),
+                };
+
+                return (
+                  <div className="space-y-6">
+                    {sections.map((section) => (
+                      <div key={section.title}>
+                        <div className={`mb-3 text-[12px] font-extrabold tracking-wide ${isLight ? 'text-gray-600' : 'text-white/60'}`}>
+                          {section.title.toUpperCase()}
+                        </div>
+                        <div className="space-y-3">
+                          {section.ids.map((id) => {
+                            if (id === 'receber-adiantado') {
+                              return renderCard(receberAdiantadoItem as any);
+                            }
+                            if (id === 'fila-espera') {
+                              return renderCard(filaEsperaItem as any);
+                            }
+
+                            const item = mapById.get(id);
+                            if (!item) return null;
+
+                            // Não renderizar placeholder "hours" no mobile
+                            if (item.id === 'hours') return null;
+
+                            // Ajuste: bloquear texto de upgrade via tooltip (ficará no tooltip/desc)
+                            const tooltip =
+                              (item as any).lockedByPlan ? 'Recurso do plano Ouro/Diamante.' : (item as any).tooltip;
+
+                            return renderCard({
+                              id: item.id,
+                              label: item.label,
+                              icon: item.icon,
+                              onClick: item.onClick,
+                              isActive: Boolean(item.isActive),
+                              // "disabled" aqui deve ser somente hard-disable (em breve). Bloqueios continuam clicáveis.
+                              disabled: item.id === 'hours',
+                              showBadge: item.showBadge,
+                              badgeCount: item.badgeCount,
+                              tooltip,
+                              lockedByPlan: Boolean((item as any).lockedByPlan),
+                              lockedByOnboarding:
+                                !Boolean((item as any).lockedByPlan) && Boolean(isItemLockedByOnboarding(item.id)),
+                            } as any);
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ✅ Modal de upgrade do Plano (Prata → Ouro) */}
       {showPlanUpgradeModal && (
         <div
-          className="fixed inset-0 z-[60] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+          className="fixed inset-0 z-[130] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
           onClick={closeUpgradeModal}
         >
           <div
@@ -551,8 +1037,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* Overlay para mobile */}
-      {isExpanded && (
+      {/* Overlay do sidebar antigo (somente desktop). Em mobile isso causava camada escura presa. */}
+      {!isMobile && isExpanded && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
           onClick={() => setIsExpanded(false)}
@@ -560,7 +1046,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <div
-        className={`fixed left-0 top-0 bottom-0 border-r transition-all duration-300 z-40 flex flex-col ${isExpanded ? 'w-64' : 'w-16'
+        className={`hidden md:flex fixed left-0 top-0 bottom-0 border-r transition-all duration-300 z-40 flex-col ${isExpanded ? 'w-64' : 'w-16'
           } md:relative md:z-auto md:flex-shrink-0 ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-b from-gray-900 via-black to-black border-gray-800'
           }`}
         style={{ minHeight: '100vh' }}
@@ -701,6 +1187,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             const isWhatsappPremiumItem = item.id === 'whatsapp-reminders';
             const isLastItem = index === menuItems.length - 1;
             const isPlanLocked = Boolean((item as any).lockedByPlan);
+            const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
 
             return (
               <React.Fragment key={item.id}>
@@ -770,7 +1257,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                   : 'text-white'
                           }`}
                       />
-                      {isPlanLocked && (
+                      {(isPlanLocked || isOnboardingLocked) && (
                         <span className="absolute -bottom-1 -right-1">
                           <Lock className="h-3 w-3 text-gray-500" />
                         </span>
@@ -808,7 +1295,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     : 'text-white'
                             }`}
                         >
-                          {item.label}
+                          {isOnboardingLocked ? `🔒 ${item.label}` : item.label}
                         </span>
                         {item.id !== 'config' && (
                           <ChevronRight

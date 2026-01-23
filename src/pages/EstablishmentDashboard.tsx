@@ -13011,7 +13011,7 @@ Estamos te aguardando! 😎✂️`;
         />
 
         {/* Conteúdo principal */}
-        <div className="flex-1 ml-16 md:ml-0 transition-all duration-300 min-w-0">
+        <div className="flex-1 md:ml-0 transition-all duration-300 min-w-0 pt-14 md:pt-0">
           {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
           <div className="w-full mb-4 flex justify-center md:hidden">
             <img
@@ -24481,15 +24481,40 @@ Estamos te aguardando! 😎✂️`;
                   type="button"
                   onClick={() => {
                     setShowBlockedItemModal(false);
-                    setActiveTab('passo-a-passo');
+                    // Levar direto para a próxima etapa que falta (não apenas "Passo a passo")
+                    // Step 1 -> Configurações / Página
+                    // Step 2 -> Profissionais
+                    // Step 3 -> Meus serviços
+                    const nextTab =
+                      onboardingStep <= 1
+                        ? 'settings'
+                        : onboardingStep === 2
+                          ? 'professionals'
+                          : onboardingStep === 3
+                            ? 'service-categories'
+                            : 'passo-a-passo';
+
+                    setActiveTab(nextTab as any);
+
+                    // Ajuste de scroll: em passo-a-passo, focar no vídeo; nas outras abas, subir pro topo
                     setTimeout(() => {
-                      const el = document.getElementById('how-it-works-video');
-                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      if (nextTab === 'passo-a-passo') {
+                        const el = document.getElementById('how-it-works-video');
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      } else {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
                     }, 200);
                   }}
                   className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-black text-white hover:bg-gray-800 transition-colors shadow-lg"
                 >
-                  Ir para Passo a passo
+                  {onboardingStep <= 1
+                    ? 'Ir para Configurações'
+                    : onboardingStep === 2
+                      ? 'Ir para Profissionais'
+                      : onboardingStep === 3
+                        ? 'Ir para Meus serviços'
+                        : 'Ir para Passo a passo'}
                 </button>
                 <button
                   type="button"
