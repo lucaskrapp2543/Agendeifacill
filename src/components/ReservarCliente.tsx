@@ -371,31 +371,80 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       if (!selectedProfessional) return;
 
       try {
-        console.log('🔍 Carregando serviços para establishment:', establishmentId);
-        const { data, error } = await supabase
+        console.log('🔍 Carregando serviços (mesma fonte do "Meus serviços") para establishment:', establishmentId);
+
+        // 1) Preferir o sistema novo (categorias/subcategorias)
+        const { data: subcats, error: subErr } = await supabase
+          .from('service_subcategories')
+          .select(
+            `
+              id,
+              name,
+              price,
+              duration,
+              is_active,
+              category_id,
+              service_categories!inner (
+                id,
+                establishment_id,
+                is_active,
+                display_order
+              )
+            `
+          )
+          .eq('is_active', true)
+          // @ts-expect-error - filtro em tabela relacionada (PostgREST)
+          .eq('service_categories.establishment_id', establishmentId)
+          // @ts-expect-error - filtro em tabela relacionada (PostgREST)
+          .eq('service_categories.is_active', true)
+          // Ordenar primeiro por categoria e depois por serviço
+          // @ts-expect-error - order em tabela relacionada (PostgREST)
+          .order('service_categories(display_order)', { ascending: true })
+          .order('display_order', { ascending: true });
+
+        if (!subErr && Array.isArray(subcats) && subcats.length > 0) {
+          const formatted = subcats.map((s: any) => ({
+            id: String(s.id),
+            name: String(s.name || '').trim(),
+            price: Number(s.price || 0),
+            duration: Number(s.duration || 30),
+          })).filter((s: any) => s.name && s.price > 0);
+
+          console.log('✅ Serviços (categorias) carregados:', formatted);
+          setServices(formatted);
+          return;
+        }
+
+        if (subErr) {
+          console.warn('⚠️ Falha ao buscar serviços por categorias, tentando fallback legado:', subErr);
+        } else {
+          console.log('ℹ️ Nenhum serviço por categorias encontrado; usando fallback legado (services_with_prices).');
+        }
+
+        // 2) Fallback: sistema antigo (services_with_prices)
+        const { data: estData, error: estErr } = await supabase
           .from('establishments')
           .select('services_with_prices')
           .eq('id', establishmentId)
           .single();
 
-        if (error) {
-          console.error('❌ Erro ao buscar serviços:', error);
-          throw error;
+        if (estErr) {
+          console.error('❌ Erro ao buscar serviços (fallback legado):', estErr);
+          throw estErr;
         }
 
-        console.log('✅ Serviços carregados:', data);
+        const legacy = (estData as any)?.services_with_prices || [];
+        const formattedLegacy = legacy
+          .map((service: any) => ({
+            id: String(service.id || Math.random().toString(36).substring(2)),
+            name: String(service.name || '').trim(),
+            price: Number(service.price || 0),
+            duration: Number(service.duration || 30),
+          }))
+          .filter((s: any) => s.name && s.price > 0);
 
-        // Converter serviços do formato JSON para o formato esperado
-        const establishmentServices = data?.services_with_prices || [];
-        const formattedServices = establishmentServices.map((service: any) => ({
-          id: service.id || Math.random().toString(36).substring(2),
-          name: service.name,
-          price: service.price,
-          duration: service.duration
-        }));
-
-        console.log('✅ Serviços formatados:', formattedServices);
-        setServices(formattedServices);
+        console.log('✅ Serviços (fallback legado) carregados:', formattedLegacy);
+        setServices(formattedLegacy);
       } catch (error) {
         console.error('❌ Erro ao carregar serviços:', error);
         alert('Erro ao carregar serviços');
