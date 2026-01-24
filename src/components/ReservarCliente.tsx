@@ -200,6 +200,45 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         }
       });
 
+      // ✅ NOVO: Buscar clientes manuais salvos no BANCO (mesma fonte da tela "Meus Clientes")
+      try {
+        const { data: manualDb, error: manualDbError } = await supabase
+          .from('manual_clients')
+          .select('id,name,whatsapp')
+          .eq('establishment_id', establishmentId)
+          .order('name', { ascending: true });
+
+        if (manualDbError) {
+          console.warn('⚠️ Erro ao carregar clientes manuais do banco:', manualDbError);
+        } else if (Array.isArray(manualDb) && manualDb.length > 0) {
+          console.log('📋 Clientes manuais (banco) encontrados:', manualDb.length);
+          manualDb.forEach((mc: any) => {
+            const cleanWhatsapp = String(mc?.whatsapp || '').replace(/\D/g, '');
+            const nome = String(mc?.name || '').trim();
+            const whatsappOriginal = String(mc?.whatsapp || '').trim();
+            if (!cleanWhatsapp || !nome || !whatsappOriginal) return;
+
+            // Se já existe pelo WhatsApp, apenas garante nome/whatsapp (não pisa contagem de agendamentos)
+            if (clientsMap.has(cleanWhatsapp)) {
+              const existing = clientsMap.get(cleanWhatsapp)!;
+              if (!existing.name || existing.name === 'Cliente sem nome') existing.name = nome;
+              if (!existing.whatsapp) existing.whatsapp = whatsappOriginal;
+              return;
+            }
+
+            clientsMap.set(cleanWhatsapp, {
+              // Preferir id do banco se existir
+              id: String(mc?.id || `manual_${cleanWhatsapp}`),
+              name: nome,
+              whatsapp: whatsappOriginal,
+              appointmentCount: 0,
+            });
+          });
+        }
+      } catch (e) {
+        console.warn('⚠️ Falha inesperada ao buscar manual_clients:', e);
+      }
+
       const clientsArray = Array.from(clientsMap.values());
 
       // Ordenar por nome
