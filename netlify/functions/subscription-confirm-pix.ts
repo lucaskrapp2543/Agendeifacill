@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
+import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkPaymentStatus } from '../../src/lib/pagarme-server';
 
 const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
@@ -55,15 +56,15 @@ export const handler: Handler = async (event) => {
     // Validar pagamento (Pagar.me ou Mercado Pago)
     const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
     let normalizedStatus: string;
-    
+
     if (providerNormalized.startsWith('mercadopago_')) {
       // Validar pagamento Mercado Pago
       const { checkMPPaymentStatus } = await import('../../src/lib/mercadopago/mp-service');
-      
+
       // Buscar access_token do estabelecimento
       const { data: establishment, error: fetchError } = await supabaseAdmin
         .from('establishments')
-        .select('mercadopago_access_token')
+        .select('mercadopago_access_token, mercadopago_refresh_token, mercadopago_token_expires_at')
         .eq('id', String(establishmentId))
         .single();
 
@@ -71,14 +72,48 @@ export const handler: Handler = async (event) => {
         return { statusCode: 404, body: JSON.stringify({ error: 'Estabelecimento não encontrado' }) };
       }
 
-      const accessToken = (establishment as any)?.mercadopago_access_token;
-      if (!accessToken) {
+      const accessTokenRaw = String((establishment as any)?.mercadopago_access_token || '').trim();
+      const refreshTokenRaw = String((establishment as any)?.mercadopago_refresh_token || '').trim();
+      const expiresAtRaw = (establishment as any)?.mercadopago_token_expires_at as string | null | undefined;
+
+      if (!accessTokenRaw) {
         return { statusCode: 400, body: JSON.stringify({ error: 'Estabelecimento não possui conta do Mercado Pago conectada' }) };
+      }
+
+      // ✅ Auto-refresh do token se estiver expirado (evita "parou do nada" após ~6h)
+      let accessToken = accessTokenRaw;
+      if (expiresAtRaw) {
+        const expiresAt = new Date(expiresAtRaw);
+        const now = Date.now();
+        const safetyMs = 2 * 60 * 1000;
+        const isExpired = !Number.isFinite(expiresAt.getTime()) ? false : expiresAt.getTime() <= now + safetyMs;
+        if (isExpired) {
+          if (!refreshTokenRaw) {
+            return { statusCode: 400, body: JSON.stringify({ error: 'Mercado Pago expirado e sem refresh_token. Reconecte o Mercado Pago.' }) };
+          }
+          const refreshed = await refreshAccessToken(refreshTokenRaw);
+          const newAccessToken = String(refreshed.access_token || '').trim();
+          const newRefreshToken = String(refreshed.refresh_token || refreshTokenRaw).trim();
+          const expiresIn = Number(refreshed.expires_in || 21600);
+          const newExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+          if (newAccessToken) {
+            accessToken = newAccessToken;
+            await supabaseAdmin
+              .from('establishments')
+              .update({
+                mercadopago_access_token: newAccessToken,
+                mercadopago_refresh_token: newRefreshToken,
+                mercadopago_token_expires_at: newExpiresAt,
+              } as any)
+              .eq('id', String(establishmentId));
+          }
+        }
       }
 
       const statusResult = await checkMPPaymentStatus(Number(orderId), String(accessToken));
       normalizedStatus = String(statusResult.status || '').toLowerCase();
-      
+
       if (normalizedStatus !== 'approved' && normalizedStatus !== 'authorized') {
         return {
           statusCode: 400,
@@ -89,7 +124,7 @@ export const handler: Handler = async (event) => {
       // Validar pagamento Pagar.me
       const statusResult = await checkPaymentStatus(String(orderId));
       normalizedStatus = String((statusResult as any)?.status || '').toLowerCase();
-      
+
       if (normalizedStatus !== 'paid' && normalizedStatus !== 'authorized') {
         return {
           statusCode: 400,
@@ -125,7 +160,7 @@ export const handler: Handler = async (event) => {
     // Reutilizar providerNormalized já declarado acima (linha 56)
     const providerFinal =
       providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix' ||
-      providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
+        providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
         ? providerNormalized
         : 'pagarme_pix';
 

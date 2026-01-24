@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { createMPPayment, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
 import { json, parseJsonBody } from './_utils';
 
@@ -9,9 +10,68 @@ const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY |
 const supabaseAdmin =
   SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      })
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
     : null;
+
+async function getValidMercadoPagoAccessToken(establishmentId: string): Promise<string> {
+  if (!supabaseAdmin) throw new Error('Supabase admin não configurado');
+
+  const { data: establishment, error } = await supabaseAdmin
+    .from('establishments')
+    .select('id, mercadopago_access_token, mercadopago_refresh_token, mercadopago_token_expires_at')
+    .eq('id', establishmentId)
+    .single();
+
+  if (error || !establishment) {
+    throw new Error('Estabelecimento não encontrado');
+  }
+
+  const accessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
+  const refreshToken = String((establishment as any)?.mercadopago_refresh_token || '').trim();
+  const expiresAtRaw = (establishment as any)?.mercadopago_token_expires_at as string | null | undefined;
+
+  if (!accessToken) {
+    throw new Error('Estabelecimento não possui conta do Mercado Pago conectada');
+  }
+
+  // Se não temos expires_at, assume token válido (fallback)
+  if (!expiresAtRaw) return accessToken;
+
+  const expiresAt = new Date(expiresAtRaw);
+  const now = Date.now();
+  const safetyMs = 2 * 60 * 1000; // 2 min de folga
+  if (Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() > now + safetyMs) {
+    return accessToken;
+  }
+
+  if (!refreshToken) {
+    throw new Error('Mercado Pago expirado e sem refresh_token. Reconecte o Mercado Pago.');
+  }
+
+  // Refresh do token
+  const refreshed = await refreshAccessToken(refreshToken);
+  const newAccessToken = String(refreshed.access_token || '').trim();
+  const newRefreshToken = String(refreshed.refresh_token || refreshToken).trim();
+  const expiresIn = Number(refreshed.expires_in || 21600);
+  const newExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+  if (!newAccessToken) {
+    throw new Error('Falha ao atualizar token do Mercado Pago');
+  }
+
+  await supabaseAdmin
+    .from('establishments')
+    .update({
+      mercadopago_access_token: newAccessToken,
+      mercadopago_refresh_token: newRefreshToken,
+      mercadopago_token_expires_at: newExpiresAt,
+    } as any)
+    .eq('id', establishmentId);
+
+  console.log('✅ [MP Create Payment] access_token renovado automaticamente', { establishmentId });
+  return newAccessToken;
+}
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -42,7 +102,7 @@ export const handler: Handler = async (event) => {
       issuer_id: issuer_id || 'NÃO ENVIADO',
       installments: installments || 'NÃO ENVIADO',
       payerEmail: payer?.email ? String(payer.email).substring(0, 20) + '...' : 'NÃO ENVIADO',
-      payerIdentification: payer?.identification 
+      payerIdentification: payer?.identification
         ? `${payer.identification.type}: ${String(payer.identification.number).substring(0, 3)}***`
         : 'NÃO ENVIADO',
       metadata: metadata || 'NÃO ENVIADO',
@@ -64,24 +124,14 @@ export const handler: Handler = async (event) => {
       });
     }
 
-    const { data: establishment, error: fetchError } = await supabaseAdmin
-      .from('establishments')
-      .select('id, mercadopago_access_token, mercadopago_user_id')
-      .eq('id', establishmentId)
-      .single();
-
-    if (fetchError || !establishment) {
-      return json(404, {
-        error: 'Estabelecimento não encontrado',
-      });
-    }
-
-    const accessToken = (establishment as any)?.mercadopago_access_token;
-
-    if (!accessToken) {
+    let accessToken: string;
+    try {
+      accessToken = await getValidMercadoPagoAccessToken(String(establishmentId));
+    } catch (e: any) {
+      const msg = String(e?.message || 'Falha ao obter token do Mercado Pago');
       return json(400, {
-        error: 'Estabelecimento não possui conta do Mercado Pago conectada',
-        userMessage: 'Conecte a conta do Mercado Pago antes de criar pagamentos',
+        error: msg,
+        userMessage: 'Reconecte a conta do Mercado Pago do estabelecimento e tente novamente.',
       });
     }
 
@@ -120,11 +170,11 @@ export const handler: Handler = async (event) => {
         ...(payer.last_name ? { last_name: String(payer.last_name) } : {}),
         ...(payer.identification
           ? {
-              identification: {
-                type: payer.identification.type === 'CPF' ? 'CPF' : 'CNPJ',
-                number: String(payer.identification.number),
-              },
-            }
+            identification: {
+              type: payer.identification.type === 'CPF' ? 'CPF' : 'CNPJ',
+              number: String(payer.identification.number),
+            },
+          }
           : {}),
         ...(payer.address ? { address: payer.address } : {}),
       },

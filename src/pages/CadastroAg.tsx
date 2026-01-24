@@ -2,6 +2,7 @@ import { ArrowLeft, Building, CheckCircle, Eye, EyeOff, Globe, Lock, Mail, Phone
 import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 interface RegistrationData {
   clientName: string;
@@ -223,13 +224,7 @@ const CadastroAg = () => {
         user_agent: navigator.userAgent
       };
 
-      // Enviar para o Supabase
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = createClient(
-        import.meta.env.VITE_SUPABASE_URL,
-        import.meta.env.VITE_SUPABASE_ANON_KEY
-      );
-
+      // Enviar para o Supabase (usar cliente singleton para evitar múltiplas instâncias do GoTrueClient)
       const { error } = await supabase
         .from('registration_forms')
         .insert([registrationData]);

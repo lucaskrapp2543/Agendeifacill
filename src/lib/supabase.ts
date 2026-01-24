@@ -78,20 +78,6 @@ export const supabase: SupabaseClient<Database> = createClient(
   }
 );
 
-// ✅ CLIENTE SUPABASE COM SERVICE ROLE PARA OPERAÇÕES ADMINISTRATIVAS
-// Este cliente tem permissões administrativas para criar usuários
-const supabaseServiceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
-export const supabaseAdmin: SupabaseClient<Database> = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseServiceRoleKey || 'placeholder_service_role_key',
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
-
 // Auth functions
 export const signUp = async (email: string, password: string, userRole: string, meta: Record<string, any> = {}) => {
   try {
@@ -1469,8 +1455,6 @@ export const addPremiumDrawColumns = async () => {
 
 // Cancel appointment function
 export const cancelAppointment = async (appointmentId: string) => {
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
   return await supabase
     .from('appointments')
     .update({ status: 'cancelled' })

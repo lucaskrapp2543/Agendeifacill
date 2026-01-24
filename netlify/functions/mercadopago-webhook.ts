@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
 import { json, parseJsonBody } from './_utils';
 
@@ -9,8 +10,8 @@ const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY |
 const supabaseAdmin =
   SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      })
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
     : null;
 
 export const handler: Handler = async (event) => {
@@ -33,7 +34,7 @@ export const handler: Handler = async (event) => {
 
     // Parse do body (Mercado Pago envia como x-www-form-urlencoded ou JSON)
     let webhookData: any;
-    
+
     if (event.headers['content-type']?.includes('application/json')) {
       webhookData = parseJsonBody(event);
     } else if (event.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
@@ -70,7 +71,7 @@ export const handler: Handler = async (event) => {
     // Para pagamentos, o tipo é "payment" e a ação pode ser "payment.updated", "payment.created", etc.
     if (webhookData.type === 'payment') {
       const paymentId = webhookData.data?.id || webhookData.id;
-      
+
       if (!paymentId) {
         console.warn('⚠️ [MP Webhook] Payment ID não encontrado');
         return json(400, { error: 'Payment ID não encontrado' });
@@ -105,7 +106,7 @@ export const handler: Handler = async (event) => {
       // Buscar access_token do estabelecimento para verificar status completo
       const { data: establishment, error: estError } = await supabaseAdmin
         .from('establishments')
-        .select('mercadopago_access_token')
+        .select('mercadopago_access_token, mercadopago_refresh_token, mercadopago_token_expires_at')
         .eq('id', appointment.establishment_id)
         .single();
 
@@ -114,16 +115,52 @@ export const handler: Handler = async (event) => {
         return json(500, { error: 'Erro ao buscar estabelecimento' });
       }
 
-      const accessToken = (establishment as any)?.mercadopago_access_token;
-      if (!accessToken) {
+      const accessTokenRaw = String((establishment as any)?.mercadopago_access_token || '').trim();
+      const refreshTokenRaw = String((establishment as any)?.mercadopago_refresh_token || '').trim();
+      const expiresAtRaw = (establishment as any)?.mercadopago_token_expires_at as string | null | undefined;
+
+      if (!accessTokenRaw) {
         console.warn('⚠️ [MP Webhook] Estabelecimento não possui access_token do Mercado Pago');
         return json(200, { message: 'Webhook recebido, mas estabelecimento não configurado' });
+      }
+
+      // ✅ Auto-refresh do token (evita falhar webhook após ~6h)
+      let accessToken = accessTokenRaw;
+      if (expiresAtRaw) {
+        const expiresAt = new Date(expiresAtRaw);
+        const now = Date.now();
+        const safetyMs = 2 * 60 * 1000;
+        const isExpired = !Number.isFinite(expiresAt.getTime()) ? false : expiresAt.getTime() <= now + safetyMs;
+        if (isExpired && refreshTokenRaw) {
+          try {
+            const refreshed = await refreshAccessToken(refreshTokenRaw);
+            const newAccessToken = String(refreshed.access_token || '').trim();
+            const newRefreshToken = String(refreshed.refresh_token || refreshTokenRaw).trim();
+            const expiresIn = Number(refreshed.expires_in || 21600);
+            const newExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+            if (newAccessToken) {
+              accessToken = newAccessToken;
+              await supabaseAdmin
+                .from('establishments')
+                .update({
+                  mercadopago_access_token: newAccessToken,
+                  mercadopago_refresh_token: newRefreshToken,
+                  mercadopago_token_expires_at: newExpiresAt,
+                } as any)
+                .eq('id', appointment.establishment_id);
+              console.log('✅ [MP Webhook] access_token renovado automaticamente', { establishmentId: appointment.establishment_id });
+            }
+          } catch (e) {
+            console.warn('⚠️ [MP Webhook] Falha ao renovar token automaticamente:', e);
+          }
+        }
       }
 
       // Verificar status completo do pagamento na API do Mercado Pago
       try {
         const payment = await checkMPPaymentStatus(Number(paymentId), String(accessToken));
-        
+
         console.log('📊 [MP Webhook] Status do pagamento:', {
           id: payment.id,
           status: payment.status,
@@ -138,7 +175,7 @@ export const handler: Handler = async (event) => {
           // Sempre usar o payment_method_id do pagamento (fonte mais confiável)
           const paymentMethodId = String(payment.payment_method_id || '').toLowerCase();
           let paymentMethod = 'pix'; // Padrão
-          
+
           if (paymentMethodId === 'credit_card') {
             paymentMethod = 'credito';
           } else if (paymentMethodId === 'debit_card') {
@@ -146,7 +183,7 @@ export const handler: Handler = async (event) => {
           } else if (paymentMethodId === 'pix') {
             paymentMethod = 'pix';
           }
-          
+
           console.log('💳 [MP Webhook] Método de pagamento:', {
             payment_method_id: paymentMethodId,
             payment_method_salvo: paymentMethod,
@@ -177,7 +214,7 @@ export const handler: Handler = async (event) => {
           });
         } else if (payment.status === 'rejected' || payment.status === 'cancelled' || payment.status === 'refunded') {
           console.log('❌ [MP Webhook] Pagamento recusado/cancelado');
-          
+
           // Não atualizar o agendamento automaticamente (deixar para o usuário decidir)
           return json(200, {
             message: 'Webhook processado - pagamento recusado',

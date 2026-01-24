@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, User, Building, Mail, Lock, CheckCircle, Phone } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 
 interface RegistrationFormProps {
   onSuccess: () => void;
@@ -89,13 +90,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess, o
         user_agent: navigator.userAgent
       };
 
-      // Enviar para o Supabase
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = createClient(
-        import.meta.env.VITE_SUPABASE_URL,
-        import.meta.env.VITE_SUPABASE_ANON_KEY
-      );
-
+      // Enviar para o Supabase (usar cliente singleton para evitar múltiplas instâncias do GoTrueClient)
       const { error } = await supabase
         .from('registration_forms')
         .insert([registrationData]);

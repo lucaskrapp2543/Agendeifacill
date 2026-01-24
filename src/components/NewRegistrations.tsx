@@ -120,7 +120,16 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
       // Isso evita que a sessão atual seja afetada
       const tempSupabase = createClient(
         import.meta.env.VITE_SUPABASE_URL || '',
-        import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+        import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+        {
+          // Evitar conflito de storageKey/sessão com o client principal (elimina warning do GoTrueClient)
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+            storageKey: 'agendafacil_temp_admin_signup',
+          },
+        }
       );
 
       // 1. Criar usuário usando o cliente temporário
