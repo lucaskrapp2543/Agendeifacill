@@ -816,7 +816,8 @@ export const PaymentModal = ({
           
           // ✅ Se cartão foi recusado, oferecer PIX como alternativa
           setCardRefusedReason(statusDetail || 'Pagamento no cartão recusado');
-          setSelectedMethod(null); // Volta para seleção e mostra botão PIX
+          // Levar automaticamente para PIX (solução prática quando MP recusa por risco)
+          setSelectedMethod('pix');
         } else {
           toast('Pagamento processado. Aguardando confirmação...', 'warning');
           setIsCheckingPayment(true);
@@ -1316,6 +1317,10 @@ export const PaymentModal = ({
         }
         if (normalized === 'rejected' || normalized === 'cancelled' || normalized === 'refunded') {
           toast(reason ? `Pagamento recusado/cancelado: ${reason}` : 'Pagamento recusado ou cancelado', 'error');
+          // Se a pessoa tentou cartão, já levar pro PIX para não ficar travada
+          if (selectedMethod === 'credit_card') {
+            setSelectedMethod('pix');
+          }
           return;
         }
         toast(`Ainda não confirmado (status: ${normalized || 'pendente'})`, 'warning');

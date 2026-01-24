@@ -550,5 +550,7 @@ self.addEventListener('message', (event) => {
 
 // Verificar atualizações periodicamente (muito mais frequente)
 setInterval(() => {
-  self.registration.update();
-}, 30 * 1000); // 30 SEGUNDOS (muito mais frequente para detectar rápido)
+  // ⚠️ Não deixar erro de update virar "Uncaught (in promise)" no console.
+  // Durante deploy/cache, pode dar 404 momentâneo e isso não deve quebrar UX.
+  self.registration.update().catch(() => {});
+}, 30 * 60 * 1000); // 30 minutos (suficiente e muito mais estável)

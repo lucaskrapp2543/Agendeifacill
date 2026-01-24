@@ -235,22 +235,29 @@ export async function createMPPayment(
 
     const payment = response.data;
 
+    const paymentStatus = String(payment.status || '').toLowerCase();
+    const applicationFee = typeof payment.application_fee === 'number' ? payment.application_fee : 0;
+    const isApproved = paymentStatus === 'approved' || paymentStatus === 'authorized';
+
     console.log('✅ [MP Payment] Pagamento criado:', {
       id: payment.id,
       status: payment.status,
       status_detail: payment.status_detail,
       transaction_amount: payment.transaction_amount,
       application_fee: payment.application_fee,
-      vendedor_recebe: payment.transaction_amount - (payment.application_fee || 0),
-      plataforma_recebe: payment.application_fee || 0,
+      // Em pagamentos recusados/pendentes, ninguém "recebe" ainda.
+      vendedor_recebe: isApproved ? payment.transaction_amount - applicationFee : 0,
+      plataforma_recebe: isApproved ? applicationFee : 0,
     });
-    
-    // Verificar se application_fee foi aplicado
-    if (!payment.application_fee || payment.application_fee === 0) {
-      console.warn('⚠️ [MP Payment] ATENÇÃO: application_fee não foi aplicado! O vendedor receberá o valor total.');
-      console.warn('⚠️ [MP Payment] Verifique se a aplicação está configurada corretamente no Mercado Pago.');
-    } else {
-      console.log('✅ [MP Payment] application_fee aplicado corretamente:', payment.application_fee);
+
+    // Só faz sentido validar aplicação de fee quando o pagamento foi aprovado.
+    if (isApproved) {
+      if (!payment.application_fee || payment.application_fee === 0) {
+        console.warn('⚠️ [MP Payment] ATENÇÃO: application_fee não foi aplicado em pagamento APROVADO.');
+        console.warn('⚠️ [MP Payment] Verifique a configuração da aplicação Marketplace no Mercado Pago.');
+      } else {
+        console.log('✅ [MP Payment] application_fee aplicado corretamente:', payment.application_fee);
+      }
     }
 
     return {

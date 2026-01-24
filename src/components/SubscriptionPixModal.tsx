@@ -2,8 +2,8 @@ import { CheckCircle2, CreditCard, Loader2, MessageCircle, QrCode, X } from 'luc
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
-import { CardPaymentBrick } from './CardPaymentBrick';
 import { supabase } from '../lib/supabase';
+import { CardPaymentBrick } from './CardPaymentBrick';
 
 type SubscriptionPixModalProps = {
   isOpen: boolean;
@@ -786,6 +786,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
       const result = await response.json();
       const normalized = String(result?.status || '').toLowerCase();
+      const statusDetail = String(result?.status_detail || result?.statusDetail || '').trim();
+      const statusDetailLower = statusDetail.toLowerCase();
 
       if (normalized === 'approved' || normalized === 'authorized') {
         await (async () => {
@@ -818,6 +820,30 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         })();
 
         setIsPaid(true);
+        return;
+      }
+
+      // ✅ Se já voltou recusado/cancelado, não faz sentido ficar "checando status"
+      if (normalized === 'rejected' || normalized === 'cancelled' || normalized === 'canceled' || normalized === 'refunded') {
+        // Cartão recusado -> orientar PIX
+        setCardRefusedReason(statusDetail || 'Pagamento no cartão recusado');
+
+        if (statusDetailLower === 'cc_rejected_high_risk') {
+          toast.error(
+            'Pagamento recusado por segurança do Mercado Pago. Tente PIX ou pague com o cartão/dispositivo que você costuma usar.'
+          );
+        } else {
+          toast.error(statusDetail ? `Pagamento recusado: ${statusDetail}` : 'Pagamento recusado no cartão.');
+        }
+
+        // Levar automaticamente para PIX (solução prática quando MP recusa por risco)
+        setSelectedMethod('pix');
+        // Opcional: já gerar o PIX automaticamente para o usuário não “travar”
+        setTimeout(() => {
+          try {
+            void handleGeneratePix();
+          } catch {}
+        }, 0);
         return;
       }
 
