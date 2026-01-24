@@ -334,7 +334,16 @@ export const PaymentModal = ({
   // ✅ NOVO: Handler para erros do Brick
   const handleBrickError = (error: any) => {
     console.error('❌ [MP Brick] Erro no Brick:', error);
-    toast(`Erro no formulário de pagamento: ${error?.message || 'Erro desconhecido'}`, 'error');
+    const msg = String(error?.message || '').trim();
+    if (msg.toLowerCase().includes('secure fields')) {
+      toast(
+        'Cartão indisponível no momento (Secure Fields). Tente PIX ou desative bloqueador de anúncios e tente novamente.',
+        'error'
+      );
+      setSelectedMethod(null);
+      return;
+    }
+    toast(`Erro no formulário de pagamento: ${msg || 'Erro desconhecido'}`, 'error');
   };
 
   // ✅ NOVA: Função auxiliar para processar pagamento com dados do Brick diretamente

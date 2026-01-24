@@ -11,6 +11,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { initMercadoPago, CardPayment } from '@mercadopago/sdk-react';
 
+// ✅ Evitar re-inicializar o SDK a cada abrir/fechar modal.
+// Re-init costuma causar falhas do Secure Fields em alguns devices/navegadores.
+let MP_SDK_INITIALIZED = false;
+let MP_SDK_PUBLIC_KEY: string | null = null;
+
 interface CardPaymentBrickProps {
   publicKey: string;
   amount: number; // Valor em reais (ex: 10.00)
@@ -47,13 +52,37 @@ export const CardPaymentBrick = ({
 
   // ✅ Inicializar Mercado Pago SDK apenas uma vez
   useEffect(() => {
-    if (!publicKey || initializationRef.current) return;
+    const pk = String(publicKey || '').trim();
+    if (!pk || initializationRef.current) return;
+
+    // Já inicializado globalmente
+    if (MP_SDK_INITIALIZED) {
+      // Se por algum motivo o publicKey divergir, logar (não tentar re-init).
+      if (MP_SDK_PUBLIC_KEY && MP_SDK_PUBLIC_KEY !== pk) {
+        console.warn('⚠️ [MP Brick] SDK já inicializado com outro publicKey. Mantendo o primeiro.', {
+          previous: MP_SDK_PUBLIC_KEY?.substring(0, 10) + '...',
+          current: pk.substring(0, 10) + '...',
+        });
+      }
+      initializationRef.current = true;
+      setIsInitialized(true);
+      return;
+    }
 
     try {
-      initMercadoPago(publicKey, {
+      // Guardrail simples: publicKey inválido costuma quebrar o Brick com erros genéricos
+      if (!pk.startsWith('APP_USR') && !pk.startsWith('TEST')) {
+        console.warn('⚠️ [MP Brick] publicKey do Mercado Pago parece inválido. Esperado APP_USR... ou TEST...', {
+          publicKeyPrefix: pk.substring(0, 10) + '...',
+        });
+      }
+
+      initMercadoPago(pk, {
         locale: 'pt-BR',
       });
       initializationRef.current = true;
+      MP_SDK_INITIALIZED = true;
+      MP_SDK_PUBLIC_KEY = pk;
       setIsInitialized(true);
       console.log('✅ [MP Brick] Mercado Pago SDK inicializado');
     } catch (error) {
@@ -189,20 +218,34 @@ export const CardPaymentBrick = ({
 
   // ✅ Preparar dados de inicialização
   // O Brick espera amount em reais (não centavos)
+  const payerEmail = String(payerData?.email || '').trim();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const docDigits = String(payerData?.identificationNumber || '').replace(/\D/g, '');
+  const hasValidPayer = Boolean(
+    payerData &&
+      emailRegex.test(payerEmail) &&
+      (docDigits.length === 11 || docDigits.length === 14) &&
+      (payerData.identificationType === 'CPF' || payerData.identificationType === 'CNPJ')
+  );
+
   const initialization: any = {
     amount: amount, // Valor em reais (ex: 10.00)
-    ...(payerData
+    ...(hasValidPayer
       ? {
           payer: {
-            email: payerData.email,
+            email: payerEmail,
             identification: {
-              type: payerData.identificationType,
-              number: payerData.identificationNumber.replace(/\D/g, ''), // Apenas dígitos
+              type: payerData!.identificationType,
+              number: docDigits, // Apenas dígitos
             },
-            ...(payerData.firstName && payerData.lastName
+            ...(payerData!.firstName && payerData!.lastName
               ? {
-                  firstName: payerData.firstName,
-                  lastName: payerData.lastName,
+                  // Alguns ambientes aceitam camelCase, outros preferem snake_case.
+                  // Enviamos ambos para reduzir inconsistências do Secure Fields.
+                  firstName: payerData!.firstName,
+                  lastName: payerData!.lastName,
+                  first_name: payerData!.firstName,
+                  last_name: payerData!.lastName,
                 }
               : {}),
           },

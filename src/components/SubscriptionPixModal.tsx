@@ -653,7 +653,16 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
   const handleBrickError = (error: any) => {
     console.error('❌ [MP Brick Subscription] Erro no Brick:', error);
-    toast.error(`Erro no formulário de pagamento: ${error?.message || 'Erro desconhecido'}`);
+    const msg = String(error?.message || '').trim();
+    if (msg.toLowerCase().includes('secure fields')) {
+      toast.error(
+        'Cartão indisponível no momento (Secure Fields). Tente PIX ou desative bloqueador de anúncios e tente novamente.'
+      );
+      // Deixar o usuário escolher outro método sem ficar preso na tela do cartão
+      setSelectedMethod(null);
+      return;
+    }
+    toast.error(`Erro no formulário de pagamento: ${msg || 'Erro desconhecido'}`);
   };
 
   // ✅ NOVO: Função para pagar com cartão via Mercado Pago
