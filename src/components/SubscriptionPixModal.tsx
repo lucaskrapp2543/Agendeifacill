@@ -468,11 +468,26 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         checkPaymentStatusPeriodically(result.id, 'mercadopago_pix');
       } catch (err: any) {
         const isAbort = err?.name === 'AbortError';
+        const rawMsg = String(err?.message || '').trim();
+        const lower = rawMsg.toLowerCase();
+        const isPixNotEnabled =
+          lower.includes('without key enabled') ||
+          lower.includes('collector user') ||
+          lower.includes('financial identity') ||
+          lower.includes('qr render');
+
         toast.error(
           isAbort
             ? 'O servidor de pagamentos demorou demais para responder. Tente novamente.'
-            : `Erro ao gerar PIX: ${err?.message || 'Erro desconhecido'}`
+            : isPixNotEnabled
+              ? 'PIX indisponível no Mercado Pago deste barbeiro. Ele precisa ativar/cadastrar uma chave PIX no app do Mercado Pago para gerar QR Code.'
+              : `Erro ao gerar PIX: ${rawMsg || 'Erro desconhecido'}`
         );
+
+        // Se o PIX falhar por configuração do recebedor, não deixar o usuário preso
+        if (isPixNotEnabled) {
+          setSelectedMethod(null);
+        }
       } finally {
         setIsProcessing(false);
       }

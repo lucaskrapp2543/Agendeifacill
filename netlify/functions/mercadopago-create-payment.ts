@@ -224,8 +224,19 @@ export const handler: Handler = async (event) => {
     return json(200, payment);
   } catch (error: any) {
     console.error('❌ [MP Create Payment] Erro:', error);
+    const rawMsg = String(error?.message || '').trim();
+    const lower = rawMsg.toLowerCase();
+    const isPixNotEnabled =
+      lower.includes('without key enabled') ||
+      lower.includes('collector user') ||
+      lower.includes('financial identity') ||
+      lower.includes('qr render');
+
     return json(500, {
-      error: error.message || 'Erro ao criar pagamento',
+      error: rawMsg || 'Erro ao criar pagamento',
+      userMessage: isPixNotEnabled
+        ? 'PIX indisponível no Mercado Pago deste barbeiro. Ele precisa ativar/cadastrar uma chave PIX no app do Mercado Pago para gerar QR Code.'
+        : undefined,
     });
   }
 };
