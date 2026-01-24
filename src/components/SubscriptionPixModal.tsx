@@ -319,12 +319,24 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           // ✅ Qualquer recusa no cartão -> oferecer PIX sem refazer os dados
           if (provider === 'pagarme_card' || provider === 'mercadopago_card') {
             setCardRefusedReason(reasonStr || 'Pagamento no cartão recusado');
-            toast.error('Pagamento no cartão recusado. Você pode pagar via PIX sem refazer seus dados.');
+            if (reasonStr === 'cc_rejected_high_risk') {
+              toast.error(
+                'Pagamento recusado por segurança do Mercado Pago. Tente PIX ou pague com o cartão/dispositivo que você costuma usar.'
+              );
+            } else {
+              toast.error('Pagamento no cartão recusado. Você pode pagar via PIX sem refazer seus dados.');
+            }
             setSelectedMethod(null);
             return;
           }
 
-          toast.error(reasonStr ? `Pagamento recusado/cancelado: ${reasonStr}` : 'Pagamento recusado ou cancelado');
+          if (reasonStr === 'cc_rejected_high_risk') {
+            toast.error(
+              'Pagamento recusado por segurança do Mercado Pago. Recomendação: tente PIX ou pague com o meio/dispositivo que você costuma usar.'
+            );
+          } else {
+            toast.error(reasonStr ? `Pagamento recusado/cancelado: ${reasonStr}` : 'Pagamento recusado ou cancelado');
+          }
         } else if (attempts >= maxAttempts) {
           if (statusIntervalRef.current) {
             window.clearInterval(statusIntervalRef.current);

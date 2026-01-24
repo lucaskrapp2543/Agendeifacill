@@ -57,6 +57,7 @@ import {
   getOrderDetails,
   getRecipientStatus,
 } from '../src/lib/pagarme-server';
+import { checkMPPaymentStatus } from '../src/lib/mercadopago/mp-service';
 import mercadopagoRoutes from './mercadopago/mp.routes';
 
 const app = express();
@@ -97,7 +98,7 @@ app.get('/health', (_req, res) => {
 
 /**
  * POST /api/subscribers/confirm-subscription-pix
- * Confirma pagamento (Pagar.me) e registra o assinante no Supabase (client_subscriptions)
+ * Confirma pagamento (Pagar.me ou Mercado Pago) e registra o assinante no Supabase (client_subscriptions)
  * - Flow: Booking público -> PIX -> pago -> registrar em "Meus Assinantes"
  */
 app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
@@ -124,14 +125,67 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       });
     }
 
-    // Validar pagamento na Pagar.me
-    const statusResult = await checkPaymentStatus(String(orderId));
-    const normalizedStatus = String((statusResult as any)?.status || '').toLowerCase();
-    if (normalizedStatus !== 'paid' && normalizedStatus !== 'authorized') {
-      return res.status(400).json({
-        error: 'Pagamento ainda não confirmado',
-        details: { status: normalizedStatus },
-      });
+    const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
+    const providerFinal =
+      providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix' ||
+      providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
+        ? providerNormalized
+        : 'pagarme_pix';
+
+    // Validar pagamento no gateway correto
+    let normalizedStatus = '';
+    let statusDetail: string | undefined;
+
+    if (providerFinal.startsWith('mercadopago')) {
+      // Mercado Pago: orderId é paymentId (numérico)
+      const paymentId = Number(orderId);
+      if (!Number.isFinite(paymentId) || paymentId <= 0) {
+        return res.status(400).json({
+          error: 'paymentId inválido para Mercado Pago',
+          details: { orderId },
+        });
+      }
+
+      // Buscar access_token do estabelecimento
+      const { data: est, error: estErr } = await supabaseAdmin
+        .from('establishments')
+        .select('mercadopago_access_token')
+        .eq('id', String(establishmentId))
+        .single();
+
+      if (estErr) {
+        return res.status(500).json({ error: 'Erro ao buscar tokens do Mercado Pago', details: estErr });
+      }
+
+      const accessToken = String((est as any)?.mercadopago_access_token || '').trim();
+      if (!accessToken) {
+        return res.status(400).json({
+          error: 'Estabelecimento não possui Mercado Pago conectado',
+          details: { establishmentId },
+        });
+      }
+
+      const mpStatus = await checkMPPaymentStatus(paymentId, accessToken);
+      normalizedStatus = String((mpStatus as any)?.status || '').toLowerCase();
+      statusDetail = String((mpStatus as any)?.status_detail || '').trim() || undefined;
+
+      // Mercado Pago: pago pode vir como "approved" (ou "authorized" em alguns fluxos)
+      if (normalizedStatus !== 'approved' && normalizedStatus !== 'authorized') {
+        return res.status(400).json({
+          error: 'Pagamento ainda não confirmado',
+          details: { status: normalizedStatus, status_detail: statusDetail },
+        });
+      }
+    } else {
+      // Pagar.me
+      const statusResult = await checkPaymentStatus(String(orderId));
+      normalizedStatus = String((statusResult as any)?.status || '').toLowerCase();
+      if (normalizedStatus !== 'paid' && normalizedStatus !== 'authorized') {
+        return res.status(400).json({
+          error: 'Pagamento ainda não confirmado',
+          details: { status: normalizedStatus },
+        });
+      }
     }
 
     // Buscar duração da assinatura
@@ -165,13 +219,6 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       // não travar: vamos tentar inserir mesmo assim
       console.warn('⚠️ Não foi possível checar assinatura existente:', existingErr);
     }
-
-    const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
-    const providerFinal =
-      providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix' ||
-      providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
-        ? providerNormalized
-        : 'pagarme_pix';
 
     const payload: any = {
       subscription_id: String(subscriptionId),
