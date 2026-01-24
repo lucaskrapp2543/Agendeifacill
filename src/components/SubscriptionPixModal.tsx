@@ -637,13 +637,20 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       return;
     }
 
+    // Salvar nos estados (opcional, para debug/estado da UI)
     setBrickCardToken(formData.token);
     setBrickPaymentMethodId(formData.payment_method_id);
     setBrickIssuerId(formData.issuer_id);
     setBrickInstallments(formData.installments);
 
-    // Processar pagamento com Mercado Pago
-    await handlePayWithCardMercadoPago();
+    // ✅ CRÍTICO: não depender do setState (pode estar defasado no mesmo tick).
+    // Processar usando os dados do Brick diretamente.
+    await handlePayWithCardMercadoPagoWithBrickData({
+      token: formData.token,
+      payment_method_id: formData.payment_method_id,
+      issuer_id: formData.issuer_id,
+      installments: formData.installments,
+    });
   };
 
   const handleBrickReady = () => {
@@ -665,14 +672,19 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     toast.error(`Erro no formulário de pagamento: ${msg || 'Erro desconhecido'}`);
   };
 
-  // ✅ NOVO: Função para pagar com cartão via Mercado Pago
-  const handlePayWithCardMercadoPago = async () => {
+  // ✅ NOVO: Função auxiliar para pagar com cartão via Mercado Pago usando dados do Brick diretamente
+  const handlePayWithCardMercadoPagoWithBrickData = async (brickData: {
+    token: string;
+    payment_method_id: string;
+    issuer_id: string;
+    installments: number;
+  }) => {
     if (!hasMercadoPago) {
       toast.error('Estabelecimento não possui conta do Mercado Pago conectada');
       return;
     }
 
-    if (!brickCardToken || !brickPaymentMethodId || !brickIssuerId) {
+    if (!brickData.token || !brickData.payment_method_id || !brickData.issuer_id) {
       toast.error('Dados do cartão não foram fornecidos pelo formulário. Tente novamente.');
       return;
     }
@@ -737,10 +749,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           establishmentId,
           amount: amountInCents,
           description: `Assinatura ${subscription.name}`,
-          payment_method_id: brickPaymentMethodId,
-          token: brickCardToken,
-          issuer_id: brickIssuerId,
-          installments: brickInstallments || 1,
+          payment_method_id: brickData.payment_method_id,
+          token: brickData.token,
+          issuer_id: brickData.issuer_id,
+          installments: brickData.installments || 1,
           payer: {
             email: payerEmail,
             identification: {
@@ -822,7 +834,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const handlePayWithCard = async () => {
     // ✅ CORRIGIDO: Não verificar Pagar.me se está usando Mercado Pago
     if (paymentProvider === 'mercadopago' && hasMercadoPago) {
-      // Se está usando Mercado Pago, o Brick já chama handlePayWithCardMercadoPago
+      // Se está usando Mercado Pago, o Brick já chama handlePayWithCardMercadoPagoWithBrickData
       toast.error('Use o formulário de cartão do Mercado Pago acima.');
       return;
     }

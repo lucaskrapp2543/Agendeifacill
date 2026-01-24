@@ -95,7 +95,7 @@
   status = 200
 
 [build.environment]
-  NODE_VERSION = "18.17.0"
+  NODE_VERSION = "20.11.1"
   NPM_VERSION = "9.6.7"
   NPM_FLAGS = "--include=dev"
   # Necessário quando o repositório contém arquivos/pointers do Git LFS
@@ -162,7 +162,7 @@
 
 # Force usando uma versão LTS do Node.js
 [context.production.environment]
-  NODE_VERSION = "18.17.0"
+  NODE_VERSION = "20.11.1"
   NPM_VERSION = "9.6.7"
 
 # Variáveis de ambiente serão definidas no painel do Netlify 
