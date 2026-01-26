@@ -1285,8 +1285,11 @@ Por favor, confirme o cancelamento. Obrigado!`;
                   Falta pouco!
                 </h3>
                 <p className="text-gray-600 text-lg">
-                  Para finalizar o agendamento, clique no botão Confirmar. Assim, enviaremos uma notificação para o seu barbeiro informando o serviço.
+                  ⚠️ <strong>IMPORTANTE:</strong> clique em <strong>Confirmar</strong> para avisar seu barbeiro no WhatsApp.
                 </p>
+                <div className="mt-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900 text-sm font-semibold">
+                  Se você fechar sem confirmar, <strong>seu barbeiro pode não receber o aviso</strong>.
+                </div>
               </div>
 
               <div className="space-y-3">

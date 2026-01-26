@@ -1,6 +1,6 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -199,6 +199,8 @@ interface ServiceCategory {
   name: string;
   display_order: number;
   is_active: boolean;
+  hidden_from_booking?: boolean;
+  oculto_da_reserva?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -211,6 +213,8 @@ interface ServiceSubcategory {
   duration: number;
   is_active: boolean;
   display_order: number;
+  hidden_from_booking?: boolean;
+  oculto_da_reserva?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -4210,6 +4214,61 @@ const EstablishmentDashboard = () => {
     } catch (error: any) {
       console.error('Erro ao deletar subcategoria:', error);
       toast('Erro ao deletar serviço', 'error');
+    }
+  };
+
+  const isOcultoNoBooking = (obj: any): boolean => {
+    return Boolean(obj?.hidden_from_booking ?? obj?.oculto_da_reserva);
+  };
+
+  const updateOcultoNoBooking = async (table: 'service_categories' | 'service_subcategories', id: string, hidden: boolean) => {
+    // Tenta atualizar ambos os campos (para compatibilidade entre bancos).
+    // Se um deles não existir, faz fallback e tenta um por vez.
+    const tryUpdate = async (payload: any) => {
+      return await supabase.from(table).update(payload).eq('id', id);
+    };
+
+    let res = await tryUpdate({ hidden_from_booking: hidden, oculto_da_reserva: hidden });
+    if (!res.error) return;
+
+    const msg = String((res.error as any)?.message || '').toLowerCase();
+    const looksLikeColumnError =
+      msg.includes('column') || msg.includes('hidden_from_booking') || msg.includes('oculto_da_reserva');
+
+    if (looksLikeColumnError) {
+      res = await tryUpdate({ hidden_from_booking: hidden });
+      if (!res.error) return;
+
+      res = await tryUpdate({ oculto_da_reserva: hidden });
+      if (!res.error) return;
+    }
+
+    throw res.error;
+  };
+
+  // 👁️ Ocultar/mostrar categoria no Booking público (sem afetar uso interno)
+  const handleToggleHideCategoryFromBooking = async (categoryId: string, currentHidden: boolean) => {
+    try {
+      await updateOcultoNoBooking('service_categories', categoryId, !currentHidden);
+
+      await fetchServiceCategories();
+      toast(!currentHidden ? 'Categoria ocultada no Booking!' : 'Categoria mostrada no Booking!', 'success');
+    } catch (err: any) {
+      console.error('Erro ao ocultar categoria no booking:', err);
+      toast(err?.message || 'Erro ao atualizar visibilidade da categoria no Booking.', 'error');
+    }
+  };
+
+  // 👁️ Ocultar/mostrar serviço no Booking público (sem afetar uso interno)
+  const handleToggleHideSubcategoryFromBooking = async (subcategoryId: string, currentHidden: boolean) => {
+    try {
+      await updateOcultoNoBooking('service_subcategories', subcategoryId, !currentHidden);
+
+      await fetchServiceSubcategories();
+      toast(!currentHidden ? 'Serviço ocultado no Booking!' : 'Serviço mostrado no Booking!', 'success');
+    } catch (err: any) {
+      console.error('Erro ao ocultar serviço no booking:', err);
+      toast(err?.message || 'Erro ao atualizar visibilidade do serviço no Booking.', 'error');
     }
   };
 
@@ -8341,11 +8400,23 @@ Estamos te aguardando! 😎✂️`;
       return;
     }
 
-    // Limpar WhatsApp (remover caracteres especiais)
-    const cleanWhatsapp = newClientWhatsapp.replace(/\D/g, '');
+    // Normalizar WhatsApp (sempre salvar com 55 + DDD, apenas dígitos)
+    const normalizeWhatsappBR = (input: string) => {
+      const digits = String(input || '').replace(/\D/g, '');
+      if (!digits) return '';
+      // já tem 55
+      if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits;
+      // número BR sem país (10 ou 11 dígitos: DDD + número)
+      if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+      // fallback: se veio 12/13 dígitos sem 55, não mexer (evita estragar casos fora do padrão)
+      return digits;
+    };
 
-    if (cleanWhatsapp.length < 10) {
-      toast('WhatsApp deve ter pelo menos 10 dígitos!', 'error');
+    const normalizedWhatsapp = normalizeWhatsappBR(newClientWhatsapp);
+    const legacyWhatsapp = normalizedWhatsapp.startsWith('55') ? normalizedWhatsapp.slice(2) : normalizedWhatsapp;
+
+    if (legacyWhatsapp.length < 10) {
+      toast('WhatsApp deve ter pelo menos 10 dígitos (com DDD)!', 'error');
       return;
     }
 
@@ -8359,8 +8430,8 @@ Estamos te aguardando! 😎✂️`;
         .from('manual_clients')
         .select('*')
         .eq('establishment_id', establishment.id)
-        .eq('whatsapp', cleanWhatsapp)
-        .single();
+        .in('whatsapp', Array.from(new Set([normalizedWhatsapp, legacyWhatsapp])).filter(Boolean) as any)
+        .maybeSingle();
 
       let savedData;
       if (existingClient) {
@@ -8369,6 +8440,7 @@ Estamos te aguardando! 😎✂️`;
           .from('manual_clients')
           .update({
             name: newClientName.trim(),
+            whatsapp: normalizedWhatsapp, // garantir padrão único (55 + DDD)
             birthday: newClientBirthday || null,
             updated_at: new Date().toISOString()
           })
@@ -8389,7 +8461,7 @@ Estamos te aguardando! 😎✂️`;
           .insert({
             establishment_id: establishment.id,
             name: newClientName.trim(),
-            whatsapp: cleanWhatsapp,
+            whatsapp: normalizedWhatsapp,
             birthday: newClientBirthday || null
           })
           .select()
@@ -8407,9 +8479,13 @@ Estamos te aguardando! 😎✂️`;
       // Também salvar no localStorage como backup/cache
       const storageKey = `manual_clients_${establishment.id}`;
       const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
-      manualClients[cleanWhatsapp] = {
+      // Remover chave antiga sem 55 (se existir) para evitar duplicidade local
+      if (legacyWhatsapp && legacyWhatsapp !== normalizedWhatsapp && manualClients[legacyWhatsapp]) {
+        delete manualClients[legacyWhatsapp];
+      }
+      manualClients[normalizedWhatsapp] = {
         name: newClientName.trim(),
-        whatsapp: cleanWhatsapp,
+        whatsapp: normalizedWhatsapp,
         birthday: newClientBirthday || null,
         addedAt: new Date().toISOString(),
         appointmentCount: 0
@@ -8420,7 +8496,10 @@ Estamos te aguardando! 😎✂️`;
       if (newClientBirthday) {
         const birthdayStorageKey = `client_birthdays_${establishment.id}`;
         const savedBirthdays = JSON.parse(localStorage.getItem(birthdayStorageKey) || '{}');
-        savedBirthdays[cleanWhatsapp] = {
+        if (legacyWhatsapp && legacyWhatsapp !== normalizedWhatsapp && savedBirthdays[legacyWhatsapp]) {
+          delete savedBirthdays[legacyWhatsapp];
+        }
+        savedBirthdays[normalizedWhatsapp] = {
           name: newClientName.trim(),
           birthday: newClientBirthday,
           savedAt: new Date().toISOString()
@@ -8449,9 +8528,12 @@ Estamos te aguardando! 😎✂️`;
         // Salvar no localStorage mesmo assim
         const storageKey = `manual_clients_${establishment.id}`;
         const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
-        manualClients[cleanWhatsapp] = {
+        if (legacyWhatsapp && legacyWhatsapp !== normalizedWhatsapp && manualClients[legacyWhatsapp]) {
+          delete manualClients[legacyWhatsapp];
+        }
+        manualClients[normalizedWhatsapp] = {
           name: newClientName.trim(),
-          whatsapp: cleanWhatsapp,
+          whatsapp: normalizedWhatsapp,
           birthday: newClientBirthday || null,
           addedAt: new Date().toISOString(),
           appointmentCount: 0
@@ -21435,18 +21517,26 @@ Estamos te aguardando! 😎✂️`;
                   {serviceCategories.map((category) => {
                     const categorySubcategories = serviceSubcategories.filter(sub => sub.category_id === category.id);
                     const isHighlighted = highlightedCategoryId === category.id;
+                    const isHiddenFromBooking = isOcultoNoBooking(category as any);
 
                     return (
                       <div
                         key={category.id}
                         id={`service-category-${category.id}`}
-                        className={`bg-gray-50 border rounded-lg p-4 md:p-6 transition-all ${isHighlighted
+                        className={`bg-gray-50 border rounded-lg p-4 md:p-6 transition-all ${isHiddenFromBooking ? 'opacity-75' : ''} ${isHighlighted
                           ? 'border-amber-300 ring-4 ring-amber-200 shadow-xl'
                           : 'border-gray-200'
                           }`}
                       >
                         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3 md:gap-2">
-                          <h3 className="text-xl font-semibold text-gray-900">{category.name}</h3>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <h3 className="text-xl font-semibold text-gray-900 truncate">{category.name}</h3>
+                            {isHiddenFromBooking && (
+                              <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-amber-300 bg-amber-50 text-amber-900">
+                                👁️ Oculta no Booking
+                              </span>
+                            )}
+                          </div>
                           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
                             <button
                               onClick={() => {
@@ -21460,6 +21550,14 @@ Estamos te aguardando! 😎✂️`;
                             >
                               <Plus className="h-4 w-4" />
                               {isHighlighted ? 'Adicionar Serviço (AGORA)' : 'Adicionar Serviço'}
+                            </button>
+                            <button
+                              onClick={() => handleToggleHideCategoryFromBooking(category.id, isHiddenFromBooking)}
+                              className={`px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2 text-sm font-medium`}
+                              title={isHiddenFromBooking ? 'Mostrar categoria no Booking' : 'Ocultar categoria no Booking'}
+                            >
+                              {isHiddenFromBooking ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                              {isHiddenFromBooking ? 'Mostrar' : 'Ocultar'}
                             </button>
                             <button
                               onClick={() => {
@@ -21519,10 +21617,17 @@ Estamos te aguardando! 😎✂️`;
                             {categorySubcategories.map((subcategory, index) => (
                               <div
                                 key={subcategory.id}
-                                className="bg-gray-50 border-2 border-gray-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-gray-100 transition-all"
+                                className={`bg-gray-50 border-2 border-gray-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-gray-100 transition-all ${isOcultoNoBooking(subcategory as any) ? 'opacity-75' : ''}`}
                               >
                                 <div className="flex items-center justify-between mb-2">
-                                  <h4 className="font-medium text-gray-900">{subcategory.name}</h4>
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <h4 className="font-medium text-gray-900 truncate">{subcategory.name}</h4>
+                                    {isOcultoNoBooking(subcategory as any) && (
+                                      <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-amber-300 bg-amber-50 text-amber-900">
+                                        👁️ Oculto no Booking
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-1">
                                     {/* Botões de reordenação */}
                                     <button
@@ -21596,6 +21701,22 @@ Estamos te aguardando! 😎✂️`;
                                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                       </svg>
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        handleToggleHideSubcategoryFromBooking(
+                                          subcategory.id,
+                                          isOcultoNoBooking(subcategory as any)
+                                        )
+                                      }
+                                      className="p-1 text-gray-700 hover:bg-gray-200 rounded transition-colors"
+                                      title={isOcultoNoBooking(subcategory as any) ? 'Mostrar serviço no Booking' : 'Ocultar serviço no Booking'}
+                                    >
+                                      {isOcultoNoBooking(subcategory as any) ? (
+                                        <Eye className="h-3 w-3" />
+                                      ) : (
+                                        <EyeOff className="h-3 w-3" />
+                                      )}
                                     </button>
                                     <button
                                       onClick={() => {

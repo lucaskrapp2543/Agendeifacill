@@ -1,7 +1,7 @@
 import { format, isPast, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Edit, Eye, EyeOff, Plus, Trash2, Users, X } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, Plus, Trash2, Users, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   createIndependentSubscriber,
@@ -55,7 +55,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const [newSubscriptionName, setNewSubscriptionName] = useState('');
   const [newSubscriptionValue, setNewSubscriptionValue] = useState<number>(0);
-  const [newFixedCommissionValue, setNewFixedCommissionValue] = useState<number>(0);
+  const [newPercentualComissaoDiaria, setNewPercentualComissaoDiaria] = useState<number>(0);
   const [newSubscriptionDuration, setNewSubscriptionDuration] = useState<number>(30); // Duração em minutos
   const [newSubscriptionWeekdays, setNewSubscriptionWeekdays] = useState<string[]>([]);
   const [newSubscriptionDescription, setNewSubscriptionDescription] = useState(''); // Nova descrição
@@ -129,6 +129,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [attendanceValue, setAttendanceValue] = useState<number>(0);
   const [isSavingAttendance, setIsSavingAttendance] = useState(false);
   const [subscriberAttendances, setSubscriberAttendances] = useState<any[]>([]);
+  const [subscriptionSaleCommissions, setSubscriptionSaleCommissions] = useState<any[]>([]);
   const [professionals, setProfessionals] = useState<any[]>([]);
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -137,6 +138,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Estado para controlar o mês/ano selecionado (padrão: mês atual)
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+
+  // Comissão por venda de assinatura (não é atendimento) - auto-save
+  const [saleCommissionProfessional, setSaleCommissionProfessional] = useState('');
+  const [saleCommissionPercent, setSaleCommissionPercent] = useState<string>(''); // input controlado
+  const [isSavingSaleCommission, setIsSavingSaleCommission] = useState(false);
+  const [saleCommissionLastSavedAt, setSaleCommissionLastSavedAt] = useState<number | null>(null);
+  const saleCommissionSaveTimeoutRef = useRef<number | null>(null);
 
   // Nome do mês em português
   const monthNames = [
@@ -521,6 +529,156 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // Função para buscar comissões de venda de assinatura (do mês selecionado)
+  const fetchSubscriptionSaleCommissions = async (month?: number, year?: number) => {
+    try {
+      const targetMonth = month !== undefined ? month : selectedMonth;
+      const targetYear = year !== undefined ? year : selectedYear;
+      const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
+      const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+
+      const { data, error } = await supabase
+        .from('subscription_sale_commissions')
+        .select('id, professional_name, commission_percent, commission_amount, created_at, client_subscription_id')
+        .eq('establishment_id', establishmentId)
+        .gte('created_at', firstDayOfMonth.toISOString())
+        .lte('created_at', lastDayOfMonth.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao buscar comissões de venda de assinatura:', error);
+        setSubscriptionSaleCommissions([]);
+        return;
+      }
+
+      setSubscriptionSaleCommissions(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar comissões de venda de assinatura:', error);
+      setSubscriptionSaleCommissions([]);
+    }
+  };
+
+  const loadSaleCommissionForClient = async (clientSubscriptionId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('subscription_sale_commissions')
+        .select('id, professional_name, commission_percent, commission_amount')
+        .eq('establishment_id', establishmentId)
+        .eq('client_subscription_id', clientSubscriptionId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Erro ao carregar comissão de venda:', error);
+        setSaleCommissionProfessional('');
+        setSaleCommissionPercent('');
+        return;
+      }
+
+      if (!data) {
+        setSaleCommissionProfessional('');
+        setSaleCommissionPercent('');
+        return;
+      }
+
+      setSaleCommissionProfessional(String(data.professional_name || ''));
+      setSaleCommissionPercent(
+        data.commission_percent !== null && data.commission_percent !== undefined
+          ? String(data.commission_percent)
+          : ''
+      );
+    } catch (e) {
+      console.error('Erro ao carregar comissão de venda (catch):', e);
+      setSaleCommissionProfessional('');
+      setSaleCommissionPercent('');
+    }
+  };
+
+  const getSubscriptionValueForClient = (clientSub: any): number => {
+    const direct = Number(clientSub?.subscriptions?.value ?? clientSub?.subscription_value ?? 0);
+    if (Number.isFinite(direct) && direct > 0) return direct;
+    const fromList = subscriptions.find((s) => s.id === clientSub?.subscription_id)?.value;
+    return Number(fromList || 0);
+  };
+
+  const computeSaleCommissionAmount = (subscriptionValue: number, percent: number): number => {
+    const raw = subscriptionValue * (percent / 100);
+    return Math.round(raw * 100) / 100;
+  };
+
+  const saveSaleCommissionDebounced = (clientSub: any, nextProfessional: string, nextPercentStr: string) => {
+    if (saleCommissionSaveTimeoutRef.current) {
+      window.clearTimeout(saleCommissionSaveTimeoutRef.current);
+    }
+
+    saleCommissionSaveTimeoutRef.current = window.setTimeout(async () => {
+      const percent = Number(String(nextPercentStr || '').replace(',', '.'));
+      const professionalName = String(nextProfessional || '').trim();
+
+      // Regras: precisa de profissional e percentual > 0 para salvar
+      if (!professionalName) return;
+
+      setIsSavingSaleCommission(true);
+      try {
+        // Remover comissão se percentual vazio/0
+        if (!Number.isFinite(percent) || percent <= 0) {
+          const { error } = await supabase
+            .from('subscription_sale_commissions')
+            .delete()
+            .eq('establishment_id', establishmentId)
+            .eq('client_subscription_id', clientSub.id);
+
+          if (error) throw error;
+
+          await fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
+          setSaleCommissionLastSavedAt(Date.now());
+          return;
+        }
+
+        const subscriptionValue = getSubscriptionValueForClient(clientSub);
+        const amount = computeSaleCommissionAmount(subscriptionValue, percent);
+
+        // Insert (se não existir) ou update (se existir) — evita "upsert" e problemas com RLS
+        const { data: existing, error: existingErr } = await supabase
+          .from('subscription_sale_commissions')
+          .select('id')
+          .eq('establishment_id', establishmentId)
+          .eq('client_subscription_id', clientSub.id)
+          .maybeSingle();
+
+        if (existingErr) throw existingErr;
+
+        if (existing?.id) {
+          const { error } = await supabase
+            .from('subscription_sale_commissions')
+            .update({
+              professional_name: professionalName,
+              commission_percent: percent,
+              commission_amount: amount
+            })
+            .eq('id', existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('subscription_sale_commissions').insert({
+            establishment_id: establishmentId,
+            client_subscription_id: clientSub.id,
+            professional_name: professionalName,
+            commission_percent: percent,
+            commission_amount: amount
+          });
+          if (error) throw error;
+        }
+
+        await fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
+        setSaleCommissionLastSavedAt(Date.now());
+      } catch (err: any) {
+        console.error('Erro ao salvar comissão de venda:', err);
+        toast.error(err?.message || 'Erro ao salvar % de venda da assinatura.');
+      } finally {
+        setIsSavingSaleCommission(false);
+      }
+    }, 550);
+  };
+
   // Função para buscar pagamentos de profissionais (do mês selecionado)
   const fetchProfessionalPayments = async (month?: number, year?: number) => {
     try {
@@ -731,6 +889,48 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // Reordenar assinaturas (salva automaticamente no banco)
+  const handleMoveSubscription = async (subscriptionId: string, direction: 'up' | 'down') => {
+    const currentIndex = subscriptions.findIndex((s) => s.id === subscriptionId);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= subscriptions.length) return;
+
+    // Reordenar localmente (otimista)
+    const reordered = [...subscriptions];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    // Normalizar sort_order sequencial para evitar duplicidades e manter estabilidade
+    const normalized = reordered.map((s, idx) => ({ ...s, sort_order: idx }));
+    setSubscriptions(normalized);
+
+    try {
+      // IMPORTANTE: evitar upsert aqui. Em Postgres, "INSERT ... ON CONFLICT DO UPDATE"
+      // pode acionar checagem de RLS de INSERT e falhar com "new row violates RLS policy".
+      // Então fazemos UPDATE por id (apenas UPDATE/RLS).
+      const results = await Promise.all(
+        normalized.map((s) =>
+          supabase
+            .from('subscriptions')
+            .update({ sort_order: (s as any).sort_order })
+            .eq('id', s.id)
+        )
+      );
+
+      const firstError = results.find((r) => r.error)?.error;
+      if (firstError) {
+        throw firstError;
+      }
+    } catch (error: any) {
+      console.error('Erro ao reordenar assinaturas:', error);
+      toast.error(error?.message || 'Erro ao salvar nova ordem das assinaturas.');
+      // Voltar para o estado do banco (garante consistência)
+      fetchSubscriptions();
+    }
+  };
+
   const fetchClientSubscriptions = async () => {
     try {
       // Usar o novo sistema independente de assinantes
@@ -794,6 +994,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       fetchProfessionals();
       fetchSubscriberAttendances(selectedMonth, selectedYear);
       fetchProfessionalPayments(selectedMonth, selectedYear);
+      fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
 
       // Recuperação automática de clientes na inicialização
       const autoRecover = async () => {
@@ -823,6 +1024,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (establishmentId) {
       fetchSubscriberAttendances(selectedMonth, selectedYear);
       fetchProfessionalPayments(selectedMonth, selectedYear);
+      fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
     }
   }, [selectedMonth, selectedYear, establishmentId]);
 
@@ -835,6 +1037,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       return;
     }
     try {
+      const valorComissaoDiariaCalculado = Math.round((newSubscriptionValue * (newPercentualComissaoDiaria || 0) / 100) * 100) / 100;
+
       const { error } = await createSubscription(
         establishmentId,
         newSubscriptionName,
@@ -842,7 +1046,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         1, // Duração fixa de 1 mês (não será mais usada)
         newSubscriptionWeekdays, // Adicionar os dias da semana
         newSubscriptionDuration, // Adicionar a duração do serviço
-        newFixedCommissionValue, // Valor fixo de comissão por serviço diário
+        valorComissaoDiariaCalculado, // Valor em R$ calculado a partir do percentual
         newSubscriptionDescription // Adicionar descrição
       );
       if (error) {
@@ -851,7 +1055,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       toast.success('Assinatura criada com sucesso!');
       setNewSubscriptionName('');
       setNewSubscriptionValue(0);
-      setNewFixedCommissionValue(0);
+      setNewPercentualComissaoDiaria(0);
       setNewSubscriptionDuration(30); // Reset para 30 minutos
       setNewSubscriptionWeekdays([]);
       setNewSubscriptionDescription(''); // Limpar descrição
@@ -1438,9 +1642,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   }, 0);
 
   // Calcular total de repasses (Lucro Líquido = Lucro Bruto - Repasses)
-  const totalRepasses = subscriberAttendances.reduce((sum, attendance) => {
-    return sum + (parseFloat(attendance.repass_value) || 0);
-  }, 0);
+  // Inclui atendimentos + comissão de venda de assinatura (não é atendimento)
+  const totalRepasses = useMemo(() => {
+    const attendancesSum = subscriberAttendances.reduce((sum, attendance) => {
+      return sum + (parseFloat(attendance.repass_value) || 0);
+    }, 0);
+
+    const saleCommissionsSum = subscriptionSaleCommissions.reduce((sum, item) => {
+      return sum + (parseFloat(item.commission_amount) || 0);
+    }, 0);
+
+    return attendancesSum + saleCommissionsSum;
+  }, [subscriberAttendances, subscriptionSaleCommissions]);
 
   const lucroBruto = totalArrecadado;
   const lucroLiquido = lucroBruto - totalRepasses;
@@ -1474,6 +1687,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       await fetchClientSubscriptions();
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
       await fetchProfessionalPayments(selectedMonth, selectedYear);
+      await fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
       toast.success('Saldo atualizado!');
     } catch (e) {
       console.error('Erro ao atualizar saldo de assinantes:', e);
@@ -1529,6 +1743,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setSelectedYear(year);
     await fetchSubscriberAttendances(month, year);
     await fetchProfessionalPayments(month, year);
+    await fetchSubscriptionSaleCommissions(month, year);
   };
 
   // Função para ir para o mês anterior
@@ -1652,19 +1867,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         </div>
 
         {/* Controle por Profissional */}
-        {subscriberAttendances.length > 0 && (
+        {(subscriberAttendances.length > 0 || subscriptionSaleCommissions.length > 0) && (
           <div className="mt-6 pt-6 border-t border-gray-700">
             <h3 className="text-lg font-semibold mb-4">Controle por Profissional</h3>
             <div className="space-y-3">
               {Object.entries(
-                subscriberAttendances.reduce((acc, attendance) => {
-                  const professional = attendance.professional_name;
-                  if (!acc[professional]) {
-                    acc[professional] = 0;
-                  }
-                  acc[professional] += parseFloat(attendance.repass_value) || 0;
+                (() => {
+                  const acc: { [key: string]: number } = {};
+                  subscriberAttendances.forEach((attendance) => {
+                    const professional = attendance.professional_name;
+                    if (!acc[professional]) acc[professional] = 0;
+                    acc[professional] += parseFloat(attendance.repass_value) || 0;
+                  });
+                  subscriptionSaleCommissions.forEach((item) => {
+                    const professional = item.professional_name;
+                    if (!acc[professional]) acc[professional] = 0;
+                    acc[professional] += parseFloat(item.commission_amount) || 0;
+                  });
                   return acc;
-                }, {} as { [key: string]: number })
+                })()
               ).map(([professional, totalValue]) => {
                 // Calcular total pago para este profissional no mês atual
                 // IMPORTANTE: Considerar apenas pagamentos feitos via assinatura (payment_source = 'subscription')
@@ -1884,7 +2105,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               type="number"
               id="subscriptionValue"
               value={newSubscriptionValue}
-              onChange={(e) => setNewSubscriptionValue(Number(e.target.value))}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                const nextValue = Number.isFinite(v) ? v : 0;
+                setNewSubscriptionValue(nextValue);
+                // Regra: só pode definir % depois de definir o valor da assinatura
+                if (nextValue <= 0) {
+                  setNewPercentualComissaoDiaria(0);
+                }
+              }}
               className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               step="0.01"
               min="0"
@@ -1892,21 +2121,36 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             />
           </div>
           <div>
-            <label htmlFor="fixedCommissionValue" className="block text-sm font-medium text-gray-400 mb-1">
-              Valor fixo de comissão por serviço diário dessa assinatura (R$)
+            <label htmlFor="percentualComissaoDiaria" className="block text-sm font-medium text-gray-400 mb-1">
+              Comissão por serviço diário dessa assinatura (%)
             </label>
             <input
               type="number"
-              id="fixedCommissionValue"
-              value={newFixedCommissionValue}
-              onChange={(e) => setNewFixedCommissionValue(Number(e.target.value))}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
-              step="0.01"
+              id="percentualComissaoDiaria"
+              value={newPercentualComissaoDiaria}
+              onChange={(e) => {
+                const p = Number(e.target.value);
+                const nextPercent = Number.isFinite(p) ? p : 0;
+                // Limites defensivos
+                setNewPercentualComissaoDiaria(Math.max(0, Math.min(100, nextPercent)));
+              }}
+              disabled={newSubscriptionValue <= 0}
+              className={`w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500 ${
+                newSubscriptionValue <= 0 ? 'opacity-60 cursor-not-allowed' : ''
+              }`}
+              step="0.1"
               min="0"
-              placeholder="Ex: 20, 30, 50 (deixe 0 se quiser preencher manualmente)"
+              max="100"
+              placeholder={newSubscriptionValue <= 0 ? 'Preencha o valor da assinatura primeiro' : 'Ex: 5, 10, 12.5'}
             />
             <p className="text-xs text-gray-500 mt-1">
-              Este valor será usado automaticamente ao adicionar atendimentos. Exemplos: R$ 20, 30, 50
+              {newSubscriptionValue <= 0
+                ? 'Primeiro preencha o valor da assinatura para habilitar o percentual.'
+                : (() => {
+                    const valorComissao = Math.round((newSubscriptionValue * (newPercentualComissaoDiaria || 0) / 100) * 100) / 100;
+                    const valorFormatado = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorComissao);
+                    return `Isso dá ${valorFormatado} por serviço diário (calculado em cima do valor da assinatura).`;
+                  })()}
             </p>
           </div>
           <div>
@@ -2204,6 +2448,26 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <div className="flex flex-col -my-1">
+                    <button
+                      type="button"
+                      onClick={() => handleMoveSubscription(sub.id, 'up')}
+                      disabled={subscriptions[0]?.id === sub.id}
+                      className="text-gray-500 hover:text-gray-300 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors p-1"
+                      title="Mover para cima"
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveSubscription(sub.id, 'down')}
+                      disabled={subscriptions[subscriptions.length - 1]?.id === sub.id}
+                      className="text-gray-500 hover:text-gray-300 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors p-1"
+                      title="Mover para baixo"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
                   <button
                     onClick={() => {
                       setSelectedSubscriptionForEdit(sub);
@@ -2548,6 +2812,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           const subscription = subscriptions.find(sub => sub.id === cs.subscription_id);
                           const fixedCommission = subscription?.fixed_commission_value;
                           setAttendanceValue(fixedCommission && fixedCommission > 0 ? fixedCommission : 0);
+                          // Carregar comissão de venda (se existir)
+                          loadSaleCommissionForClient(cs.id);
+                          setSaleCommissionLastSavedAt(null);
                           setShowAddAttendanceModal(true);
                         }}
                         className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
@@ -2615,6 +2882,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setAttendanceDate('');
                   setAttendanceProfessional('');
                   setAttendanceValue(0);
+                  setSaleCommissionProfessional('');
+                  setSaleCommissionPercent('');
+                  setSaleCommissionLastSavedAt(null);
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
@@ -2728,6 +2998,90 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 })()}
               </div>
 
+              {/* Comissão por venda da assinatura (NÃO é atendimento) */}
+              <div className="border-t border-gray-700 pt-4">
+                <p className="text-sm font-semibold text-white mb-2">
+                  % do profissional por venda da assinatura (SALVA AUTOMATICAMENTE)
+                </p>
+                <p className="text-xs text-gray-400 mb-3">
+                  Isso é um bônus de venda (paga 1x). <strong>Não precisa clicar em “Salvar Atendimento”.</strong>
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label htmlFor="saleCommissionProfessional" className="block text-sm font-medium text-gray-400 mb-1">
+                      Profissional que vendeu a assinatura
+                    </label>
+                    <select
+                      id="saleCommissionProfessional"
+                      value={saleCommissionProfessional}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setSaleCommissionProfessional(next);
+                        saveSaleCommissionDebounced(selectedClientForAttendance, next, saleCommissionPercent);
+                      }}
+                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                    >
+                      <option value="">Selecione o profissional</option>
+                      {professionals.map((professional) => (
+                        <option key={professional.id} value={professional.full_name}>
+                          {professional.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="saleCommissionPercent" className="block text-sm font-medium text-gray-400 mb-1">
+                      Percentual (%)
+                    </label>
+                    <input
+                      type="number"
+                      id="saleCommissionPercent"
+                      value={saleCommissionPercent}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setSaleCommissionPercent(next);
+                        saveSaleCommissionDebounced(selectedClientForAttendance, saleCommissionProfessional, next);
+                      }}
+                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      placeholder="Ex: 10"
+                      disabled={!saleCommissionProfessional}
+                    />
+                    <div className="mt-2 p-2 bg-gray-100 border border-gray-300 rounded-lg">
+                      {(() => {
+                        const subscriptionValue = getSubscriptionValueForClient(selectedClientForAttendance);
+                        const percent = Number(String(saleCommissionPercent || '').replace(',', '.'));
+                        const canCalc = saleCommissionProfessional && Number.isFinite(percent) && percent > 0 && subscriptionValue > 0;
+                        const amount = canCalc ? computeSaleCommissionAmount(subscriptionValue, percent) : 0;
+                        const lastSavedLabel =
+                          saleCommissionLastSavedAt
+                            ? `✅ Salvo automaticamente às ${new Date(saleCommissionLastSavedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                            : '';
+                        return (
+                          <p className="text-xs text-gray-700">
+                            {saleCommissionProfessional
+                              ? canCalc
+                                ? `✅ Vai somar ${fmtBRL(amount)} no caixa do profissional (1x) — assinatura: ${fmtBRL(subscriptionValue)}`
+                                : `ℹ️ Coloque um % para calcular em cima de ${fmtBRL(subscriptionValue)}`
+                              : '⚠️ Selecione o profissional para habilitar o percentual.'}
+                            {isSavingSaleCommission && (
+                              <span className="ml-2 text-gray-500">Salvando...</span>
+                            )}
+                            {!isSavingSaleCommission && lastSavedLabel && (
+                              <span className="ml-2 text-green-700 font-semibold">{lastSavedLabel}</span>
+                            )}
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
@@ -2737,6 +3091,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     setAttendanceDate('');
                     setAttendanceProfessional('');
                     setAttendanceValue(0);
+                    setSaleCommissionProfessional('');
+                    setSaleCommissionPercent('');
+                    setSaleCommissionLastSavedAt(null);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
                 >

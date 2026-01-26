@@ -63,10 +63,24 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
             {isConfirmationStep
               ? 'Tem certeza que deseja não ativar o lembrete? Se não ativar, você pode esquecer de ir e prejudicar seu profissional.'
               : enableWhatsAppNotifications
-                ? 'Para finalizar o agendamento, clique no botão Confirmar. Assim, enviaremos uma notificação para o seu barbeiro informando o serviço.'
+                ? '⚠️ IMPORTANTE: para concluir, toque em "Confirmar" e avise seu barbeiro no WhatsApp.'
                 : 'Clique abaixo para ativar o lembrete.'
             }
           </p>
+
+          {/* Aviso extra (apenas no fluxo WhatsApp) */}
+          {!isConfirmationStep && enableWhatsAppNotifications && (
+            <div
+              className="rounded-2xl p-4 mb-6 text-sm font-semibold"
+              style={{
+                background: 'rgba(230,199,139,0.10)',
+                border: '1px solid rgba(230,199,139,0.30)',
+                color: '#E6C78B'
+              }}
+            >
+              Se você fechar esta tela sem confirmar, <span className="text-white font-extrabold">seu barbeiro pode não ser avisado</span> e seu horário pode ficar sem confirmação.
+            </div>
+          )}
 
           {/* Dados do agendamento (apenas no passo inicial) */}
           {!isConfirmationStep && appointmentData && (

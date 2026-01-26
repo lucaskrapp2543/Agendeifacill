@@ -464,10 +464,17 @@ export function AppointmentForm({
         return;
       }
 
-      // Combinar categorias com suas subcategorias
-      const categoriesWithSubcategories = categories.map((category: any) => ({
+      // ✅ Ocultar apenas no booking público
+      // Suporta os dois campos possíveis no banco: hidden_from_booking e oculto_da_reserva
+      const isHiddenInBooking = (o: any) => Boolean(o?.hidden_from_booking ?? o?.oculto_da_reserva);
+
+      const visibleCategories = (categories || []).filter((c: any) => !isHiddenInBooking(c));
+      const visibleSubcategories = (subcategories || []).filter((s: any) => !isHiddenInBooking(s));
+
+      // Combinar categorias com suas subcategorias (já filtradas)
+      const categoriesWithSubcategories = visibleCategories.map((category: any) => ({
         ...category,
-        subcategories: subcategories.filter((sub: any) => sub.category_id === category.id)
+        subcategories: visibleSubcategories.filter((sub: any) => sub.category_id === category.id)
       }));
 
       setServiceCategories(categoriesWithSubcategories);

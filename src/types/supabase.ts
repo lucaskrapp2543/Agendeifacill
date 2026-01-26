@@ -101,20 +101,41 @@ export interface Database {
           name: string;
           value: number;
           duration_months: number;
+          sort_order?: number;
           custom_link?: string | null;
+          is_hidden?: boolean;
+          description?: string | null;
+          weekdays?: string[] | null;
+          service_duration?: number | null;
+          fixed_commission_value?: number | null;
+          monthly_service_limit?: number | null;
         };
         Insert: {
           establishment_id: string;
           name: string;
           value: number;
           duration_months: number;
+          sort_order?: number;
           custom_link?: string | null;
+          is_hidden?: boolean;
+          description?: string | null;
+          weekdays?: string[] | null;
+          service_duration?: number | null;
+          fixed_commission_value?: number | null;
+          monthly_service_limit?: number | null;
         };
         Update: {
           name?: string;
           value?: number;
           duration_months?: number;
+          sort_order?: number;
           custom_link?: string | null;
+          is_hidden?: boolean;
+          description?: string | null;
+          weekdays?: string[] | null;
+          service_duration?: number | null;
+          fixed_commission_value?: number | null;
+          monthly_service_limit?: number | null;
         };
       };
       discount_coupons: {

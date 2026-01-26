@@ -462,20 +462,7 @@ export default function BookingPage() {
       try {
         const { data: subs, error: subErr } = await supabase
           .from('service_subcategories')
-          .select(
-            `
-            id,
-            name,
-            price,
-            duration,
-            display_order,
-            is_active,
-            service_categories!inner (
-              establishment_id,
-              display_order
-            )
-          `
-          )
+          .select(`*, service_categories!inner(*)`)
           .eq('is_active', true)
           .eq('service_categories.establishment_id', data.id)
           .order('service_categories(display_order)', { ascending: true })
@@ -484,7 +471,13 @@ export default function BookingPage() {
         if (subErr) {
           console.warn('⚠️ BookingPage - erro ao buscar serviços por categorias (subcategorias):', subErr);
         } else {
-          servicesFromCategories = (subs || [])
+          const isHidden = (o: any) => Boolean(o?.hidden_from_booking ?? o?.oculto_da_reserva);
+          const visible = (subs || []).filter((s: any) => {
+            const cat = (s as any)?.service_categories;
+            return !isHidden(s) && !isHidden(cat);
+          });
+
+          servicesFromCategories = visible
             .filter((s: any) => s?.id && s?.name)
             .map((s: any) => ({
               id: s.id,

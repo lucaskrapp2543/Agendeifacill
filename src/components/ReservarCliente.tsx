@@ -324,23 +324,22 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       try {
         console.log('🔍 Carregando assinaturas para establishment:', establishmentId);
 
-        // Buscar assinaturas NÃO OCULTAS (is_hidden = false ou null)
-        const { data: subs, error: subsError } = await supabase
-          .from('subscriptions')
-          .select('*')
-          .eq('establishment_id', establishmentId)
-          .or('is_hidden.is.null,is_hidden.eq.false');
+        // Usar a mesma função do Booking/Painel (já respeita sort_order quando existir)
+        const { getSubscriptions } = await import('../lib/supabase');
+        const { data: allSubs, error: subsError } = await getSubscriptions(establishmentId);
 
         if (subsError) {
           console.error('❌ Erro ao carregar assinaturas:', subsError);
           throw subsError;
         }
 
-        console.log('✅ Assinaturas encontradas (apenas visíveis):', subs);
-        console.log('✅ Total de assinaturas visíveis:', subs?.length || 0);
-        console.log('✅ Detalhes:', subs);
+        // Filtrar assinaturas NÃO OCULTAS (is_hidden = false ou null)
+        const visible = (allSubs || []).filter((s: any) => !s?.is_hidden);
 
-        setSubscriptions(subs || []);
+        console.log('✅ Assinaturas encontradas (apenas visíveis):', visible);
+        console.log('✅ Total de assinaturas visíveis:', visible?.length || 0);
+
+        setSubscriptions(visible);
       } catch (error) {
         console.error('❌ Erro ao carregar assinaturas:', error);
       }

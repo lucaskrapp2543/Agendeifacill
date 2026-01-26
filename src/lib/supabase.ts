@@ -1623,31 +1623,62 @@ export const loadEstablishmentDirect = async (code: string) => {
 
 // Subscription functions
 export const createSubscription = async (establishmentId: string, name: string, value: number, durationMonths: number, weekdays?: string[], serviceDuration?: number, fixedCommissionValue?: number, description?: string) => {
-  const { data, error } = await supabase
-    .from('subscriptions')
-    .insert([
-      {
-        establishment_id: establishmentId,
-        name,
-        value,
-        duration_months: durationMonths,
-        weekdays: weekdays || [],
-        service_duration: serviceDuration || 30, // Duração padrão de 30 minutos
-        fixed_commission_value: fixedCommissionValue || 0, // Valor fixo de comissão por serviço diário
-        description: description?.trim() || null // Descrição opcional
-      }
-    ])
-    .select()
-    .single();
+  // Tentar calcular o próximo sort_order (para novas assinaturas entrarem no fim).
+  // Se a coluna ainda não existir (DB sem a migration), seguimos sem sort_order para não quebrar.
+  let nextSortOrder: number | undefined = undefined;
+  try {
+    const { data: maxRow, error: maxErr } = await supabase
+      .from('subscriptions')
+      .select('sort_order')
+      .eq('establishment_id', establishmentId)
+      .order('sort_order', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!maxErr) {
+      const currentMax = (maxRow as any)?.sort_order;
+      nextSortOrder = typeof currentMax === 'number' ? currentMax + 1 : 0;
+    }
+  } catch {
+    // ignore
+  }
+
+  const payload: any = {
+    establishment_id: establishmentId,
+    name,
+    value,
+    duration_months: durationMonths,
+    weekdays: weekdays || [],
+    service_duration: serviceDuration || 30, // Duração padrão de 30 minutos
+    fixed_commission_value: fixedCommissionValue || 0, // Valor fixo de comissão por serviço diário
+    description: description?.trim() || null // Descrição opcional
+  };
+  if (typeof nextSortOrder === 'number') {
+    payload.sort_order = nextSortOrder;
+  }
+
+  const { data, error } = await supabase.from('subscriptions').insert([payload]).select().single();
   return { data, error };
 };
 
 export const getSubscriptions = async (establishmentId: string) => {
-  const { data, error } = await supabase
-    .from('subscriptions')
-    .select('*')
-    .eq('establishment_id', establishmentId)
+  // Preferir ordenação manual (sort_order). Se a coluna ainda não existir no DB,
+  // fazemos fallback para a ordenação antiga por nome para não quebrar telas.
+  const baseQuery = supabase.from('subscriptions').select('*').eq('establishment_id', establishmentId);
+
+  const { data, error } = await baseQuery
+    .order('sort_order', { ascending: true, nullsFirst: false })
     .order('name', { ascending: true });
+
+  if (error && String((error as any).message || '').toLowerCase().includes('sort_order')) {
+    const fallback = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .order('name', { ascending: true });
+    return fallback;
+  }
+
   return { data, error };
 };
 

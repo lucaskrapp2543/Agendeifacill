@@ -305,7 +305,8 @@ const EstablishmentDirectBooking: React.FC = () => {
             `
             *,
             service_categories!inner (
-              establishment_id
+              establishment_id,
+              hidden_from_booking
             )
           `
           )
@@ -320,9 +321,16 @@ const EstablishmentDirectBooking: React.FC = () => {
           return;
         }
 
-        const categoriesWithSubcategories = (categories || []).map((category: any) => ({
+        const isHidden = (o: any) => Boolean(o?.hidden_from_booking ?? o?.oculto_da_reserva);
+        const visibleCategories = (categories || []).filter((c: any) => !isHidden(c));
+        const visibleSubcategories = (subcategories || []).filter((s: any) => {
+          const cat = (s as any)?.service_categories;
+          return !isHidden(s) && !isHidden(cat);
+        });
+
+        const categoriesWithSubcategories = visibleCategories.map((category: any) => ({
           ...category,
-          subcategories: (subcategories || []).filter((sub: any) => sub.category_id === category.id),
+          subcategories: visibleSubcategories.filter((sub: any) => sub.category_id === category.id),
         }));
 
         setCategoriasDeServicos(categoriesWithSubcategories);
