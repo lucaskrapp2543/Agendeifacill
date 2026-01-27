@@ -5,15 +5,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Crown,
   CreditCard,
+  Crown,
   DollarSign,
   Gift,
   Layers,
   Link,
+  ListOrdered,
   Lock,
   LogOut,
-  ListOrdered,
   Menu,
   MessageCircle,
   MessageSquare,
@@ -1215,20 +1215,20 @@ const Sidebar: React.FC<SidebarProps> = ({
                             ? 'bg-gray-100 text-gray-500 border border-gray-200 opacity-75 hover:bg-gray-100'
                             : 'bg-transparent text-gray-500 opacity-60 hover:bg-white/5'
                           : item.isActive
-                          ? isLight
-                            ? 'bg-gray-900 text-white shadow-md'
-                            : 'bg-white text-black shadow-md'
-                          : item.disabled
-                            ? item.id === 'hours'
-                              ? isLight
-                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
+                            ? isLight
+                              ? 'bg-gray-900 text-white shadow-md'
+                              : 'bg-white text-black shadow-md'
+                            : item.disabled
+                              ? item.id === 'hours'
+                                ? isLight
+                                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                  : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
+                                : isLight
+                                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                                  : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
                               : isLight
-                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
-                                : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
-                            : isLight
-                              ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
-                              : 'bg-transparent text-white'
+                                ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
+                                : 'bg-transparent text-white'
                       }`}
                     title={item.tooltip || (isExpanded ? '' : item.label)}
                   >
@@ -1245,16 +1245,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                             : isPlanLocked
                               ? 'text-gray-500'
                               : item.disabled
-                              ? item.id === 'hours'
-                                ? isLight ? 'text-gray-400' : 'text-black'
-                                : 'text-gray-500'
-                              : item.isActive
-                                ? isLight
-                                  ? 'text-white'
-                                  : 'text-black'
-                                : isLight
-                                  ? 'text-gray-700'
-                                  : 'text-white'
+                                ? item.id === 'hours'
+                                  ? isLight ? 'text-gray-400' : 'text-black'
+                                  : 'text-gray-500'
+                                : item.isActive
+                                  ? isLight
+                                    ? 'text-white'
+                                    : 'text-black'
+                                  : isLight
+                                    ? 'text-gray-700'
+                                    : 'text-white'
                           }`}
                       />
                       {(isPlanLocked || isOnboardingLocked) && (
@@ -1283,16 +1283,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                               : isPlanLocked
                                 ? isLight ? 'text-gray-600' : 'text-gray-300'
                                 : item.disabled && item.id === 'hours'
-                                ? isLight
-                                  ? 'text-gray-500'
-                                  : 'text-black'
-                                : item.isActive
                                   ? isLight
-                                    ? 'text-white'
+                                    ? 'text-gray-500'
                                     : 'text-black'
-                                  : isLight
-                                    ? 'text-gray-800'
-                                    : 'text-white'
+                                  : item.isActive
+                                    ? isLight
+                                      ? 'text-white'
+                                      : 'text-black'
+                                    : isLight
+                                      ? 'text-gray-800'
+                                      : 'text-white'
                             }`}
                         >
                           {isOnboardingLocked ? `🔒 ${item.label}` : item.label}
@@ -1351,18 +1351,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                         handleItemClick(onReceberAdiantadoClick);
                       }}
                       disabled={!onReceberAdiantadoClick}
-                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
-                        isReceberAdiantadoOpen
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${isReceberAdiantadoOpen
                           ? 'bg-white text-black shadow-md'
                           : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white hover:from-[#0088C7] hover:to-[#006AA3] shadow-md'
-                      } ${!onReceberAdiantadoClick ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        } ${!onReceberAdiantadoClick ? 'opacity-60 cursor-not-allowed' : ''}`}
                       title={isExpanded ? '' : 'Receber adiantado'}
                       aria-label="Receber adiantado"
                     >
                       <CreditCard
-                        className={`h-5 w-5 flex-shrink-0 ${
-                          isReceberAdiantadoOpen ? 'text-black' : 'text-white'
-                        }`}
+                        className={`h-5 w-5 flex-shrink-0 ${isReceberAdiantadoOpen ? 'text-black' : 'text-white'
+                          }`}
                       />
                       {isExpanded && (
                         <>
@@ -1400,25 +1398,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                           }
                           handleItemClick(() => onTabChange('fila-espera'));
                         }}
-                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
-                          activeTab === 'fila-espera'
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'fila-espera'
                             ? 'bg-white text-black shadow-md'
                             : isPlanLockedItem('fila-espera') || isItemLocked('fila-espera')
                               ? 'bg-white/5 text-gray-400 opacity-60 cursor-not-allowed'
                               : 'bg-gradient-to-r from-purple-600 to-fuchsia-700 text-white hover:from-purple-700 hover:to-fuchsia-800 shadow-md'
-                        }`}
+                          }`}
                         title={isExpanded ? '' : 'Fila de espera'}
                         aria-label="Fila de espera"
                       >
                         <div className="relative">
                           <ListOrdered
-                            className={`h-5 w-5 flex-shrink-0 ${
-                              activeTab === 'fila-espera'
+                            className={`h-5 w-5 flex-shrink-0 ${activeTab === 'fila-espera'
                                 ? 'text-black'
                                 : isPlanLockedItem('fila-espera') || isItemLocked('fila-espera')
                                   ? 'text-gray-500'
                                   : 'text-white'
-                            }`}
+                              }`}
                           />
                           {(isPlanLockedItem('fila-espera') || isItemLocked('fila-espera')) && (
                             <span className="absolute -bottom-1 -right-1">
@@ -1429,16 +1425,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                         {isExpanded && (
                           <>
                             <span
-                              className={`text-sm font-extrabold whitespace-nowrap ${
-                                activeTab === 'fila-espera' ? 'text-black' : isPlanLockedItem('fila-espera') ? 'text-gray-300' : 'text-white'
-                              }`}
+                              className={`text-sm font-extrabold whitespace-nowrap ${activeTab === 'fila-espera' ? 'text-black' : isPlanLockedItem('fila-espera') ? 'text-gray-300' : 'text-white'
+                                }`}
                             >
                               FILA DE ESPERA
                             </span>
                             <ChevronRight
-                              className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${
-                                activeTab === 'fila-espera' ? 'text-black' : isPlanLockedItem('fila-espera') ? 'text-gray-400' : 'text-white'
-                              }`}
+                              className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${activeTab === 'fila-espera' ? 'text-black' : isPlanLockedItem('fila-espera') ? 'text-gray-400' : 'text-white'
+                                }`}
                             />
                           </>
                         )}
