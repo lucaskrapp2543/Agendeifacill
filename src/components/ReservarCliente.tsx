@@ -105,11 +105,93 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string>('');
 
+  // Reserva recorrente mensal (mesmo dia da semana/horário, até o fim do mês)
+  const [reservarMensal, setReservarMensal] = useState(false);
+  const [showReservarMensalModal, setShowReservarMensalModal] = useState(false);
+  const [datasSelecionadasMensal, setDatasSelecionadasMensal] = useState<string[]>([]);
+  const [mesCalendario, setMesCalendario] = useState<{ year: number; month: number }>(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+
   // ✅ Evita bug de timezone: new Date('YYYY-MM-DD') pode mostrar dia anterior no Brasil
   const formatarDataPtBr = (yyyyMmDd: string): string => {
     const [y, m, d] = (yyyyMmDd || '').split('-').map(Number);
     if (!y || !m || !d) return '';
     return new Date(y, m - 1, d, 12, 0, 0).toLocaleDateString('pt-BR');
+  };
+
+  const getWeekdayLabelPtBr = (dayIndex: number): string => {
+    const labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    return labels[dayIndex] || '';
+  };
+
+  const parseYyyyMmDdToDateNoon = (yyyyMmDd: string): Date => {
+    const [y, m, d] = (yyyyMmDd || '').split('-').map(Number);
+    return new Date(y || 1970, (m || 1) - 1, d || 1, 12, 0, 0);
+  };
+
+  const toYyyyMmDd = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const addMonths = (d: Date, months: number): Date => {
+    const next = new Date(d);
+    next.setMonth(next.getMonth() + months);
+    return next;
+  };
+
+  const buildMonthGrid = (year: number, month: number): Array<Array<Date | null>> => {
+    const first = new Date(year, month, 1, 12, 0, 0);
+    const last = new Date(year, month + 1, 0, 12, 0, 0);
+    const weeks: Array<Array<Date | null>> = [];
+    let currentWeek: Array<Date | null> = [];
+
+    // preencher vazios antes do 1º dia
+    for (let i = 0; i < first.getDay(); i++) currentWeek.push(null);
+
+    for (let day = 1; day <= last.getDate(); day++) {
+      const dt = new Date(year, month, day, 12, 0, 0);
+      currentWeek.push(dt);
+      if (currentWeek.length === 7) {
+        weeks.push(currentWeek);
+        currentWeek = [];
+      }
+    }
+
+    // preencher vazios no fim
+    if (currentWeek.length > 0) {
+      while (currentWeek.length < 7) currentWeek.push(null);
+      weeks.push(currentWeek);
+    }
+
+    return weeks;
+  };
+
+  const sugerirDatasPorDiaSemana = (baseYyyyMmDd: string, mesesFuturos: number): string[] => {
+    const base = parseYyyyMmDdToDateNoon(baseYyyyMmDd);
+    const weekday = base.getDay();
+    const start = new Date(base.getFullYear(), base.getMonth(), 1, 12, 0, 0);
+    const end = new Date(addMonths(start, mesesFuturos + 1).getFullYear(), addMonths(start, mesesFuturos + 1).getMonth(), 0, 12, 0, 0);
+
+    const todayNoon = new Date();
+    todayNoon.setHours(12, 0, 0, 0);
+
+    const out: string[] = [];
+    for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+      const dayNoon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0);
+      if (dayNoon < todayNoon) continue; // evita datas passadas
+      if (dayNoon.getDay() === weekday) out.push(toYyyyMmDd(dayNoon));
+    }
+
+    // garantir que inclui a data base (se não for passada)
+    const baseStr = toYyyyMmDd(base);
+    if (!out.includes(baseStr)) out.push(baseStr);
+    out.sort();
+    return out;
   };
 
   // Função para carregar clientes do estabelecimento
@@ -943,7 +1025,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       const serviceNames = servicesToInsert.map(s => s.name).join(', ');
 
       // Verificar se é um agendamento de assinante ou cliente conhecido
-      const isSubscriber = selectedSubscription !== null;
+      const isSubscriber = selectedSubscription !== null; // serviço/condição de assinante (não substitui o cliente)
       const isKnownClient = selectedClient !== null;
 
       // Função para gerar UUID consistente a partir de uma string (para clientes manuais)
@@ -995,12 +1077,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       let clientWhatsapp: string | null;
       let isAvulso: boolean;
 
-      if (isSubscriber) {
-        clientId = user?.id || '';
-        clientName = 'ASSINANTE';
-        clientWhatsapp = null;
-        isAvulso = false;
-      } else if (isKnownClient) {
+      // ✅ Prioridade: se escolheu um cliente conhecido, SEMPRE manter o nome/WhatsApp dele,
+      // mesmo que o serviço selecionado seja de "assinante".
+      if (isKnownClient) {
         // Se o cliente é manual (id começa com "manual_"), usar o user_id do estabelecimento
         // O banco exige client_id NOT NULL e tem foreign key para users
         // Como cliente manual não tem user_id, usamos o ID do estabelecimento como fallback
@@ -1015,6 +1094,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         clientName = selectedClient.name;
         clientWhatsapp = normalizeWhatsappForStorage(selectedClient.whatsapp);
         isAvulso = false; // Cliente conhecido não é avulso
+      } else if (isSubscriber) {
+        clientId = user?.id || '';
+        clientName = 'ASSINANTE';
+        clientWhatsapp = null;
+        isAvulso = false;
       } else {
         clientId = user?.id || '';
         clientName = 'CLIENTE AVULSO';
@@ -1027,30 +1111,97 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       // Reservas criadas pelo profissional dentro do DASHBOARD (Reservar Cliente) NÃO devem exigir PIX/CPF.
       const requiresPayment = false;
 
-      const { data: appointmentData, error } = await supabase
-        .from('appointments')
-        .insert({
-          client_id: clientId,
-          establishment_id: establishmentId,
-          professional: selectedProfessional.id, // Usar ID do profissional
-          service: serviceNames,
-          client_name: clientName,
-          client_whatsapp: clientWhatsapp,
-          appointment_date: selectedDate,
-          appointment_time: selectedTime,
-          status: 'confirmed', // Reservas internas sempre confirmadas (sem pagamento antecipado)
-          price: totalPrice,
-          total_price: totalPrice,
-          duration: totalDuration,
-          // ✅ Reserva interna: deixar um padrão (para não ficar "Forma de Pagamento")
-          payment_method: isSubscriber ? 'assinante' : 'dinheiro',
-          is_avulso: isAvulso,
-          is_subscriber: isSubscriber // Salvar se é assinante
-        })
-        .select('id')
-        .single();
+      // Helpers para reserva mensal
+      const addDays = (d: Date, days: number): Date => {
+        const next = new Date(d);
+        next.setDate(next.getDate() + days);
+        return next;
+      };
 
-      if (error) throw error;
+      const parseTimeToMinutes = (hhmm: string): number => {
+        const [h, m] = String(hhmm || '').split(':').map(Number);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
+        return h * 60 + m;
+      };
+
+      const hasOverlap = (startA: number, durA: number, startB: number, durB: number): boolean => {
+        const endA = startA + durA;
+        const endB = startB + durB;
+        return startA < endB && startB < endA;
+      };
+
+      // Construir lista de datas (inclui a selecionada e vai semanalmente até o fim do mês)
+      const selectedDateObj = (() => {
+        const [y, m, d] = (selectedDate || '').split('-').map(Number);
+        return new Date(y, (m || 1) - 1, d || 1, 12, 0, 0); // meio-dia p/ evitar bug de timezone
+      })();
+
+      const datasMensais: string[] = [];
+      if (reservarMensal) {
+        // ✅ Novo: usa dias escolhidos no calendário (pode incluir mês que vem)
+        const unique = Array.from(new Set(datasSelecionadasMensal.filter(Boolean)));
+        if (unique.length === 0) {
+          alert('Selecione ao menos um dia para a reserva mensal.');
+          return;
+        }
+        datasMensais.push(...unique);
+      } else {
+        datasMensais.push(selectedDate);
+      }
+
+      // Verificar conflitos antes de criar (evita sobreposição e double-booking)
+      const { data: existingAppointments, error: existingError } = await supabase
+        .from('appointments')
+        .select('appointment_date, appointment_time, duration, status')
+        .eq('establishment_id', establishmentId)
+        .eq('professional', selectedProfessional.id)
+        .in('appointment_date', datasMensais)
+        .neq('status', 'cancelled');
+
+      if (existingError) throw existingError;
+
+      const novoInicioMin = parseTimeToMinutes(selectedTime);
+
+      const datasSemConflito = datasMensais.filter((dateStr) => {
+        const doDia = (existingAppointments || []).filter((a: any) => a.appointment_date === dateStr);
+        for (const a of doDia) {
+          const inicio = parseTimeToMinutes(a.appointment_time);
+          const dur = Number(a.duration || 30);
+          if (hasOverlap(novoInicioMin, totalDuration, inicio, dur)) return false;
+        }
+        return true;
+      });
+
+      const payloads = datasSemConflito.map((dateStr) => ({
+        client_id: clientId,
+        establishment_id: establishmentId,
+        professional: selectedProfessional.id, // Usar ID do profissional
+        service: serviceNames,
+        client_name: clientName,
+        client_whatsapp: clientWhatsapp,
+        appointment_date: dateStr,
+        appointment_time: selectedTime,
+        status: 'confirmed', // Reservas internas sempre confirmadas (sem pagamento antecipado)
+        price: totalPrice,
+        total_price: totalPrice,
+        duration: totalDuration,
+        // ✅ Reserva interna: deixar um padrão (para não ficar "Forma de Pagamento")
+        payment_method: isSubscriber ? 'assinante' : 'dinheiro',
+        is_avulso: isAvulso,
+        is_subscriber: isSubscriber // Salvar se é assinante
+      }));
+
+      if (payloads.length === 0) {
+        alert('Não foi possível criar as reservas: todos os horários do mês já estão ocupados nesse horário.');
+        return;
+      }
+
+      const { data: inserted, error: insertError } = await supabase
+        .from('appointments')
+        .insert(payloads)
+        .select('id');
+
+      if (insertError) throw insertError;
 
       // Reservas internas não abrem modal de pagamento (ver comentário acima)
 
@@ -1063,11 +1214,19 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           clientWhatsapp: clientWhatsapp || '',
           isKnownClient,
           isSubscriber,
-          isAvulso
+          isAvulso,
+          createdCount: Array.isArray(inserted) ? inserted.length : 1,
+          skippedCount: datasMensais.length - datasSemConflito.length,
+          reservarMensal
         }
       }));
 
-      alert('Reserva criada com sucesso!');
+      const createdCount = Array.isArray(inserted) ? inserted.length : 1;
+      const skippedCount = datasMensais.length - datasSemConflito.length;
+      const msg = reservarMensal
+        ? `Reservas criadas: ${createdCount}.\n${skippedCount > 0 ? `Ignoradas por conflito: ${skippedCount}.` : ''}`
+        : 'Reserva criada com sucesso!';
+      alert(msg);
       onClose();
     } catch (error) {
       console.error('Erro ao criar reserva:', error);
@@ -1596,14 +1755,68 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   <p><strong>Data:</strong> {formatarDataPtBr(selectedDate)}</p>
                   <p><strong>Horário:</strong> {selectedTime}</p>
                   <p><strong>Cliente:</strong> {
-                    selectedSubscription ? (
+                    selectedClient ? (
+                      <span className="text-gray-800 font-semibold">
+                        {selectedClient.name}
+                        {selectedSubscription ? <span className="text-gray-700 font-semibold"> {' '}• ASSINANTE 👑</span> : null}
+                      </span>
+                    ) : selectedSubscription ? (
                       <span className="text-gray-800 font-semibold">ASSINANTE 👑</span>
-                    ) : selectedClient ? (
-                      <span className="text-gray-800 font-semibold">{selectedClient.name}</span>
                     ) : (
                       'CLIENTE AVULSO'
                     )
                   }</p>
+                </div>
+              </div>
+
+              {/* Reservar mensal */}
+              <div className="mb-4 rounded-lg border border-gray-300 bg-white p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold text-gray-900">Reservar mensal</p>
+                    <p className="mt-1 text-sm text-gray-700">
+                      Ao ativar, você escolhe no calendário quais dias deseja agendar (mantém o mesmo <strong>horário</strong> e <strong>serviço</strong>).
+                    </p>
+                    {reservarMensal && datasSelecionadasMensal.length > 0 && (
+                      <p className="mt-2 text-xs text-gray-700">
+                        <strong>Dias selecionados:</strong> {datasSelecionadasMensal.length}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-semibold ${reservarMensal ? 'bg-black text-white' : 'bg-gray-200 text-gray-900'}`}
+                    >
+                      {reservarMensal ? 'Ativado' : 'Desativado'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReservarMensal((v) => {
+                          const next = !v;
+                          if (next) {
+                            setShowReservarMensalModal(true);
+                            // calendário começa no mês da data selecionada
+                            const base = parseYyyyMmDdToDateNoon(selectedDate);
+                            setMesCalendario({ year: base.getFullYear(), month: base.getMonth() });
+                            // sugestão automática: mesmo dia da semana por 2 meses (mês atual + mês que vem)
+                            setDatasSelecionadasMensal(sugerirDatasPorDiaSemana(selectedDate, 1));
+                          } else {
+                            setDatasSelecionadasMensal([]);
+                            setShowReservarMensalModal(false);
+                          }
+                          return next;
+                        });
+                      }}
+                      className={`relative inline-flex h-8 w-14 flex-shrink-0 items-center rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-black/30 ${reservarMensal ? 'bg-black border-black' : 'bg-gray-300 border-gray-400'}`}
+                      aria-pressed={reservarMensal}
+                      aria-label="Alternar reservar mensal"
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform ${reservarMensal ? 'translate-x-7' : 'translate-x-1'}`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1616,7 +1829,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                 </button>
                 <button
                   onClick={handleConfirmReservation}
-                  disabled={loading}
+                  disabled={loading || (reservarMensal && datasSelecionadasMensal.length === 0)}
                   className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? 'Criando...' : 'Confirmar Reserva'}
@@ -1626,6 +1839,186 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           )}
         </div>
       </div>
+
+      {/* Modal: Selecionar dias da reserva mensal */}
+      {showReservarMensalModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-xl rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div>
+                <h4 className="text-lg font-semibold text-gray-900">Selecionar dias</h4>
+                <p className="text-xs text-gray-700">
+                  Escolha os dias que serão agendados. O horário e serviço serão os mesmos ({selectedTime}).
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowReservarMensalModal(false);
+                  if (datasSelecionadasMensal.length === 0) setReservarMensal(false);
+                }}
+                className="rounded-md px-2 py-1 text-gray-700 hover:bg-gray-100"
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const base = parseYyyyMmDdToDateNoon(selectedDate);
+                    const min = new Date(base.getFullYear(), base.getMonth(), 1, 12, 0, 0);
+                    const current = new Date(mesCalendario.year, mesCalendario.month, 1, 12, 0, 0);
+                    const prev = addMonths(current, -1);
+                    if (prev < min) return;
+                    setMesCalendario({ year: prev.getFullYear(), month: prev.getMonth() });
+                  }}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 hover:bg-gray-50"
+                >
+                  ←
+                </button>
+                <div className="text-sm font-semibold text-gray-900">
+                  {new Date(mesCalendario.year, mesCalendario.month, 1, 12, 0, 0).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const base = parseYyyyMmDdToDateNoon(selectedDate);
+                    const max = new Date(addMonths(new Date(base.getFullYear(), base.getMonth(), 1, 12, 0, 0), 2).getFullYear(), addMonths(new Date(base.getFullYear(), base.getMonth(), 1, 12, 0, 0), 2).getMonth(), 1, 12, 0, 0);
+                    const current = new Date(mesCalendario.year, mesCalendario.month, 1, 12, 0, 0);
+                    const next = addMonths(current, 1);
+                    if (next > max) return;
+                    setMesCalendario({ year: next.getFullYear(), month: next.getMonth() });
+                  }}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 hover:bg-gray-50"
+                >
+                  →
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-7 gap-2 text-center text-xs font-semibold text-gray-700">
+                {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d) => (
+                  <div key={d} className="py-1">{d}</div>
+                ))}
+              </div>
+
+              <div className="mt-2 grid grid-cols-7 gap-2">
+                {buildMonthGrid(mesCalendario.year, mesCalendario.month).map((week, wi) => (
+                  <React.Fragment key={`w_${wi}`}>
+                    {week.map((dt, di) => {
+                      if (!dt) return <div key={`e_${wi}_${di}`} />;
+                      const yyyyMmDd = toYyyyMmDd(dt);
+                      const isSelected = datasSelecionadasMensal.includes(yyyyMmDd);
+                      const todayNoon = new Date();
+                      todayNoon.setHours(12, 0, 0, 0);
+                      const isPast = dt < todayNoon;
+                      return (
+                        <button
+                          key={yyyyMmDd}
+                          type="button"
+                          disabled={isPast}
+                          onClick={() => {
+                            setDatasSelecionadasMensal((prev) => {
+                              const set = new Set(prev);
+                              if (set.has(yyyyMmDd)) set.delete(yyyyMmDd);
+                              else set.add(yyyyMmDd);
+                              return Array.from(set).sort();
+                            });
+                          }}
+                          className={`h-10 rounded-lg border text-sm font-semibold transition-colors ${
+                            isPast
+                              ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
+                              : isSelected
+                                ? 'border-black bg-black text-white'
+                                : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
+                          }`}
+                          title={`${getWeekdayLabelPtBr(dt.getDay())} ${dt.toLocaleDateString('pt-BR')}`}
+                        >
+                          {dt.getDate()}
+                        </button>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDatasSelecionadasMensal(sugerirDatasPorDiaSemana(selectedDate, 1))}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 hover:bg-gray-50"
+                >
+                  Selecionar todas as {getWeekdayLabelPtBr(parseYyyyMmDdToDateNoon(selectedDate).getDay())} (mês atual + próximo)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDatasSelecionadasMensal([])}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 hover:bg-gray-50"
+                >
+                  Limpar
+                </button>
+              </div>
+
+              {datasSelecionadasMensal.length > 0 && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-semibold text-gray-800">
+                    Selecionados ({datasSelecionadasMensal.length})
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {datasSelecionadasMensal.map((d) => {
+                      const dt = parseYyyyMmDdToDateNoon(d);
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setDatasSelecionadasMensal((prev) => prev.filter((x) => x !== d))}
+                          className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-semibold text-gray-900 hover:bg-gray-100"
+                          title="Remover"
+                        >
+                          {getWeekdayLabelPtBr(dt.getDay())} {dt.toLocaleDateString('pt-BR')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-[11px] text-gray-700">
+                    Dica: clique em um chip para remover.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReservarMensalModal(false);
+                  if (datasSelecionadasMensal.length === 0) {
+                    setReservarMensal(false);
+                  }
+                }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-900 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (datasSelecionadasMensal.length === 0) {
+                    alert('Selecione ao menos um dia.');
+                    return;
+                  }
+                  setShowReservarMensalModal(false);
+                }}
+                className="rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Pagamento */}
       {showPaymentModal && pendingAppointmentId && (
