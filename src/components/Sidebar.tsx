@@ -311,6 +311,20 @@ const Sidebar: React.FC<SidebarProps> = ({
       disabled: isItemLocked('appointments')
     },
     {
+      id: 'client-page',
+      label: 'Página de Agendamentos',
+      icon: Link,
+      onClick: () => {
+        if (isItemLocked('client-page')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('client-page'));
+        }
+      },
+      isActive: activeTab === 'client-page',
+      disabled: isItemLocked('client-page')
+    },
+    {
       id: 'whatsapp-reminders',
       label: 'Lembretes para Clientes',
       icon: MessageCircle,
@@ -467,20 +481,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       disabled: isItemLocked('taxes')
     },
     {
-      id: 'client-page',
-      label: 'Página Clientes',
-      icon: Link,
-      onClick: () => {
-        if (isItemLocked('client-page')) {
-          onBlockedItemClick?.();
-        } else {
-          handleItemClick(() => onTabChange('client-page'));
-        }
-      },
-      isActive: activeTab === 'client-page',
-      disabled: isItemLocked('client-page')
-    },
-    {
       id: 'support',
       label: 'Falar com Suporte',
       icon: MessageSquare,
@@ -547,7 +547,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     dashboard: 'Acompanhe faturamento, pagamentos e repasses.',
     expenses: 'Registre despesas para saber seu lucro real.',
     taxes: 'Configure taxas e veja relatórios por bandeira.',
-    'client-page': 'Link e página pública para seus clientes agendarem.',
+    'client-page': 'Veja o link da sua página e revise as configurações antes de divulgar.',
     support: 'Fale com o suporte para ajuda rápida.',
     config: 'Configurações do sistema e do seu estabelecimento.',
     logout: 'Sair da sua conta neste dispositivo.',
@@ -741,11 +741,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                 const mapById = new Map(menuItems.map((i) => [i.id, i]));
 
                 const sections: Array<{ title: string; ids: string[] }> = [
-                  { title: 'Atalhos', ids: ['notifications', 'appointments'] },
+                  { title: 'Atalhos', ids: ['notifications', 'appointments', 'client-page'] },
                   { title: 'Destaques', ids: ['whatsapp-reminders', 'indication', 'receber-adiantado', 'fila-espera'] },
                   { title: 'Gestão', ids: ['clients', 'subscribers', 'service-categories', 'products', 'professionals'] },
                   { title: 'Financeiro', ids: ['dashboard', 'expenses', 'taxes'] },
-                  { title: 'Configurações', ids: ['client-page', 'support', 'config', 'logout'] },
+                  { title: 'Configurações', ids: ['support', 'config', 'logout'] },
                 ];
 
                 const renderCard = (p: {

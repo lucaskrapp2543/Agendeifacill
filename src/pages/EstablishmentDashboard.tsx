@@ -15211,6 +15211,64 @@ Estamos te aguardando! 😎✂️`;
                       </p>
                     </div>
                   </div>
+
+                  {/* Aviso / checklist antes de divulgar */}
+                  <div className="bg-white rounded-xl shadow-xl border border-gray-200 p-4 sm:p-6 max-w-3xl">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                        <span className="text-amber-900 text-lg">⚠️</span>
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-gray-900 font-extrabold text-base sm:text-lg">
+                          Antes de divulgar sua página para os clientes, revise essas configurações
+                        </h4>
+                        <p className="text-gray-700 text-sm mt-1 leading-relaxed">
+                          Uma página bem configurada passa mais confiança e aumenta a chance do cliente finalizar o agendamento.
+                        </p>
+
+                        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                            <div className="font-semibold text-gray-900 text-sm mb-2">Checklist rápido</div>
+                            <ul className="text-gray-700 text-sm space-y-1">
+                              <li>• Foto de perfil do estabelecimento</li>
+                              <li>• Fotos de capa (se você usa)</li>
+                              <li>• Horários de trabalho e dias disponíveis</li>
+                              <li>• Formas de pagamento e instruções</li>
+                              <li>• Serviços, preços e duração corretos</li>
+                            </ul>
+                          </div>
+
+                          <div className="bg-gradient-to-r from-gray-900 to-black rounded-lg p-3 border border-gray-800">
+                            <div className="font-extrabold text-white text-sm mb-2">Onde ajustar</div>
+                            <p className="text-white/80 text-sm leading-relaxed">
+                              Para editar sua página, vá em <span className="text-white font-semibold">Configurações / Página</span>.
+                            </p>
+                            <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleTabChange('settings')}
+                                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-white text-black font-semibold hover:bg-gray-100 transition-colors"
+                              >
+                                Ir para Configurações / Página
+                              </button>
+                              <a
+                                href={`${window.location.origin}/booking/${establishment?.code}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full sm:w-auto px-4 py-2 rounded-lg border border-white/20 text-white font-semibold hover:bg-white/10 transition-colors text-center"
+                              >
+                                Pré-visualizar página
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 text-xs text-gray-600">
+                          Dica: depois de revisar, copie o link acima e cole no seu WhatsApp/Instagram (bio, catálogo ou mensagem automática).
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
