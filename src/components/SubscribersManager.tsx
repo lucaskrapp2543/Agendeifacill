@@ -816,6 +816,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     setIsSavingAttendance(true);
     try {
+      // ✅ Regra: se existir comissão de venda (%), os atendimentos devem sair do valor RESTANTE
+      // (ex.: assinatura 150, venda 25% = 37,50; base p/ atendimentos vira 112,50 => multiplicador 0,75).
+      const salePercent = Number(String(saleCommissionPercent || '').replace(',', '.'));
+      const hasSaleDiscount = Boolean(saleCommissionProfessional) && Number.isFinite(salePercent) && salePercent > 0;
+      const multiplier = hasSaleDiscount ? Math.max(0, 1 - salePercent / 100) : 1;
+      const repassValueToSave = Math.round(attendanceValue * multiplier * 100) / 100;
+
       const { error } = await supabase
         .from('subscriber_attendances')
         .insert({
@@ -823,7 +830,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           client_subscription_id: selectedClientForAttendance.id,
           professional_name: attendanceProfessional,
           attendance_date: attendanceDate,
-          repass_value: attendanceValue,
+          repass_value: repassValueToSave,
           created_by: user?.id
         });
 
@@ -831,7 +838,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         throw error;
       }
 
-      toast.success(`Atendimento adicionado: ${attendanceProfessional} atendeu ${selectedClientForAttendance.profiles?.full_name} no dia ${new Date(attendanceDate).toLocaleDateString('pt-BR')} e recebeu ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(attendanceValue)}.`);
+      const suffix = hasSaleDiscount
+        ? ` (com desconto de venda ${salePercent}% aplicado)`
+        : '';
+      toast.success(`Atendimento adicionado: ${attendanceProfessional} atendeu ${selectedClientForAttendance.profiles?.full_name} no dia ${new Date(attendanceDate).toLocaleDateString('pt-BR')} e recebeu ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValueToSave)}.${suffix}`);
 
       // Limpar formulário
       setAttendanceDate('');
@@ -1873,20 +1883,74 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <div className="space-y-3">
               {Object.entries(
                 (() => {
-                  const acc: { [key: string]: number } = {};
-                  subscriberAttendances.forEach((attendance) => {
-                    const professional = attendance.professional_name;
-                    if (!acc[professional]) acc[professional] = 0;
-                    acc[professional] += parseFloat(attendance.repass_value) || 0;
+                  const clientNameBySubId = new Map<string, string>();
+                  (clientSubscriptions || []).forEach((cs: any) => {
+                    const id = String(cs?.id || '');
+                    if (!id) return;
+                    const name = String(cs?.profiles?.full_name || cs?.client_name || 'Cliente').trim() || 'Cliente';
+                    clientNameBySubId.set(id, name);
                   });
-                  subscriptionSaleCommissions.forEach((item) => {
-                    const professional = item.professional_name;
-                    if (!acc[professional]) acc[professional] = 0;
-                    acc[professional] += parseFloat(item.commission_amount) || 0;
+
+                  const acc: {
+                    [key: string]: {
+                      totalValue: number;
+                      attendanceCount: number;
+                      uniqueClientIds: Set<string>;
+                      uniqueClientNames: Set<string>;
+                      saleCommissionCount: number;
+                    };
+                  } = {};
+
+                  subscriberAttendances.forEach((attendance: any) => {
+                    const professional = String(attendance.professional_name || '').trim() || 'Profissional';
+                    if (!acc[professional]) {
+                      acc[professional] = {
+                        totalValue: 0,
+                        attendanceCount: 0,
+                        uniqueClientIds: new Set<string>(),
+                        uniqueClientNames: new Set<string>(),
+                        saleCommissionCount: 0,
+                      };
+                    }
+                    acc[professional].totalValue += parseFloat(attendance.repass_value) || 0;
+                    acc[professional].attendanceCount += 1;
+
+                    const clientSubId = String(attendance.client_subscription_id || '');
+                    if (clientSubId) {
+                      acc[professional].uniqueClientIds.add(clientSubId);
+                      const clientName = clientNameBySubId.get(clientSubId) || 'Cliente';
+                      acc[professional].uniqueClientNames.add(clientName);
+                    }
                   });
-                  return acc;
+
+                  subscriptionSaleCommissions.forEach((item: any) => {
+                    const professional = String(item.professional_name || '').trim() || 'Profissional';
+                    if (!acc[professional]) {
+                      acc[professional] = {
+                        totalValue: 0,
+                        attendanceCount: 0,
+                        uniqueClientIds: new Set<string>(),
+                        uniqueClientNames: new Set<string>(),
+                        saleCommissionCount: 0,
+                      };
+                    }
+                    acc[professional].totalValue += parseFloat(item.commission_amount) || 0;
+                    acc[professional].saleCommissionCount += 1;
+                  });
+
+                  // Transformar em objeto simples para o Object.entries sem perder os Sets
+                  // (Sets seguem existindo dentro do objeto, só não fazemos JSON/stringify)
+                  return acc as any;
                 })()
-              ).map(([professional, totalValue]) => {
+              ).map(([professional, info]) => {
+                const totalValue = (info as any)?.totalValue || 0;
+                const attendanceCount = (info as any)?.attendanceCount || 0;
+                const uniqueClientsCount = (info as any)?.uniqueClientIds?.size || 0;
+                const saleCommissionCount = (info as any)?.saleCommissionCount || 0;
+                const clientNames = Array.from((info as any)?.uniqueClientNames || []);
+                const preview = clientNames.slice(0, 3).join(', ');
+                const remaining = Math.max(0, clientNames.length - 3);
+
                 // Calcular total pago para este profissional no mês atual
                 // IMPORTANTE: Considerar apenas pagamentos feitos via assinatura (payment_source = 'subscription')
                 // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem entrar aqui
@@ -1904,7 +1968,46 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <div key={professional} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
                     <div className="flex-1">
                       <p className="text-sm font-medium text-white">{professional}</p>
-                      <p className="text-xs text-gray-400">Valor total acumulado de {monthNames[selectedMonth]} {selectedYear}</p>
+                      <p className="text-xs text-gray-400">
+                        Valor total acumulado de {monthNames[selectedMonth]} {selectedYear}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Atendimentos: <span className="text-white font-semibold">{attendanceCount}</span>
+                        {' '}• Assinantes atendidos: <span className="text-white font-semibold">{uniqueClientsCount}</span>
+                        {saleCommissionCount > 0 ? (
+                          <>
+                            {' '}• Vendas (bônus): <span className="text-white font-semibold">{saleCommissionCount}</span>
+                          </>
+                        ) : null}
+                      </p>
+                      {clientNames.length > 0 && (
+                        <>
+                          {clientNames.length <= 3 ? (
+                            <p className="text-[11px] text-gray-500 mt-1">
+                              Clientes: <span className="text-gray-300">{clientNames.join(', ')}</span>
+                            </p>
+                          ) : (
+                            <details className="mt-1">
+                              <summary className="text-[11px] text-gray-500 cursor-pointer select-none">
+                                Clientes: <span className="text-gray-300">{preview}{remaining > 0 ? ` +${remaining}` : ''}</span>{' '}
+                                <span className="text-gray-500">(ver lista)</span>
+                              </summary>
+                              <div className="mt-2 max-h-24 overflow-y-auto pr-1">
+                                <ul className="space-y-0.5">
+                                  {clientNames
+                                    .slice()
+                                    .sort((a, b) => a.localeCompare(b))
+                                    .map((name) => (
+                                      <li key={name} className="text-[11px] text-gray-300">
+                                        {name}
+                                      </li>
+                                    ))}
+                                </ul>
+                              </div>
+                            </details>
+                          )}
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
@@ -2950,8 +3053,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   const clientSubscription = selectedClientForAttendance;
                   const subscription = subscriptions.find(sub => sub.id === clientSubscription.subscription_id);
                   const fixedCommission = subscription?.fixed_commission_value;
+                  const percent = Number(String(saleCommissionPercent || '').replace(',', '.'));
+                  const hasSaleDiscount = Boolean(saleCommissionProfessional) && Number.isFinite(percent) && percent > 0;
+                  const multiplier = hasSaleDiscount ? Math.max(0, 1 - percent / 100) : 1;
+                  const round2 = (v: number) => Math.round(v * 100) / 100;
 
                   if (fixedCommission && fixedCommission > 0) {
+                    const finalWithDiscount = round2(Number(fixedCommission) * multiplier);
                     // Se tem valor fixo, campo vem preenchido e desabilitado
                     return (
                       <>
@@ -2970,10 +3078,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           <p className="text-xs text-gray-700">
                             ✅ Valor fixo configurado: R$ {fixedCommission.toFixed(2).replace('.', ',')} (não editável)
                           </p>
+                          {hasSaleDiscount && (
+                            <p className="text-xs text-gray-700 mt-1">
+                              🔻 Com desconto de venda ({percent}%): <strong>R$ {finalWithDiscount.toFixed(2).replace('.', ',')}</strong> (valor que será salvo no atendimento)
+                            </p>
+                          )}
                         </div>
                       </>
                     );
                   } else {
+                    const finalWithDiscount = round2(Number(attendanceValue || 0) * multiplier);
                     // Se não tem valor fixo, campo normal para preenchimento manual
                     return (
                       <>
@@ -2991,6 +3105,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           <p className="text-xs text-gray-700">
                             ⚠️ Nenhum valor fixo configurado para esta assinatura. Preencha manualmente.
                           </p>
+                          {hasSaleDiscount && (
+                            <p className="text-xs text-gray-700 mt-1">
+                              🔻 Com desconto de venda ({percent}%): <strong>R$ {finalWithDiscount.toFixed(2).replace('.', ',')}</strong> (valor que será salvo no atendimento)
+                            </p>
+                          )}
                         </div>
                       </>
                     );
