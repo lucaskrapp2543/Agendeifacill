@@ -276,6 +276,125 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
 });
 
 /**
+ * POST /api/subscribers/claim-subscription-credit
+ * Registra uma assinatura como "unpaid" (pendente) após o cliente pagar fora do sistema (link externo).
+ * - NÃO valida pagamento em gateway
+ * - NÃO marca como paid
+ * - Cria/atualiza client_subscriptions para o cliente aparecer em "Meus Assinantes"
+ */
+app.post('/api/subscribers/claim-subscription-credit', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        error: 'Supabase admin não configurado no servidor',
+        details: {
+          hasUrl: Boolean(SUPABASE_URL),
+          hasServiceRole: Boolean(SUPABASE_SERVICE_ROLE_KEY),
+        },
+      });
+    }
+
+    const { establishmentId, subscriptionId, customer } = req.body || {};
+    const customerName = String(customer?.name || '').trim();
+    const customerWhatsapp = onlyDigits(String(customer?.whatsapp || customer?.phone || ''));
+    const customerEmail = String(customer?.email || '').trim() || null;
+
+    if (!establishmentId || !subscriptionId || !customerName || !customerWhatsapp) {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        required: ['establishmentId', 'subscriptionId', 'customer.name', 'customer.whatsapp'],
+      });
+    }
+
+    // Buscar duração da assinatura
+    const { data: subData, error: subErr } = await supabaseAdmin
+      .from('subscriptions')
+      .select('duration_months')
+      .eq('id', String(subscriptionId))
+      .single();
+    if (subErr) {
+      return res.status(500).json({ error: 'Erro ao buscar assinatura', details: subErr });
+    }
+
+    const durationMonths = Number((subData as any)?.duration_months || 1);
+    const today = new Date();
+    const startDate = toISODate(today);
+    const endDate = toISODate(addMonths(today, Number.isFinite(durationMonths) && durationMonths > 0 ? durationMonths : 1));
+
+    // Se já existir, atualizar (mantém assinatura pendente e renova datas)
+    const { data: existing, error: existingErr } = await supabaseAdmin
+      .from('client_subscriptions')
+      .select('id')
+      .eq('establishment_id', String(establishmentId))
+      .eq('subscription_id', String(subscriptionId))
+      // @ts-expect-error coluna existe no banco
+      .eq('subscriber_whatsapp', customerWhatsapp)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingErr) {
+      console.warn('⚠️ Não foi possível checar assinatura existente (crédito):', existingErr);
+    }
+
+    const providerFinal = 'credit_link';
+    const orderId = `credit_${Date.now()}_${uuidv4()}`;
+
+    const payload: any = {
+      subscription_id: String(subscriptionId),
+      establishment_id: String(establishmentId),
+      start_date: startDate,
+      end_date: endDate,
+      payment_status: 'unpaid', // ✅ Pendente de confirmação
+      last_payment_date: null,
+      // dados do assinante
+      subscriber_name: customerName,
+      subscriber_whatsapp: customerWhatsapp,
+      subscriber_email: customerEmail,
+      // auditoria/origem
+      subscription_payment_provider: providerFinal,
+      subscription_payment_order_id: orderId,
+    };
+
+    let resultRow: any = null;
+    if (existing?.id) {
+      const { data: upd, error: updErr } = await supabaseAdmin
+        .from('client_subscriptions')
+        .update(payload)
+        .eq('id', String(existing.id))
+        .select()
+        .single();
+      if (updErr) return res.status(500).json({ error: 'Erro ao atualizar assinatura (crédito)', details: updErr });
+      resultRow = upd;
+    } else {
+      const { data: ins, error: insErr } = await supabaseAdmin
+        .from('client_subscriptions')
+        .insert([
+          {
+            client_id: uuidv4(),
+            ...payload,
+          },
+        ])
+        .select()
+        .single();
+      if (insErr) return res.status(500).json({ error: 'Erro ao criar assinatura (crédito)', details: insErr });
+      resultRow = ins;
+    }
+
+    return res.status(200).json({
+      ok: true,
+      status: 'unpaid',
+      subscription: resultRow,
+    });
+  } catch (error: any) {
+    console.error('❌ Erro ao registrar assinatura via crédito (manual):', error);
+    return res.status(500).json({
+      error: error?.message || 'Erro ao registrar assinatura via crédito',
+      details: error?.__capturedDetails || undefined,
+    });
+  }
+});
+
+/**
  * POST /api/pagarme/create-recipient
  * Cria um recebedor na Pagar.me
  */

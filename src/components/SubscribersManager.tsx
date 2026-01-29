@@ -40,6 +40,7 @@ interface SubscribersManagerProps {
     pagarme_recipient_id?: string | null;
     use_mercadopago_subscription_pix?: boolean;
     mercadopago_access_token?: string | null;
+    show_subscriptions_fullpage?: boolean;
   };
   onEstablishmentUpdate?: () => void;
 }
@@ -110,6 +111,20 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   });
   const [isUpdatingMercadoPagoSubscriptionPix, setIsUpdatingMercadoPagoSubscriptionPix] = useState(false);
+
+  // Mostrar assinaturas no booking por completo (sem precisar clicar em "PLANOS MENSAIS")
+  const localStorageShowSubscriptionsFullpageKey = `show_subscriptions_fullpage_${establishmentId}`;
+  const [showSubscriptionsFullpage, setShowSubscriptionsFullpage] = useState<boolean>(() => {
+    if (establishment?.show_subscriptions_fullpage !== undefined) {
+      return Boolean(establishment.show_subscriptions_fullpage);
+    }
+    try {
+      return localStorage.getItem(localStorageShowSubscriptionsFullpageKey) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isUpdatingShowSubscriptionsFullpage, setIsUpdatingShowSubscriptionsFullpage] = useState(false);
 
   const fmtBRL = (v: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v || 0));
@@ -186,6 +201,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [selectedSubscriptionForLinkEdit, setSelectedSubscriptionForLinkEdit] = useState<Subscription | null>(null);
   const [editLink, setEditLink] = useState('');
 
+  // Estados para edição do link de cartão de crédito (fluxo manual)
+  const [showEditCreditCardLinkModal, setShowEditCreditCardLinkModal] = useState(false);
+  const [selectedSubscriptionForCreditCardLinkEdit, setSelectedSubscriptionForCreditCardLinkEdit] = useState<Subscription | null>(null);
+  const [editCreditCardLink, setEditCreditCardLink] = useState('');
+
 
   // Sincronizar estado quando establishment mudar
   useEffect(() => {
@@ -226,7 +246,56 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         localStorage.setItem(localStorageMercadoPagoKey, establishment.use_mercadopago_subscription_pix ? 'true' : 'false');
       } catch { }
     }
-  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week, establishment?.use_pagarme_subscription_pix, establishment?.use_mercadopago_subscription_pix, establishment?.pagarme_recipient_id, establishment?.mercadopago_access_token]);
+
+    // Mostrar assinaturas no booking por completo
+    if (establishment?.show_subscriptions_fullpage !== undefined) {
+      setShowSubscriptionsFullpage(Boolean(establishment.show_subscriptions_fullpage));
+      try {
+        localStorage.setItem(localStorageShowSubscriptionsFullpageKey, establishment.show_subscriptions_fullpage ? 'true' : 'false');
+      } catch { }
+    }
+  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week, establishment?.use_pagarme_subscription_pix, establishment?.use_mercadopago_subscription_pix, establishment?.pagarme_recipient_id, establishment?.mercadopago_access_token, establishment?.show_subscriptions_fullpage]);
+
+  const handleUpdateShowSubscriptionsFullpage = async (newValue: boolean) => {
+    setIsUpdatingShowSubscriptionsFullpage(true);
+    try {
+      // Salvar no banco; se a coluna ainda não existir, faz fallback em localStorage
+      const { error } = await supabase
+        .from('establishments')
+        .update({ show_subscriptions_fullpage: newValue } as any)
+        .eq('id', establishmentId);
+
+      if (error) {
+        console.warn('⚠️ Não foi possível salvar no banco (coluna pode não existir ainda). Salvando localmente.', error);
+        setShowSubscriptionsFullpage(newValue);
+        try {
+          localStorage.setItem(localStorageShowSubscriptionsFullpageKey, newValue ? 'true' : 'false');
+        } catch { }
+        toast.success(newValue
+          ? 'Agora as assinaturas vão aparecer por completo no Booking (salvo localmente).'
+          : 'As assinaturas voltaram ao modo "PLANOS MENSAIS" no Booking (salvo localmente).'
+        );
+        return;
+      }
+
+      setShowSubscriptionsFullpage(newValue);
+      try {
+        localStorage.setItem(localStorageShowSubscriptionsFullpageKey, newValue ? 'true' : 'false');
+      } catch { }
+
+      toast.success(newValue
+        ? 'Agora as assinaturas vão aparecer por completo no Booking.'
+        : 'As assinaturas voltaram ao modo "PLANOS MENSAIS" no Booking.'
+      );
+
+      if (onEstablishmentUpdate) onEstablishmentUpdate();
+    } catch (e) {
+      console.error('Erro ao atualizar visualização das assinaturas no booking:', e);
+      toast.error('Erro ao salvar configuração de assinaturas no booking.');
+    } finally {
+      setIsUpdatingShowSubscriptionsFullpage(false);
+    }
+  };
 
   const handleUpdateUsePagarmeSubscriptionPix = async (newValue: boolean) => {
     setIsUpdatingPagarmeSubscriptionPix(true);
@@ -1296,6 +1365,43 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // Função para salvar link de cartão de crédito (fluxo manual)
+  const handleSaveCreditCardLink = async () => {
+    if (!selectedSubscriptionForCreditCardLinkEdit) return;
+
+    try {
+      const linkValue = editCreditCardLink.trim() || null;
+
+      // Validar URL se não estiver vazio
+      if (linkValue && !linkValue.match(/^https?:\/\//)) {
+        toast.error('O link deve começar com http:// ou https://');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('subscriptions')
+        .update({ credit_card_link: linkValue } as any)
+        .eq('id', selectedSubscriptionForCreditCardLinkEdit.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success(
+        selectedSubscriptionForCreditCardLinkEdit.credit_card_link
+          ? 'Link do cartão atualizado com sucesso!'
+          : 'Link do cartão adicionado com sucesso!'
+      );
+      setShowEditCreditCardLinkModal(false);
+      setSelectedSubscriptionForCreditCardLinkEdit(null);
+      setEditCreditCardLink('');
+      fetchSubscriptions(); // Atualizar lista
+    } catch (error: any) {
+      console.error('Erro ao salvar link do cartão:', error);
+      toast.error(error.message || 'Erro ao salvar link do cartão.');
+    }
+  };
+
   // Handler para deletar/limpar profissional do controle
   const handleDeleteProfessionalFromControl = async (professionalName: string) => {
     const monthName = monthNames[selectedMonth];
@@ -2340,23 +2446,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
         <h2 className="text-xl font-semibold mb-4">Tipos de Assinatura Criados</h2>
 
-        {/* Título, Botão Cakto e Mensagem de Atenção */}
+        {/* Título */}
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-200">Criar Novo Tipo de Assinatura</h3>
-
-          {/* Botão Cakto */}
-          <a
-            href="https://www.cakto.com.br/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center w-full mb-4 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
-          >
-            <span className="mr-2">💳</span>
-            Criar conta recorrência cakto
-          </a>
-          <div className="text-xs text-yellow-200/90 mb-4 -mt-2">
-            ⚠️ Taxas altas — recomendado usar opção de baixo.
-          </div>
 
           {/* Opção Pagar.me (PIX manual) - Só mostrar se tiver recipient_id configurado */}
           {String(establishment?.pagarme_recipient_id || '').trim() && (
@@ -2429,8 +2521,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
           )}
 
-          {/* Opção Mercado Pago (PIX manual) - Só mostrar se tiver access_token configurado */}
-          {String(establishment?.mercadopago_access_token || '').trim() && (
+          {/* Opção Mercado Pago (PIX manual) - sempre mostrar; se não conectado, orientar a conectar */}
           <div
             className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(34,197,94,0.18)]"
             style={{
@@ -2464,14 +2555,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 onClick={() => {
                   const accessToken = String(establishment?.mercadopago_access_token || '').trim();
                   if (!useMercadoPagoSubscriptionPix && !accessToken) {
-                    toast.error('Você precisa conectar sua conta do Mercado Pago nas Configurações.');
+                    toast.error('Você precisa conectar sua conta do Mercado Pago nas Configurações para ativar.');
                     return;
                   }
                   handleUpdateUseMercadoPagoSubscriptionPix(!useMercadoPagoSubscriptionPix);
                 }}
                 disabled={
-                  isUpdatingMercadoPagoSubscriptionPix ||
-                  (!useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim())
+                  isUpdatingMercadoPagoSubscriptionPix
                 }
                 className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
                   useMercadoPagoSubscriptionPix
@@ -2500,16 +2590,73 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             )}
           </div>
           </div>
-          )}
-          {/* ✅ CORRIGIDO: Mensagem de atenção sobre Cakto só aparece se Mercado Pago NÃO estiver ativado */}
-          {!useMercadoPagoSubscriptionPix && (
-            <div className="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4 mb-4">
-              <p className="text-yellow-200 font-medium text-sm leading-relaxed">
-                ⚠️ <span className="font-bold">Atenção:</span><br />
-                Se você não utilizar a Cakto para receber as recorrências das suas assinaturas, quando o cliente clicar em "Assinar", ele será direcionado diretamente para o seu WhatsApp para finalizar o pagamento manualmente.
-              </p>
+        
+        {/* Mostrar assinaturas por completo no Booking */}
+        <div
+          className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(99,102,241,0.20)]"
+          style={{
+            background:
+              'linear-gradient(135deg, rgba(99,102,241,0.55), rgba(34,197,94,0.22), rgba(99,102,241,0.18))',
+          }}
+        >
+          <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
+                  Mostrar assinaturas toda na pagina
+                </p>
+                <p className="text-sm text-gray-300 mt-1 leading-relaxed">
+                  ao ativar essa opção seu sistema ficara igual da foto ao lado suas assinaturas ficaram aparecendo na tela por completo sem
+                  necessidade de clicar em ( PLANOS MENSAIS) para ver as assinatura mas sim tera escrito encima planos mensais e as assinaturas
+                  abaixo já todas
+                </p>
+
+                {/* Prévia (mobile/tablet) */}
+                <div className="mt-3 lg:hidden">
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-2 overflow-hidden">
+                    <img
+                      src="/planos67.png"
+                      alt="Prévia - Planos mensais no booking"
+                      className="w-full h-auto rounded-lg object-contain max-h-[240px] mx-auto"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0 w-full lg:w-[420px]">
+                {/* Prévia (PC) */}
+                <div className="hidden lg:block mb-3">
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-2 overflow-hidden">
+                    <img
+                      src="/planos67.png"
+                      alt="Prévia - Planos mensais no booking"
+                      className="w-full h-auto rounded-lg object-contain max-h-[220px] mx-auto"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleUpdateShowSubscriptionsFullpage(!showSubscriptionsFullpage)}
+                  disabled={isUpdatingShowSubscriptionsFullpage}
+                  className={`w-full px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
+                    showSubscriptionsFullpage
+                      ? 'bg-indigo-600 text-white border-indigo-500/40 hover:bg-indigo-700'
+                      : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
+                  } ${
+                    isUpdatingShowSubscriptionsFullpage ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
+                  }`}
+                  title={showSubscriptionsFullpage ? 'Desativar' : 'Ativar'}
+                >
+                  {showSubscriptionsFullpage ? 'ATIVADO' : 'DESATIVADO'}
+                </button>
+              </div>
             </div>
-          )}
+          </div>
+        </div>
+
         </div>
 
         {subscriptions.length === 0 ? (
@@ -2595,6 +2742,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     title={sub.custom_link ? "Editar Meu Link" : "Adicionar Meu Link"}
                   >
                     🔗
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedSubscriptionForCreditCardLinkEdit(sub);
+                      setEditCreditCardLink((sub as any).credit_card_link || '');
+                      setShowEditCreditCardLinkModal(true);
+                    }}
+                    className="text-gray-600 hover:text-gray-800 transition-colors"
+                    title={(sub as any).credit_card_link ? "Editar Link cartão de crédito" : "Adicionar Link cartão de crédito"}
+                  >
+                    💳
                   </button>
                   <button
                     onClick={() => handleToggleHideSubscription(sub.id, sub.is_hidden || false)}
@@ -3641,6 +3799,64 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
                 {selectedSubscriptionForLinkEdit.custom_link ? 'Atualizar' : 'Adicionar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Link cartão de crédito (fluxo manual) */}
+      {showEditCreditCardLinkModal && selectedSubscriptionForCreditCardLinkEdit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                Link cartão de crédito - {selectedSubscriptionForCreditCardLinkEdit.name}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowEditCreditCardLinkModal(false);
+                  setSelectedSubscriptionForCreditCardLinkEdit(null);
+                  setEditCreditCardLink('');
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                👉 Link cartão de crédito (opcional)
+              </label>
+              <input
+                type="url"
+                value={editCreditCardLink}
+                onChange={(e) => setEditCreditCardLink(e.target.value)}
+                placeholder="Ex: https://link.mercadopago.com.br/seu-plano"
+                className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Este link será usado quando o cliente escolher “Cartão de crédito” na assinatura. O pagamento é feito fora do sistema.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowEditCreditCardLinkModal(false);
+                  setSelectedSubscriptionForCreditCardLinkEdit(null);
+                  setEditCreditCardLink('');
+                }}
+                className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveCreditCardLink}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                {(selectedSubscriptionForCreditCardLinkEdit as any).credit_card_link ? 'Atualizar' : 'Adicionar'}
               </button>
             </div>
           </div>

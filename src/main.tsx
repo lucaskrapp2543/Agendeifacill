@@ -4,6 +4,29 @@ import App from './App.tsx';
 import './index.css';
 import { shouldDisableAggressiveReloads } from './utils/browserEnv';
 
+// ✅ DEV/LOCALHOST: remover Service Worker/caches antes de renderizar (evita UI “presa” em versão antiga)
+// Proteção: faz isso só 1x por sessão para não criar loop de reload.
+if (
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+  !sessionStorage.getItem('__dev_sw_cleared__')
+) {
+  sessionStorage.setItem('__dev_sw_cleared__', '1');
+  (async () => {
+    try {
+      const { unregisterServiceWorker, clearAllCaches } = await import('./utils/serviceWorker');
+      await unregisterServiceWorker();
+      await clearAllCaches();
+
+      // Se a página estava controlada por SW antigo, um reload garante que pega assets atuais do Vite.
+      const url = new URL(window.location.href);
+      url.searchParams.set('_dev_refresh', String(Date.now()));
+      window.location.replace(url.toString());
+    } catch (e) {
+      console.warn('⚠️ DEV: falha ao limpar SW/cache automaticamente:', e);
+    }
+  })();
+}
+
 // Adiciona meta tags anti-cache dinamicamente
 const addAntiCacheMetaTags = () => {
   const metaTags = [

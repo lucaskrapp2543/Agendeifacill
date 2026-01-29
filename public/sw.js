@@ -4,6 +4,37 @@ const CACHE_NAME = 'agendafacil-v2.3.0';
 const STATIC_CACHE = 'agendafacil-static-v2.3.0';
 const DYNAMIC_CACHE = 'agendafacil-dynamic-v2.3.0';
 
+// ✅ DEV/LOCALHOST: Service Worker NÃO deve controlar o app (evita UI “presa”).
+const IS_DEV_HOST = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
+
+async function devSelfDestruct() {
+  try {
+    const names = await caches.keys();
+    await Promise.all(names.map((n) => caches.delete(n)));
+  } catch (e) {
+    // ignore
+  }
+
+  try {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+      try {
+        client.navigate(client.url);
+      } catch (e) {
+        // ignore
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  try {
+    await self.registration.unregister();
+  } catch (e) {
+    // ignore
+  }
+}
+
 // Arquivos que devem ser sempre atualizados
 const ALWAYS_UPDATE = [
   '/',
@@ -22,6 +53,12 @@ const STATIC_FILES = [
 // Instalar Service Worker
 self.addEventListener('install', (event) => {
   console.log('🔧 Service Worker instalando...');
+
+  // 🚫 Nunca manter SW no localhost
+  if (IS_DEV_HOST) {
+    event.waitUntil(devSelfDestruct());
+    return;
+  }
 
   event.waitUntil(
     caches.open(STATIC_CACHE)
@@ -55,6 +92,11 @@ self.addEventListener('activate', (event) => {
 
   event.waitUntil(
     (async () => {
+      // 🚫 Nunca manter SW no localhost
+      if (IS_DEV_HOST) {
+        await devSelfDestruct();
+        return;
+      }
       // ⚠️ CRÍTICO: Limpar TODOS os caches de HTML ao ativar (especialmente para mobile)
       // Isso garante que HTML antigo não seja servido mesmo se Service Worker estiver antigo
       try {

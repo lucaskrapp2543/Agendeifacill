@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Clock, DollarSign, Calendar, ChevronDown } from 'lucide-react';
+import React from 'react';
+import { Clock, DollarSign, Calendar } from 'lucide-react';
 
 interface Service {
   id: string;
@@ -16,121 +16,34 @@ interface ServiceListProps {
 }
 
 export function ServiceList({ services, selectedService, onSelectService, onBookService }: ServiceListProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const useDropdown = services.length > 2;
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  if (useDropdown) {
-    return (
-      <div className="relative" ref={dropdownRef}>
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="relative w-full cursor-pointer rounded-lg bg-white border border-gray-300 py-4 pl-4 pr-10 text-left focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary hover:border-primary/50"
-        >
-          {selectedService ? (
-            <div className="flex flex-col space-y-2">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-gray-600" />
-                <span className="font-medium text-gray-900">{selectedService.name}</span>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1 text-gray-700">
-                  <DollarSign className="h-4 w-4" />
-                  <span>R$ {selectedService.price ? selectedService.price.toFixed(2).replace('.', ',') : '0,00'}</span>
-                </div>
-                <div className="flex items-center gap-1 text-gray-600">
-                  <Clock className="h-4 w-4" />
-                  <span>{selectedService.duration || 0}min</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <span className="text-gray-500">Selecione um serviço</span>
-          )}
-          <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
-            <ChevronDown className={`h-5 w-5 text-gray-400 transition-transform ${isOpen ? 'transform rotate-180' : ''}`} />
-          </span>
-        </button>
-
-        {isOpen && (
-          <div className="absolute z-10 mt-1 w-full overflow-auto rounded-md bg-white border border-gray-300 shadow-lg max-h-60">
-            {services.map((service) => (
-              <button
-                type="button"
-                key={service.id}
-                onClick={() => {
-                  onSelectService(service);
-                  setIsOpen(false);
-                }}
-                className={`w-full text-left px-4 py-3 hover:bg-primary/10 transition-colors ${
-                  selectedService?.id === service.id ? 'bg-primary/10' : ''
-                }`}
-              >
-                <div className="flex flex-col space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Calendar className={`h-5 w-5 ${selectedService?.id === service.id ? 'text-primary' : 'text-gray-600'}`} />
-                    <span className={`font-medium ${selectedService?.id === service.id ? 'text-primary' : 'text-gray-900'}`}>
-                      {service.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1 text-gray-700">
-                      <DollarSign className="h-4 w-4" />
-                      <span>R$ {service.price ? service.price.toFixed(2).replace('.', ',') : '0,00'}</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-gray-600">
-                      <Clock className="h-4 w-4" />
-                      <span>{service.duration || 0}min</span>
-                    </div>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3">
       {services.map(service => (
         <div
           key={service.id}
-          className={`w-full p-4 rounded-lg border transition-colors ${
-            selectedService?.id === service.id
-              ? 'bg-primary/10 border-primary'
-              : 'bg-white border-gray-300'
-          }`}
+          className="w-full p-4 rounded-2xl transition-colors"
+          style={{
+            background: selectedService?.id === service.id ? 'rgba(230,199,139,0.10)' : '#151515',
+            border: `1px solid ${selectedService?.id === service.id ? 'rgba(230,199,139,0.45)' : 'rgba(255,255,255,0.06)'}`,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+          }}
         >
           <div className="flex flex-col space-y-3">
             <div className="flex items-center gap-2">
-              <Calendar className={`h-5 w-5 ${selectedService?.id === service.id ? 'text-primary' : 'text-gray-600'}`} />
-              <span className={`font-medium text-lg ${selectedService?.id === service.id ? 'text-primary' : 'text-gray-900'}`}>
+              <Calendar className="h-5 w-5" style={{ color: selectedService?.id === service.id ? '#E6C78B' : '#A1A1A1' }} />
+              <span className="font-extrabold text-white">
                 {service.name}
               </span>
             </div>
             
             <div className="flex items-center gap-4">
-              <div className={`flex items-center gap-1 font-medium ${selectedService?.id === service.id ? 'text-primary' : 'text-gray-700'}`}>
-                <DollarSign className="h-4 w-4" />
+              <div className="flex items-center gap-1 font-semibold" style={{ color: selectedService?.id === service.id ? '#E6C78B' : '#A1A1A1' }}>
+                <DollarSign className="h-4 w-4" style={{ color: selectedService?.id === service.id ? '#E6C78B' : '#A1A1A1' }} />
                 <span>R$ {service.price ? service.price.toFixed(2).replace('.', ',') : '0,00'}</span>
               </div>
 
-              <div className="flex items-center gap-1 text-gray-600">
-                <Clock className="h-4 w-4" />
+              <div className="flex items-center gap-1" style={{ color: '#A1A1A1' }}>
+                <Clock className="h-4 w-4" style={{ color: '#A1A1A1' }} />
                 <span>{service.duration || 0}min</span>
               </div>
             </div>

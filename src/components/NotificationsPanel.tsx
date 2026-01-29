@@ -16,9 +16,10 @@ interface Notification {
 interface NotificationsPanelProps {
   establishmentId: string;
   onUnreadCountChange?: (count: number) => void;
+  buttonClassName?: string;
 }
 
-export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establishmentId, onUnreadCountChange }) => {
+export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establishmentId, onUnreadCountChange, buttonClassName }) => {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -207,7 +208,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       <button
         data-notifications-button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative inline-flex items-center px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+        className={`relative inline-flex items-center px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors ${buttonClassName || ''}`}
       >
         <Bell className="h-5 w-5 mr-2" />
         Notificações

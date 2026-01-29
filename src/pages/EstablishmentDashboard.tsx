@@ -1,6 +1,6 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { AlertTriangle, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
+import { AlertTriangle, Bell, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -1694,7 +1694,7 @@ const EstablishmentDashboard = () => {
         </div>
 
         <p className="text-sm text-gray-300 mb-6 leading-relaxed">
-          Crie ou conecte sua conta Mercado Pago, e receba pagamentos adiantados dos clientes, evite furos e lucre mais.
+          Crie ou conecte sua conta Mercado Pago, e receba pagamentos adiantados no pix dos clientes, evite furos e lucre mais.
         </p>
 
         {/* Informações de Taxas e Exemplo */}
@@ -1837,9 +1837,10 @@ const EstablishmentDashboard = () => {
                     const next = e.target.checked;
                     setExigirPagamentoAntecipadoMercadoPago(next);
 
-                    // Se desativar a exigência, também desativa a opção "não obrigatório"
-                    const nextOpcional = next ? pagamentoAdiantadoOpcionalMercadoPago : false;
-                    if (!next) setPagamentoAdiantadoOpcionalMercadoPago(false);
+                    // Se ativar, já deixar "não obrigatório" marcado (recomendado).
+                    // Se desativar, também desativa a opção "não obrigatório".
+                    const nextOpcional = next ? true : false;
+                    setPagamentoAdiantadoOpcionalMercadoPago(nextOpcional);
 
                     // Salva imediatamente (sem debounce) para não perder ao dar F5
                     void autoSaveAmenities({
@@ -1849,7 +1850,9 @@ const EstablishmentDashboard = () => {
                   }}
                   className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
                 />
-                <span className="text-white text-sm font-semibold">Exigir pagamento antecipado via Mercado Pago</span>
+                <span className="text-white text-sm font-semibold">
+                  quero receber adiantado dos clientes via pix nos agendamentos
+                </span>
               </label>
 
               {exigirPagamentoAntecipadoMercadoPago && (
@@ -1867,9 +1870,14 @@ const EstablishmentDashboard = () => {
                     className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
                   />
                   <div className="flex flex-col">
-                    <span className="text-white text-xs">Não ser obrigatório cliente pagar para agendar</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white text-xs">Não ser obrigatório cliente pagar no pix  para agendar</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 border border-green-600/30 text-green-300 font-extrabold">
+                        Recomendado
+                      </span>
+                    </div>
                     <span className="text-xs text-gray-400">
-                      Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora.
+                      Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora ou no estabelecimento.
                     </span>
                   </div>
                 </label>
@@ -12372,7 +12380,6 @@ Estamos te aguardando! 😎✂️`;
     // Mapear tabs para chaves de tutorial
     const tutorialKeyMap: { [key: string]: string } = {
       'appointments': 'appointments',
-      'subscribers': 'subscribers',
       'service-categories': 'services',
       'products': 'products',
       'professionals': 'professionals',
@@ -13161,10 +13168,32 @@ Estamos te aguardando! 😎✂️`;
                   <NotificationsPanel
                     establishmentId={establishment.id}
                     onUnreadCountChange={setUnreadNotificationsCount}
+                    buttonClassName="!hidden md:!inline-flex"
                   />
                 )}
               </div>
             </div>
+
+            {/* Sino flutuante (somente mobile) - acima do botão de recarregar */}
+            {establishment && (
+              <button
+                type="button"
+                onClick={() => {
+                  const btn = document.querySelector<HTMLButtonElement>('[data-notifications-button]');
+                  btn?.click();
+                }}
+                className="md:hidden fixed right-4 bottom-52 z-[9999] bg-black hover:bg-gray-800 text-white p-4 rounded-full shadow-lg transition-all transform hover:scale-110 active:scale-95"
+                title="Notificações"
+                aria-label="Notificações"
+              >
+                <Bell className="w-6 h-6" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Conteúdo Principal */}
             <div className="space-y-6">
@@ -15639,8 +15668,39 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         </div>
                       </div>
+
+                      {/* Imagem (Página AG) - SOMENTE no PC, dentro do card */}
+                      {(!isNewUser || (isNewUser && quizStep === 1)) && (
+                        <div className="hidden lg:block w-[360px] xl:w-[420px] flex-shrink-0">
+                          <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                            <img
+                              src="/pagina%20ag.png"
+                              alt="Página AG"
+                              className="w-full h-auto rounded-lg object-contain max-h-[320px] mx-auto"
+                              loading="lazy"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {/* Imagem (Página AG) - acima de Informações Básicas */}
+                  {(!isNewUser || (isNewUser && quizStep === 1)) && (
+                    <div className="mb-6 lg:hidden">
+                      <div
+                        className="bg-[#1a1b1c] rounded-lg p-3 sm:p-4 border border-gray-800"
+                        style={{ boxShadow: '0 10px 30px rgba(0,0,0,0.45)' }}
+                      >
+                        <img
+                          src="/pagina%20ag.png"
+                          alt="Página AG"
+                          className="w-full h-auto rounded-lg object-contain lg:max-h-[320px] mx-auto"
+                          loading="lazy"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Informações Básicas - Apenas para usuários antigos OU etapa 1 do quiz */}
                   {(!isNewUser || (isNewUser && quizStep === 1)) && (
@@ -24355,46 +24415,6 @@ Estamos te aguardando! 😎✂️`;
                 </button>
                 <button
                   onClick={() => closeTutorialModal('dashboard')}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                >
-                  Fechar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Tutorial - Meus Assinantes */}
-      {showTutorialModals.subscribers && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
-            <div className="p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">👑 Meus Assinantes</h2>
-              <p className="text-gray-700 mb-6 text-lg">
-                Aqui você pode ver e gerenciar todos os seus assinantes, veja o vídeo tutorial para aprender como funciona/usar.
-              </p>
-
-              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
-                <iframe
-                  className="absolute top-0 left-0 w-full h-full"
-                  src="https://www.youtube.com/embed/4diswxWV_f0"
-                  title="Tutorial: Como Gerenciar Assinantes"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                ></iframe>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 mt-6">
-                <button
-                  onClick={() => dismissTutorialModal('subscribers')}
-                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
-                >
-                  Não quero mais ver isso
-                </button>
-                <button
-                  onClick={() => closeTutorialModal('subscribers')}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                 >
                   Fechar

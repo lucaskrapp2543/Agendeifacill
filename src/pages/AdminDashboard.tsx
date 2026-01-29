@@ -77,7 +77,7 @@ const AdminDashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchTermDeleted, setSearchTermDeleted] = useState(''); // Busca na lixeira
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
-  const [filterPlan, setFilterPlan] = useState<'all' | 'monthly' | 'annual'>('all');
+  const [filterPlan, setFilterPlan] = useState<'all' | 'prata' | 'ouro' | 'diamante' | 'outros'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
   const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
@@ -1815,27 +1815,32 @@ const AdminDashboard = () => {
     return <AlertTriangle className="h-5 w-5 text-yellow-600" />;
   };
 
-  const filteredEstablishments = establishments
-    .filter(establishment => {
+  // Plano por valor (admin_profit_value) - usado para filtros e contagens
+  const PLANO_PRATA_VALOR = 27;
+  const PLANO_OURO_VALOR = 47;
+  const PLANO_DIAMANTE_VALORES = new Set([43, 51]);
+
+  const getPlanKey = (est: Establishment): 'prata' | 'ouro' | 'diamante' | 'outros' => {
+    const isPrataAtivo = Boolean(est.plan_prata_active);
+    const v = Number((est as any)?.admin_profit_value ?? 0);
+    const intValue = Number.isFinite(v) ? Math.round(v) : 0;
+    if (PLANO_DIAMANTE_VALORES.has(intValue)) return 'diamante';
+    if (intValue === PLANO_OURO_VALOR) return 'ouro';
+    if (intValue === PLANO_PRATA_VALOR || isPrataAtivo) return 'prata';
+    return 'outros';
+  };
+
+  const baseFilteredEstablishments = establishments.filter(establishment => {
       const rawTokens = String(searchTerm || '')
         .split(/\s+/)
         .map(t => t.trim())
         .filter(Boolean);
 
-      const profitCents = valorCents((establishment as any)?.admin_profit_value);
       const isPrataAtivo = Boolean(establishment.plan_prata_active);
-      const centsPrata = 2790; // R$ 27,90
-      const centsOuro = 4790; // R$ 47,90
-      const centsDiamante = 7790; // R$ 77,90
-
-      const planLabel =
-        profitCents === centsDiamante
-          ? 'diamante'
-          : profitCents === centsOuro
-            ? 'ouro'
-            : profitCents === centsPrata || isPrataAtivo
-              ? 'prata'
-              : '';
+      const profitValue = Number((establishment as any)?.admin_profit_value ?? 0);
+      const profitValueInt = Number.isFinite(profitValue) ? Math.round(profitValue) : 0;
+      const planKey = getPlanKey(establishment);
+      const planLabel = planKey === 'outros' ? '' : planKey;
 
       const statusLabel = establishment.is_blocked
         ? 'bloqueado'
@@ -1853,8 +1858,8 @@ const AdminDashboard = () => {
         establishment.plan_type || '',
         statusLabel,
         planLabel,
-        // permitir buscar pelo valor manual (admin) digitando "27,90" etc.
-        profitCents != null ? String(profitCents) : '',
+        // permitir buscar pelo valor manual (admin) digitando "27" / "47" / "51" etc.
+        profitValueInt ? String(profitValueInt) : '',
       ].map(normalizarTexto);
 
       const matchesSearch =
@@ -1862,10 +1867,15 @@ const AdminDashboard = () => {
         rawTokens.every(tok => {
           const cents = parseValorCents(tok);
           if (cents != null) {
-            // match por valor do plano (via admin_profit_value) ou por PRATA ativo
+            // manter compatível com buscas antigas por centavos (27,90 etc)
+            const profitCents = valorCents((establishment as any)?.admin_profit_value);
             if (profitCents != null && profitCents === cents) return true;
-            if (isPrataAtivo && cents === centsPrata) return true;
             return false;
+          }
+          // Busca numérica simples (ex: "27", "47", "51") por valor arredondado
+          const numeric = Number(String(tok).replace(',', '.'));
+          if (Number.isFinite(numeric) && profitValueInt && Math.round(numeric) === profitValueInt) {
+            return true;
           }
           const t = normalizarTexto(tok);
           if (!t) return true;
@@ -1873,10 +1883,20 @@ const AdminDashboard = () => {
         });
 
       const matchesStatus = filterStatus === 'all' || establishment.payment_status === filterStatus;
-      const matchesPlan = filterPlan === 'all' || establishment.plan_type === filterPlan;
+      return matchesSearch && matchesStatus;
+    });
 
-      return matchesSearch && matchesStatus && matchesPlan;
-    })
+  const planCounts = baseFilteredEstablishments.reduce(
+    (acc, est) => {
+      const k = getPlanKey(est);
+      acc[k] += 1;
+      return acc;
+    },
+    { prata: 0, ouro: 0, diamante: 0, outros: 0 }
+  );
+
+  const filteredEstablishments = baseFilteredEstablishments
+    .filter(est => (filterPlan === 'all' ? true : getPlanKey(est) === filterPlan))
     .sort((a, b) => {
       // 1) Estabelecimentos vencidos sempre no topo
       const aIsExpired = a.payment_status === 'expired' || isExpired(a.payment_due_date);
@@ -2248,7 +2268,7 @@ const AdminDashboard = () => {
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Buscar por nome, código, e-mail, WhatsApp, status (pago/vencido), plano (prata/ouro/diamante) ou valor (ex: 27,90)"
+                  placeholder="Buscar por nome, código, e-mail, WhatsApp, status (pago/vencido), plano (prata/ouro/diamante) ou valor (ex: 27 / 47 / 51)"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
@@ -2272,10 +2292,11 @@ const AdminDashboard = () => {
               onChange={(e) => setFilterPlan(e.target.value as any)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
             >
-              <option value="all">Todos Planos</option>
-              <option value="monthly">Mensal</option>
-              <option value="annual">Anual</option>
-              <option value="trial">7 dias</option>
+              <option value="all">Todos ({baseFilteredEstablishments.length})</option>
+              <option value="prata">Plano Prata ({planCounts.prata})</option>
+              <option value="ouro">Plano Ouro ({planCounts.ouro})</option>
+              <option value="diamante">Plano Diamante ({planCounts.diamante})</option>
+              <option value="outros">Outros ({planCounts.outros})</option>
             </select>
 
             <button
@@ -2294,6 +2315,24 @@ const AdminDashboard = () => {
               <AlertTriangle className="h-4 w-4" />
               <span>Verificar Vencidos</span>
             </button>
+          </div>
+
+          <div className="mt-3 text-xs text-gray-600 flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              <strong>Encontrados:</strong> {filteredEstablishments.length}
+            </span>
+            <span>
+              <strong>Prata:</strong> {planCounts.prata}
+            </span>
+            <span>
+              <strong>Ouro:</strong> {planCounts.ouro}
+            </span>
+            <span>
+              <strong>Diamante:</strong> {planCounts.diamante}
+            </span>
+            <span>
+              <strong>Outros:</strong> {planCounts.outros}
+            </span>
           </div>
         </div>
 

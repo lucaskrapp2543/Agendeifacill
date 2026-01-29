@@ -117,11 +117,11 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
         </div>
         <div className="bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 rounded-lg border-2 border-red-400 animate-red-blink shadow-lg">
           <p className="text-xs font-semibold text-center mb-2">
-            💰 Pague antes do vencimento e ganhe 3 dias GRÁTIS!
+            💰 Pague antes do vencimento e ganhe 5 dias GRÁTIS!
           </p>
           <button
             onClick={() => {
-              const message = 'Olá, quero pagar adiantado e ganhar 3 dias GRÁTIS.';
+              const message = 'Olá, quero pagar adiantado e ganhar 5 dias GRÁTIS.';
               const whatsappUrl = `https://wa.me/5548991265320?text=${encodeURIComponent(message)}`;
               window.open(whatsappUrl, '_blank');
             }}

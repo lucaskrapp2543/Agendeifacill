@@ -389,8 +389,17 @@ const EstablishmentDirectBooking: React.FC = () => {
     }
   }, [establishment, selectedDate, selectedProfessional]);
 
+  // PIX: considerar "naotenhopix" como desativado
+  const normalizedPixKey = String(establishment?.pix_key || '').trim();
+  const hasPixKey = normalizedPixKey.length > 0 && normalizedPixKey.toLowerCase() !== 'naotenhopix';
+
   // Handle PIX info visibility
   const handlePaymentMethodChange = (method: string) => {
+    if (method === 'pix_now' && !hasPixKey) {
+      toast.error('Este estabelecimento não aceita PIX.');
+      setShowPixInfo(false);
+      return;
+    }
     setPaymentMethod(method);
     setShowPixInfo(method === 'pix_now');
   };
@@ -406,8 +415,8 @@ const EstablishmentDirectBooking: React.FC = () => {
 
   // Handle PIX key copy
   const handleCopyPix = () => {
-    if (establishment?.pix_key) {
-      navigator.clipboard.writeText(establishment.pix_key);
+    if (hasPixKey) {
+      navigator.clipboard.writeText(normalizedPixKey);
       toast.success('Chave PIX copiada!');
     }
   };
@@ -886,26 +895,28 @@ const EstablishmentDirectBooking: React.FC = () => {
                         <p><strong>Duração:</strong> {selectedService.duration} minutos</p>
                       </div>
 
-                      {/* Opções de Pagamento PIX */}
+                      {/* Opções de Pagamento */}
                       <div className="mt-6">
                         <h4 className="text-md font-medium text-gray-900 mb-3">Forma de Pagamento</h4>
                         <div className="space-y-3">
-                          <button
-                            type="button"
-                            onClick={() => handlePaymentMethodChange('pix_now')}
-                            className={`w-full p-3 rounded-lg border text-left transition-colors ${paymentMethod === 'pix_now'
-                              ? 'bg-green-50 border-green-500 text-green-700'
-                              : 'border-gray-300 hover:bg-gray-50'
-                              }`}
-                          >
-                            <div className="flex items-center">
-                              <div className={`w-4 h-4 rounded-full border-2 mr-3 ${paymentMethod === 'pix_now'
-                                ? 'border-green-500 bg-green-500'
-                                : 'border-gray-400'
-                                }`} />
-                              <span>Pagar agora via PIX</span>
-                            </div>
-                          </button>
+                          {hasPixKey && (
+                            <button
+                              type="button"
+                              onClick={() => handlePaymentMethodChange('pix_now')}
+                              className={`w-full p-3 rounded-lg border text-left transition-colors ${paymentMethod === 'pix_now'
+                                ? 'bg-green-50 border-green-500 text-green-700'
+                                : 'border-gray-300 hover:bg-gray-50'
+                                }`}
+                            >
+                              <div className="flex items-center">
+                                <div className={`w-4 h-4 rounded-full border-2 mr-3 ${paymentMethod === 'pix_now'
+                                  ? 'border-green-500 bg-green-500'
+                                  : 'border-gray-400'
+                                  }`} />
+                                <span>Pagar agora via PIX</span>
+                              </div>
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -927,14 +938,14 @@ const EstablishmentDirectBooking: React.FC = () => {
                       </div>
 
                       {/* Informações do PIX e Upload do Comprovante */}
-                      {showPixInfo && (
+                      {showPixInfo && hasPixKey && (
                         <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
-                          {establishment?.pix_key ? (
+                          {hasPixKey ? (
                             <>
                               <h5 className="font-medium text-green-800 mb-2">Dados para Pagamento</h5>
                               <p className="text-sm text-green-700 mb-4">
                                 <strong>Tipo de Chave:</strong> {establishment.pix_key_type}<br />
-                                <strong>Chave PIX:</strong> {establishment.pix_key}
+                                <strong>Chave PIX:</strong> {normalizedPixKey}
                               </p>
                               <button
                                 type="button"

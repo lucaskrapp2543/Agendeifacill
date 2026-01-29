@@ -68,6 +68,7 @@ export interface Database {
           fila_espera_fechada?: boolean;
           fila_espera_profissional_id?: string | null; // modo legado (fila única)
           fila_espera_profissional_ids?: string[] | null; // novo: até 3 filas (por profissional)
+          show_subscriptions_fullpage?: boolean; // Mostrar assinaturas por completo no Booking
         }
       },
       premium_subscribers: {
@@ -103,6 +104,7 @@ export interface Database {
           duration_months: number;
           sort_order?: number;
           custom_link?: string | null;
+          credit_card_link?: string | null;
           is_hidden?: boolean;
           description?: string | null;
           weekdays?: string[] | null;
@@ -117,6 +119,7 @@ export interface Database {
           duration_months: number;
           sort_order?: number;
           custom_link?: string | null;
+          credit_card_link?: string | null;
           is_hidden?: boolean;
           description?: string | null;
           weekdays?: string[] | null;
@@ -130,6 +133,7 @@ export interface Database {
           duration_months?: number;
           sort_order?: number;
           custom_link?: string | null;
+          credit_card_link?: string | null;
           is_hidden?: boolean;
           description?: string | null;
           weekdays?: string[] | null;

@@ -378,6 +378,21 @@ export default function BookingPage() {
     console.log('🔽 Dropdown deve aparecer?', subscriptions.length > 0);
   }, [subscriptions]);
 
+  // Se o estabelecimento optar por mostrar assinaturas por completo, garantir que o dropdown não fique aberto
+  useEffect(() => {
+    if (!establishment?.id) return;
+    let showFull = false;
+    try {
+      showFull = Boolean((establishment as any)?.show_subscriptions_fullpage === true) ||
+        localStorage.getItem(`show_subscriptions_fullpage_${establishment.id}`) === 'true';
+    } catch {
+      showFull = Boolean((establishment as any)?.show_subscriptions_fullpage === true);
+    }
+    if (showFull) {
+      setShowSubscriptionsDropdown(false);
+    }
+  }, [establishment?.id, (establishment as any)?.show_subscriptions_fullpage]);
+
   const fetchEstablishment = async () => {
     if (!id) {
       console.log('❌ Nenhum código fornecido na URL');
@@ -407,9 +422,7 @@ export default function BookingPage() {
 
       console.log('🎯 Buscando especificamente pelo código:', id);
       // ✅ FORÇAR busca sem cache (evita dados antigos)
-      const { data, error } = await supabase
-        .from('establishments')
-        .select(`
+      const baseSelect = `
             *,
             pix_payment_link,
             review_link,
@@ -425,9 +438,34 @@ export default function BookingPage() {
             pagarme_recipient_id,
             mercadopago_access_token,
             use_mercadopago_subscription_pix
-          `)
-        .eq('code', id)
-        .single();
+          `;
+
+      // ⚠️ Compatibilidade: se a coluna nova ainda não existir no banco, refaz sem quebrar o booking
+      const selectWithFullpage = `${baseSelect}, show_subscriptions_fullpage`;
+
+      let data: any = null;
+      let error: any = null;
+
+      {
+        const res = await supabase
+          .from('establishments')
+          .select(selectWithFullpage)
+          .eq('code', id)
+          .single();
+        data = res.data;
+        error = res.error;
+      }
+
+      if (error && (error.code === '42703' || String(error.message || '').includes('show_subscriptions_fullpage'))) {
+        console.warn('⚠️ Coluna show_subscriptions_fullpage não existe ainda. Rebuscando sem ela.');
+        const res2 = await supabase
+          .from('establishments')
+          .select(baseSelect)
+          .eq('code', id)
+          .single();
+        data = res2.data;
+        error = res2.error;
+      }
       
       // ✅ Adicionar timestamp para evitar cache do navegador
       const fetchTimestamp = Date.now();
@@ -2046,23 +2084,20 @@ export default function BookingPage() {
 
               {/* Dropdown SER ASSINANTE */}
               {subscriptions.length > 0 && (
-                <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 100 }}>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
-                    }}
-                    className="w-full font-extrabold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-black rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
-                  >
-                    <img src="/coroa.png" alt="Coroa" className="h-10 w-10 relative z-10" />
-                    <span className="relative z-10 text-white/70">PLANOS MENSAIS</span>
-                    <ChevronRight className="h-5 w-5 relative z-10 opacity-70" />
-                  </button>
+                (() => {
+                  let showFull = false;
+                  try {
+                    showFull = Boolean((establishment as any)?.show_subscriptions_fullpage === true) ||
+                      (establishment?.id && localStorage.getItem(`show_subscriptions_fullpage_${establishment.id}`) === 'true');
+                  } catch {
+                    showFull = Boolean((establishment as any)?.show_subscriptions_fullpage === true);
+                  }
 
-                  {showSubscriptionsDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-[#0f0f10] border border-white/10 rounded-xl shadow-2xl max-h-60 overflow-y-auto" style={{ zIndex: 100 }}>
+                  const SubscriptionsList = ({ compact }: { compact: boolean }) => (
+                    <div
+                      className={`${compact ? 'absolute top-full left-0 right-0 mt-2 max-h-60 overflow-y-auto' : 'mt-2 overflow-hidden'} bg-[#0f0f10] border border-white/10 rounded-xl shadow-2xl`}
+                      style={{ zIndex: 100 }}
+                    >
                       {subscriptions.map((subscription) => (
                         <div
                           key={subscription.id}
@@ -2071,20 +2106,21 @@ export default function BookingPage() {
                           <div className="flex-1 min-w-0">
                             <div className="font-semibold text-white truncate">{subscription.name || 'Assinatura'}</div>
                             <div className="text-sm text-white/60">
-                              R$ {(subscription.value || 0).toFixed(2).replace('.', ',')} / {subscription.duration_months || 1} {subscription.duration_months === 1 ? 'mês' : 'meses'}
+                              R$ {(subscription.value || 0).toFixed(2).replace('.', ',')} / {subscription.duration_months || 1}{' '}
+                              {subscription.duration_months === 1 ? 'mês' : 'meses'}
                             </div>
                             {subscription.weekdays && subscription.weekdays.length > 0 && (
                               <div className="text-xs text-[#e6d7b1] mt-1">
                                 📅 {subscription.weekdays.map((day: string) => {
                                   const dayNames = {
-                                    'monday': 'Seg',
-                                    'tuesday': 'Ter',
-                                    'wednesday': 'Qua',
-                                    'thursday': 'Qui',
-                                    'friday': 'Sex',
-                                    'saturday': 'Sáb',
-                                    'sunday': 'Dom'
-                                  };
+                                    monday: 'Seg',
+                                    tuesday: 'Ter',
+                                    wednesday: 'Qua',
+                                    thursday: 'Qui',
+                                    friday: 'Sex',
+                                    saturday: 'Sáb',
+                                    sunday: 'Dom',
+                                  } as const;
                                   return dayNames[day as keyof typeof dayNames] || day;
                                 }).join(', ')}
                               </div>
@@ -2094,7 +2130,6 @@ export default function BookingPage() {
                             {subscription.description && (
                               <button
                                 onClick={() => {
-                                  // Mostrar tooltip com descrição
                                   alert(`📋 ${subscription.name}\n\n${subscription.description}`);
                                 }}
                                 className="bg-white/10 hover:bg-white/15 text-white px-3 py-1 rounded-lg text-sm font-medium transition-colors border border-white/10"
@@ -2127,18 +2162,66 @@ export default function BookingPage() {
                         </button>
                       </div>
                     </div>
-                  )}
-                </div>
+                  );
+
+                  // ✅ Novo modo: mostrar todas as assinaturas na página (sem dropdown)
+                  if (showFull) {
+                    return (
+                      <div className="relative" style={{ position: 'relative', zIndex: 100 }}>
+                        <div className="flex items-center justify-center gap-2 py-2">
+                          <img src="/coroa.png" alt="Coroa" className="h-8 w-8 opacity-80" />
+                          <span className="text-white/70 font-extrabold text-sm uppercase tracking-[0.22em]">
+                            PLANOS MENSAIS
+                          </span>
+                        </div>
+                        <SubscriptionsList compact={false} />
+                      </div>
+                    );
+                  }
+
+                  // ✅ Modo antigo: dropdown
+                  return (
+                    <div className="relative subscriptions-dropdown" style={{ position: 'relative', zIndex: 100 }}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setShowSubscriptionsDropdown(!showSubscriptionsDropdown);
+                        }}
+                        className="w-full font-extrabold py-4 px-6 text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-3 relative group text-black rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
+                      >
+                        <img src="/coroa.png" alt="Coroa" className="h-10 w-10 relative z-10" />
+                        <span className="relative z-10 text-white/70">PLANOS MENSAIS</span>
+                        <ChevronRight className="h-5 w-5 relative z-10 opacity-70" />
+                      </button>
+
+                      {showSubscriptionsDropdown && <SubscriptionsList compact={true} />}
+                    </div>
+                  );
+                })()
               )}
 
 
               {/* Imagens INSTAGRAM, PIX e WHATSAPP lado a lado */}
-              <div className="flex items-center justify-center gap-6 relative my-10">
+              {(() => {
+                const normalizedPixKey = String(establishment?.pix_key || '').trim();
+                const hasPixKey = normalizedPixKey.length > 0 && normalizedPixKey.toLowerCase() !== 'naotenhopix';
+                const lineOffsetPx = hasPixKey ? 120 : 80;
+
+                return (
+                  <div className="flex items-center justify-center gap-6 relative my-10">
                 {/* Linha esquerda - vai da borda até antes do Instagram com distância */}
-                <div className="absolute left-0 top-1/2 transform -translate-y-1/2 h-px bg-white/10" style={{ width: 'calc(50% - 120px)' }}></div>
+                    <div
+                      className="absolute left-0 top-1/2 transform -translate-y-1/2 h-px bg-white/10"
+                      style={{ width: `calc(50% - ${lineOffsetPx}px)` }}
+                    ></div>
 
                 {/* Linha direita - vai depois do WhatsApp até a borda com distância */}
-                <div className="absolute right-0 top-1/2 transform -translate-y-1/2 h-px bg-white/10" style={{ width: 'calc(50% - 120px)' }}></div>
+                    <div
+                      className="absolute right-0 top-1/2 transform -translate-y-1/2 h-px bg-white/10"
+                      style={{ width: `calc(50% - ${lineOffsetPx}px)` }}
+                    ></div>
                 {/* Instagram */}
                 <a
                   href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
@@ -2158,64 +2241,57 @@ export default function BookingPage() {
                   </div>
                 </a>
 
-                {/* PIX */}
-                <button
-                  onClick={() => {
-                    console.log('🔍 PIX Click - establishment:', establishment);
-                    console.log('🔍 PIX Click - pix_key:', establishment?.pix_key);
+                    {/* PIX (só aparece se tiver chave válida; "naotenhopix" desativa) */}
+                    {hasPixKey && (
+                      <button
+                        onClick={() => {
+                          console.log('🔍 PIX Click - establishment:', establishment);
+                          console.log('🔍 PIX Click - pix_key:', establishment?.pix_key);
 
-                    if (establishment?.pix_key) {
-                      // Método que funciona no mobile e desktop
-                      const copyToClipboard = (text: string) => {
-                        // Criar um input temporário
-                        const input = document.createElement('input');
-                        input.value = text;
-                        input.style.position = 'fixed';
-                        input.style.opacity = '0';
-                        input.style.left = '-9999px';
-                        document.body.appendChild(input);
+                          // Método que funciona no mobile e desktop
+                          const copyToClipboard = (text: string) => {
+                            // Criar um input temporário
+                            const input = document.createElement('input');
+                            input.value = text;
+                            input.style.position = 'fixed';
+                            input.style.opacity = '0';
+                            input.style.left = '-9999px';
+                            document.body.appendChild(input);
 
-                        // Selecionar e copiar
-                        input.select();
-                        input.setSelectionRange(0, 99999); // Para mobile
+                            // Selecionar e copiar
+                            input.select();
+                            input.setSelectionRange(0, 99999); // Para mobile
 
-                        try {
-                          const successful = document.execCommand('copy');
-                          if (successful) {
-                            console.log('✅ PIX copiado com sucesso:', text);
-                            toast.success('Chave PIX copiada com sucesso!');
-                          } else {
-                            throw new Error('Falha na cópia');
-                          }
-                        } catch (err) {
-                          console.error('❌ Erro ao copiar PIX:', err);
-                          toast.error('Erro ao copiar chave PIX. Tente novamente.');
-                        } finally {
-                          // Remover o input temporário
-                          document.body.removeChild(input);
-                        }
-                      };
+                            try {
+                              const successful = document.execCommand('copy');
+                              if (successful) {
+                                console.log('✅ PIX copiado com sucesso:', text);
+                                toast.success('Chave PIX copiada com sucesso!');
+                              } else {
+                                throw new Error('Falha na cópia');
+                              }
+                            } catch (err) {
+                              console.error('❌ Erro ao copiar PIX:', err);
+                              toast.error('Erro ao copiar chave PIX. Tente novamente.');
+                            } finally {
+                              // Remover o input temporário
+                              document.body.removeChild(input);
+                            }
+                          };
 
-                      copyToClipboard(establishment.pix_key);
-                    } else {
-                      console.log('❌ PIX não disponível');
-                      toast.error('Chave PIX não disponível.');
-                    }
-                  }}
-                  disabled={!establishment?.pix_key}
-                  className={`group transition-all duration-200 ${establishment?.pix_key
-                    ? 'cursor-pointer'
-                    : 'opacity-50 cursor-not-allowed'
-                    }`}
-                >
-                  <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
-                    <img
-                      src="/PIX.png"
-                      alt="PIX"
-                      className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
-                    />
-                  </div>
-                </button>
+                          copyToClipboard(normalizedPixKey);
+                        }}
+                        className="group transition-all duration-200 cursor-pointer"
+                      >
+                        <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
+                          <img
+                            src="/PIX.png"
+                            alt="PIX"
+                            className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                          />
+                        </div>
+                      </button>
+                    )}
 
                 {/* WhatsApp */}
                 <a
@@ -2262,7 +2338,9 @@ export default function BookingPage() {
                     />
                   </div>
                 </a>
-              </div>
+                  </div>
+                );
+              })()}
 
               {/* Botões NOS AVALIE e LOCAL - Abaixo dos ícones */}
               <div className="flex gap-3 mt-6">
