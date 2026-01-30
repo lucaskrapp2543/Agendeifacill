@@ -195,6 +195,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [editName, setEditName] = useState('');
   const [editWeekdays, setEditWeekdays] = useState<string[]>([]);
   const [editDuration, setEditDuration] = useState<number>(30);
+  const [editSubscriptionValue, setEditSubscriptionValue] = useState<string>(''); // R$
+  const [editRepassePercent, setEditRepassePercent] = useState<string>(''); // %
 
   // Estados para edição de link personalizado
   const [showEditLinkModal, setShowEditLinkModal] = useState(false);
@@ -1303,14 +1305,31 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       return;
     }
 
+    const nextValue = Number(String(editSubscriptionValue || '').replace(',', '.'));
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+      toast.error('O valor da assinatura deve ser maior que zero.');
+      return;
+    }
+
+    const nextPercent = Number(String(editRepassePercent || '').replace(',', '.'));
+    if (!Number.isFinite(nextPercent) || nextPercent < 0 || nextPercent > 100) {
+      toast.error('A % de repasse deve estar entre 0 e 100.');
+      return;
+    }
+
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+    const nextFixedCommissionValue = round2(nextValue * (nextPercent / 100));
+
     try {
       const { error } = await supabase
         .from('subscriptions')
         .update({ 
           description: editDescription.trim() || null,
           name: editName.trim(),
+          value: nextValue,
           weekdays: editWeekdays,
-          service_duration: editDuration
+          service_duration: editDuration,
+          fixed_commission_value: nextFixedCommissionValue
         })
         .eq('id', selectedSubscriptionForEdit.id);
 
@@ -1325,6 +1344,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setEditName('');
       setEditWeekdays([]);
       setEditDuration(30);
+      setEditSubscriptionValue('');
+      setEditRepassePercent('');
       fetchSubscriptions(); // Atualizar lista
     } catch (error: any) {
       console.error('Erro ao salvar assinatura:', error);
@@ -2725,6 +2746,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       setEditName(sub.name || '');
                       setEditWeekdays(sub.weekdays || []);
                       setEditDuration(sub.service_duration || 30);
+                  setEditSubscriptionValue(String(Number(sub.value || 0).toFixed(2)).replace('.', ','));
+                  {
+                    const fixed = Number((sub as any).fixed_commission_value || 0);
+                    const base = Number(sub.value || 0);
+                    const pct = base > 0 && fixed > 0 ? (fixed / base) * 100 : 0;
+                    setEditRepassePercent(String(Math.round(pct * 100) / 100).replace('.', ','));
+                  }
                       setShowEditDescriptionModal(true);
                     }}
                     className="text-gray-600 hover:text-gray-800 transition-colors"
@@ -3656,6 +3684,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditName('');
                   setEditWeekdays([]);
                   setEditDuration(30);
+                  setEditSubscriptionValue('');
+                  setEditRepassePercent('');
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
@@ -3677,6 +3707,49 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
                   required
                 />
+              </div>
+
+              {/* Valor da assinatura + % repasse */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Valor da assinatura (R$)
+                  </label>
+                  <input
+                    type="text"
+                    value={editSubscriptionValue}
+                    onChange={(e) => setEditSubscriptionValue(e.target.value)}
+                    placeholder="Ex: 200,00"
+                    inputMode="decimal"
+                    className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    % de repasse pro profissional
+                  </label>
+                  <input
+                    type="text"
+                    value={editRepassePercent}
+                    onChange={(e) => setEditRepassePercent(e.target.value)}
+                    placeholder="Ex: 25"
+                    inputMode="decimal"
+                    className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+                  />
+                </div>
+              </div>
+              <div className="p-2 bg-gray-100 border border-gray-300 rounded-lg">
+                {(() => {
+                  const v = Number(String(editSubscriptionValue || '').replace(',', '.'));
+                  const p = Number(String(editRepassePercent || '').replace(',', '.'));
+                  const ok = Number.isFinite(v) && v > 0 && Number.isFinite(p) && p >= 0;
+                  const rep = ok ? Math.round((v * (p / 100)) * 100) / 100 : 0;
+                  return (
+                    <p className="text-xs text-gray-700">
+                      ✅ Repasse por atendimento (estimado): <strong>R$ {rep.toFixed(2).replace('.', ',')}</strong>
+                    </p>
+                  );
+                })()}
               </div>
 
               {/* Dias da Semana */}
@@ -3771,6 +3844,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditName('');
                   setEditWeekdays([]);
                   setEditDuration(30);
+                  setEditSubscriptionValue('');
+                  setEditRepassePercent('');
                 }}
                 className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
               >
