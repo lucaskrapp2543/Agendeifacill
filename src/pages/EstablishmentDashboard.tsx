@@ -10003,21 +10003,54 @@ Estamos te aguardando! 😎✂️`;
     if (!file || !establishment) return;
 
     try {
-      // Validar tamanho do arquivo (máximo 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('A imagem deve ter no máximo 5MB');
+      // Validar tamanho do arquivo (máximo 20MB — celulares em alta resolução)
+      if (file.size > 20 * 1024 * 1024) {
+        toast.error('A imagem deve ter no máximo 20MB');
         return;
       }
 
+      const extFromName = String(file.name || '').split('.').pop()?.toLowerCase();
+      const typeLower = String(file.type || '').toLowerCase();
+      const isHeic =
+        typeLower === 'image/heic' ||
+        typeLower === 'image/heif' ||
+        extFromName === 'heic' ||
+        extFromName === 'heif';
+
+      // Aceitar qualquer image/* ou extensão comum de imagem (celulares às vezes enviam type vazio)
+      const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'bmp', 'tiff', 'tif', 'jfif'];
+      const seemsImage = typeLower.startsWith('image/') || imageExtensions.includes(String(extFromName || ''));
+      if (!seemsImage) {
+        toast.error('Arquivo inválido. Envie uma imagem (JPG, PNG, WebP, etc.).');
+        return;
+      }
+
+      // ✅ iPhone/alguns Android: HEIC/HEIF não abre em muitos browsers.
+      // Converter para JPEG antes de subir para garantir que sempre renderize.
+      let fileToUpload: File = file;
+      if (isHeic) {
+        try {
+          const mod: any = await import('heic2any');
+          const heic2any = mod?.default || mod;
+          const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+          const blob: Blob = Array.isArray(out) ? out[0] : out;
+          fileToUpload = new File([blob], `${professionalId}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        } catch (e) {
+          console.warn('Falha ao converter HEIC/HEIF:', e);
+          toast.error('Esse formato (HEIC) não foi suportado aqui. Envie em JPG/PNG.');
+          return;
+        }
+      }
+
       // Criar nome único para o arquivo
-      const fileExt = file.name.split('.').pop();
+      const fileExt = (fileToUpload.name.split('.').pop() || 'jpg').toLowerCase();
       const fileName = `${professionalId}_${Date.now()}.${fileExt}`;
       const filePath = `professional-photos/${establishment.id}/${fileName}`;
 
       // Upload para o Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('establishment-assets')
-        .upload(filePath, file);
+        .upload(filePath, fileToUpload, { contentType: fileToUpload.type || undefined, upsert: true });
 
       if (uploadError) {
         console.error('Erro no upload:', uploadError);
@@ -10061,6 +10094,58 @@ Estamos te aguardando! 😎✂️`;
     } catch (error) {
       console.error('Erro ao alterar foto do profissional:', error);
       toast.error('Erro ao alterar foto do profissional');
+    }
+  };
+
+  // Função para remover foto do profissional
+  const handleRemoveProfessionalPhoto = async (professionalId: string) => {
+    if (!establishment) return;
+
+    try {
+      const current = professionals.find((p: any) => p.id === professionalId);
+      const currentUrl = String((current as any)?.photo_url || '').trim();
+
+      const updatedProfessionals = professionals.map((professional: any) => {
+        if (professional.id === professionalId) {
+          return { ...professional, photo_url: null };
+        }
+        return professional;
+      });
+
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (updateError) {
+        console.error('Erro ao remover foto do profissional:', updateError);
+        toast.error('Erro ao remover foto do profissional');
+        return;
+      }
+
+      // Melhor esforço: remover do storage (se for do bucket establishment-assets)
+      try {
+        const marker = '/storage/v1/object/public/establishment-assets/';
+        if (currentUrl.includes(marker)) {
+          const path = currentUrl.split(marker)[1];
+          if (path) {
+            await supabase.storage.from('establishment-assets').remove([path]);
+          }
+        }
+      } catch (e) {
+        console.warn('Não foi possível remover arquivo do storage (ok ignorar):', e);
+      }
+
+      setProfessionals(updatedProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
+
+      toast.success('Foto do profissional removida');
+    } catch (error) {
+      console.error('Erro ao remover foto do profissional:', error);
+      toast.error('Erro ao remover foto do profissional');
     }
   };
 
@@ -22680,8 +22765,13 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                         <input
                           type="file"
-                          accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                          onChange={(e) => handleProfessionalPhotoChange(professional.id, e.target.files?.[0])}
+                          accept="image/*,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,image/gif,image/bmp,image/jfif"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            void handleProfessionalPhotoChange(professional.id, f);
+                            // permitir escolher o mesmo arquivo novamente
+                            e.target.value = '';
+                          }}
                           className="hidden"
                           id={`photo-${professional.id}`}
                         />
@@ -22691,6 +22781,16 @@ Estamos te aguardando! 😎✂️`;
                         >
                           Alterar Foto
                         </label>
+                        {(professional as any).photo_url && (
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveProfessionalPhoto(professional.id)}
+                            className="px-3 py-1 bg-red-600/15 text-red-200 text-sm rounded hover:bg-red-600/25 cursor-pointer transition-colors border border-red-500/30"
+                            title="Apagar foto"
+                          >
+                            Apagar
+                          </button>
+                        )}
                       </div>
                     </div>
 
