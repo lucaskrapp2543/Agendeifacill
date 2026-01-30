@@ -898,6 +898,9 @@ const EstablishmentDashboard = () => {
   const [finalizarFilaEntryId, setFinalizarFilaEntryId] = useState<string | null>(null);
   const [finalizarFilaValor, setFinalizarFilaValor] = useState<string>('');
   const [isFinalizandoFila, setIsFinalizandoFila] = useState(false);
+  const [filaReorderMode, setFilaReorderMode] = useState(false);
+  const [isReorderingFila, setIsReorderingFila] = useState(false);
+  const [filaQueuePositionSupported, setFilaQueuePositionSupported] = useState<boolean | null>(null);
 
   const normalizePhoneDigits = (phone: string) => String(phone || '').replace(/\D/g, '');
 
@@ -1024,16 +1027,18 @@ const EstablishmentDashboard = () => {
       const { data, error } = await supabase
         .from('waitlist_entries')
         .select(
-          'id, appointment_id, client_name, client_whatsapp, service_id, service_name, service_price, service_duration_minutes, professional_id, started_at, status, notified_one_ahead, created_at'
+          'id, appointment_id, client_name, client_whatsapp, service_id, service_name, service_price, service_duration_minutes, professional_id, started_at, status, notified_one_ahead, created_at, queue_position'
         )
         .eq('establishment_id', establishment.id)
         .eq('status', 'waiting')
+        .order('queue_position', { ascending: true, nullsFirst: false } as any)
         .order('created_at', { ascending: true });
 
       if (error) {
         const msg = String((error as any)?.message || '');
         // Fallback para banco ainda não migrado (colunas novas não existem)
-        if (msg.includes('does not exist') && msg.includes('waitlist_entries')) {
+        if ((msg.includes('does not exist') && msg.includes('waitlist_entries')) || msg.includes('queue_position')) {
+          setFilaQueuePositionSupported(false);
           const { data: legacyData, error: legacyError } = await supabase
             .from('waitlist_entries')
             .select('id, appointment_id, client_name, client_whatsapp, service_id, service_name, status, notified_one_ahead, created_at')
@@ -1048,6 +1053,7 @@ const EstablishmentDashboard = () => {
         throw error;
       }
       const rows = (data as any[]) || [];
+      setFilaQueuePositionSupported(true);
       setFilaEntries(rows);
       return rows;
     } catch (e: any) {
@@ -1512,6 +1518,17 @@ const EstablishmentDashboard = () => {
           duration: Number(s?.duration ?? s?.service_duration ?? 0),
         })),
         professional_id: profissionalFila,
+        queue_position: (() => {
+          const existingSameQueue = ((filaEntries as any[]) || []).filter((x: any) => {
+            const key = String(x?.professional_id || filaEsperaProfissionalId || '').trim();
+            return String(x?.status || '') === 'waiting' && key === String(profissionalFila).trim();
+          });
+          const maxPos = Math.max(
+            0,
+            ...existingSameQueue.map((x: any) => (Number.isFinite(Number(x?.queue_position)) ? Number(x.queue_position) : 0))
+          );
+          return (maxPos > 0 ? maxPos + 1 : existingSameQueue.length + 1);
+        })(),
         source: 'dashboard',
         status: 'waiting',
       };
@@ -1625,6 +1642,110 @@ const EstablishmentDashboard = () => {
     [establishment?.id]
   );
 
+  const trocarOrdemFila = useCallback(
+    async (entryId: string, direction: 'up' | 'down') => {
+      if (!establishment?.id) return;
+      if (isReorderingFila) return;
+      if (filaQueuePositionSupported === false) {
+        toast.error('⚠️ Para trocar a ordem, rode o SQL que cria a coluna queue_position na tabela waitlist_entries.');
+        return;
+      }
+
+      // Filtrar pela fila selecionada (mesma lógica do UI)
+      const selected =
+        String(profissionalFilaSelecionadaId || '').trim() ||
+        String(profissionalFinanceiroFilaId || '').trim() ||
+        String(filaProfissionaisConfig?.[0]?.id || '').trim() ||
+        '';
+
+      const allWaiting = ((filaEntries as any[]) || []).filter((e: any) => String(e?.status || '') === 'waiting');
+      const list = selected
+        ? allWaiting.filter((e: any) => {
+            const key = String(e?.professional_id || filaEsperaProfissionalId || '').trim();
+            return key === selected;
+          })
+        : allWaiting;
+
+      const sorted = [...list].sort((a: any, b: any) => {
+        const pa = Number(a?.queue_position);
+        const pb = Number(b?.queue_position);
+        const ha = Number.isFinite(pa);
+        const hb = Number.isFinite(pb);
+        if (ha && hb && pa !== pb) return pa - pb;
+        if (ha && !hb) return -1;
+        if (!ha && hb) return 1;
+        return new Date(a?.created_at || 0).getTime() - new Date(b?.created_at || 0).getTime();
+      });
+
+      const idx = sorted.findIndex((e: any) => String(e?.id) === String(entryId));
+      if (idx < 0) return;
+
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+
+      // Não permitir trocar com o primeiro (em atendimento)
+      if (targetIdx <= 0) return;
+      if (targetIdx >= sorted.length) return;
+
+      const a = sorted[idx];
+      const b = sorted[targetIdx];
+
+      setIsReorderingFila(true);
+      try {
+        // ✅ Reordenar SEMPRE recalculando toda a sequência (evita duplicidade de posições / "travadas")
+        const reordered = [...sorted];
+        reordered[idx] = b;
+        reordered[targetIdx] = a;
+
+        const updates = reordered.map((x: any, i: number) => ({
+          id: x.id,
+          queue_position: i + 1,
+        }));
+
+        for (const u of updates) {
+          const { error } = await supabase
+            .from('waitlist_entries')
+            .update({ queue_position: u.queue_position } as any)
+            .eq('id', u.id);
+          if (error) throw error;
+        }
+
+        // Atualizar estado local imediatamente (mais responsivo)
+        setFilaEntries((prev: any[]) =>
+          (prev || []).map((x: any) => {
+            const u = updates.find((z) => String(z.id) === String(x?.id));
+            return u ? { ...x, queue_position: u.queue_position } : x;
+          })
+        );
+
+        // Recarregar para garantir ordem correta
+        await fetchFilaEntries();
+        toast.success('✅ Ordem da fila atualizada!');
+      } catch (e: any) {
+        const msg = String(e?.message || '');
+        if (msg.includes('queue_position') || msg.includes('does not exist')) {
+          setFilaQueuePositionSupported(false);
+          toast.error('⚠️ Para trocar a ordem, rode o SQL: add column queue_position na waitlist_entries.');
+        } else {
+          console.error('❌ Erro ao trocar ordem da fila:', e);
+          toast.error(e?.message || 'Erro ao trocar ordem da fila');
+        }
+      } finally {
+        setIsReorderingFila(false);
+      }
+    },
+    [
+      establishment?.id,
+      isReorderingFila,
+      filaQueuePositionSupported,
+      filaEntries,
+      filaEsperaProfissionalId,
+      profissionalFilaSelecionadaId,
+      profissionalFinanceiroFilaId,
+      filaProfissionaisConfig,
+      fetchFilaEntries,
+    ]
+  );
+
   const toggleFilaParaAgendamento = useCallback(
     async (appointment: any) => {
       if (!establishment?.id) return;
@@ -1637,6 +1758,14 @@ const EstablishmentDashboard = () => {
         }
 
         const phone = normalizePhoneDigits(appointment.client_whatsapp || '');
+        const professionalIdForQueue = String((appointment as any)?.professional || (appointment as any)?.professional_id || filaEsperaProfissionalId || '').trim();
+        const existingSameQueue = ((filaEntries as any[]) || []).filter((x: any) => {
+          const key = String(x?.professional_id || filaEsperaProfissionalId || '').trim();
+          return String(x?.status || '') === 'waiting' && key === professionalIdForQueue;
+        });
+        const maxPos = Math.max(0, ...existingSameQueue.map((x: any) => (Number.isFinite(Number(x?.queue_position)) ? Number(x.queue_position) : 0)));
+        const nextPos = (maxPos > 0 ? maxPos + 1 : existingSameQueue.length + 1);
+
         const { error } = await supabase.from('waitlist_entries').insert({
           establishment_id: establishment.id,
           appointment_id: appointment.id,
@@ -1644,6 +1773,8 @@ const EstablishmentDashboard = () => {
           client_whatsapp: phone || String(appointment.client_whatsapp || ''),
           service_id: null,
           service_name: String(appointment.service || 'Serviço').trim() || 'Serviço',
+          professional_id: professionalIdForQueue || null,
+          queue_position: nextPos,
           source: 'dashboard',
           status: 'waiting',
         } as any);
@@ -15116,6 +15247,19 @@ Estamos te aguardando! 😎✂️`;
                         </button>
                         <button
                           type="button"
+                          onClick={() => setFilaReorderMode((v) => !v)}
+                          disabled={filaEntriesFiltradas.length <= 2 || filaQueuePositionSupported === false}
+                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-extrabold border ${
+                            filaReorderMode
+                              ? 'bg-indigo-700 text-white border-indigo-700 hover:bg-indigo-800'
+                              : 'bg-white text-gray-900 border-gray-300 hover:bg-gray-50'
+                          } ${filaEntriesFiltradas.length <= 2 ? 'opacity-60 cursor-not-allowed' : ''}`}
+                          title="Trocar ordem da fila"
+                        >
+                          🔀 Trocar ordem
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => fetchFilaEntries()}
                           className="px-3 py-2 rounded-lg bg-black text-white hover:bg-gray-800 transition-colors text-sm font-bold"
                         >
@@ -15217,13 +15361,37 @@ Estamos te aguardando! 😎✂️`;
                                   </button>
                                 </>
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => removerDaFila(e.id)}
-                                  className="px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors text-sm font-extrabold"
-                                >
-                                  Remover
-                                </button>
+                                <>
+                                  {filaReorderMode && (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => trocarOrdemFila(e.id, 'up')}
+                                        disabled={isReorderingFila || idx <= 1 || filaQueuePositionSupported === false}
+                                        className="px-2 py-2 rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 transition-colors text-sm font-extrabold disabled:opacity-50"
+                                        title="Subir (trocar com o de cima)"
+                                      >
+                                        ↑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => trocarOrdemFila(e.id, 'down')}
+                                        disabled={isReorderingFila || idx >= filaEntriesFiltradas.length - 1 || filaQueuePositionSupported === false}
+                                        className="px-2 py-2 rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 transition-colors text-sm font-extrabold disabled:opacity-50"
+                                        title="Descer (trocar com o de baixo)"
+                                      >
+                                        ↓
+                                      </button>
+                                    </div>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => removerDaFila(e.id)}
+                                    className="px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors text-sm font-extrabold"
+                                  >
+                                    Remover
+                                  </button>
+                                </>
                               )}
                             </div>
                           </div>

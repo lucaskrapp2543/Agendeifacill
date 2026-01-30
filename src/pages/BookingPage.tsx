@@ -1282,15 +1282,16 @@ export default function BookingPage() {
     try {
       const { data, error } = await supabase
         .from('waitlist_entries')
-        .select('id, client_name, client_whatsapp, service_name, service_price, service_duration_minutes, started_at, created_at, professional_id')
+        .select('id, client_name, client_whatsapp, service_name, service_price, service_duration_minutes, started_at, created_at, professional_id, queue_position')
         .eq('establishment_id', establishment.id)
         .eq('status', 'waiting')
+        .order('queue_position', { ascending: true, nullsFirst: false } as any)
         .order('created_at', { ascending: true });
 
       if (error) {
         const msg = String((error as any)?.message || '');
         // Fallback para banco ainda não migrado (colunas novas não existem)
-        if (msg.includes('does not exist') && msg.includes('waitlist_entries')) {
+        if ((msg.includes('does not exist') && msg.includes('waitlist_entries')) || msg.includes('queue_position')) {
           const { data: legacyData, error: legacyError } = await supabase
             .from('waitlist_entries')
             .select('id, client_name, client_whatsapp, service_name, created_at')
