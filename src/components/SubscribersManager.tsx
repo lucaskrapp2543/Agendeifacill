@@ -3204,9 +3204,45 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
 
               <div>
-                <label htmlFor="attendanceValue" className="block text-sm font-medium text-gray-400 mb-1">
-                  Valor Repassado ao Profissional (R$)
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label htmlFor="attendanceValue" className="block text-sm font-medium text-gray-400">
+                    Valor Repassado ao Profissional (R$)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const clientSubscription = selectedClientForAttendance;
+                      const subscription = subscriptions.find((sub) => sub.id === clientSubscription.subscription_id);
+                      const fixedCommission = Number((subscription as any)?.fixed_commission_value || 0);
+                      const subscriptionValue = Number((subscription as any)?.value || 0);
+
+                      if (!subscription) {
+                        toast.error('Assinatura não encontrada para calcular a % de repasse.');
+                        return;
+                      }
+
+                      if (!Number.isFinite(fixedCommission) || fixedCommission <= 0) {
+                        toast.error('Essa assinatura não tem % de repasse configurada (valor fixo do repasse está 0).');
+                        return;
+                      }
+
+                      if (!Number.isFinite(subscriptionValue) || subscriptionValue <= 0) {
+                        toast.error('Não foi possível calcular a % (valor da assinatura inválido).');
+                        return;
+                      }
+
+                      const percentFromFixed = Math.round((fixedCommission / subscriptionValue) * 10000) / 100; // 2 casas
+                      toast.success(
+                        `✅ % de repasse configurada na assinatura: ${percentFromFixed}% (R$ ${fixedCommission.toFixed(2).replace('.', ',')} por atendimento)`
+                      );
+                    }}
+                    className="shrink-0 h-7 w-7 rounded-full border border-white/15 bg-white/10 text-white/90 hover:bg-white/15 transition-colors font-extrabold text-sm flex items-center justify-center"
+                    title="Ver percentual configurado"
+                    aria-label="Ver percentual configurado"
+                  >
+                    %
+                  </button>
+                </div>
                 {(() => {
                   const clientSubscription = selectedClientForAttendance;
                   const subscription = subscriptions.find(sub => sub.id === clientSubscription.subscription_id);
