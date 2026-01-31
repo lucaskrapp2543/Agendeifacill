@@ -1682,8 +1682,8 @@ const EstablishmentDashboard = () => {
 
       const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
 
-      // Não permitir trocar com o primeiro (em atendimento)
-      if (targetIdx <= 0) return;
+      // Permitir mover o primeiro para baixo; não permitir índice inválido
+      if (targetIdx < 0) return;
       if (targetIdx >= sorted.length) return;
 
       const a = sorted[idx];
@@ -15329,6 +15329,17 @@ Estamos te aguardando! 😎✂️`;
                             <div className="flex items-center gap-2">
                               {idx === 0 ? (
                                 <>
+                                  {filaReorderMode && (
+                                    <button
+                                      type="button"
+                                      onClick={() => trocarOrdemFila(e.id, 'down')}
+                                      disabled={isReorderingFila || filaEntriesFiltradas.length <= 1 || filaQueuePositionSupported === false}
+                                      className="px-2 py-2 rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 transition-colors text-sm font-extrabold disabled:opacity-50"
+                                      title="Descer (trocar com o próximo)"
+                                    >
+                                      ↓
+                                    </button>
+                                  )}
                                   {!e.started_at && (
                                     <button
                                       type="button"
