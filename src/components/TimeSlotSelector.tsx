@@ -128,6 +128,18 @@ export function TimeSlotSelector({
     console.log(`🕒 TimeSlotSelector - Dia da semana: ${dayOfWeek}`);
     console.log(`🕒 TimeSlotSelector - Horários personalizados do profissional:`, professionalWorkHours);
 
+    // ✅ REGRA: se o profissional está marcado como FECHADO nesse dia, NÃO mostrar horários.
+    // Antes estava caindo no horário do estabelecimento e liberando agenda indevidamente.
+    if (
+      professionalWorkHours &&
+      professionalWorkHours[dayOfWeek] &&
+      typeof professionalWorkHours[dayOfWeek].enabled === 'boolean' &&
+      professionalWorkHours[dayOfWeek].enabled === false
+    ) {
+      console.log(`🚫 TimeSlotSelector - Profissional FECHADO em ${dayOfWeek}. Bloqueando slots do dia.`);
+      return slots; // vazio -> UI mostra "Nenhum horário disponível para este dia"
+    }
+
     // Determinar quais horários usar: personalizados do profissional ou padrão do estabelecimento
     let effectiveBusinessHours = businessHours;
 

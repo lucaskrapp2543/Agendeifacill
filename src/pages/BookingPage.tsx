@@ -827,8 +827,9 @@ export default function BookingPage() {
 
     // Se tiver link personalizado, redirecionar para ele
     if (subscription && subscription.custom_link && subscription.custom_link.trim()) {
-      const customLink = subscription.custom_link.trim();
-      window.open(customLink, '_blank');
+      // ✅ NOVO: manter o mesmo fluxo do modal (cadastro + confirmação), mas no final redirecionar para o link
+      setSelectedSubscriptionForPix(subscription);
+      setShowSubscriptionPixModal(true);
       setShowSubscriptionsDropdown(false);
       return;
     }
@@ -3482,6 +3483,7 @@ export default function BookingPage() {
             value: Number(selectedSubscriptionForPix.value || 0),
             duration_months: selectedSubscriptionForPix.duration_months ?? null,
           }}
+          externalPaymentLink={String(selectedSubscriptionForPix.custom_link || '').trim() || undefined}
           paymentProvider={
             (() => {
               try {

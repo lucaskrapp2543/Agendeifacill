@@ -3,6 +3,45 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 
+const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
+
+// ✅ Validação de CPF/CNPJ (evita erro confuso do gateway)
+const isValidCPF = (cpfRaw: string): boolean => {
+  const cpf = onlyDigits(cpfRaw);
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false; // 00000000000 etc
+  const calc = (base: string, factor: number) => {
+    let total = 0;
+    for (let i = 0; i < base.length; i++) {
+      total += Number(base[i]) * (factor - i);
+    }
+    const mod = total % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+  const d1 = calc(cpf.slice(0, 9), 10);
+  const d2 = calc(cpf.slice(0, 10), 11);
+  return cpf.endsWith(`${d1}${d2}`);
+};
+
+const isValidCNPJ = (cnpjRaw: string): boolean => {
+  const cnpj = onlyDigits(cnpjRaw);
+  if (cnpj.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(cnpj)) return false;
+  const calc = (base: string, weights: number[]) => {
+    let sum = 0;
+    for (let i = 0; i < weights.length; i++) {
+      sum += Number(base[i]) * weights[i];
+    }
+    const mod = sum % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+  const w1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+  const w2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+  const d1 = calc(cnpj.slice(0, 12), w1);
+  const d2 = calc(cnpj.slice(0, 13), w2);
+  return cnpj.endsWith(`${d1}${d2}`);
+};
+
 type SubscriptionPixModalProps = {
   isOpen: boolean;
   onClose: () => void;
@@ -17,6 +56,8 @@ type SubscriptionPixModalProps = {
     duration_months?: number | null;
   };
   paymentProvider?: 'pagarme' | 'mercadopago'; // Novo prop para indicar qual gateway usar
+  // ✅ Link externo (custom_link): abre o mesmo modal e redireciona no final
+  externalPaymentLink?: string;
 };
 
 export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
@@ -28,6 +69,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   establishmentWhatsapp,
   subscription,
   paymentProvider = 'pagarme', // Padrão: Pagar.me
+  externalPaymentLink,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'pix' | 'credit_card' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -57,10 +99,17 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [creditCardLink, setCreditCardLink] = useState<string>('');
   const [isCreditClaimed, setIsCreditClaimed] = useState(false);
 
+  // 🔗 Link externo (custom_link): estados do fluxo
+  const [showExternalInstructions, setShowExternalInstructions] = useState(false);
+  const [hasOpenedExternalLink, setHasOpenedExternalLink] = useState(false);
+  const [isExternalClaimed, setIsExternalClaimed] = useState(false);
+
   // UX: auto-scroll para a seção do cartão dentro do modal
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const creditSectionRef = useRef<HTMLDivElement | null>(null);
   const creditActionsRef = useRef<HTMLDivElement | null>(null);
+  const externalSectionRef = useRef<HTMLDivElement | null>(null);
+  const externalActionsRef = useRef<HTMLDivElement | null>(null);
 
   const scrollToEl = (el: HTMLElement | null) => {
     if (!el) return;
@@ -158,6 +207,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setShowCreditInstructions(false);
     setHasOpenedCreditLink(false);
     setIsCreditClaimed(false);
+    setShowExternalInstructions(false);
+    setHasOpenedExternalLink(false);
+    setIsExternalClaimed(false);
   }, [isOpen]);
 
   // Buscar o link de cartão (externo) configurado para esta assinatura
@@ -181,6 +233,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       });
   }, [isOpen, subscription?.id]);
 
+  const externalLink = String(externalPaymentLink || '').trim();
+
   // Quando abrir a área do crédito, descer automaticamente
   useEffect(() => {
     if (!showCreditInstructions) return;
@@ -188,6 +242,20 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     window.setTimeout(() => scrollToEl(creditSectionRef.current), 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCreditInstructions]);
+
+  // Quando abrir a área do link externo, descer automaticamente
+  useEffect(() => {
+    if (!showExternalInstructions) return;
+    window.setTimeout(() => scrollToEl(externalSectionRef.current), 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showExternalInstructions]);
+
+  // Quando liberar botões (Paguei/Não consegui) no link externo, descer automaticamente
+  useEffect(() => {
+    if (!hasOpenedExternalLink) return;
+    window.setTimeout(() => scrollToEl(externalActionsRef.current || externalSectionRef.current), 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasOpenedExternalLink]);
 
   // Quando liberar botões (Paguei/Não consegui), descer automaticamente
   useEffect(() => {
@@ -414,8 +482,18 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         return;
       }
 
-      const cpfDigits = String(cpf || '').replace(/\D/g, '');
-      if (cpfDigits.length !== 11 && cpfDigits.length !== 14) {
+      const cpfDigits = onlyDigits(cpf);
+      if (cpfDigits.length === 11) {
+        if (!isValidCPF(cpfDigits)) {
+          toast.error('CPF inválido. Digite um CPF válido (11 dígitos).');
+          return;
+        }
+      } else if (cpfDigits.length === 14) {
+        if (!isValidCNPJ(cpfDigits)) {
+          toast.error('CNPJ inválido. Digite um CNPJ válido (14 dígitos).');
+          return;
+        }
+      } else {
         toast.error('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
         return;
       }
@@ -503,6 +581,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         const isAbort = err?.name === 'AbortError';
         const rawMsg = String(err?.message || '').trim();
         const lower = rawMsg.toLowerCase();
+        const isCpfInvalid =
+          lower.includes('invalid user identification number') ||
+          lower.includes('invalid identification number') ||
+          lower.includes('identification number');
         const isPixNotEnabled =
           lower.includes('without key enabled') ||
           lower.includes('collector user') ||
@@ -512,6 +594,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         toast.error(
           isAbort
             ? 'O servidor de pagamentos demorou demais para responder. Tente novamente.'
+            : isCpfInvalid
+              ? 'CPF inválido. Confira e digite um CPF válido (11 dígitos) para gerar o PIX.'
             : isPixNotEnabled
               ? 'PIX indisponível no Mercado Pago deste barbeiro. Ele precisa ativar/cadastrar uma chave PIX no app do Mercado Pago para gerar QR Code.'
               : `Erro ao gerar PIX: ${rawMsg || 'Erro desconhecido'}`
@@ -539,8 +623,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
 
     const cpfDigits = String(cpf || '').replace(/\D/g, '');
-    if (cpfDigits.length !== 11) {
-      toast.error('Informe um CPF válido (11 dígitos).');
+    if (cpfDigits.length !== 11 || !isValidCPF(cpfDigits)) {
+      toast.error('CPF inválido. Digite um CPF válido (11 dígitos).');
       return;
     }
     if (!nome.trim()) {
@@ -637,7 +721,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const getCustomerForManualCredit = () => {
     const customerName = String(nome || '').trim();
     const customerWhatsapp = String(whatsapp || '').replace(/\D/g, '');
-    const docDigits = String(cpf || '').replace(/\D/g, '');
+    const docDigits = onlyDigits(cpf);
     const payerEmail = String(email || '').trim();
 
     if (!customerName) {
@@ -648,7 +732,17 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       toast.error('Informe um WhatsApp válido (com DDD).');
       return null;
     }
-    if (!(docDigits.length === 11 || docDigits.length === 14)) {
+    if (docDigits.length === 11) {
+      if (!isValidCPF(docDigits)) {
+        toast.error('CPF inválido. Digite um CPF válido (11 dígitos).');
+        return null;
+      }
+    } else if (docDigits.length === 14) {
+      if (!isValidCNPJ(docDigits)) {
+        toast.error('CNPJ inválido. Digite um CNPJ válido (14 dígitos).');
+        return null;
+      }
+    } else {
       toast.error('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
       return null;
     }
@@ -704,6 +798,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           establishmentId,
           subscriptionId: subscription.id,
           customer,
+          providerKey: 'credit_link',
           paymentLink: String(creditCardLink || '').trim() || undefined,
         }),
       });
@@ -732,6 +827,74 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       setHasOpenedCreditLink(false);
     } catch (e: any) {
       toast.error(String(e?.message || 'Erro ao registrar assinatura no cartão'));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleOpenExternalPaymentLink = () => {
+    const customer = getCustomerForManualCredit();
+    if (!customer) return;
+    if (!externalLink) {
+      toast.error('Link de pagamento não configurado para esta assinatura.');
+      return;
+    }
+    setHasOpenedExternalLink(true);
+    window.open(externalLink, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleExternalNotSucceeded = () => {
+    toast.error('Não deu certo no link. Você pode tentar novamente.');
+    setShowExternalInstructions(false);
+    setHasOpenedExternalLink(false);
+  };
+
+  const handleExternalPaid = async () => {
+    const customer = getCustomerForManualCredit();
+    if (!customer) return;
+    if (!externalLink) {
+      toast.error('Link de pagamento não configurado.');
+      return;
+    }
+
+    const claimUrl = import.meta.env.PROD
+      ? '/.netlify/functions/subscription-claim-credit'
+      : '/api/subscribers/claim-subscription-credit';
+
+    setIsProcessing(true);
+    try {
+      const resp = await fetch(claimUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId,
+          subscriptionId: subscription.id,
+          customer,
+          providerKey: 'custom_link',
+          paymentLink: externalLink,
+        }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        const msg = String(err?.error || err?.message || `Erro ${resp.status}`);
+        throw new Error(msg);
+      }
+
+      toast.success('Solicitação enviada! Agora confirme com o barbeiro.');
+      setIsExternalClaimed(true);
+
+      const phone = String(establishmentWhatsapp || '').replace(/\D/g, '');
+      if (phone) {
+        const phoneWithCountry = phone.startsWith('55') ? phone : `55${phone}`;
+        const message = `Comprei a assinatura (${subscription.name}) pelo link de pagamento.\n\nConsegue confirmar pra mim se deu tudo certo para liberar meu uso?`;
+        window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`, '_blank');
+      }
+
+      setShowExternalInstructions(false);
+      setHasOpenedExternalLink(false);
+    } catch (e: any) {
+      toast.error(String(e?.message || 'Erro ao registrar assinatura pelo link'));
     } finally {
       setIsProcessing(false);
     }
@@ -813,22 +976,22 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           </p>
         </div>
 
-        {(isPaid || isCreditClaimed) ? (
+        {(isPaid || isCreditClaimed || isExternalClaimed) ? (
           <div className="space-y-4">
             <div className="bg-green-600/15 border border-green-500/40 rounded-lg p-4">
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="h-6 w-6 text-green-300 mt-0.5" />
                 <div>
                   <p className="text-green-200 font-extrabold text-base">
-                    {isCreditClaimed ? 'Solicitação enviada ✅' : 'Parabéns! Você assinou ✅'}
+                    {(isCreditClaimed || isExternalClaimed) ? 'Solicitação enviada ✅' : 'Parabéns! Você assinou ✅'}
                   </p>
                   <p className="text-sm text-gray-200 mt-1">
                     Plano: <span className="font-semibold">{subscription.name}</span> da barbearia{' '}
                     <span className="font-semibold">{establishmentName}</span>.
                   </p>
                   <p className="text-sm text-gray-300 mt-2">
-                    {isCreditClaimed
-                      ? 'Pagamento no cartão é externo. Agora peça para o barbeiro confirmar no sistema para liberar seu uso.'
+                    {(isCreditClaimed || isExternalClaimed)
+                      ? 'Pagamento externo. Agora peça para o barbeiro confirmar no sistema para liberar seu uso.'
                       : 'Agora avise seu barbeiro e pronto.'}
                   </p>
                 </div>
@@ -846,13 +1009,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 const phoneWithCountry = phone.startsWith('55') ? phone : `55${phone}`;
                 const message = isCreditClaimed
                   ? `Comprei a assinatura (${subscription.name}) no cartão de crédito.\n\nConsegue confirmar para mim se o pagamento foi realizado no seu sistema para que eu possa começar a usar?`
+                  : isExternalClaimed
+                    ? `Comprei a assinatura (${subscription.name}) pelo link de pagamento.\n\nConsegue confirmar para mim se deu tudo certo para eu começar a usar?`
                   : `Parabéns! Acabei de assinar o plano "${subscription.name}" da barbearia ${establishmentName}. ✅\n\nMeu nome: ${nome || ''}\nMeu WhatsApp: ${whatsapp || ''}\n\nPode confirmar pra mim?`;
                 window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`, '_blank');
               }}
               className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors flex items-center justify-center gap-2"
             >
               <MessageCircle className="h-5 w-5" />
-              {isCreditClaimed ? 'Abrir WhatsApp novamente' : 'Avisar meu barbeiro no WhatsApp'}
+              {(isCreditClaimed || isExternalClaimed) ? 'Abrir WhatsApp novamente' : 'Avisar meu barbeiro no WhatsApp'}
             </button>
 
             <button
@@ -922,23 +1087,35 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-              <button
-                onClick={handleGeneratePix}
-                disabled={isProcessing}
-                className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isProcessing && selectedMethod === 'pix' ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    Gerando...
-                  </>
-                ) : (
-                  <>
-                    <QrCode className="h-5 w-5" />
-                    PIX
-                  </>
-                )}
-              </button>
+              {/* Se tiver link externo (custom_link) e NÃO estiver usando Mercado Pago, mostrar o fluxo do link */}
+              {externalLink && !hasMercadoPago ? (
+                <button
+                  type="button"
+                  onClick={() => setShowExternalInstructions(true)}
+                  disabled={isProcessing}
+                  className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  Pagar assinatura
+                </button>
+              ) : (
+                <button
+                  onClick={handleGeneratePix}
+                  disabled={isProcessing}
+                  className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isProcessing && selectedMethod === 'pix' ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Gerando...
+                    </>
+                  ) : (
+                    <>
+                      <QrCode className="h-5 w-5" />
+                      PIX
+                    </>
+                  )}
+                </button>
+              )}
 
               <button
                 type="button"
@@ -950,6 +1127,49 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 Cartão de crédito
               </button>
             </div>
+
+            {showExternalInstructions && externalLink && !hasMercadoPago ? (
+              <div ref={externalSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
+                <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
+                  <p className="text-sm text-yellow-200 font-extrabold">
+                    Após pagar no link, volte aqui para concluir.
+                  </p>
+                  <p className="text-xs text-yellow-200/90 mt-2">
+                    Clique em <span className="font-semibold">“Paguei”</span> depois de finalizar o pagamento no site.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleOpenExternalPaymentLink}
+                  disabled={isProcessing}
+                  className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Pagar assinatura agora
+                </button>
+
+                {hasOpenedExternalLink && (
+                  <div ref={externalActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleExternalPaid}
+                      disabled={isProcessing}
+                      className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Paguei
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExternalNotSucceeded}
+                      disabled={isProcessing}
+                      className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                    >
+                      Não consegui
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             {showCreditInstructions ? (
               <div ref={creditSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
