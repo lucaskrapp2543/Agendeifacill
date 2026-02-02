@@ -155,6 +155,57 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [showPendingWarning, setShowPendingWarning] = useState(false);
     const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
     const [editingValue, setEditingValue] = useState<string>('');
+    const [editingAvulsoNameId, setEditingAvulsoNameId] = useState<string | null>(null);
+    const [editingAvulsoNameValue, setEditingAvulsoNameValue] = useState<string>('');
+    const [localClientNameOverrides, setLocalClientNameOverrides] = useState<Record<string, string>>({});
+
+    const getDisplayedClientName = (apt: Appointment): string => {
+      return localClientNameOverrides[apt.id] ?? apt.client_name ?? '';
+    };
+
+    const isAvulsoLike = (apt: Appointment): boolean => {
+      const name = getDisplayedClientName(apt);
+      return Boolean(apt.is_avulso) || /^CLIENTE\s+AVULSO(\s*-)?/i.test(String(name || '').trim());
+    };
+
+    const stripPrefixForEditing = (name: string): string => {
+      return String(name || '')
+        .replace(/^CLIENTE\s+AVULSO\s*-\s*/i, '')
+        .replace(/^ASSINANTE\s*-\s*/i, '')
+        .trim();
+    };
+
+    const startEditAvulsoName = (apt: Appointment) => {
+      const current = getDisplayedClientName(apt);
+      setEditingAvulsoNameId(apt.id);
+      setEditingAvulsoNameValue(stripPrefixForEditing(current));
+    };
+
+    const cancelEditAvulsoName = () => {
+      setEditingAvulsoNameId(null);
+      setEditingAvulsoNameValue('');
+    };
+
+    const saveAvulsoName = async (apt: Appointment) => {
+      const raw = editingAvulsoNameValue.trim();
+      const finalName = raw.length > 0 ? raw : 'CLIENTE AVULSO';
+
+      try {
+        const { error } = await supabase
+          .from('appointments')
+          .update({ client_name: finalName })
+          .eq('id', apt.id);
+        if (error) throw error;
+
+        setLocalClientNameOverrides((prev) => ({ ...prev, [apt.id]: finalName }));
+        cancelEditAvulsoName();
+        toast.success('Nome atualizado!');
+        if (onAppointmentUpdate) onAppointmentUpdate();
+      } catch (error) {
+        console.error('Erro ao atualizar nome (avulso):', error);
+        toast.error('Erro ao atualizar nome');
+      }
+    };
 
     // Estados para criar encaixe
     const [showSqueezeModal, setShowSqueezeModal] = useState(false);
@@ -1576,7 +1627,26 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         </span>
                                       </div>
                                       <div className="text-white font-semibold text-sm mb-1 truncate">
-                                        {apt.is_squeeze ? 'ENCAIXE' : apt.client_name}
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span className="truncate">
+                                            {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientName(apt)}
+                                          </span>
+                                          {isAvulsoLike(apt) && !apt.is_squeeze && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                // abrir detalhes e já focar edição
+                                                setExpandedAppointments((prev) => ({ ...prev, [apt.id]: true }));
+                                                startEditAvulsoName(apt);
+                                              }}
+                                              className="shrink-0 text-white/80 hover:text-white text-xs"
+                                              title="Editar nome do cliente avulso"
+                                            >
+                                              ✏️
+                                            </button>
+                                          )}
+                                        </div>
                                         {apt.is_subscriber && ' 👑'}
                                       </div>
                                       <div className="text-white/90 text-xs truncate">
@@ -1612,11 +1682,61 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <div className="flex items-center gap-2 mb-2">
                                           <User className="w-4 h-4 text-white" />
                                           <span className="text-white font-semibold">
-                                            {apt.is_squeeze ? 'ENCAIXE' : apt.client_name}
+                                            {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientName(apt)}
                                           </span>
+                                          {isAvulsoLike(apt) && !apt.is_squeeze && editingAvulsoNameId !== apt.id && (
+                                            <button
+                                              type="button"
+                                              onClick={() => startEditAvulsoName(apt)}
+                                              className="text-white/80 hover:text-white text-xs"
+                                              title="Editar nome do cliente avulso"
+                                            >
+                                              ✏️
+                                            </button>
+                                          )}
                                           {apt.is_premium && <Crown className="w-4 h-4 text-gray-300" />}
                                           {apt.is_squeeze && <span className="text-gray-300 text-xs">🟣</span>}
                                         </div>
+                                        {isAvulsoLike(apt) && !apt.is_squeeze && (
+                                          <>
+                                            {editingAvulsoNameId === apt.id ? (
+                                              <div className="mb-2 flex items-center gap-2">
+                                                <input
+                                                  type="text"
+                                                  value={editingAvulsoNameValue}
+                                                  onChange={(e) => setEditingAvulsoNameValue(e.target.value)}
+                                                  placeholder="Nome do cliente (ex.: Ricardo)"
+                                                  className="flex-1 px-2 py-1 text-sm bg-white/20 border border-white/30 rounded text-white placeholder-gray-300"
+                                                  autoFocus
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') saveAvulsoName(apt);
+                                                    if (e.key === 'Escape') cancelEditAvulsoName();
+                                                  }}
+                                                />
+                                                <button
+                                                  type="button"
+                                                  onClick={() => saveAvulsoName(apt)}
+                                                  className="text-white text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600"
+                                                  title="Salvar"
+                                                >
+                                                  ✓
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={cancelEditAvulsoName}
+                                                  className="text-white text-xs px-2 py-1 bg-gray-800 rounded hover:bg-gray-700"
+                                                  title="Cancelar"
+                                                >
+                                                  ✕
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <div className="text-white/80 text-[11px] mb-2">
+                                                Dica: clique no ✏️ para trocar “CLIENTE AVULSO” pelo nome do cliente.
+                                              </div>
+                                            )}
+                                          </>
+                                        )}
                                         {apt.is_squeeze && (
                                           <div className="mb-2">
                                             <input

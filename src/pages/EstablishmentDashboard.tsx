@@ -346,6 +346,7 @@ const EstablishmentDashboard = () => {
   const previousAppointmentsRef = useRef<Appointment[]>([]);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
   const onboardingCompletedRef = useRef(false); // Evita múltiplas chamadas ao completar onboarding
+  const onboardingWelcomeShownThisLoadRef = useRef(false); // Evita reabrir após fechar (só volta no reload)
   const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showBirthdayFilter, setShowBirthdayFilter] = useState(false);
@@ -2444,6 +2445,8 @@ const EstablishmentDashboard = () => {
   const [termsAccepted, setTermsAccepted] = useState(false); // Aceite de termos
   const [showOnboardingPopup, setShowOnboardingPopup] = useState(false);
   const [onboardingPopupMessage, setOnboardingPopupMessage] = useState('');
+  // ✅ Popup inicial: aparece em TODO reload enquanto não completar o onboarding (onboarding_step < 4)
+  const [showOnboardingWelcomeModal, setShowOnboardingWelcomeModal] = useState(false);
   const [showBlockedItemModal, setShowBlockedItemModal] = useState(false); // Modal para item bloqueado
   const [showInfoModal, setShowInfoModal] = useState(false); // Modal de informações mobile
   const [infoModalContent, setInfoModalContent] = useState<{ title: string; content: string } | null>(null); // Conteúdo do modal
@@ -4795,6 +4798,179 @@ const EstablishmentDashboard = () => {
     });
   };
 
+  // ✅ Modo "sem intervalo" (global): esconde reabertura/fechamento e usa apenas abertura + fechamento final.
+  const isNoIntervalModeEnabled = (hours: Record<string, BusinessHours>): boolean => {
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    return days.every((day) => {
+      const h = (hours as any)?.[day];
+      if (!h?.enabled) return true;
+      return String(h?.open2 || '00:00') === '00:00' && String(h?.close2 || '00:00') === '00:00';
+    });
+  };
+
+  const toggleNoIntervalMode = (enable: boolean) => {
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+
+    const updatedHours = { ...businessHours } as Record<string, BusinessHours>;
+
+    days.forEach((day) => {
+      const current = updatedHours[day];
+      if (!current) return;
+
+      if (enable) {
+        // Fechar direto no final (se já existir close2, usa ele; senão mantém close1)
+        const finalClose =
+          current.close2 && current.close2 !== '00:00'
+            ? current.close2
+            : current.close1;
+
+        updatedHours[day] = {
+          ...current,
+          close1: adjustTimeToInterval(String(finalClose || current.close1)),
+          open2: '00:00',
+          close2: '00:00'
+        };
+      } else {
+        // Voltar ao modo normal (com intervalo).
+        // Se estava sem intervalo (open2/close2 zerados), preencher um padrão amigável.
+        const open2 = current.open2 && current.open2 !== '00:00' ? current.open2 : '14:00';
+        const close2 = current.close2 && current.close2 !== '00:00' ? current.close2 : '20:00';
+
+        let close1 = current.close1;
+        // Se o close1 estava funcionando como fechamento final, voltar para o "fecha p/ intervalo" padrão.
+        if (String(close1) === String(close2)) close1 = '12:00';
+
+        updatedHours[day] = {
+          ...current,
+          close1: adjustTimeToInterval(String(close1 || '12:00')),
+          open2: adjustTimeToInterval(String(open2)),
+          close2: adjustTimeToInterval(String(close2))
+        };
+      }
+    });
+
+    setBusinessHours(updatedHours);
+    unsavedBusinessHoursRef.current = updatedHours;
+
+    if (businessHoursAutoSaveTimeoutRef.current) {
+      clearTimeout(businessHoursAutoSaveTimeoutRef.current);
+      businessHoursAutoSaveTimeoutRef.current = null;
+    }
+
+    autoSaveBusinessHours(updatedHours).then(() => {
+      unsavedBusinessHoursRef.current = null;
+    }).catch((error) => {
+      console.error('❌ Erro ao salvar:', error);
+    });
+  };
+
+  // ✅ Padrão de horário do PROFISSIONAL baseado no que foi definido em Configurações (horários do estabelecimento)
+  // Regra: o profissional herda por padrão o que foi configurado aqui, mas pode alterar no próprio profissional.
+  const buildDefaultProfessionalWorkHoursFromEstablishment = () => {
+    const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+    const noIntervalDefault = isNoIntervalModeEnabled(businessHours);
+
+    const getOr = (v: any, fallback: string) => (typeof v === 'string' && v.trim() ? v : fallback);
+
+    const result: Record<string, any> = {};
+    WEEK_DAYS.forEach((day) => {
+      const h = (businessHours as any)?.[day] || {};
+      const enabled = typeof h.enabled === 'boolean' ? h.enabled : true;
+
+      const open1 = adjustTimeToInterval(getOr(h.open1, '08:00'));
+      const close1 = adjustTimeToInterval(getOr(h.close1, '12:00'));
+      const open2 = adjustTimeToInterval(getOr(h.open2, '14:00'));
+      const close2 = adjustTimeToInterval(getOr(h.close2, '20:00'));
+
+      if (noIntervalDefault) {
+        // Sem intervalo: entrada = abertura, saída = fechamento (usa close1)
+        result[day] = {
+          enabled,
+          entry_time: open1,
+          break_start: '',
+          break_end: '',
+          exit_time: close1,
+          no_break: true
+        };
+      } else {
+        // Com intervalo: entrada/intervalo/saída seguindo os dois períodos
+        const safeOpen2 = open2 && open2 !== '00:00' ? open2 : '14:00';
+        const safeClose2 = close2 && close2 !== '00:00' ? close2 : '20:00';
+        result[day] = {
+          enabled,
+          entry_time: open1,
+          break_start: close1,
+          break_end: safeOpen2,
+          exit_time: safeClose2,
+          no_break: false
+        };
+      }
+    });
+
+    return result;
+  };
+
+  const isNoIntervalModeEnabledForWorkHours = (data: Record<string, any>): boolean => {
+    const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+    return WEEK_DAYS.every((day) => {
+      const d = (data as any)?.[day];
+      if (!d || d.enabled !== true) return true;
+      const noBreakFlag = d.no_break === true;
+      const bs = String(d.break_start || '');
+      const be = String(d.break_end || '');
+      return noBreakFlag || (bs.trim() === '' && be.trim() === '');
+    });
+  };
+
+  const toggleNoIntervalModeForWorkHours = (enable: boolean) => {
+    const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+    const est = businessHours as any;
+
+    setWorkHoursData((prev: any) => {
+      const next: any = { ...prev };
+      WEEK_DAYS.forEach((day) => {
+        const d = next[day] || {};
+        // só ajustar dias "Aberto"; dias fechados mantém como está
+        if (d.enabled !== true) {
+          next[day] = { ...d, no_break: enable ? true : d.no_break };
+          return;
+        }
+
+        if (enable) {
+          // Sem intervalo: limpar intervalo e garantir saída
+          const exit = typeof d.exit_time === 'string' && d.exit_time.trim()
+            ? d.exit_time
+            : adjustTimeToInterval(String(est?.[day]?.close1 || '20:00'));
+
+          next[day] = {
+            ...d,
+            break_start: '',
+            break_end: '',
+            exit_time: exit,
+            no_break: true
+          };
+        } else {
+          // Com intervalo: preencher do padrão do estabelecimento (ou fallback)
+          const close1 = adjustTimeToInterval(String(est?.[day]?.close1 || '12:00'));
+          const open2 = adjustTimeToInterval(String(est?.[day]?.open2 || '14:00'));
+          const close2Raw = String(est?.[day]?.close2 || '20:00');
+          const close2 = adjustTimeToInterval(close2Raw === '00:00' ? '20:00' : close2Raw);
+
+          const exit = typeof d.exit_time === 'string' && d.exit_time.trim() ? d.exit_time : close2;
+
+          next[day] = {
+            ...d,
+            break_start: typeof d.break_start === 'string' && d.break_start.trim() ? d.break_start : close1,
+            break_end: typeof d.break_end === 'string' && d.break_end.trim() ? d.break_end : open2,
+            exit_time: exit,
+            no_break: false
+          };
+        }
+      });
+      return next;
+    });
+  };
+
   const handleAddProfessional = async () => {
     if (!establishment) return;
     // ✅ Plano PRATA: limite de 1 profissional
@@ -4803,13 +4979,18 @@ const EstablishmentDashboard = () => {
       return;
     }
 
+    // ⚠️ IMPORTANTE: padrão automático de horários do profissional
+    // Só aplicar em contas NOVAS / que ainda NÃO terminaram o quiz/onboarding.
+    const shouldApplyDefaultsForProfessionals = onboardingStep < 4;
+
     const newProfessional = {
       id: uuidv4(),
       name: '',
       specialties: [],
       percentage: 100, // Percentual padrão de 100%
       whatsapp: '', // ✅ Campo WhatsApp
-      specific_services: [] // ✅ Campo serviços específicos
+      specific_services: [], // ✅ Campo serviços específicos
+      ...(shouldApplyDefaultsForProfessionals ? { work_hours: buildDefaultProfessionalWorkHoursFromEstablishment() } : {})
     };
 
     // Adiciona a senha padrão '0000' para o novo profissional
@@ -6644,6 +6825,12 @@ Estamos te aguardando! 😎✂️`;
         });
         setOnboardingStep(currentOnboardingStep);
 
+        // ✅ Mostrar popup de boas-vindas SEM persistir "fechado" (fecha só até recarregar)
+        if (currentOnboardingStep < 4 && !onboardingWelcomeShownThisLoadRef.current) {
+          onboardingWelcomeShownThisLoadRef.current = true;
+          setShowOnboardingWelcomeModal(true);
+        }
+
         // Se está em onboarding (step < 4), forçar para a aba apropriada
         // MAS só se o usuário ainda não tiver navegado manualmente (verificar se já está em uma aba válida)
         // Isso permite que o usuário volte para config se quiser
@@ -6697,13 +6884,13 @@ Estamos te aguardando! 😎✂️`;
         // Horários padrão para novos estabelecimentos (onboarding_step < 4)
         const isNewEstablishment = (establishmentData.onboarding_step ?? 4) < 4;
         const defaultBusinessHoursForNew = {
-          monday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
-          tuesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
-          wednesday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
-          thursday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
-          friday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
-          saturday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
-          sunday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' }
+          monday: { enabled: true, open1: '08:00', close1: '12:00', open2: '14:00', close2: '20:00' },
+          tuesday: { enabled: true, open1: '08:00', close1: '12:00', open2: '14:00', close2: '20:00' },
+          wednesday: { enabled: true, open1: '08:00', close1: '12:00', open2: '14:00', close2: '20:00' },
+          thursday: { enabled: true, open1: '08:00', close1: '12:00', open2: '14:00', close2: '20:00' },
+          friday: { enabled: true, open1: '08:00', close1: '12:00', open2: '14:00', close2: '20:00' },
+          saturday: { enabled: true, open1: '08:00', close1: '12:00', open2: '14:00', close2: '20:00' },
+          sunday: { enabled: true, open1: '08:00', close1: '12:00', open2: '14:00', close2: '20:00' }
         };
 
         // Horários padrão para estabelecimentos antigos
@@ -6743,18 +6930,59 @@ Estamos te aguardando! 😎✂️`;
           return normalized;
         };
 
-        // SEMPRE carregar horários do banco se existirem, independente de ser novo ou antigo
-        if (businessHoursFromDB) {
+        const businessHoursEqual = (a: any, b: any): boolean => {
+          const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+          return days.every((day) => {
+            const A = a?.[day];
+            const B = b?.[day];
+            return (
+              Boolean(A?.enabled) === Boolean(B?.enabled) &&
+              String(A?.open1) === String(B?.open1) &&
+              String(A?.close1) === String(B?.close1) &&
+              String(A?.open2) === String(B?.open2) &&
+              String(A?.close2) === String(B?.close2)
+            );
+          });
+        };
+
+        // ✅ REGRA DO CLIENTE:
+        // - Se NÃO terminou o quiz/onboarding (onboarding_step < 4): sempre aplicar o padrão 08:00–12:00 / 14:00–20:00 (Seg–Dom)
+        // - Se já terminou (step = 4): nunca mexer, apenas carregar do banco.
+        if (isNewEstablishment) {
+          const desired = defaultBusinessHoursForNew;
+
+          // Aplicar no estado (tela)
+          setBusinessHours(desired);
+
+          // Algumas partes da UI usam establishment.business_hours diretamente
+          setEstablishment((prev: any) => (prev ? { ...prev, business_hours: desired } : prev));
+
+          // Persistir no banco (só se estiver diferente, para evitar writes repetidos)
+          const currentNormalized = normalizeBusinessHours(businessHoursFromDB || {}, desired);
+          const needsUpdate = !businessHoursEqual(currentNormalized, desired);
+
+          if (needsUpdate && establishmentData.id) {
+            try {
+              const { error: bhError } = await supabase
+                .from('establishments')
+                .update({ business_hours: desired })
+                .eq('id', establishmentData.id);
+              if (bhError) {
+                console.error('❌ Erro ao atualizar padrão de horários no banco:', bhError);
+              }
+            } catch (e) {
+              console.error('❌ Falha ao persistir padrão de horários:', e);
+            }
+          }
+        } else if (businessHoursFromDB) {
           // Usar horários salvos no banco, normalizando campos vazios/null
-          const defaultHours = isNewEstablishment ? defaultBusinessHoursForNew : defaultBusinessHoursForOld;
-          const normalized = normalizeBusinessHours(businessHoursFromDB, defaultHours);
+          const normalized = normalizeBusinessHours(businessHoursFromDB, defaultBusinessHoursForOld);
           console.log('✅ Carregando horários do banco de dados:', normalized);
           setBusinessHours(normalized);
         } else {
-          // Só usar padrão se não houver horários salvos
-          const defaultHours = isNewEstablishment ? defaultBusinessHoursForNew : defaultBusinessHoursForOld;
-          console.log('⚠️ Nenhum horário salvo, usando padrão:', defaultHours);
-          setBusinessHours(defaultHours);
+          // Só usar padrão se não houver horários salvos (contas antigas sem business_hours)
+          console.log('⚠️ Nenhum horário salvo, usando padrão (antigo):', defaultBusinessHoursForOld);
+          setBusinessHours(defaultBusinessHoursForOld);
         }
 
         // Carrega as URLs das fotos personalizadas para pré-visualização
@@ -7044,6 +7272,13 @@ Estamos te aguardando! 😎✂️`;
     fetchEstablishment();
     loadTutorialPreferences(); // Carregar preferências dos tutoriais
   }, [user]);
+
+  // ✅ Se completar onboarding, garante que o popup some e não volte
+  useEffect(() => {
+    if (onboardingStep >= 4 && showOnboardingWelcomeModal) {
+      setShowOnboardingWelcomeModal(false);
+    }
+  }, [onboardingStep, showOnboardingWelcomeModal]);
 
   // Monitora quando um serviço válido é adicionado e desbloqueia tudo automaticamente
   useEffect(() => {
@@ -11698,15 +11933,19 @@ Estamos te aguardando! 😎✂️`;
     setSelectedProfessionalForWorkHours(professionalId);
 
     const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
-    const baseWorkHours: Record<string, any> = {
-      monday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-      tuesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-      wednesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-      thursday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-      friday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-      saturday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' },
-      sunday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' }
-    };
+    const shouldApplyDefaultsForProfessionals = onboardingStep < 4;
+    const baseWorkHours: Record<string, any> = shouldApplyDefaultsForProfessionals
+      ? buildDefaultProfessionalWorkHoursFromEstablishment()
+      : {
+          // ✅ Comportamento antigo (não herda Configurações em contas já concluídas)
+          monday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+          tuesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+          wednesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+          thursday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+          friday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+          saturday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' },
+          sunday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' }
+        };
 
     // Carregar horários de trabalho existentes do profissional (sempre com todos os dias)
     const professional = professionals.find(p => p.id === professionalId);
@@ -17248,10 +17487,11 @@ Estamos te aguardando! 😎✂️`;
                           />
                           <div className="flex-1">
                             <label htmlFor="use15MinuteInterval" className="block text-white font-medium mb-2">
-                              Horários com intervalo 15 min
+                              Horários de 30 em 30 min
                             </label>
                             <p className="text-sm text-gray-400 leading-relaxed">
-                              Ao selecionar essa opção, para seus clientes irá aparecer horários de 30 em 30 min exemplo, 09:00 \ 09:30 \ 10:00 \ 10:30 por ai vai, essa mudança se um cliente por exemplo escolher serviço seu que tem duração de 45 min e ele selecionar as 9:00 o horário das 9 até as 10:00 ficaram (Reservado) assim você tera 15 min de 'intervalo' entre o serviço e outro.
+                              Ao selecionar essa opção, seus horários vão aparecer para os clientes em intervalos de 30 minutos (ex.: 09:00 / 09:30 / 10:00 / 10:30).
+                              Isso te dá mais liberdade para encaixes e cria um “respiro” automático quando o serviço não fecha certinho com 30 minutos.
                             </p>
                           </div>
                         </div>
@@ -17354,11 +17594,30 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                       </div>
 
-                      {/* Alerta sobre intervalo */}
+                      {/* Controle global: sem intervalo */}
                       <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
-                        <p className="text-sm text-yellow-200">
-                          <span className="font-semibold">⚠️ Atenção:</span> Caso não tire intervalo, coloque o horário de fechamento em <strong>"Qual seu fechamento para intervalo?"</strong> e pode prosseguir para outro dia.
-                        </p>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <p className="text-sm text-yellow-200">
+                            <span className="font-semibold">⚠️ Não tira intervalo?</span> Ative a opção para remover o 2º período (Reabertura/Fechamento).
+                          </p>
+                          <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={isNoIntervalModeEnabled(businessHours)}
+                              onChange={(e) => toggleNoIntervalMode(e.target.checked)}
+                              className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-yellow-700 rounded"
+                            />
+                            <span className="text-sm font-extrabold text-yellow-100">
+                              Não tenho horário de intervalo
+                            </span>
+                          </label>
+                        </div>
+                        <div className="mt-2 text-xs text-yellow-100/90">
+                          Quando ativado, use apenas <strong>Abertura</strong> e <strong>Fechamento do estabelecimento</strong>.
+                          <span className="block mt-1">
+                            Ative esta opção <strong>apenas</strong> se você <strong>não tira intervalo</strong> e trabalha direto.
+                          </span>
+                        </div>
                       </div>
 
                       <div className="space-y-4">
@@ -17410,7 +17669,9 @@ Estamos te aguardando! 😎✂️`;
                                     </div>
                                     <div className="space-y-2">
                                       <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                        {isNewUser && quizStep === 3 ? 'Qual seu fechamento para intervalo?' : 'Fecha p/ Intervalo'}
+                                        {isNoIntervalModeEnabled(businessHours)
+                                          ? (isNewUser && quizStep === 3 ? 'Fechamento do estabelecimento' : 'Fechamento do estabelecimento')
+                                          : (isNewUser && quizStep === 3 ? 'Qual seu fechamento para intervalo?' : 'Fecha p/ Intervalo')}
                                       </label>
                                       <TimeSelector
                                         value={hours.close1}
@@ -17422,33 +17683,35 @@ Estamos te aguardando! 😎✂️`;
                                     </div>
                                   </div>
 
-                                  {/* Período da tarde */}
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div className="space-y-2">
-                                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                        Reabertura
-                                      </label>
-                                      <TimeSelector
-                                        value={hours.open2 || null}
-                                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
-                                        disabled={!hours.enabled}
-                                        className="w-full"
-                                        intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                      />
+                                  {/* Período da tarde (some quando ativa "Não tenho horário de intervalo") */}
+                                  {!isNoIntervalModeEnabled(businessHours) && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div className="space-y-2">
+                                        <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                          Reabertura
+                                        </label>
+                                        <TimeSelector
+                                          value={hours.open2 || null}
+                                          onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
+                                          disabled={!hours.enabled}
+                                          className="w-full"
+                                          intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
+                                          Fechamento
+                                        </label>
+                                        <TimeSelector
+                                          value={hours.close2 || null}
+                                          onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
+                                          disabled={!hours.enabled}
+                                          className="w-full"
+                                          intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                        />
+                                      </div>
                                     </div>
-                                    <div className="space-y-2">
-                                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                        Fechamento
-                                      </label>
-                                      <TimeSelector
-                                        value={hours.close2 || null}
-                                        onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
-                                        disabled={!hours.enabled}
-                                        className="w-full"
-                                        intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                                      />
-                                    </div>
-                                  </div>
+                                  )}
 
                                   {/* Resumo visual dos horários */}
                                   <div className="mt-3 p-2 bg-[#1a1b1c] rounded text-sm text-primary">
@@ -20541,6 +20804,24 @@ Estamos te aguardando! 😎✂️`;
                     <p className="text-yellow-400 text-sm mb-4 font-semibold bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3">
                       Coloque horário de trabalho de cada profissional <span className="text-red-400">* Obrigatório</span>
                     </p>
+                    {onboardingStep < 4 && (
+                      <div className="rounded-lg border border-yellow-500/30 bg-yellow-900/10 p-3">
+                        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isNoIntervalModeEnabledForWorkHours(workHoursData)}
+                            onChange={(e) => toggleNoIntervalModeForWorkHours(e.target.checked)}
+                            className="form-checkbox h-4 w-4 text-primary bg-[#242628] border-yellow-500/40 rounded"
+                          />
+                          <span className="text-sm font-extrabold text-yellow-100">
+                            Não tenho horário de intervalo
+                          </span>
+                        </label>
+                        <div className="mt-1 text-xs text-yellow-100/90">
+                          Ative apenas se o profissional <strong>trabalha direto</strong> (sem pausa). Isso esconde o intervalo e mantém só Entrada e Saída.
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-4">
@@ -20603,7 +20884,7 @@ Estamos te aguardando! 😎✂️`;
                         )}
 
                         {workHoursData[day]?.enabled === true && (
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className={`grid grid-cols-2 gap-4 ${onboardingStep < 4 && isNoIntervalModeEnabledForWorkHours(workHoursData) ? '' : 'md:grid-cols-4'}`}>
                             <div>
                               <label className="block text-sm text-gray-300 mb-2">Entrada</label>
                               <TimeSelector
@@ -20615,27 +20896,31 @@ Estamos te aguardando! 😎✂️`;
                               />
                             </div>
 
-                            <div>
-                              <label className="block text-sm text-gray-300 mb-2">Início Intervalo</label>
-                              <TimeSelector
-                                value={workHoursData[day]?.break_start || null}
-                                onChange={(value) => handleUpdateWorkTime(day, 'break_start', value || '')}
-                                disabled={false}
-                                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                                intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                              />
-                            </div>
+                            {!(onboardingStep < 4 && isNoIntervalModeEnabledForWorkHours(workHoursData)) && (
+                              <div>
+                                <label className="block text-sm text-gray-300 mb-2">Início Intervalo</label>
+                                <TimeSelector
+                                  value={workHoursData[day]?.break_start || null}
+                                  onChange={(value) => handleUpdateWorkTime(day, 'break_start', value || '')}
+                                  disabled={false}
+                                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                                  intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                />
+                              </div>
+                            )}
 
-                            <div>
-                              <label className="block text-sm text-gray-300 mb-2">Fim Intervalo</label>
-                              <TimeSelector
-                                value={workHoursData[day]?.break_end || null}
-                                onChange={(value) => handleUpdateWorkTime(day, 'break_end', value || '')}
-                                disabled={false}
-                                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                                intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
-                              />
-                            </div>
+                            {!(onboardingStep < 4 && isNoIntervalModeEnabledForWorkHours(workHoursData)) && (
+                              <div>
+                                <label className="block text-sm text-gray-300 mb-2">Fim Intervalo</label>
+                                <TimeSelector
+                                  value={workHoursData[day]?.break_end || null}
+                                  onChange={(value) => handleUpdateWorkTime(day, 'break_end', value || '')}
+                                  disabled={false}
+                                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                                  intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                />
+                              </div>
+                            )}
 
                             <div>
                               <label className="block text-sm text-gray-300 mb-2">Saída</label>
@@ -24840,6 +25125,103 @@ Estamos te aguardando! 😎✂️`;
               >
                 Entendi!
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Popup inicial (sempre no reload até completar onboarding) */}
+      {showOnboardingWelcomeModal && onboardingStep < 4 && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setShowOnboardingWelcomeModal(false)}
+        >
+          <div
+            className="w-full max-w-lg sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl shadow-2xl border-4 border-amber-300 bg-gradient-to-br from-amber-400 via-yellow-300 to-amber-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 sm:p-7">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-sm font-extrabold text-amber-900 tracking-wide">
+                    PRIMEIRO ACESSO • IMPORTANTE
+                  </div>
+                  <h2 className="mt-1 text-xl sm:text-3xl font-extrabold text-black leading-tight">
+                    Seja bem-vindo ao Agendei Fácil!
+                  </h2>
+                  <p className="mt-2 text-sm sm:text-base text-black/80 font-semibold">
+                    Você está a poucos passos de começar. Antes de tudo, uma apresentação rápida.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-xl bg-black/90 text-white font-extrabold px-3 py-2 text-sm sm:text-base hover:bg-black transition-colors"
+                  onClick={() => setShowOnboardingWelcomeModal(false)}
+                >
+                  Fechar
+                </button>
+              </div>
+
+              <div className="mt-4 sm:mt-5 rounded-2xl bg-white/90 border border-amber-200 p-4">
+                <div className="text-sm font-extrabold text-gray-900">
+                  Você está agora em: <span className="underline">Configurações / Página</span>
+                </div>
+                <p className="mt-2 text-sm text-gray-800">
+                  Tudo o que você preencher aqui aparece para seus clientes na sua página de agendamentos.
+                </p>
+
+                <div className="mt-3 sm:mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-gray-200 bg-white p-3">
+                    <div className="text-xs font-extrabold text-gray-900 mb-2">Configure corretamente</div>
+                    {/* Mobile: bem curto */}
+                    <ul className="sm:hidden text-sm text-gray-800 space-y-1">
+                      <li>- Horários</li>
+                      <li>- Foto de perfil</li>
+                      <li>- Fotos do local</li>
+                    </ul>
+                    {/* Desktop: completo */}
+                    <ul className="hidden sm:block text-sm text-gray-800 space-y-1">
+                      <li>- Horários de abertura e fechamento</li>
+                      <li>- Fotos do estabelecimento</li>
+                      <li>- Foto de perfil</li>
+                      <li>- Descrição do seu espaço</li>
+                    </ul>
+                  </div>
+                  <div className="hidden sm:block rounded-xl border border-gray-200 bg-white p-3">
+                    <div className="text-xs font-extrabold text-gray-900 mb-2">O que você oferece</div>
+                    <ul className="text-sm text-gray-800 space-y-1">
+                      <li>- Wi‑Fi</li>
+                      <li>- Ambiente climatizado</li>
+                      <li>- E outros diferenciais</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 sm:mt-5 flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  className="flex-1 rounded-xl bg-black text-white font-extrabold px-4 py-3 text-sm sm:text-base hover:bg-gray-900 transition-colors"
+                  onClick={() => {
+                    setShowOnboardingWelcomeModal(false);
+                    handleTabChange('settings');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                >
+                  Ir para Configurações / Página
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 rounded-xl bg-white/90 border border-gray-300 text-gray-900 font-extrabold px-4 py-3 text-sm sm:text-base hover:bg-white transition-colors"
+                  onClick={() => setShowOnboardingWelcomeModal(false)}
+                >
+                  Entendi
+                </button>
+              </div>
+
+              <div className="mt-3 text-[11px] sm:text-xs font-semibold text-black/70">
+                Observação: este aviso vai aparecer em todo reload até você concluir todas as etapas do onboarding.
+              </div>
             </div>
           </div>
         </div>
