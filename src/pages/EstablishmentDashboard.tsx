@@ -6919,8 +6919,6 @@ Estamos te aguardando! 😎✂️`;
 
         // Usar horários do banco se existirem, senão usar padrão baseado no tipo de estabelecimento
         const businessHoursFromDB = establishmentData.business_hours;
-        const defaultHours = isNewEstablishment ? defaultBusinessHoursForNew : defaultBusinessHoursForOld;
-
         // Normalizar horários: preencher campos vazios/null com padrões
         const normalizeBusinessHours = (hours: any, defaults: any) => {
           const normalized: Record<string, BusinessHours> = {};
@@ -6943,48 +6941,38 @@ Estamos te aguardando! 😎✂️`;
           return normalized;
         };
 
-        const businessHoursEqual = (a: any, b: any): boolean => {
-          const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-          return days.every((day) => {
-            const A = a?.[day];
-            const B = b?.[day];
-            return (
-              Boolean(A?.enabled) === Boolean(B?.enabled) &&
-              String(A?.open1) === String(B?.open1) &&
-              String(A?.close1) === String(B?.close1) &&
-              String(A?.open2) === String(B?.open2) &&
-              String(A?.close2) === String(B?.close2)
-            );
-          });
-        };
+        // ✅ Regras de horário de funcionamento:
+        // - Se NÃO terminou o quiz/onboarding (onboarding_step < 4): aplicar o padrão SÓ se ainda não existir horário salvo.
+        //   (Evita "desconfigurar" horários quando o usuário salva outras configs em "Configurações / Página".)
+        // - Se já terminou (step >= 4): nunca mexer, apenas carregar do banco.
+        const hasSavedBusinessHours =
+          businessHoursFromDB && typeof businessHoursFromDB === 'object' && Object.keys(businessHoursFromDB || {}).length > 0;
 
-        // ✅ REGRA DO CLIENTE:
-        // - Se NÃO terminou o quiz/onboarding (onboarding_step < 4): sempre aplicar o padrão 08:00–12:00 / 14:00–20:00 (Seg–Dom)
-        // - Se já terminou (step = 4): nunca mexer, apenas carregar do banco.
         if (isNewEstablishment) {
-          const desired = defaultBusinessHoursForNew;
+          if (hasSavedBusinessHours) {
+            // Se já existe horário salvo, respeitar o que está no banco (apenas normalizando null/vazio)
+            const normalized = normalizeBusinessHours(businessHoursFromDB, defaultBusinessHoursForNew);
+            console.log('✅ (Onboarding) Mantendo horários salvos do banco:', normalized);
+            setBusinessHours(normalized);
+            setEstablishment((prev: any) => (prev ? { ...prev, business_hours: normalized } : prev));
+          } else {
+            // Se não existe horário salvo, aplicar o padrão e persistir uma única vez
+            const desired = defaultBusinessHoursForNew;
+            setBusinessHours(desired);
+            setEstablishment((prev: any) => (prev ? { ...prev, business_hours: desired } : prev));
 
-          // Aplicar no estado (tela)
-          setBusinessHours(desired);
-
-          // Algumas partes da UI usam establishment.business_hours diretamente
-          setEstablishment((prev: any) => (prev ? { ...prev, business_hours: desired } : prev));
-
-          // Persistir no banco (só se estiver diferente, para evitar writes repetidos)
-          const currentNormalized = normalizeBusinessHours(businessHoursFromDB || {}, desired);
-          const needsUpdate = !businessHoursEqual(currentNormalized, desired);
-
-          if (needsUpdate && establishmentData.id) {
-            try {
-              const { error: bhError } = await supabase
-                .from('establishments')
-                .update({ business_hours: desired })
-                .eq('id', establishmentData.id);
-              if (bhError) {
-                console.error('❌ Erro ao atualizar padrão de horários no banco:', bhError);
+            if (establishmentData.id) {
+              try {
+                const { error: bhError } = await supabase
+                  .from('establishments')
+                  .update({ business_hours: desired })
+                  .eq('id', establishmentData.id);
+                if (bhError) {
+                  console.error('❌ Erro ao salvar padrão de horários no banco:', bhError);
+                }
+              } catch (e) {
+                console.error('❌ Falha ao persistir padrão de horários:', e);
               }
-            } catch (e) {
-              console.error('❌ Falha ao persistir padrão de horários:', e);
             }
           }
         } else if (businessHoursFromDB) {
