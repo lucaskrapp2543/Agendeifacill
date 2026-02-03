@@ -3,7 +3,9 @@ import { Calendar, ChevronLeft, ChevronRight, Clock, Crown, Package, Phone, Plus
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
+import { RescheduleAppointmentModal } from './RescheduleAppointmentModal';
 import { useToast } from './ui/Toaster';
+import { useAuth } from '../context/AuthContext';
 
 interface Professional {
   id: string;
@@ -134,6 +136,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     console.log('🔍 Appointments:', appointments);
 
     const { toast } = useToast();
+    const { user } = useAuth();
 
     const DEFAULT_PAYMENT_METHODS = ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local'] as const;
     const defaultPaymentMethodSet = new Set<string>(DEFAULT_PAYMENT_METHODS as unknown as string[]);
@@ -158,6 +161,202 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [editingAvulsoNameId, setEditingAvulsoNameId] = useState<string | null>(null);
     const [editingAvulsoNameValue, setEditingAvulsoNameValue] = useState<string>('');
     const [localClientNameOverrides, setLocalClientNameOverrides] = useState<Record<string, string>>({});
+    const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+    const [selectedAppointmentForReschedule, setSelectedAppointmentForReschedule] = useState<Appointment | null>(null);
+    const [showSubscriberAttendanceModal, setShowSubscriberAttendanceModal] = useState(false);
+    const [subscriberOptions, setSubscriberOptions] = useState<Array<{
+      id: string;
+      display_name: string;
+      whatsapp: string;
+      plan_name?: string;
+      monthly_limit?: number | null;
+    }>>([]);
+    const [subscriberOptionsLoading, setSubscriberOptionsLoading] = useState(false);
+    const [subscriberSearch, setSubscriberSearch] = useState('');
+    const [selectedSubscriberOptionId, setSelectedSubscriberOptionId] = useState<string>('');
+    const [selectedAppointmentForSubscriberAttendance, setSelectedAppointmentForSubscriberAttendance] = useState<Appointment | null>(null);
+    const [isSavingSubscriberAttendance, setIsSavingSubscriberAttendance] = useState(false);
+
+    const handleOpenRescheduleModal = (apt: Appointment) => {
+      setSelectedAppointmentForReschedule(apt);
+      setShowRescheduleModal(true);
+    };
+
+    const handleCloseRescheduleModal = () => {
+      setShowRescheduleModal(false);
+      setSelectedAppointmentForReschedule(null);
+    };
+
+    const handleRescheduleAppointment = async (appointmentId: string, newDate: string, newTime: string) => {
+      try {
+        const { error } = await supabase
+          .from('appointments')
+          .update({
+            appointment_date: newDate,
+            appointment_time: newTime,
+          } as any)
+          .eq('id', appointmentId);
+
+        if (error) throw error;
+
+        toast.success('Horário alterado com sucesso!');
+        if (onAppointmentUpdate) onAppointmentUpdate();
+      } catch (e) {
+        console.error('❌ Erro ao trocar horário:', e);
+        toast.error('Erro ao trocar horário. Tente novamente.');
+        throw e;
+      }
+    };
+
+    const getProfessionalNameById = (professionalId: string): string => {
+      const p = professionals.find((x) => String(x.id) === String(professionalId));
+      return String(p?.name || professionalId || 'Profissional');
+    };
+
+    const loadSubscriberOptions = async () => {
+      if (!establishment?.id) return;
+      setSubscriberOptionsLoading(true);
+      try {
+        // Traz assinantes do "Meus Assinantes" (client_subscriptions)
+        const supabaseAny = supabase as any;
+        const { data, error } = await supabaseAny
+          .from('client_subscriptions')
+          .select(`
+            id,
+            subscriber_name,
+            subscriber_whatsapp,
+            client_name_override,
+            client_whatsapp,
+            monthly_limit,
+            subscriptions ( name )
+          `)
+          .eq('establishment_id', String(establishment.id))
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const rows = Array.isArray(data) ? data : [];
+        const mapped = rows
+          .map((row: any) => {
+            const display_name = String(row?.client_name_override || row?.subscriber_name || '').trim();
+            const whatsapp = String(row?.client_whatsapp || row?.subscriber_whatsapp || '').trim();
+            const plan_name = String(row?.subscriptions?.name || '').trim();
+            const monthly_limit = row?.monthly_limit ?? null;
+            if (!display_name || !whatsapp) return null;
+            return {
+              id: String(row.id),
+              display_name,
+              whatsapp,
+              plan_name: plan_name || undefined,
+              monthly_limit: monthly_limit !== null && monthly_limit !== undefined ? Number(monthly_limit) : null,
+            };
+          })
+          .filter(Boolean);
+
+        setSubscriberOptions(mapped as any);
+      } catch (e) {
+        console.error('❌ Erro ao carregar assinantes:', e);
+        toast('Erro ao carregar assinantes. Tente novamente.', 'error');
+        setSubscriberOptions([]);
+      } finally {
+        setSubscriberOptionsLoading(false);
+      }
+    };
+
+    const handleOpenSubscriberAttendanceModal = async (apt: Appointment) => {
+      setSelectedAppointmentForSubscriberAttendance(apt);
+      setSelectedSubscriberOptionId('');
+      setSubscriberSearch('');
+      setShowSubscriberAttendanceModal(true);
+      if (subscriberOptions.length === 0) {
+        await loadSubscriberOptions();
+      }
+    };
+
+    const handleCloseSubscriberAttendanceModal = () => {
+      if (isSavingSubscriberAttendance) return;
+      setShowSubscriberAttendanceModal(false);
+      setSelectedAppointmentForSubscriberAttendance(null);
+      setSelectedSubscriberOptionId('');
+      setSubscriberSearch('');
+    };
+
+    const handleConfirmSubscriberAttendance = async () => {
+      if (!selectedAppointmentForSubscriberAttendance) return;
+      if (!selectedSubscriberOptionId) {
+        toast('Selecione um assinante.', 'error');
+        return;
+      }
+
+      const apt = selectedAppointmentForSubscriberAttendance;
+      const establishmentId = String(establishment?.id || '');
+      if (!establishmentId) {
+        toast('Estabelecimento não carregado.', 'error');
+        return;
+      }
+
+      setIsSavingSubscriberAttendance(true);
+      try {
+        // ✅ Verificar limite do assinante (não permitir 5/4)
+        const selectedSub = subscriberOptions.find((s) => String(s.id) === String(selectedSubscriberOptionId));
+        const limit = Number(selectedSub?.monthly_limit || 0);
+        if (Number.isFinite(limit) && limit > 0) {
+          const dateStr = String(apt.appointment_date || '').slice(0, 10);
+          const [y, m] = dateStr.split('-').map(Number);
+          const first = new Date(y || new Date().getFullYear(), (m || (new Date().getMonth() + 1)) - 1, 1);
+          const last = new Date(y || new Date().getFullYear(), (m || (new Date().getMonth() + 1)) - 1 + 1, 0);
+          const min = first.toISOString().split('T')[0];
+          const max = last.toISOString().split('T')[0];
+
+          const { data: countRows, error: countErr } = await (supabase as any)
+            .from('subscriber_attendances')
+            .select('id, attendance_date')
+            .eq('establishment_id', establishmentId)
+            .eq('client_subscription_id', String(selectedSubscriberOptionId))
+            .gte('attendance_date', min)
+            .lte('attendance_date', max);
+
+          if (countErr) throw countErr;
+          const currentCount = Array.isArray(countRows) ? countRows.length : 0;
+          if (currentCount >= limit) {
+            toast(`Limite atingido (${limit}/${limit}). Aumente o limite do cliente para registrar mais atendimentos.`, 'error');
+            return;
+          }
+        }
+
+        // 1) Concluir o agendamento
+        const { error: updErr } = await supabase
+          .from('appointments')
+          .update({ status: 'completed' } as any)
+          .eq('id', apt.id);
+        if (updErr) throw updErr;
+
+        // 2) Registrar atendimento no assinante
+        const professionalName = getProfessionalNameById(String(apt.professional || ''));
+        const payload: any = {
+          establishment_id: establishmentId,
+          client_subscription_id: String(selectedSubscriberOptionId),
+          professional_name: professionalName,
+          attendance_date: String(apt.appointment_date || '').slice(0, 10),
+          repass_value: 0,
+        };
+        if (user?.id) payload.created_by = user.id;
+
+        const { error: insErr } = await (supabase as any)
+          .from('subscriber_attendances')
+          .insert(payload);
+        if (insErr) throw insErr;
+
+        toast('✅ Atendimento registrado e agendamento concluído!', 'success');
+        handleCloseSubscriberAttendanceModal();
+        if (onAppointmentUpdate) onAppointmentUpdate();
+      } catch (e) {
+        console.error('❌ Erro ao registrar atendimento da assinatura:', e);
+        toast('Erro ao registrar atendimento da assinatura. Tente novamente.', 'error');
+      } finally {
+        setIsSavingSubscriberAttendance(false);
+      }
+    };
 
     const getDisplayedClientName = (apt: Appointment): string => {
       return localClientNameOverrides[apt.id] ?? apt.client_name ?? '';
@@ -2070,6 +2269,28 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              handleOpenSubscriberAttendanceModal(apt);
+                                            }}
+                                            className="w-full px-2 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 font-extrabold"
+                                            title="Selecionar um assinante e registrar 1 atendimento concluído"
+                                          >
+                                            ✅ Atendimento assinatura
+                                          </button>
+
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenRescheduleModal(apt);
+                                            }}
+                                            className="w-full px-2 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 font-extrabold"
+                                            title="Trocar a data/horário deste agendamento"
+                                          >
+                                            🕒 Trocar horário
+                                          </button>
+
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
                                               if (onOpenObservationModal) onOpenObservationModal(apt.id, apt.establishment_observation);
                                             }}
                                             className="w-full px-2 py-1.5 text-xs bg-gray-700 text-white rounded hover:bg-gray-600"
@@ -2219,6 +2440,143 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 className="w-full rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-extrabold py-3 transition-colors"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Trocar horário */}
+      {showRescheduleModal && selectedAppointmentForReschedule && (
+        <RescheduleAppointmentModal
+          isOpen={showRescheduleModal}
+          onClose={handleCloseRescheduleModal}
+          onConfirm={handleRescheduleAppointment}
+          appointment={selectedAppointmentForReschedule as any}
+          establishment={{
+            id: String(establishment?.id || ''),
+            business_hours: businessHours,
+            professionals: Array.isArray(establishment?.professionals) ? establishment.professionals : [],
+          } as any}
+          use15MinuteInterval={Boolean((establishment as any)?.use_15_minute_interval)}
+          use20MinuteSchedule={Boolean((establishment as any)?.use_20_minute_schedule)}
+          use60MinuteSchedule={Boolean((establishment as any)?.use_60_minute_schedule)}
+        />
+      )}
+
+      {/* Modal: Atendimento assinatura */}
+      {showSubscriberAttendanceModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-white">
+            <div className="p-4 border-b border-gray-200">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-gray-900 font-extrabold text-lg">Atendimento assinatura</div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    Selecione o assinante para registrar 1 atendimento concluído.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseSubscriberAttendanceModal}
+                  className="h-9 w-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center"
+                  title="Fechar"
+                  disabled={isSavingSubscriberAttendance}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4">
+              <div className="mb-3">
+                <input
+                  value={subscriberSearch}
+                  onChange={(e) => setSubscriberSearch(e.target.value)}
+                  placeholder="Pesquisar assinante por nome ou WhatsApp..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  disabled={subscriberOptionsLoading || isSavingSubscriberAttendance}
+                />
+              </div>
+
+              <div className="mb-3 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={loadSubscriberOptions}
+                  className="text-sm px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800"
+                  disabled={subscriberOptionsLoading || isSavingSubscriberAttendance}
+                >
+                  {subscriberOptionsLoading ? 'Carregando...' : 'Recarregar lista'}
+                </button>
+                <div className="text-xs text-gray-600">
+                  {subscriberOptions.length} assinante(s)
+                </div>
+              </div>
+
+              <div className="max-h-[45vh] overflow-y-auto border border-gray-200 rounded-lg">
+                {subscriberOptions
+                  .filter((s) => {
+                    const q = String(subscriberSearch || '').trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      String(s.display_name || '').toLowerCase().includes(q) ||
+                      String(s.whatsapp || '').replace(/\D/g, '').includes(q.replace(/\D/g, ''))
+                    );
+                  })
+                  .map((s) => {
+                    const selected = String(selectedSubscriberOptionId) === String(s.id);
+                    return (
+                      <button
+                        type="button"
+                        key={s.id}
+                        onClick={() => setSelectedSubscriberOptionId(s.id)}
+                        className={`w-full text-left px-3 py-2 border-b border-gray-100 hover:bg-gray-50 ${
+                          selected ? 'bg-emerald-50' : ''
+                        }`}
+                        disabled={isSavingSubscriberAttendance}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-gray-900 truncate">
+                              {s.display_name}
+                            </div>
+                            <div className="text-xs text-gray-600 truncate">
+                              {String(s.whatsapp || '').replace(/\D/g, '')}
+                              {s.plan_name ? ` • ${s.plan_name}` : ''}
+                            </div>
+                          </div>
+                          {selected && (
+                            <span className="text-xs font-bold text-emerald-700">SELECIONADO</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+
+                {subscriberOptions.length === 0 && (
+                  <div className="p-4 text-sm text-gray-600">
+                    Nenhum assinante encontrado. Clique em “Recarregar lista”.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-gray-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleCloseSubscriberAttendanceModal}
+                className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm"
+                disabled={isSavingSubscriberAttendance}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSubscriberAttendance}
+                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isSavingSubscriberAttendance || !selectedSubscriberOptionId}
+              >
+                {isSavingSubscriberAttendance ? 'Salvando...' : 'Concluir e registrar'}
               </button>
             </div>
           </div>

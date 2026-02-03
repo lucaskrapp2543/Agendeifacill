@@ -144,6 +144,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [attendanceValue, setAttendanceValue] = useState<number>(0);
   const [isSavingAttendance, setIsSavingAttendance] = useState(false);
   const [subscriberAttendances, setSubscriberAttendances] = useState<any[]>([]);
+  const [subscriberAttendanceCountsByClientSubId, setSubscriberAttendanceCountsByClientSubId] = useState<Record<string, number>>({});
   const [subscriptionSaleCommissions, setSubscriptionSaleCommissions] = useState<any[]>([]);
   const [professionals, setProfessionals] = useState<any[]>([]);
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
@@ -600,6 +601,42 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // ✅ Contagem TOTAL de atendimentos por assinante (para mostrar "X concluído(s)" ao lado do nome)
+  // Observação: não filtra por mês. É o total acumulado no estabelecimento.
+  const fetchSubscriberAttendanceCounts = async (month?: number, year?: number) => {
+    try {
+      const targetMonth = month !== undefined ? month : selectedMonth;
+      const targetYear = year !== undefined ? year : selectedYear;
+      const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
+      const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+      const min = firstDayOfMonth.toISOString().split('T')[0];
+      const max = lastDayOfMonth.toISOString().split('T')[0];
+
+      const { data, error } = await supabase
+        .from('subscriber_attendances')
+        .select('client_subscription_id, attendance_date')
+        .eq('establishment_id', establishmentId)
+        .gte('attendance_date', min)
+        .lte('attendance_date', max);
+
+      if (error) {
+        console.error('Erro ao buscar contagem de atendimentos:', error);
+        return;
+      }
+
+      const counts: Record<string, number> = {};
+      (data || []).forEach((row: any) => {
+        const id = String(row?.client_subscription_id || '');
+        if (!id) return;
+        counts[id] = (counts[id] || 0) + 1;
+      });
+
+      setSubscriberAttendanceCountsByClientSubId(counts);
+    } catch (e) {
+      console.error('Erro ao buscar contagem total de atendimentos:', e);
+    }
+  };
+
   // Função para buscar comissões de venda de assinatura (do mês selecionado)
   const fetchSubscriptionSaleCommissions = async (month?: number, year?: number) => {
     try {
@@ -885,6 +922,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       return;
     }
 
+    // ✅ Bloquear se bater o limite do cliente (não permitir 5/4)
+    const limit = Number((selectedClientForAttendance as any)?.monthly_limit || 0);
+    const currentCount = subscriberAttendanceCountsByClientSubId[String(selectedClientForAttendance.id)] || 0;
+    if (Number.isFinite(limit) && limit > 0 && currentCount >= limit) {
+      toast.error(`Limite atingido (${limit}/${limit}). Aumente o limite para adicionar mais atendimentos.`);
+      return;
+    }
+
     setIsSavingAttendance(true);
     try {
       // ✅ Regra: se existir comissão de venda (%), os atendimentos devem sair do valor RESTANTE
@@ -923,6 +968,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Recarregar dados
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
+      await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
 
     } catch (error: any) {
       console.error('Erro ao adicionar atendimento:', error);
@@ -952,6 +998,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Recarregar dados
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
+      await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
 
     } catch (error: any) {
       console.error('Erro ao remover atendimento:', error);
@@ -1074,6 +1121,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       fetchClientSubscriptions();
       fetchProfessionals();
       fetchSubscriberAttendances(selectedMonth, selectedYear);
+      fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
       fetchProfessionalPayments(selectedMonth, selectedYear);
       fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
 
@@ -1104,6 +1152,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   useEffect(() => {
     if (establishmentId) {
       fetchSubscriberAttendances(selectedMonth, selectedYear);
+      fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
       fetchProfessionalPayments(selectedMonth, selectedYear);
       fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
     }
@@ -1823,6 +1872,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     try {
       await fetchClientSubscriptions();
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
+      await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
       await fetchProfessionalPayments(selectedMonth, selectedYear);
       await fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
       toast.success('Saldo atualizado!');
@@ -1879,6 +1929,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setSelectedMonth(month);
     setSelectedYear(year);
     await fetchSubscriberAttendances(month, year);
+    await fetchSubscriberAttendanceCounts(month, year);
     await fetchProfessionalPayments(month, year);
     await fetchSubscriptionSaleCommissions(month, year);
   };
@@ -2944,6 +2995,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               const isPaid = cs.payment_status === 'paid';
               const endDate = parseISO(cs.end_date);
               const isExpired = isPast(endDate);
+              const limit = Number((cs as any)?.monthly_limit || 0);
+              const concludedCountRaw = subscriberAttendanceCountsByClientSubId[String(cs.id)] || 0;
+              const concludedCount = Number.isFinite(limit) && limit > 0 ? Math.min(concludedCountRaw, limit) : concludedCountRaw;
 
               // Lógica de status: vencido APENAS se data passou (independente do pagamento)
               const isVencido = isExpired;
@@ -2961,11 +3015,20 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <h3 className={`font-semibold text-base sm:text-lg ${textColor} truncate`}>
                         {cs.profiles?.full_name || 'Cliente Desconhecido'}
                       </h3>
-                      {isVencido && (
-                        <span className="bg-red-600 text-white text-xs px-2 py-1 rounded-full font-medium">
-                          VENCIDO
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {(concludedCount > 0 || (Number.isFinite(limit) && limit > 0)) && (
+                          <span className="bg-black/30 text-white text-xs px-2 py-1 rounded-full font-extrabold">
+                            {Number.isFinite(limit) && limit > 0
+                              ? `${concludedCount} de ${limit}`
+                              : `${concludedCount} concluído(s)`}
+                          </span>
+                        )}
+                        {isVencido && (
+                          <span className="bg-red-600 text-white text-xs px-2 py-1 rounded-full font-medium">
+                            VENCIDO
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 

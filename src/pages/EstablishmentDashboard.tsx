@@ -20,6 +20,7 @@ import { ProfessionalPaymentControl } from '../components/ProfessionalPaymentCon
 import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
 import ReservarCliente from '../components/ReservarCliente';
+import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentModal';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
@@ -2683,6 +2684,8 @@ const EstablishmentDashboard = () => {
   // Estados para transferência de agendamentos
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [selectedAppointmentForTransfer, setSelectedAppointmentForTransfer] = useState<Appointment | null>(null);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [selectedAppointmentForReschedule, setSelectedAppointmentForReschedule] = useState<Appointment | null>(null);
 
   // Estados para gerenciar bloqueio de horários dos profissionais
   const [showBlockTimeModal, setShowBlockTimeModal] = useState(false);
@@ -9556,6 +9559,43 @@ Estamos te aguardando! 😎✂️`;
     setSelectedAppointmentForTransfer(null);
   };
 
+  // Trocar horário (remarcação)
+  const handleOpenRescheduleModal = (appointment: Appointment) => {
+    setSelectedAppointmentForReschedule(appointment);
+    setShowRescheduleModal(true);
+  };
+
+  const handleCloseRescheduleModal = () => {
+    setShowRescheduleModal(false);
+    setSelectedAppointmentForReschedule(null);
+  };
+
+  const handleRescheduleAppointment = async (appointmentId: string, newDate: string, newTime: string) => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          appointment_date: newDate,
+          appointment_time: newTime,
+        } as any)
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      toast('Horário alterado com sucesso!', 'success');
+
+      // Recarregar listas (dia e mês) para refletir a mudança
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments(selectedMonth),
+      ]);
+    } catch (e) {
+      console.error('❌ Erro ao trocar horário:', e);
+      toast('Erro ao trocar horário. Tente novamente.', 'error');
+      throw e;
+    }
+  };
+
   // Função para abrir modal "Terminei Antes"
   const handleOpenFinishEarlyModal = (appointment: Appointment) => {
     setSelectedAppointmentForFinishEarly(appointment);
@@ -15197,6 +15237,15 @@ Estamos te aguardando! 😎✂️`;
 
                                             {/* Linha 3: Fila de espera + Observações */}
                                             <div className="mt-2 space-y-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleOpenRescheduleModal(appointment)}
+                                                className="w-full px-2 py-1 text-xs font-extrabold rounded transition-colors bg-indigo-600 text-white hover:bg-indigo-700"
+                                                title="Trocar a data/horário deste agendamento"
+                                              >
+                                                🕒 Trocar horário
+                                              </button>
+
                                               <button
                                                 type="button"
                                                 onClick={() => {
@@ -24959,6 +25008,20 @@ Estamos te aguardando! 😎✂️`;
         professionals={professionals}
         currentProfessionalName={selectedAppointmentForTransfer ? getProfessionalName(selectedAppointmentForTransfer.professional) : ''}
       />
+
+      {/* Modal Trocar horário */}
+      {establishment && (
+        <RescheduleAppointmentModal
+          isOpen={showRescheduleModal}
+          onClose={handleCloseRescheduleModal}
+          onConfirm={handleRescheduleAppointment}
+          appointment={selectedAppointmentForReschedule as any}
+          establishment={establishment as any}
+          use15MinuteInterval={use15MinuteInterval}
+          use20MinuteSchedule={use20MinuteSchedule}
+          use60MinuteSchedule={use60MinuteSchedule}
+        />
+      )}
 
       {/* Modal de Verificação de Senha para Configurações */}
       <ConfigPasswordModal
