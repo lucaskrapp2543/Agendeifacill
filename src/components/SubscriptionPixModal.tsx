@@ -58,6 +58,8 @@ type SubscriptionPixModalProps = {
   paymentProvider?: 'pagarme' | 'mercadopago'; // Novo prop para indicar qual gateway usar
   // ✅ Link externo (custom_link): abre o mesmo modal e redireciona no final
   externalPaymentLink?: string;
+  // ✅ Define qual fluxo abrir primeiro (ex.: pedido via WhatsApp, sem abrir WhatsApp direto)
+  initialFlow?: 'default' | 'credit' | 'whatsapp';
 };
 
 export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
@@ -70,6 +72,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   subscription,
   paymentProvider = 'pagarme', // Padrão: Pagar.me
   externalPaymentLink,
+  initialFlow = 'default',
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'pix' | 'credit_card' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -234,6 +237,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   }, [isOpen, subscription?.id]);
 
   const externalLink = String(externalPaymentLink || '').trim();
+  const canPix =
+    hasMercadoPago || (paymentProvider !== 'mercadopago' && Boolean(String(recipientId || '').trim()));
 
   // Quando abrir a área do crédito, descer automaticamente
   useEffect(() => {
@@ -959,6 +964,20 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   }, [isOpen]);
 
+  // ✅ Abrir fluxo inicial (sem abrir WhatsApp direto no Booking)
+  useEffect(() => {
+    if (!isOpen) return;
+    if (initialFlow === 'credit') {
+      setShowCreditConfirm(true);
+    } else if (initialFlow === 'whatsapp') {
+      // Não é PIX nem link; o usuário vai preencher os dados e clicar em "Enviar pedido no WhatsApp"
+      setSelectedMethod(null);
+      setShowCreditConfirm(false);
+      setShowCreditInstructions(false);
+      setShowExternalInstructions(false);
+    }
+  }, [isOpen, initialFlow]);
+
   const handleSafeClose = useCallback(() => {
     if (statusIntervalRef.current) {
       window.clearInterval(statusIntervalRef.current);
@@ -1136,7 +1155,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 >
                   Pagar assinatura
                 </button>
-              ) : (
+              ) : canPix ? (
                 <button
                   onClick={handleGeneratePix}
                   disabled={isProcessing}
@@ -1154,17 +1173,48 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                     </>
                   )}
                 </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const phone = String(establishmentWhatsapp || '').replace(/\D/g, '');
+                    if (!phone) {
+                      toast.error('WhatsApp do estabelecimento não configurado.');
+                      return;
+                    }
+                    if (!nome.trim()) {
+                      toast.error('Informe seu nome.');
+                      return;
+                    }
+                    const phoneDigits = String(whatsapp || '').replace(/\D/g, '');
+                    if (phoneDigits.length < 10) {
+                      toast.error('Informe um WhatsApp válido (com DDD).');
+                      return;
+                    }
+                    const phoneWithCountry = phone.startsWith('55') ? phone : `55${phone}`;
+                    const msg = `Quero assinar o plano "${subscription.name}" da barbearia ${establishmentName}.\n\nMeu nome: ${nome}\nMeu WhatsApp: ${whatsapp}\nMeu CPF: ${cpf || ''}\nMeu email: ${email || ''}\n\nPode me passar a forma de pagamento e confirmar pra mim depois?`;
+                    window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`, '_blank');
+                  }}
+                  disabled={isProcessing || isCheckingPayment}
+                  className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-gray-700"
+                >
+                  <MessageCircle className="h-5 w-5" />
+                  Enviar pedido no WhatsApp
+                </button>
               )}
 
-              <button
-                type="button"
-                onClick={() => setShowCreditConfirm(true)}
-                disabled={isProcessing || isCheckingPayment}
-                className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-gray-700"
-              >
-                <CreditCard className="h-5 w-5" />
-                Cartão de crédito
-              </button>
+              {/* Cartão só aparece se existir link configurado para cartão */}
+              {creditCardLink ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCreditConfirm(true)}
+                  disabled={isProcessing || isCheckingPayment}
+                  className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-gray-700"
+                >
+                  <CreditCard className="h-5 w-5" />
+                  Cartão de crédito
+                </button>
+              ) : null}
             </div>
 
             {showExternalInstructions && externalLink && !hasMercadoPago ? (

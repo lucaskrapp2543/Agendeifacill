@@ -34,6 +34,7 @@ export default function BookingPage() {
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [showSubscriptionPixModal, setShowSubscriptionPixModal] = useState(false);
   const [selectedSubscriptionForPix, setSelectedSubscriptionForPix] = useState<any | null>(null);
+  const [subscriptionPixInitialFlow, setSubscriptionPixInitialFlow] = useState<'default' | 'credit' | 'whatsapp'>('default');
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
   const [showBusinessHours, setShowBusinessHours] = useState(false);
   const [duplicateCarouselIndex, setDuplicateCarouselIndex] = useState(0);
@@ -787,7 +788,9 @@ export default function BookingPage() {
 
     // Verificar Pagar.me: SEMPRE priorizar valor do banco de dados
     // Se estiver false no banco, NÃO usar Pagar.me mesmo que localStorage diga true
-    const isPagarmeSubscriptionPixEnabled = Boolean((establishment as any)?.use_pagarme_subscription_pix === true);
+    const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
+    const isPagarmeSubscriptionPixEnabled =
+      Boolean((establishment as any)?.use_pagarme_subscription_pix === true) && Boolean(pagarmeRecipientId);
     
     // Verificar Mercado Pago: SEMPRE priorizar valor do banco de dados
     // ✅ Usar try-catch para evitar erro se coluna não existir ainda
@@ -807,6 +810,7 @@ export default function BookingPage() {
         return;
       }
       // Abrir modal de pagamento Mercado Pago
+      setSubscriptionPixInitialFlow('default');
       setSelectedSubscriptionForPix(subscription);
       setShowSubscriptionPixModal(true);
       setShowSubscriptionsDropdown(false);
@@ -819,6 +823,7 @@ export default function BookingPage() {
         toast.error('Assinatura não encontrada');
         return;
       }
+      setSubscriptionPixInitialFlow('default');
       setSelectedSubscriptionForPix(subscription);
       setShowSubscriptionPixModal(true);
       setShowSubscriptionsDropdown(false);
@@ -828,29 +833,21 @@ export default function BookingPage() {
     // Se tiver link personalizado, redirecionar para ele
     if (subscription && subscription.custom_link && subscription.custom_link.trim()) {
       // ✅ NOVO: manter o mesmo fluxo do modal (cadastro + confirmação), mas no final redirecionar para o link
+      setSubscriptionPixInitialFlow('default');
       setSelectedSubscriptionForPix(subscription);
       setShowSubscriptionPixModal(true);
       setShowSubscriptionsDropdown(false);
       return;
     }
 
-    // Comportamento padrão: WhatsApp
-    if (!establishment?.whatsapp) {
-      toast.error('WhatsApp não configurado para este estabelecimento');
+    // ✅ Fallback novo (sem PIX/sem link): abrir modal para coletar dados e ENVIAR pedido no WhatsApp
+    if (!subscription) {
+      toast.error('Assinatura não encontrada');
       return;
     }
-
-    const message = `Quero ser assinante ${subscriptionName.toLowerCase()}`;
-    let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
-
-    // Adicionar código do país se não tiver
-    if (!phoneNumber.startsWith('55')) {
-      phoneNumber = '55' + phoneNumber;
-    }
-
-    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-
-    window.open(whatsappUrl, '_blank');
+    setSubscriptionPixInitialFlow('whatsapp');
+    setSelectedSubscriptionForPix(subscription);
+    setShowSubscriptionPixModal(true);
     setShowSubscriptionsDropdown(false);
   };
 
@@ -3472,6 +3469,7 @@ export default function BookingPage() {
           onClose={() => {
             setShowSubscriptionPixModal(false);
             setSelectedSubscriptionForPix(null);
+            setSubscriptionPixInitialFlow('default');
           }}
           establishmentId={String(establishment?.id || '')}
           recipientId={String((establishment as any)?.pagarme_recipient_id || '')}
@@ -3483,6 +3481,7 @@ export default function BookingPage() {
             value: Number(selectedSubscriptionForPix.value || 0),
             duration_months: selectedSubscriptionForPix.duration_months ?? null,
           }}
+          initialFlow={subscriptionPixInitialFlow}
           externalPaymentLink={String(selectedSubscriptionForPix.custom_link || '').trim() || undefined}
           paymentProvider={
             (() => {
