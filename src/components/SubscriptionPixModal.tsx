@@ -576,6 +576,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         setIsCheckingPayment(true);
         setCurrentPaymentId(String(result.id || ''));
         setCurrentPaymentProvider('mercadopago_pix');
+        // ✅ Pré-criar assinatura pendente (para aparecer no painel mesmo se o cliente fechar a tela)
+        if (result?.id) {
+          createPendingSubscription(String(result.id), 'mercadopago_pix');
+        }
         checkPaymentStatusPeriodically(result.id, 'mercadopago_pix');
       } catch (err: any) {
         const isAbort = err?.name === 'AbortError';
@@ -703,6 +707,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       setIsCheckingPayment(true);
       setCurrentPaymentId(String(result.id || ''));
       setCurrentPaymentProvider('pagarme_pix');
+      // ✅ Pré-criar assinatura pendente (para aparecer no painel mesmo se o cliente fechar a tela)
+      if (result?.id) {
+        createPendingSubscription(String(result.id), 'pagarme_pix');
+      }
       checkPaymentStatusPeriodically(result.id, 'pagarme_pix');
     } catch (err: any) {
       const isAbort = err?.name === 'AbortError';
@@ -713,6 +721,37 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       );
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const createPendingSubscription = async (
+    orderId: string,
+    providerKey: 'pagarme_pix' | 'mercadopago_pix'
+  ) => {
+    const url = import.meta.env.PROD
+      ? '/.netlify/functions/subscription-create-pending'
+      : '/api/subscribers/create-pending-subscription';
+
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          establishmentId,
+          subscriptionId: subscription.id,
+          provider: providerKey,
+          customer: {
+            name: nome.trim(),
+            whatsapp: whatsapp,
+            email: email?.trim() || undefined,
+            document: onlyDigits(cpf),
+          },
+        }),
+      });
+    } catch (e) {
+      // não travar o fluxo — só garantir que o assinante apareça quando possível
+      console.warn('⚠️ Falha ao pré-criar assinatura pendente:', e);
     }
   };
 

@@ -69,6 +69,7 @@ export interface Database {
           fila_espera_profissional_id?: string | null; // modo legado (fila única)
           fila_espera_profissional_ids?: string[] | null; // novo: até 3 filas (por profissional)
           show_subscriptions_fullpage?: boolean; // Mostrar assinaturas por completo no Booking
+          use_60_minute_schedule?: boolean; // Mostrar horários de 1 em 1 hora no booking
         }
       },
       premium_subscribers: {

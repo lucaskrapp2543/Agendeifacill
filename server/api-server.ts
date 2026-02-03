@@ -97,6 +97,106 @@ app.get('/health', (_req, res) => {
 });
 
 /**
+ * POST /api/subscribers/create-pending-subscription
+ * Cria/atualiza uma assinatura pendente (unpaid) para aparecer no painel do barbeiro,
+ * mesmo antes do pagamento ser confirmado.
+ */
+app.post('/api/subscribers/create-pending-subscription', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        error: 'Supabase admin não configurado no servidor',
+        details: {
+          hasUrl: Boolean(SUPABASE_URL),
+          hasServiceRole: Boolean(SUPABASE_SERVICE_ROLE_KEY),
+        },
+      });
+    }
+
+    const { orderId, establishmentId, subscriptionId, customer, provider } = req.body || {};
+    const customerName = String(customer?.name || '').trim();
+    const customerWhatsapp = onlyDigits(String(customer?.whatsapp || customer?.phone || ''));
+    const customerEmail = String(customer?.email || '').trim() || null;
+
+    if (!orderId || !establishmentId || !subscriptionId || !customerName || !customerWhatsapp) {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        required: ['orderId', 'establishmentId', 'subscriptionId', 'customer.name', 'customer.whatsapp'],
+      });
+    }
+
+    // Buscar duração da assinatura
+    const { data: subData, error: subErr } = await supabaseAdmin
+      .from('subscriptions')
+      .select('duration_months')
+      .eq('id', String(subscriptionId))
+      .single();
+    if (subErr) {
+      return res.status(500).json({ error: 'Erro ao buscar assinatura', details: subErr });
+    }
+
+    const durationMonths = Number((subData as any)?.duration_months || 1);
+    const today = new Date();
+    const startDate = toISODate(today);
+    const endDate = toISODate(addMonths(today, Number.isFinite(durationMonths) && durationMonths > 0 ? durationMonths : 1));
+
+    // Se já existir, atualizar
+    const { data: existing } = await supabaseAdmin
+      .from('client_subscriptions')
+      .select('id')
+      .eq('establishment_id', String(establishmentId))
+      .eq('subscription_id', String(subscriptionId))
+      // @ts-expect-error
+      .eq('subscriber_whatsapp', customerWhatsapp)
+      .limit(1)
+      .maybeSingle();
+
+    const providerFinal = String(provider || 'pagarme_pix').toLowerCase().trim() || 'pagarme_pix';
+
+    const payload: any = {
+      subscription_id: String(subscriptionId),
+      establishment_id: String(establishmentId),
+      start_date: startDate,
+      end_date: endDate,
+      payment_status: 'unpaid',
+      last_payment_date: null,
+      subscriber_name: customerName,
+      subscriber_whatsapp: customerWhatsapp,
+      subscriber_email: customerEmail,
+      subscription_payment_provider: providerFinal,
+      subscription_payment_order_id: String(orderId),
+    };
+
+    let resultRow: any = null;
+    if (existing?.id) {
+      const { data: upd, error: updErr } = await supabaseAdmin
+        .from('client_subscriptions')
+        .update(payload)
+        .eq('id', String(existing.id))
+        .select()
+        .single();
+      if (updErr) return res.status(500).json({ error: 'Erro ao atualizar assinatura pendente', details: updErr });
+      resultRow = upd;
+    } else {
+      const { data: ins, error: insErr } = await supabaseAdmin
+        .from('client_subscriptions')
+        .insert([{ client_id: uuidv4(), ...payload }])
+        .select()
+        .single();
+      if (insErr) return res.status(500).json({ error: 'Erro ao criar assinatura pendente', details: insErr });
+      resultRow = ins;
+    }
+
+    return res.status(200).json({ ok: true, status: 'unpaid', subscription: resultRow });
+  } catch (error: any) {
+    return res.status(500).json({
+      error: error?.message || 'Erro ao criar assinatura pendente',
+      details: error?.details || error?.hint || error?.code || undefined,
+    });
+  }
+});
+
+/**
  * POST /api/subscribers/confirm-subscription-pix
  * Confirma pagamento (Pagar.me ou Mercado Pago) e registra o assinante no Supabase (client_subscriptions)
  * - Flow: Booking público -> PIX -> pago -> registrar em "Meus Assinantes"

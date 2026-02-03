@@ -136,6 +136,7 @@ interface Establishment {
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
   use_15_minute_interval?: boolean;
   use_20_minute_schedule?: boolean;
+  use_60_minute_schedule?: boolean;
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
@@ -2427,6 +2428,9 @@ const EstablishmentDashboard = () => {
 
   // Estado para horários de 20 em 20 minutos
   const [use20MinuteSchedule, setUse20MinuteSchedule] = useState(false);
+
+  // Estado para horários de 1 em 1 hora
+  const [use60MinuteSchedule, setUse60MinuteSchedule] = useState(false);
 
   // Estado para mostrar imagem "Melhor do Brasil"
   const [showBestOfBrazilImage, setShowBestOfBrazilImage] = useState(true);
@@ -4730,7 +4734,9 @@ const EstablishmentDashboard = () => {
 
     // Determinar o intervalo configurado
     let interval = 15; // Padrão: 15 em 15 min
-    if (use20MinuteSchedule) {
+    if (use60MinuteSchedule) {
+      interval = 60;
+    } else if (use20MinuteSchedule) {
       interval = 20;
     } else if (use15MinuteInterval) {
       interval = 30;
@@ -6787,11 +6793,14 @@ Estamos te aguardando! 😎✂️`;
         // Carrega a configuração de quem paga a taxa (estabelecimento ou profissional)
         setTaxDeductedByEstablishment(establishmentData.tax_deducted_by_establishment ?? false);
 
-        // Carrega a configuração de intervalo de 15 minutos
+        // Carrega a configuração de intervalo (30/20/60) — padrão é 15 quando nenhuma opção estiver marcada
         setUse15MinuteInterval(establishmentData.use_15_minute_interval ?? false);
 
         // Carrega a configuração de horários de 20 em 20 minutos
         setUse20MinuteSchedule(establishmentData.use_20_minute_schedule ?? false);
+
+        // Carrega a configuração de horários de 1 em 1 hora
+        setUse60MinuteSchedule((establishmentData as any).use_60_minute_schedule ?? false);
 
         // Carrega a configuração da imagem "Melhor do Brasil"
         setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
@@ -11428,12 +11437,13 @@ Estamos te aguardando! 😎✂️`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; showBestOfBrazilImage?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; showBestOfBrazilImage?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
       use15MinuteInterval: config?.use15MinuteInterval ?? use15MinuteInterval,
       use20MinuteSchedule: config?.use20MinuteSchedule ?? use20MinuteSchedule,
+      use60MinuteSchedule: config?.use60MinuteSchedule ?? use60MinuteSchedule,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage
     };
 
@@ -11443,6 +11453,7 @@ Estamos te aguardando! 😎✂️`;
         .update({
           use_15_minute_interval: configToSave.use15MinuteInterval,
           use_20_minute_schedule: configToSave.use20MinuteSchedule,
+          use_60_minute_schedule: configToSave.use60MinuteSchedule,
           show_best_of_brazil_image: configToSave.showBestOfBrazilImage
         })
         .eq('id', establishment.id);
@@ -11458,12 +11469,13 @@ Estamos te aguardando! 😎✂️`;
         ...establishment,
         use_15_minute_interval: configToSave.use15MinuteInterval,
         use_20_minute_schedule: configToSave.use20MinuteSchedule,
+        use_60_minute_schedule: configToSave.use60MinuteSchedule,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage
       });
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, showBestOfBrazilImage]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, showBestOfBrazilImage]);
 
   // ✅ Auto-save para Horário de Funcionamento
   const autoSaveBusinessHours = useCallback(async (hours: Record<string, BusinessHours>): Promise<void> => {
@@ -17467,10 +17479,12 @@ Estamos te aguardando! 😎✂️`;
                             onChange={(e) => {
                               const newValue = e.target.checked;
                               setUse15MinuteInterval(newValue);
-                              // Se ativar intervalo de 15 min, desativar horários de 20 em 20
+                              // Se ativar 30 em 30, desativar 20 em 20 e 1 em 1h
                               const newUse20MinuteSchedule = newValue ? false : use20MinuteSchedule;
+                              const newUse60MinuteSchedule = newValue ? false : use60MinuteSchedule;
                               if (newValue) {
                                 setUse20MinuteSchedule(false);
+                                setUse60MinuteSchedule(false);
                               }
                               if (scheduleConfigAutoSaveTimeoutRef.current) {
                                 clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
@@ -17479,6 +17493,7 @@ Estamos te aguardando! 😎✂️`;
                                 autoSaveScheduleConfig({
                                   use15MinuteInterval: newValue,
                                   use20MinuteSchedule: newUse20MinuteSchedule,
+                                  use60MinuteSchedule: newUse60MinuteSchedule,
                                   showBestOfBrazilImage: showBestOfBrazilImage
                                 });
                               }, 1000);
@@ -17505,10 +17520,12 @@ Estamos te aguardando! 😎✂️`;
                             onChange={(e) => {
                               const newValue = e.target.checked;
                               setUse20MinuteSchedule(newValue);
-                              // Se ativar horários de 20 em 20, desativar intervalo de 15 min
+                              // Se ativar 20 em 20, desativar 30 em 30 e 1 em 1h
                               const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
+                              const newUse60MinuteSchedule = newValue ? false : use60MinuteSchedule;
                               if (newValue) {
                                 setUse15MinuteInterval(false);
+                                setUse60MinuteSchedule(false);
                               }
                               if (scheduleConfigAutoSaveTimeoutRef.current) {
                                 clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
@@ -17517,6 +17534,7 @@ Estamos te aguardando! 😎✂️`;
                                 autoSaveScheduleConfig({
                                   use15MinuteInterval: newUse15MinuteInterval,
                                   use20MinuteSchedule: newValue,
+                                  use60MinuteSchedule: newUse60MinuteSchedule,
                                   showBestOfBrazilImage: showBestOfBrazilImage
                                 });
                               }, 1000);
@@ -17531,7 +17549,47 @@ Estamos te aguardando! 😎✂️`;
                               Ao selecionar essa opção, os horários disponíveis no booking serão exibidos de 20 em 20 minutos (exemplo: 09:20 / 09:40 / 10:00 / 10:20, e assim por diante).
                             </p>
                             <p className="text-sm text-yellow-400 mt-2 font-medium">
-                              ⚠️ Observação: não é possível ativar simultaneamente as opções de 20 em 20 min e de 30 em 30 min. Ambas têm a mesma função — a diferença é apenas o intervalo de exibição dos horários.
+                              ⚠️ Observação: não é possível ativar simultaneamente as opções de 20 em 20, 30 em 30 e 1 em 1 hora. Elas têm a mesma função — a diferença é apenas o intervalo de exibição dos horários.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Configuração de horários de 1 em 1 hora */}
+                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <input
+                            type="checkbox"
+                            id="use60MinuteSchedule"
+                            checked={use60MinuteSchedule}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setUse60MinuteSchedule(newValue);
+                              // Se ativar 1 em 1 hora, desativar 20 em 20 e 30 em 30
+                              const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
+                              const newUse20MinuteSchedule = newValue ? false : use20MinuteSchedule;
+                              if (newValue) {
+                                setUse15MinuteInterval(false);
+                                setUse20MinuteSchedule(false);
+                              }
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  use15MinuteInterval: newUse15MinuteInterval,
+                                  use20MinuteSchedule: newUse20MinuteSchedule,
+                                  use60MinuteSchedule: newValue,
+                                  showBestOfBrazilImage: showBestOfBrazilImage
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                          />
+                          <div className="flex-1">
+                            <label htmlFor="use60MinuteSchedule" className="block text-white font-medium mb-2">
+                              Mostrar horários de serviço de 1 em 1 hora
+                            </label>
+                            <p className="text-sm text-gray-400 leading-relaxed">
+                              Ao selecionar essa opção, os horários disponíveis no booking serão exibidos de 1 em 1 hora (exemplo: 09:00 / 10:00 / 11:00 / 12:00).
                             </p>
                           </div>
                         </div>
@@ -17551,6 +17609,7 @@ Estamos te aguardando! 😎✂️`;
                                 autoSaveScheduleConfig({
                                   use15MinuteInterval: use15MinuteInterval,
                                   use20MinuteSchedule: use20MinuteSchedule,
+                                  use60MinuteSchedule: use60MinuteSchedule,
                                   showBestOfBrazilImage: newValue
                                 });
                               }, 1000);
@@ -17664,7 +17723,7 @@ Estamos te aguardando! 😎✂️`;
                                         onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open1', value)}
                                         disabled={!hours.enabled}
                                         className="w-full"
-                                        intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                        intervalMinutes={use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                       />
                                     </div>
                                     <div className="space-y-2">
@@ -17678,7 +17737,7 @@ Estamos te aguardando! 😎✂️`;
                                         onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close1', value)}
                                         disabled={!hours.enabled}
                                         className="w-full"
-                                        intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                        intervalMinutes={use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                       />
                                     </div>
                                   </div>
@@ -17695,7 +17754,7 @@ Estamos te aguardando! 😎✂️`;
                                           onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'open2', value)}
                                           disabled={!hours.enabled}
                                           className="w-full"
-                                          intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                          intervalMinutes={use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                         />
                                       </div>
                                       <div className="space-y-2">
@@ -17707,7 +17766,7 @@ Estamos te aguardando! 😎✂️`;
                                           onChange={(value) => handleBusinessHoursChange(day as keyof typeof businessHours, 'close2', value)}
                                           disabled={!hours.enabled}
                                           className="w-full"
-                                          intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                          intervalMinutes={use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                         />
                                       </div>
                                     </div>
@@ -20683,7 +20742,7 @@ Estamos te aguardando! 😎✂️`;
                           // Usar a MESMA configuração que a tela já está usando (state),
                           // porque o objeto `establishment` pode estar desatualizado após autosave/estado local.
                           // Isso evita cair em 15min mesmo quando o usuário configurou 20min.
-                          const interval = use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15;
+                          const interval = use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15;
 
                           // Primeiro período
                           const startMinutes = parseInt(businessHours.open1.split(':')[0]) * 60 + parseInt(businessHours.open1.split(':')[1]);
@@ -20892,7 +20951,7 @@ Estamos te aguardando! 😎✂️`;
                                 onChange={(value) => handleUpdateWorkTime(day, 'entry_time', value || '08:00')}
                                 disabled={false}
                                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                                intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                intervalMinutes={use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                               />
                             </div>
 
@@ -20904,7 +20963,7 @@ Estamos te aguardando! 😎✂️`;
                                   onChange={(value) => handleUpdateWorkTime(day, 'break_start', value || '')}
                                   disabled={false}
                                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                                  intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                  intervalMinutes={use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                 />
                               </div>
                             )}
@@ -20917,7 +20976,7 @@ Estamos te aguardando! 😎✂️`;
                                   onChange={(value) => handleUpdateWorkTime(day, 'break_end', value || '')}
                                   disabled={false}
                                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                                  intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                  intervalMinutes={use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                                 />
                               </div>
                             )}
@@ -20929,7 +20988,7 @@ Estamos te aguardando! 😎✂️`;
                                 onChange={(value) => handleUpdateWorkTime(day, 'exit_time', value || '17:00')}
                                 disabled={false}
                                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                                intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
+                                intervalMinutes={use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
                               />
                             </div>
                           </div>

@@ -3050,6 +3050,7 @@ export function AppointmentForm({
                 businessHours={businessHours}
                 use15MinuteInterval={establishment.use_15_minute_interval ?? false}
                 use20MinuteSchedule={(establishment as any).use_20_minute_schedule ?? false}
+                use60MinuteSchedule={(establishment as any).use_60_minute_schedule ?? false}
                 selectedProfessional={selectedProfessional?.id}
                 professionalAbsences={(() => {
                   const absences = selectedProfessional ? (selectedProfessional as any).absences || [] : [];
