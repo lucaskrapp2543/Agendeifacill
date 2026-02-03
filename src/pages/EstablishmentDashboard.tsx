@@ -355,6 +355,7 @@ const EstablishmentDashboard = () => {
   const [newBirthday, setNewBirthday] = useState('');
   const [editingClientAlert, setEditingClientAlert] = useState<string | null>(null);
   const [newAlert, setNewAlert] = useState('');
+  const [isExportingClients, setIsExportingClients] = useState(false);
 
   // ✅ Controle interno de faltas por cliente
   const [showClientInfoModal, setShowClientInfoModal] = useState(false);
@@ -8317,6 +8318,213 @@ Estamos te aguardando! 😎✂️`;
     } catch (error) {
       console.error('❌ Erro ao atualizar cliente:', error);
       toast('Erro ao atualizar cliente', 'error');
+    }
+  };
+
+  const escapeCsvValue = (value: any): string => {
+    const s = value === null || value === undefined ? '' : String(value);
+    const needsQuotes = /[;"\r\n]/.test(s);
+    const escaped = s.replace(/"/g, '""');
+    return needsQuotes ? `"${escaped}"` : escaped;
+  };
+
+  const downloadTextFile = (filename: string, content: string, mime = 'text/plain;charset=utf-8') => {
+    try {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('❌ Falha ao baixar arquivo:', e);
+      toast('Não foi possível baixar o arquivo no seu navegador.', 'error');
+    }
+  };
+
+  const fetchAllAppointmentsForExport = async (establishmentId: string) => {
+    const pageSize = 1000;
+    let from = 0;
+    const out: any[] = [];
+
+    while (true) {
+      const supabaseAny = supabase as any;
+
+      // ✅ Algumas bases antigas podem não ter certas colunas (ex: payment_status).
+      // Tentamos o select completo e, se falhar citando payment_status, tentamos um fallback.
+      const selectFull =
+        'id, created_at, appointment_date, appointment_time, service_name, service_price, professional_name, client_id, client_name, client_whatsapp, status, payment_method, payment_status, is_subscriber, is_avulso, total_price, price';
+      const selectFallback =
+        'id, created_at, appointment_date, appointment_time, service_name, service_price, professional_name, client_id, client_name, client_whatsapp, status, payment_method, is_subscriber, is_avulso, total_price, price';
+
+      let data: any[] | null = null;
+      let error: any = null;
+
+      const r1 = await supabaseAny
+        .from('appointments')
+        .select(selectFull)
+        .eq('establishment_id', establishmentId)
+        .not('client_whatsapp', 'is', null)
+        .order('appointment_date', { ascending: false })
+        .order('appointment_time', { ascending: false })
+        .range(from, from + pageSize - 1);
+
+      data = r1.data;
+      error = r1.error;
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        if (msg.includes('payment_status')) {
+          const r2 = await supabaseAny
+            .from('appointments')
+            .select(selectFallback)
+            .eq('establishment_id', establishmentId)
+            .not('client_whatsapp', 'is', null)
+            .order('appointment_date', { ascending: false })
+            .order('appointment_time', { ascending: false })
+            .range(from, from + pageSize - 1);
+          data = r2.data;
+          error = r2.error;
+        }
+      }
+
+      if (error) throw error;
+
+      const rows = data || [];
+      out.push(...rows);
+      if (rows.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return out;
+  };
+
+  const handleExportClients = async () => {
+    if (!establishment?.id) {
+      toast('Estabelecimento não carregado. Tente atualizar a página.', 'error');
+      return;
+    }
+
+    if (isExportingClients) return;
+    setIsExportingClients(true);
+
+    let resumoOk = false;
+    let historicoOk = false;
+    let historicoCount = 0;
+
+    try {
+      const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
+      const dateStamp = format(new Date(), 'yyyy-MM-dd');
+      const safeEstName = String(establishment?.name || establishment.id || 'estabelecimento')
+        .trim()
+        .replace(/[^\w\d]+/g, '_')
+        .slice(0, 60);
+
+      // ✅ 1) Resumo de clientes (tela "Meus Clientes")
+      const clientsSorted = [...clients].sort((a, b) =>
+        String(a?.name || '').localeCompare(String(b?.name || ''), 'pt-BR', { sensitivity: 'base' })
+      );
+
+      const resumoHeader = [
+        'nome',
+        'whatsapp',
+        'assinante',
+        'agendamentos_total',
+        'agendamentos_realizados',
+        'total_gasto',
+        'faltas',
+        'aniversario',
+        'alerta',
+      ];
+
+      const resumoRows = clientsSorted.map((c) => [
+        c.name || '',
+        onlyDigits(c.whatsapp || ''),
+        c.isSubscriber ? 'SIM' : 'NÃO',
+        c.appointmentCount ?? '',
+        c.completedCount ?? '',
+        c.totalSpent ?? '',
+        c.faltas ?? '',
+        c.birthday ?? '',
+        c.alert ?? '',
+      ]);
+
+      const resumoCsv =
+        '\ufeff' +
+        [resumoHeader, ...resumoRows]
+          .map((row) => row.map(escapeCsvValue).join(';'))
+          .join('\r\n');
+
+      downloadTextFile(`clientes-resumo-${safeEstName}-${dateStamp}.csv`, resumoCsv, 'text/csv;charset=utf-8');
+      resumoOk = true;
+
+      // ✅ 2) Histórico (um agendamento por linha)
+      try {
+        const appointments = await fetchAllAppointmentsForExport(establishment.id);
+
+        const historicoHeader = [
+          'client_name',
+          'client_whatsapp',
+          'is_subscriber',
+          'is_avulso',
+          'appointment_date',
+          'appointment_time',
+          'service_name',
+          'professional_name',
+          'status',
+          'payment_method',
+          'payment_status',
+          'total_price',
+          'created_at',
+        ];
+
+        const historicoRows = appointments.map((apt: any) => [
+          apt?.client_name || '',
+          onlyDigits(apt?.client_whatsapp || ''),
+          apt?.is_subscriber ? 'SIM' : 'NÃO',
+          apt?.is_avulso ? 'SIM' : 'NÃO',
+          apt?.appointment_date || '',
+          apt?.appointment_time || '',
+          apt?.service_name || '',
+          apt?.professional_name || '',
+          apt?.status || '',
+          apt?.payment_method || '',
+          apt?.payment_status || '',
+          apt?.total_price ?? apt?.price ?? apt?.service_price ?? '',
+          apt?.created_at || '',
+        ]);
+
+        historicoCount = historicoRows.length;
+
+        const historicoCsv =
+          '\ufeff' +
+          [historicoHeader, ...historicoRows]
+            .map((row) => row.map(escapeCsvValue).join(';'))
+            .join('\r\n');
+
+        downloadTextFile(`clientes-historico-${safeEstName}-${dateStamp}.csv`, historicoCsv, 'text/csv;charset=utf-8');
+        historicoOk = true;
+      } catch (e) {
+        console.warn('⚠️ Falha ao exportar histórico (resumo ainda foi exportado):', e);
+      }
+
+      if (resumoOk && historicoOk) {
+        toast(`Exportado! (${resumoRows.length} clientes / ${historicoCount} agendamentos)`, 'success');
+      } else if (resumoOk && !historicoOk) {
+        toast('Resumo exportado. Não consegui exportar o histórico agora — tente novamente.', 'error');
+      }
+    } catch (e) {
+      console.error('❌ Erro ao exportar clientes:', e);
+      if (resumoOk) {
+        toast('Resumo exportado. Mas ocorreu um erro ao finalizar a exportação.', 'error');
+      } else {
+        toast('Erro ao exportar clientes. Tente novamente.', 'error');
+      }
+    } finally {
+      setIsExportingClients(false);
     }
   };
 
@@ -20136,6 +20344,17 @@ Estamos te aguardando! 😎✂️`;
                         className="px-4 py-2 rounded-lg text-sm font-medium bg-black text-white hover:bg-gray-800 transition-colors"
                       >
                         ➕ Adicionar Cliente
+                      </button>
+                      <button
+                        onClick={handleExportClients}
+                        disabled={isExportingClients}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isExportingClients
+                          ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                          : 'bg-black text-white hover:bg-gray-800'
+                          }`}
+                        title="Baixa 2 arquivos CSV: resumo + histórico"
+                      >
+                        {isExportingClients ? 'Exportando...' : '📥 Exportar clientes'}
                       </button>
 
                       {showBirthdayFilter && (

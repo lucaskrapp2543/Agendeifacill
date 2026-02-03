@@ -1,9 +1,27 @@
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
 
+const toDateOnlyString = (d: Date): string => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const toBRDateFromISO = (isoDate: string): string => {
+  const s = String(isoDate || '').slice(0, 10);
+  const [y, m, d] = s.split('-');
+  if (!y || !m || !d) return s;
+  return `${d}/${m}/${y}`;
+};
+
 /**
  * Verifica se um cliente é assinante ativo de um estabelecimento (não vencido)
  */
-export const isClientSubscriber = async (clientWhatsapp: string, establishmentId: string): Promise<boolean> => {
+export const isClientSubscriber = async (
+  clientWhatsapp: string,
+  establishmentId: string,
+  bookingDate: Date = new Date()
+): Promise<boolean> => {
   try {
     console.log('🔍 Verificando se é assinante ativo:', { clientWhatsapp, establishmentId });
     
@@ -19,10 +37,12 @@ export const isClientSubscriber = async (clientWhatsapp: string, establishmentId
       return false;
     }
 
-    // Verificar se o assinante está vencido
-    const isExpired = subscriber.is_expired || 
-      (new Date(subscriber.end_date) < new Date()) || 
-      subscriber.payment_status === 'unpaid';
+    // ✅ Regra correta: precisa estar válido NA DATA do agendamento, não só hoje
+    const bookingDateStr = toDateOnlyString(bookingDate);
+    const endDateStr = String(subscriber.end_date || '').slice(0, 10);
+    const isExpired =
+      subscriber.payment_status === 'unpaid' ||
+      (endDateStr ? endDateStr < bookingDateStr : Boolean(subscriber.is_expired));
     
     const isActiveSubscriber = !isExpired;
     
@@ -30,6 +50,7 @@ export const isClientSubscriber = async (clientWhatsapp: string, establishmentId
       isSubscriber: isActiveSubscriber, 
       isExpired,
       endDate: subscriber.end_date,
+      bookingDate: bookingDateStr,
       paymentStatus: subscriber.payment_status,
       subscriber 
     });
@@ -233,12 +254,36 @@ export const validateSubscriberBooking = async (
       selectedDate: selectedDate.toISOString()
     });
 
-    // Verificar se o cliente é assinante
-    const isSubscriber = await isClientSubscriber(clientWhatsapp, establishmentId);
-    console.log('👤 É assinante?', isSubscriber);
-    
-    if (!isSubscriber) {
+    // ✅ Buscar dados do assinante (precisamos validar pela data do agendamento)
+    const { data: subscriber, error } = await checkWhatsAppSubscriber(clientWhatsapp, establishmentId);
+    if (error) {
+      console.error('❌ Erro ao verificar assinante:', error);
+      return { canBook: true }; // Em caso de erro, não bloquear
+    }
+
+    if (!subscriber) {
+      console.log('👤 Não é assinante');
       return { canBook: true }; // Cliente não é assinante, pode agendar normalmente
+    }
+
+    const selectedDateStr = toDateOnlyString(selectedDate);
+    const endDateStr = String(subscriber.end_date || '').slice(0, 10);
+    const isUnpaid = String(subscriber.payment_status || '').toLowerCase() === 'unpaid';
+    const isExpiredForSelectedDate = Boolean(endDateStr) && endDateStr < selectedDateStr;
+
+    // Se não está pago ou a data do agendamento passa do vencimento, não pode agendar COMO ASSINANTE.
+    if (isUnpaid) {
+      return {
+        canBook: false,
+        message: 'Sua assinatura está com pagamento pendente. Para agendar como assinante, finalize o pagamento ou agende como cliente normal.',
+      };
+    }
+
+    if (isExpiredForSelectedDate) {
+      return {
+        canBook: false,
+        message: `Sua assinatura vence em ${toBRDateFromISO(endDateStr)}. Para agendar em ${toBRDateFromISO(selectedDateStr)}, renove a assinatura ou agende como cliente normal.`,
+      };
     }
 
     // Verificar se o estabelecimento tem limitação
@@ -278,20 +323,28 @@ export const getAvailableDatesForSubscriber = async (
   allAvailableDates: Date[]
 ): Promise<Date[]> => {
   try {
-    // Verificar se o cliente é assinante
-    const isSubscriber = await isClientSubscriber(clientWhatsapp, establishmentId);
-    if (!isSubscriber) {
-      return allAvailableDates; // Cliente não é assinante, retornar todas as datas
+    // ✅ Buscar assinante uma única vez e filtrar datas além do vencimento
+    const { data: subscriber, error } = await checkWhatsAppSubscriber(clientWhatsapp, establishmentId);
+    if (error || !subscriber) {
+      return allAvailableDates;
+    }
+
+    const endDateStr = String(subscriber.end_date || '').slice(0, 10);
+    const isUnpaid = String(subscriber.payment_status || '').toLowerCase() === 'unpaid';
+    if (!endDateStr || isUnpaid) {
+      // Se não está pago (ou não tem end_date), não aplicar filtro de "assinante"
+      return allAvailableDates;
     }
 
     // Verificar se o estabelecimento tem limitação
     const hasLimit = await hasSubscriberBookingLimit(establishmentId);
     if (!hasLimit) {
-      return allAvailableDates; // Sem limitação, retornar todas as datas
+      // Mesmo sem limitação, assinante só pode agendar até o vencimento
+      return allAvailableDates.filter((d) => toDateOnlyString(d) <= endDateStr);
     }
 
     // Filtrar apenas datas da semana atual
-    return allAvailableDates.filter(date => isDateInCurrentWeek(date));
+    return allAvailableDates.filter((date) => isDateInCurrentWeek(date) && toDateOnlyString(date) <= endDateStr);
   } catch (error) {
     console.error('Erro ao obter datas disponíveis para assinante:', error);
     return allAvailableDates; // Em caso de erro, retornar todas as datas

@@ -760,7 +760,7 @@ export function AppointmentForm({
 
     try {
       console.log('🔍 Chamando checkMonthlyLimit...');
-      const limitCheck = await checkMonthlyLimit(clientWhatsapp, establishment.id);
+      const limitCheck = await checkMonthlyLimit(clientWhatsapp, establishment.id, selectedDate);
       console.log('📊 Resultado do checkMonthlyLimit:', limitCheck);
 
       if (!limitCheck.canBook && limitCheck.errorMessage) {
@@ -1890,7 +1890,7 @@ export function AppointmentForm({
                           // VALIDAR LIMITE MENSAL antes de converter
                           if (clientWhatsapp && establishment?.id) {
                             console.log('🔍 Verificando limite mensal antes de converter...');
-                            const limitCheck = await checkMonthlyLimit(clientWhatsapp, establishment.id);
+                            const limitCheck = await checkMonthlyLimit(clientWhatsapp, establishment.id, selectedDate);
 
                             if (!limitCheck.canBook && limitCheck.errorMessage) {
                               console.log('🚫 Limite mensal excedido, não convertendo:', limitCheck.errorMessage);

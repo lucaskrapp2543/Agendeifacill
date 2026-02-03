@@ -1,12 +1,24 @@
 import { supabase } from '../lib/supabase';
 
+const toDateOnlyString = (d: Date): string => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 /**
  * Verifica se um cliente assinante excedeu o limite mensal de agendamentos
  * @param clientWhatsapp - WhatsApp do cliente (com ou sem formatação)
  * @param establishmentId - ID do estabelecimento
+ * @param targetDate - Data do agendamento (usa esta data para validar vencimento e mês do limite)
  * @returns Objeto com informações sobre o limite
  */
-export const checkMonthlyLimit = async (clientWhatsapp: string, establishmentId: string): Promise<{
+export const checkMonthlyLimit = async (
+  clientWhatsapp: string,
+  establishmentId: string,
+  targetDate: Date = new Date()
+): Promise<{
   canBook: boolean;
   currentUsage: number;
   monthlyLimit: number | null;
@@ -18,6 +30,7 @@ export const checkMonthlyLimit = async (clientWhatsapp: string, establishmentId:
 
     // Limpar o WhatsApp (remover formatação)
     const cleanWhatsapp = clientWhatsapp.replace(/\D/g, '');
+    const targetDateStr = toDateOnlyString(targetDate);
 
     // Buscar assinatura do cliente pelo WhatsApp
     const { data: clientSubscription, error: subscriptionError } = await supabase
@@ -28,8 +41,9 @@ export const checkMonthlyLimit = async (clientWhatsapp: string, establishmentId:
       `)
       .eq('establishment_id', establishmentId)
       .eq('client_whatsapp', cleanWhatsapp)
-      .gte('end_date', new Date().toISOString().split('T')[0])
-      .lte('start_date', new Date().toISOString().split('T')[0])
+      // ✅ Validar assinatura na DATA do agendamento (não só hoje)
+      .gte('end_date', targetDateStr)
+      .lte('start_date', targetDateStr)
       .single();
 
     if (subscriptionError || !clientSubscription) {
@@ -42,16 +56,15 @@ export const checkMonthlyLimit = async (clientWhatsapp: string, establishmentId:
           .select('*')
           .eq('establishment_id', establishmentId)
           .eq('whatsapp', cleanWhatsapp)
-          .gte('end_date', new Date().toISOString().split('T')[0])
+          .gte('end_date', targetDateStr)
           .single();
 
         if (oldSubscription && !oldError) {
           console.log('✅ Encontrado no sistema antigo, mas SEM limite mensal');
 
-          // Contar agendamentos do cliente neste mês (MESMO NO SISTEMA ANTIGO)
-          const currentDate = new Date();
-          const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-          const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+          // Contar agendamentos do cliente no mês da DATA do agendamento
+          const firstDayOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+          const lastDayOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
 
           const { data: appointments, error: appointmentsError } = await supabase
             .from('appointments')
@@ -97,7 +110,9 @@ export const checkMonthlyLimit = async (clientWhatsapp: string, establishmentId:
     }
 
     // Verificar se o assinante está ativo (não vencido)
-    const isExpired = (new Date(clientSubscription.end_date) < new Date()) ||
+    const endDateStr = String((clientSubscription as any)?.end_date || '').slice(0, 10);
+    const isExpired =
+      (endDateStr ? endDateStr < targetDateStr : false) ||
       clientSubscription.payment_status === 'unpaid';
 
     if (isExpired) {
@@ -110,10 +125,9 @@ export const checkMonthlyLimit = async (clientWhatsapp: string, establishmentId:
       };
     }
 
-    // Contar agendamentos do cliente neste mês
-    const currentDate = new Date();
-    const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+    // Contar agendamentos do cliente no mês da DATA do agendamento
+    const firstDayOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+    const lastDayOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
 
     const { data: appointments, error: appointmentsError } = await supabase
       .from('appointments')
