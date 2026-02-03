@@ -1622,7 +1622,18 @@ export const loadEstablishmentDirect = async (code: string) => {
 };
 
 // Subscription functions
-export const createSubscription = async (establishmentId: string, name: string, value: number, durationMonths: number, weekdays?: string[], serviceDuration?: number, fixedCommissionValue?: number, description?: string) => {
+export const createSubscription = async (
+  establishmentId: string,
+  name: string,
+  value: number,
+  durationMonths: number,
+  weekdays?: string[],
+  serviceDuration?: number,
+  fixedCommissionValue?: number,
+  description?: string,
+  divideTotalEnabled?: boolean,
+  divideTotalAttendances?: number | null
+) => {
   // Tentar calcular o próximo sort_order (para novas assinaturas entrarem no fim).
   // Se a coluna ainda não existir (DB sem a migration), seguimos sem sort_order para não quebrar.
   let nextSortOrder: number | undefined = undefined;
@@ -1651,13 +1662,26 @@ export const createSubscription = async (establishmentId: string, name: string, 
     weekdays: weekdays || [],
     service_duration: serviceDuration || 30, // Duração padrão de 30 minutos
     fixed_commission_value: fixedCommissionValue || 0, // Valor fixo de comissão por serviço diário
-    description: description?.trim() || null // Descrição opcional
+    description: description?.trim() || null, // Descrição opcional
+    divide_total_enabled: Boolean(divideTotalEnabled),
+    divide_total_attendances:
+      divideTotalAttendances !== undefined && divideTotalAttendances !== null && Number.isFinite(Number(divideTotalAttendances))
+        ? Number(divideTotalAttendances)
+        : null,
   };
   if (typeof nextSortOrder === 'number') {
     payload.sort_order = nextSortOrder;
   }
 
-  const { data, error } = await supabase.from('subscriptions').insert([payload]).select().single();
+  // Tentar inserir com as colunas novas. Se o banco ainda não tem a migration,
+  // fazer fallback removendo esses campos para não quebrar.
+  let { data, error } = await supabase.from('subscriptions').insert([payload]).select().single();
+  if (error && String((error as any)?.message || '').toLowerCase().includes('divide_total')) {
+    const fallbackPayload: any = { ...payload };
+    delete fallbackPayload.divide_total_enabled;
+    delete fallbackPayload.divide_total_attendances;
+    ({ data, error } = await supabase.from('subscriptions').insert([fallbackPayload]).select().single());
+  }
   return { data, error };
 };
 

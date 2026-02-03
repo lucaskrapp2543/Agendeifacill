@@ -60,6 +60,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newSubscriptionDuration, setNewSubscriptionDuration] = useState<number>(30); // Duração em minutos
   const [newSubscriptionWeekdays, setNewSubscriptionWeekdays] = useState<string[]>([]);
   const [newSubscriptionDescription, setNewSubscriptionDescription] = useState(''); // Nova descrição
+  const [newDivideTotalEnabled, setNewDivideTotalEnabled] = useState(false);
+  const [newDivideTotalAttendances, setNewDivideTotalAttendances] = useState<string>(''); // Ex: 4
 
   const [selectedSubscriptionToAdd, setSelectedSubscriptionToAdd] = useState<string>('');
   const [selectedClientToAdd, setSelectedClientToAdd] = useState<string>('');
@@ -198,6 +200,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [editDuration, setEditDuration] = useState<number>(30);
   const [editSubscriptionValue, setEditSubscriptionValue] = useState<string>(''); // R$
   const [editRepassePercent, setEditRepassePercent] = useState<string>(''); // %
+  const [editDivideTotalEnabled, setEditDivideTotalEnabled] = useState(false);
+  const [editDivideTotalAttendances, setEditDivideTotalAttendances] = useState<string>(''); // Ex: 4
 
   // Estados para edição de link personalizado
   const [showEditLinkModal, setShowEditLinkModal] = useState(false);
@@ -937,7 +941,29 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const salePercent = Number(String(saleCommissionPercent || '').replace(',', '.'));
       const hasSaleDiscount = Boolean(saleCommissionProfessional) && Number.isFinite(salePercent) && salePercent > 0;
       const multiplier = hasSaleDiscount ? Math.max(0, 1 - salePercent / 100) : 1;
-      const repassValueToSave = Math.round(attendanceValue * multiplier * 100) / 100;
+      let repassValueToSave = Math.round(attendanceValue * multiplier * 100) / 100;
+
+      // ✅ "Dividir valor total" (configurado NA ASSINATURA)
+      // A comissão de venda já foi aplicada no multiplier. Se dividir estiver ligado,
+      // o repasse final vira (repasse_atual / qtd_atendimentos_da_assinatura).
+      const sub = subscriptions.find((s: any) => String(s.id) === String((selectedClientForAttendance as any)?.subscription_id));
+      const divideEnabled = Boolean((sub as any)?.divide_total_enabled);
+      const divideFromSubscription = Number((sub as any)?.divide_total_attendances || 0);
+      const divideFallbackFromClientLimit = Number((selectedClientForAttendance as any)?.monthly_limit || 0);
+      const divideCount =
+        Number.isFinite(divideFromSubscription) && divideFromSubscription > 0
+          ? divideFromSubscription
+          : Number.isFinite(divideFallbackFromClientLimit) && divideFallbackFromClientLimit > 0
+            ? divideFallbackFromClientLimit
+            : 0;
+      if (divideEnabled) {
+        if (!Number.isFinite(divideCount) || divideCount <= 0) {
+          toast.error('Essa assinatura está com “Dividir valor total” ativo, mas sem “Qtd. atendimentos”. Edite a assinatura e preencha (ex: 4).');
+          setIsSavingAttendance(false);
+          return;
+        }
+        repassValueToSave = Math.round((repassValueToSave / divideCount) * 100) / 100;
+      }
 
       const { error } = await supabase
         .from('subscriber_attendances')
@@ -1169,6 +1195,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     try {
       const valorComissaoDiariaCalculado = Math.round((newSubscriptionValue * (newPercentualComissaoDiaria || 0) / 100) * 100) / 100;
 
+      const divideAttendancesNum = Number(String(newDivideTotalAttendances || '').replace(',', '.'));
+      if (newDivideTotalEnabled) {
+        if (!Number.isFinite(divideAttendancesNum) || divideAttendancesNum <= 0) {
+          toast.error('Informe a quantidade de atendimentos para “Dividir valor total” (ex: 4).');
+          return;
+        }
+      }
+
       const { error } = await createSubscription(
         establishmentId,
         newSubscriptionName,
@@ -1177,7 +1211,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         newSubscriptionWeekdays, // Adicionar os dias da semana
         newSubscriptionDuration, // Adicionar a duração do serviço
         valorComissaoDiariaCalculado, // Valor em R$ calculado a partir do percentual
-        newSubscriptionDescription // Adicionar descrição
+        newSubscriptionDescription, // Adicionar descrição
+        newDivideTotalEnabled,
+        newDivideTotalEnabled ? divideAttendancesNum : null
       );
       if (error) {
         throw error;
@@ -1189,6 +1225,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewSubscriptionDuration(30); // Reset para 30 minutos
       setNewSubscriptionWeekdays([]);
       setNewSubscriptionDescription(''); // Limpar descrição
+      setNewDivideTotalEnabled(false);
+      setNewDivideTotalAttendances('');
       fetchSubscriptions(); // Atualiza a lista
     } catch (error: any) {
       console.error('Erro ao criar assinatura:', error);
@@ -1368,6 +1406,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     const round2 = (v: number) => Math.round(v * 100) / 100;
     const nextFixedCommissionValue = round2(nextValue * (nextPercent / 100));
+    const nextDivideEnabled = Boolean(editDivideTotalEnabled);
+    const nextDivideAttendancesNum = Number(String(editDivideTotalAttendances || '').replace(',', '.'));
+    if (nextDivideEnabled) {
+      if (!Number.isFinite(nextDivideAttendancesNum) || nextDivideAttendancesNum <= 0) {
+        toast.error('Informe a quantidade de atendimentos para “Dividir valor total” (ex: 4).');
+        return;
+      }
+    }
 
     try {
       const { error } = await supabase
@@ -1378,7 +1424,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           value: nextValue,
           weekdays: editWeekdays,
           service_duration: editDuration,
-          fixed_commission_value: nextFixedCommissionValue
+          fixed_commission_value: nextFixedCommissionValue,
+          divide_total_enabled: nextDivideEnabled,
+          divide_total_attendances: nextDivideEnabled ? nextDivideAttendancesNum : null,
         })
         .eq('id', selectedSubscriptionForEdit.id);
 
@@ -1395,6 +1443,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setEditDuration(30);
       setEditSubscriptionValue('');
       setEditRepassePercent('');
+      setEditDivideTotalEnabled(false);
+      setEditDivideTotalAttendances('');
       fetchSubscriptions(); // Atualizar lista
     } catch (error: any) {
       console.error('Erro ao salvar assinatura:', error);
@@ -2434,6 +2484,36 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   })()}
             </p>
           </div>
+
+          {/* ✅ Nova configuração da assinatura: Dividir valor total */}
+          <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
+            <label className="flex items-center gap-2 text-sm font-semibold text-white">
+              <input
+                type="checkbox"
+                checked={newDivideTotalEnabled}
+                onChange={(e) => setNewDivideTotalEnabled(e.target.checked)}
+              />
+              👉 Dividir valor total
+            </label>
+            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+              Se ativar, o sistema divide o valor líquido da assinatura pela quantidade de atendimentos e só depois aplica o repasse do profissional.
+            </p>
+            <div className="mt-2">
+              <label className="block text-xs text-gray-400 mb-1">Qtd. atendimentos da assinatura</label>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={newDivideTotalAttendances}
+                onChange={(e) => setNewDivideTotalAttendances(e.target.value)}
+                disabled={!newDivideTotalEnabled}
+                className={`w-full px-3 py-2 bg-black/30 rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500 ${
+                  !newDivideTotalEnabled ? 'opacity-60 cursor-not-allowed' : ''
+                }`}
+                placeholder="Ex: 4"
+              />
+            </div>
+          </div>
           <div>
             <label htmlFor="subscriptionDuration" className="block text-sm font-medium text-gray-400 mb-1">Duração do Serviço (minutos)</label>
             <select
@@ -2804,6 +2884,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     const pct = base > 0 && fixed > 0 ? (fixed / base) * 100 : 0;
                     setEditRepassePercent(String(Math.round(pct * 100) / 100).replace('.', ','));
                   }
+                      setEditDivideTotalEnabled(Boolean((sub as any)?.divide_total_enabled));
+                      setEditDivideTotalAttendances(
+                        Number.isFinite(Number((sub as any)?.divide_total_attendances)) && Number((sub as any)?.divide_total_attendances) > 0
+                          ? String(Number((sub as any)?.divide_total_attendances))
+                          : ''
+                      );
                       setShowEditDescriptionModal(true);
                     }}
                     className="text-gray-600 hover:text-gray-800 transition-colors"
@@ -3345,9 +3431,64 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
                   if (fixedCommission && fixedCommission > 0) {
                     const finalWithDiscount = round2(Number(fixedCommission) * multiplier);
+                    const subscriptionValue = Number((subscription as any)?.value || 0);
+                    const netTotal = round2(subscriptionValue * multiplier);
+                    const divideEnabled = Boolean((subscription as any)?.divide_total_enabled);
+                    const divideFromSubscription = Number((subscription as any)?.divide_total_attendances || 0);
+                    const divideFallbackFromClientLimit = Number((clientSubscription as any)?.monthly_limit || 0);
+                    const divideCount =
+                      Number.isFinite(divideFromSubscription) && divideFromSubscription > 0
+                        ? divideFromSubscription
+                        : Number.isFinite(divideFallbackFromClientLimit) && divideFallbackFromClientLimit > 0
+                          ? divideFallbackFromClientLimit
+                          : 0;
+                    const dividedValue =
+                      divideEnabled && Number.isFinite(divideCount) && divideCount > 0 ? round2(netTotal / divideCount) : null;
+                    const percentFromFixed =
+                      Number.isFinite(subscriptionValue) && subscriptionValue > 0
+                        ? Math.round((Number(fixedCommission) / subscriptionValue) * 10000) / 100
+                        : null;
+                    const finalDividedRepass =
+                      divideEnabled && Number.isFinite(divideCount) && divideCount > 0 ? round2(finalWithDiscount / divideCount) : null;
                     // Se tem valor fixo, campo vem preenchido e desabilitado
                     return (
                       <>
+                        {/* ✅ Info (configurado na assinatura): Dividir valor total */}
+                        {divideEnabled && (
+                          <div className="mb-2 p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
+                            <div className="text-sm text-white font-semibold">👉 Dividir valor total (ativo na assinatura)</div>
+                            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-200">
+                              <div>
+                                <div className="text-gray-300">Valor líquido da assinatura</div>
+                                <div className="text-white font-bold">
+                                  {fmtBRL(netTotal)}
+                                  {hasSaleDiscount ? <span className="text-gray-300 font-medium"> (venda {percent}%)</span> : null}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-gray-300">Qtd. atendimentos</div>
+                                <div className="text-white font-bold">{divideCount > 0 ? divideCount : '—'}</div>
+                              </div>
+                            </div>
+
+                            <div className="mt-2 text-xs text-gray-200 space-y-1">
+                              <div>
+                                <span className="text-gray-300">Valor por atendimento:</span>{' '}
+                                <strong className="text-white">{dividedValue !== null ? fmtBRL(dividedValue) : '—'}</strong>
+                              </div>
+                              <div>
+                                <span className="text-gray-300">Repasse configurado:</span>{' '}
+                                <strong className="text-white">{percentFromFixed !== null ? `${percentFromFixed}%` : '—'}</strong>
+                              </div>
+                              <div>
+                                <span className="text-gray-300">Profissional recebe:</span>{' '}
+                                <strong className="text-white">{finalDividedRepass !== null ? fmtBRL(finalDividedRepass) : '—'}</strong>
+                                <span className="text-gray-300"> por atendimento</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         <input
                           type="number"
                           id="attendanceValue"
@@ -3365,7 +3506,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           </p>
                           {hasSaleDiscount && (
                             <p className="text-xs text-gray-700 mt-1">
-                              🔻 Com desconto de venda ({percent}%): <strong>R$ {finalWithDiscount.toFixed(2).replace('.', ',')}</strong> (valor que será salvo no atendimento)
+                              🔻 Com desconto de venda ({percent}%):{' '}
+                              <strong>R$ {finalWithDiscount.toFixed(2).replace('.', ',')}</strong>
+                              {divideEnabled && finalDividedRepass !== null ? (
+                                <> — com “Dividir valor total”: <strong>{fmtBRL(finalDividedRepass)}</strong> por atendimento</>
+                              ) : (
+                                <> (valor que será salvo no atendimento)</>
+                              )}
                             </p>
                           )}
                         </div>
@@ -3749,6 +3896,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditDuration(30);
                   setEditSubscriptionValue('');
                   setEditRepassePercent('');
+                  setEditDivideTotalEnabled(false);
+                  setEditDivideTotalAttendances('');
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
@@ -3813,6 +3962,36 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </p>
                   );
                 })()}
+              </div>
+
+              {/* ✅ Dividir valor total (configuração da assinatura) */}
+              <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
+                <label className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <input
+                    type="checkbox"
+                    checked={editDivideTotalEnabled}
+                    onChange={(e) => setEditDivideTotalEnabled(e.target.checked)}
+                  />
+                  👉 Dividir valor total
+                </label>
+                <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                  Se ativar, o sistema divide o valor líquido da assinatura pela quantidade de atendimentos e só depois aplica o repasse do profissional.
+                </p>
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-400 mb-1">Qtd. atendimentos da assinatura</label>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={editDivideTotalAttendances}
+                    onChange={(e) => setEditDivideTotalAttendances(e.target.value)}
+                    disabled={!editDivideTotalEnabled}
+                    className={`w-full px-3 py-2 bg-black/30 rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500 ${
+                      !editDivideTotalEnabled ? 'opacity-60 cursor-not-allowed' : ''
+                    }`}
+                    placeholder="Ex: 4"
+                  />
+                </div>
               </div>
 
               {/* Dias da Semana */}

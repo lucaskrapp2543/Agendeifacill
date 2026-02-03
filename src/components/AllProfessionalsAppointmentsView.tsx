@@ -223,12 +223,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .from('client_subscriptions')
           .select(`
             id,
+            subscription_id,
             subscriber_name,
             subscriber_whatsapp,
             client_name_override,
             client_whatsapp,
             monthly_limit,
-            subscriptions ( name )
+            subscriptions (
+              id,
+              name,
+              value,
+              fixed_commission_value,
+              divide_total_enabled,
+              divide_total_attendances
+            )
           `)
           .eq('establishment_id', String(establishment.id))
           .order('created_at', { ascending: false });
@@ -245,10 +253,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
             if (!display_name || !whatsapp) return null;
             return {
               id: String(row.id),
+              subscription_id: String(row?.subscription_id || ''),
               display_name,
               whatsapp,
               plan_name: plan_name || undefined,
               monthly_limit: monthly_limit !== null && monthly_limit !== undefined ? Number(monthly_limit) : null,
+              subscription: row?.subscriptions || null,
             };
           })
           .filter(Boolean);
@@ -333,12 +343,62 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         // 2) Registrar atendimento no assinante
         const professionalName = getProfessionalNameById(String(apt.professional || ''));
+        // ✅ Calcular repasse automaticamente (usando configurações da assinatura)
+        const round2 = (v: number) => Math.round(v * 100) / 100;
+
+        // Buscar config da assinatura (já veio no loadSubscriberOptions)
+        const subCfg: any = (selectedSub as any)?.subscription || null;
+        const baseFixed = Number(subCfg?.fixed_commission_value || 0);
+        if (!Number.isFinite(baseFixed) || baseFixed <= 0) {
+          toast('Essa assinatura está sem repasse configurado. Edite a assinatura e defina a % de repasse.', 'error');
+          return;
+        }
+
+        // Comissão de venda (se existir) => atendimentos saem do valor restante
+        let multiplier = 1;
+        try {
+          const { data: saleRow, error: saleErr } = await (supabase as any)
+            .from('subscription_sale_commissions')
+            .select('commission_percent')
+            .eq('establishment_id', establishmentId)
+            .eq('client_subscription_id', String(selectedSubscriberOptionId))
+            .maybeSingle();
+          if (!saleErr) {
+            const salePercent = Number(String(saleRow?.commission_percent || '').replace(',', '.'));
+            if (Number.isFinite(salePercent) && salePercent > 0) {
+              multiplier = Math.max(0, 1 - salePercent / 100);
+            }
+          }
+        } catch {
+          // ignore
+        }
+
+        const divideEnabled = Boolean(subCfg?.divide_total_enabled);
+        const divideFromSubscription = Number(subCfg?.divide_total_attendances || 0);
+        const divideFallbackFromClientLimit = Number(selectedSub?.monthly_limit || 0);
+        const divideCount =
+          Number.isFinite(divideFromSubscription) && divideFromSubscription > 0
+            ? divideFromSubscription
+            : Number.isFinite(divideFallbackFromClientLimit) && divideFallbackFromClientLimit > 0
+              ? divideFallbackFromClientLimit
+              : 0;
+
+        if (divideEnabled && (!Number.isFinite(divideCount) || divideCount <= 0)) {
+          toast('“Dividir valor total” está ativo na assinatura, mas sem “Qtd. atendimentos”. Edite a assinatura e preencha (ex: 4).', 'error');
+          return;
+        }
+
+        let repassValue = round2(baseFixed * multiplier);
+        if (divideEnabled) {
+          repassValue = round2(repassValue / divideCount);
+        }
+
         const payload: any = {
           establishment_id: establishmentId,
           client_subscription_id: String(selectedSubscriberOptionId),
           professional_name: professionalName,
           attendance_date: String(apt.appointment_date || '').slice(0, 10),
-          repass_value: 0,
+          repass_value: repassValue,
         };
         if (user?.id) payload.created_by = user.id;
 

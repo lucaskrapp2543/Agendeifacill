@@ -112,6 +112,8 @@ export interface Database {
           service_duration?: number | null;
           fixed_commission_value?: number | null;
           monthly_service_limit?: number | null;
+          divide_total_enabled?: boolean | null;
+          divide_total_attendances?: number | null;
         };
         Insert: {
           establishment_id: string;
@@ -127,6 +129,8 @@ export interface Database {
           service_duration?: number | null;
           fixed_commission_value?: number | null;
           monthly_service_limit?: number | null;
+          divide_total_enabled?: boolean | null;
+          divide_total_attendances?: number | null;
         };
         Update: {
           name?: string;
@@ -141,6 +145,8 @@ export interface Database {
           service_duration?: number | null;
           fixed_commission_value?: number | null;
           monthly_service_limit?: number | null;
+          divide_total_enabled?: boolean | null;
+          divide_total_attendances?: number | null;
         };
       };
       discount_coupons: {
