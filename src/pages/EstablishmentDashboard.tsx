@@ -22417,12 +22417,7 @@ Estamos te aguardando! 😎✂️`;
                           setServicesWithPrices(validServices);
 
                           toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
-                          // ✅ Direcionar para "Como funciona o Sistema" e já carregar o vídeo
-                          setActiveTab('passo-a-passo');
-                          setTimeout(() => {
-                            const el = document.getElementById('how-it-works-video');
-                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }, 200);
+                          // ✅ Permanecer na aba de serviços para continuar adicionando categorias/serviços (não redirecionar para o menu)
                         } catch (error) {
                           console.error('Erro ao completar onboarding:', error);
                           toast.error('Erro ao salvar. Tente novamente.');
@@ -22586,12 +22581,7 @@ Estamos te aguardando! 😎✂️`;
                       setServicesWithPrices(validServices);
 
                       toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
-                      // ✅ Direcionar para "Como funciona o Sistema" e já carregar o vídeo
-                      setActiveTab('passo-a-passo');
-                      setTimeout(() => {
-                        const el = document.getElementById('how-it-works-video');
-                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }, 200);
+                      // ✅ Permanecer na aba de serviços para continuar adicionando categorias/serviços (não redirecionar para o menu)
                     } catch (error) {
                       console.error('Erro ao completar onboarding:', error);
                       toast.error('Erro ao salvar. Tente novamente.');
