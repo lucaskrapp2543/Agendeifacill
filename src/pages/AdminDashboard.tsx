@@ -78,6 +78,7 @@ const AdminDashboard = () => {
   const [searchTermDeleted, setSearchTermDeleted] = useState(''); // Busca na lixeira
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
   const [filterPlan, setFilterPlan] = useState<'all' | 'prata' | 'ouro' | 'diamante' | 'outros'>('all');
+  const [filterActivity, setFilterActivity] = useState<'all' | 'active' | 'inactive'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
   const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
@@ -608,6 +609,22 @@ const AdminDashboard = () => {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  // ✅ Ativo/Inativo por último acesso
+  // Regra: ativo = acessou nos últimos 5 dias. "Nunca acessou" = inativo.
+  const isActiveEstablishment = (est: Establishment): boolean => {
+    const raw = String((est as any)?.last_access || '').trim();
+    if (!raw) return false;
+    const d = new Date(raw);
+    const t = d.getTime();
+    if (!Number.isFinite(t)) return false;
+    const now = Date.now();
+    const diffMs = now - t;
+    // Se der negativo (horário do client/servidor), considerar ativo
+    if (diffMs <= 0) return true;
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    return diffDays <= 5;
   };
 
   // Função de logout personalizada que redireciona
@@ -1895,8 +1912,16 @@ const AdminDashboard = () => {
     { prata: 0, ouro: 0, diamante: 0, outros: 0 }
   );
 
+  const activeCount = baseFilteredEstablishments.reduce((acc, est) => acc + (isActiveEstablishment(est) ? 1 : 0), 0);
+  const inactiveCount = Math.max(0, baseFilteredEstablishments.length - activeCount);
+
   const filteredEstablishments = baseFilteredEstablishments
     .filter(est => (filterPlan === 'all' ? true : getPlanKey(est) === filterPlan))
+    .filter(est => {
+      if (filterActivity === 'active') return isActiveEstablishment(est);
+      if (filterActivity === 'inactive') return !isActiveEstablishment(est);
+      return true;
+    })
     .sort((a, b) => {
       // 1) Estabelecimentos vencidos sempre no topo
       const aIsExpired = a.payment_status === 'expired' || isExpired(a.payment_due_date);
@@ -2333,6 +2358,32 @@ const AdminDashboard = () => {
             <span>
               <strong>Outros:</strong> {planCounts.outros}
             </span>
+            <button
+              type="button"
+              onClick={() => setFilterActivity((prev) => (prev === 'active' ? 'all' : 'active'))}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${
+                filterActivity === 'active'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+              title="Ativos = último acesso nos últimos 5 dias (Nunca acessou = inativo)"
+            >
+              <strong>Ativos:</strong> {activeCount}
+              {filterActivity === 'active' ? <span className="text-[10px] font-semibold opacity-70">(filtrando)</span> : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterActivity((prev) => (prev === 'inactive' ? 'all' : 'inactive'))}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${
+                filterActivity === 'inactive'
+                  ? 'bg-gray-900 border-gray-900 text-white'
+                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+              title="Inativos = nunca acessou ou ficou mais de 5 dias sem acesso"
+            >
+              <strong>Inativos:</strong> {inactiveCount}
+              {filterActivity === 'inactive' ? <span className="text-[10px] font-semibold opacity-70">(filtrando)</span> : null}
+            </button>
           </div>
         </div>
 
