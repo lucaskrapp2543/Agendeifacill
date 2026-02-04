@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { addMonths } from 'date-fns';
 import type { Database } from '../types/supabase';
+import { dlog } from '../utils/debugConsole';
 
 // These environment variables need to be set after connecting to Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -39,7 +40,7 @@ export const supabase: SupabaseClient<Database> = createClient(
         getItem: (key: string) => {
           try {
             const value = localStorage.getItem(key);
-            console.log(`📱 PWA - Lendo ${key}:`, value ? 'encontrado' : 'não encontrado');
+            dlog(`📱 PWA - Lendo ${key}:`, value ? 'encontrado' : 'não encontrado');
             return value;
           } catch (error) {
             console.warn('❌ Erro ao acessar localStorage:', error);
@@ -49,7 +50,7 @@ export const supabase: SupabaseClient<Database> = createClient(
         setItem: (key: string, value: string) => {
           try {
             localStorage.setItem(key, value);
-            console.log(`💾 PWA - Salvando ${key}:`, 'sucesso');
+            dlog(`💾 PWA - Salvando ${key}:`, 'sucesso');
           } catch (error) {
             console.warn('❌ Erro ao salvar no localStorage:', error);
           }
@@ -57,7 +58,7 @@ export const supabase: SupabaseClient<Database> = createClient(
         removeItem: (key: string) => {
           try {
             localStorage.removeItem(key);
-            console.log(`🗑️ PWA - Removendo ${key}:`, 'sucesso');
+            dlog(`🗑️ PWA - Removendo ${key}:`, 'sucesso');
           } catch (error) {
             console.warn('❌ Erro ao remover do localStorage:', error);
           }

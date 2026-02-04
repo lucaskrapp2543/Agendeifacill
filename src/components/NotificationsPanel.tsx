@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bell, X, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './ui/Toaster';
+import { dlog } from '../utils/debugConsole';
 
 interface Notification {
   id: string;
@@ -30,7 +31,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   // Buscar notificações
   const fetchNotifications = async () => {
     try {
-      console.log('🔍 Buscando notificações para establishment:', establishmentId);
+      dlog('🔍 Buscando notificações para establishment:', establishmentId);
       
       const { data, error } = await supabase
         .from('establishment_notifications')
@@ -44,8 +45,8 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         return;
       }
 
-      console.log('📋 Notificações encontradas:', data?.length || 0);
-      console.log('📋 Notificações:', data);
+      dlog('📋 Notificações encontradas:', data?.length || 0);
+      dlog('📋 Notificações:', data);
 
       setNotifications(data || []);
       
@@ -58,12 +59,12 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         onUnreadCountChange(unread);
       }
 
-      console.log('🔔 Notificações não lidas:', unread);
+      dlog('🔔 Notificações não lidas:', unread);
 
       // Enviar notificação para o celular se houver novas não lidas
       if (unread > 0 && 'Notification' in window && notificationPermission === 'granted') {
         const newNotifications = data?.filter(n => !n.read) || [];
-        console.log('📱 Enviando notificações para celular:', newNotifications.length);
+        dlog('📱 Enviando notificações para celular:', newNotifications.length);
         newNotifications.forEach(notification => {
           sendMobileNotification(notification);
         });
@@ -107,7 +108,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         }
       };
 
-      console.log('📱 Notificação enviada para o celular:', notification.title);
+      dlog('📱 Notificação enviada para o celular:', notification.title);
 
     } catch (error) {
       console.error('❌ Erro ao enviar notificação para celular:', error);

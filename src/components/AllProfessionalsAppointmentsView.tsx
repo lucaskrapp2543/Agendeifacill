@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
 import { RescheduleAppointmentModal } from './RescheduleAppointmentModal';
+import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { useToast } from './ui/Toaster';
 import { useAuth } from '../context/AuthContext';
 
@@ -164,6 +165,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [localClientNameOverrides, setLocalClientNameOverrides] = useState<Record<string, string>>({});
     const [showRescheduleModal, setShowRescheduleModal] = useState(false);
     const [selectedAppointmentForReschedule, setSelectedAppointmentForReschedule] = useState<Appointment | null>(null);
+    const [showChangeServiceModal, setShowChangeServiceModal] = useState(false);
+    const [selectedAppointmentForServiceChange, setSelectedAppointmentForServiceChange] = useState<Appointment | null>(null);
     const [showSubscriberAttendanceModal, setShowSubscriberAttendanceModal] = useState(false);
     const [subscriberOptions, setSubscriberOptions] = useState<Array<{
       id: string;
@@ -210,6 +213,62 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const handleCloseRescheduleModal = () => {
       setShowRescheduleModal(false);
       setSelectedAppointmentForReschedule(null);
+    };
+
+    const handleOpenChangeServiceModal = (apt: Appointment) => {
+      setSelectedAppointmentForServiceChange(apt);
+      setShowChangeServiceModal(true);
+    };
+
+    const handleCloseChangeServiceModal = () => {
+      setShowChangeServiceModal(false);
+      setSelectedAppointmentForServiceChange(null);
+    };
+
+    const handleConfirmChangeService = async (services: Array<{ id: string; name: string; price: number; duration: number }>) => {
+      const apt = selectedAppointmentForServiceChange;
+      if (!apt) return;
+
+      try {
+        const serviceNames = (services || []).map((s) => String(s?.name || '').trim()).filter(Boolean);
+        const basePrice = (services || []).reduce((sum, s) => sum + Number(s?.price || 0), 0);
+        const baseDuration = (services || []).reduce((sum, s) => sum + Number(s?.duration || 0), 0);
+
+        const extraProductsTotal = (apt.additional_products || []).reduce(
+          (sum: number, p: any) => sum + Number(p?.price || 0),
+          0
+        );
+        const soldProductsTotal = (apt.sold_products || []).reduce(
+          (sum: number, p: any) => sum + Number(p?.total || 0),
+          0
+        );
+        const nextTotal = Number(basePrice || 0) + extraProductsTotal + soldProductsTotal;
+
+        const payload: any = {
+          service: serviceNames.join(', '),
+          price: Number(basePrice || 0),
+          duration: Number(baseDuration || 30),
+          total_price: nextTotal,
+        };
+
+        let { error } = await supabase.from('appointments').update(payload).eq('id', apt.id);
+        if (error) {
+          const msg = String((error as any)?.message || '').toLowerCase();
+          if (msg.includes('total_price') && (msg.includes('column') || msg.includes('schema cache'))) {
+            const fallbackPayload: any = { ...payload };
+            delete fallbackPayload.total_price;
+            ({ error } = await supabase.from('appointments').update(fallbackPayload).eq('id', apt.id));
+          }
+        }
+        if (error) throw error;
+
+        toast.success('Serviço alterado com sucesso!');
+        if (onAppointmentUpdate) onAppointmentUpdate();
+      } catch (e) {
+        console.error('❌ Erro ao trocar serviço:', e);
+        toast.error('Erro ao trocar serviço. Tente novamente.');
+        throw e;
+      }
     };
 
     const handleRescheduleAppointment = async (appointmentId: string, newDate: string, newTime: string) => {
@@ -2413,6 +2472,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              handleOpenChangeServiceModal(apt);
+                                            }}
+                                            className="w-full px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 font-extrabold"
+                                            title="Trocar o serviço (altera valor e duração)"
+                                          >
+                                            ✂️ Trocar serviço
+                                          </button>
+
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
                                               if (onOpenObservationModal) onOpenObservationModal(apt.id, apt.establishment_observation);
                                             }}
                                             className="w-full px-2 py-1.5 text-xs bg-gray-700 text-white rounded hover:bg-gray-600"
@@ -2645,6 +2715,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
           use15MinuteInterval={Boolean((establishment as any)?.use_15_minute_interval)}
           use20MinuteSchedule={Boolean((establishment as any)?.use_20_minute_schedule)}
           use60MinuteSchedule={Boolean((establishment as any)?.use_60_minute_schedule)}
+        />
+      )}
+
+      {/* Modal: Trocar serviço */}
+      {showChangeServiceModal && selectedAppointmentForServiceChange && establishment?.id && (
+        <ChangeAppointmentServiceModal
+          isOpen={showChangeServiceModal}
+          onClose={handleCloseChangeServiceModal}
+          establishmentId={String(establishment.id)}
+          appointment={selectedAppointmentForServiceChange as any}
+          onConfirm={handleConfirmChangeService}
         />
       )}
 

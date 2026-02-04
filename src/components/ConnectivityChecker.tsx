@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { dlog } from '../utils/debugConsole';
 
 interface ConnectivityCheckerProps {
   onConnectionStatusChange?: (isConnected: boolean) => void;
@@ -28,7 +29,7 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
       setLastCheck(new Date());
       onConnectionStatusChange?.(connected);
       
-      console.log('🔍 Verificação de conectividade:', connected ? '✅ Conectado' : '❌ Desconectado');
+      dlog('🔍 Verificação de conectividade:', connected ? '✅ Conectado' : '❌ Desconectado');
     } catch (error) {
       console.error('❌ Erro na verificação de conectividade:', error);
       setIsConnected(false);

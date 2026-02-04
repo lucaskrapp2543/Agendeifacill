@@ -21,6 +21,7 @@ import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
 import ReservarCliente from '../components/ReservarCliente';
 import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentModal';
+import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
@@ -2686,6 +2687,8 @@ const EstablishmentDashboard = () => {
   const [selectedAppointmentForTransfer, setSelectedAppointmentForTransfer] = useState<Appointment | null>(null);
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [selectedAppointmentForReschedule, setSelectedAppointmentForReschedule] = useState<Appointment | null>(null);
+  const [showChangeServiceModal, setShowChangeServiceModal] = useState(false);
+  const [selectedAppointmentForServiceChange, setSelectedAppointmentForServiceChange] = useState<Appointment | null>(null);
 
   // Estados para gerenciar bloqueio de horários dos profissionais
   const [showBlockTimeModal, setShowBlockTimeModal] = useState(false);
@@ -9598,6 +9601,62 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  // Trocar serviço (alterar serviço + valor + duração)
+  const handleOpenChangeServiceModal = (appointment: Appointment) => {
+    setSelectedAppointmentForServiceChange(appointment);
+    setShowChangeServiceModal(true);
+  };
+
+  const handleCloseChangeServiceModal = () => {
+    setShowChangeServiceModal(false);
+    setSelectedAppointmentForServiceChange(null);
+  };
+
+  const handleChangeAppointmentService = async (services: Array<{ id: string; name: string; price: number; duration: number }>) => {
+    const apt = selectedAppointmentForServiceChange;
+    if (!apt) return;
+
+    try {
+      const serviceNames = (services || []).map((s) => String(s?.name || '').trim()).filter(Boolean);
+      const basePrice = (services || []).reduce((sum, s) => sum + Number(s?.price || 0), 0);
+      const baseDuration = (services || []).reduce((sum, s) => sum + Number(s?.duration || 0), 0);
+
+      const extraProductsTotal = (apt.additional_products || []).reduce((sum: number, p: any) => sum + Number(p?.price || 0), 0);
+      const soldProductsTotal = (apt.sold_products || []).reduce((sum: number, p: any) => sum + Number(p?.total || 0), 0);
+      const nextTotal = Number(basePrice || 0) + extraProductsTotal + soldProductsTotal;
+
+      const payload: any = {
+        service: serviceNames.join(', '),
+        price: Number(basePrice || 0),
+        duration: Number(baseDuration || 30),
+        total_price: nextTotal,
+      };
+
+      let { error } = await supabase.from('appointments').update(payload).eq('id', apt.id);
+      if (error) {
+        const msg = String((error as any)?.message || '').toLowerCase();
+        if (msg.includes('total_price') && (msg.includes('column') || msg.includes('schema cache'))) {
+          const fallbackPayload: any = { ...payload };
+          delete fallbackPayload.total_price;
+          ({ error } = await supabase.from('appointments').update(fallbackPayload).eq('id', apt.id));
+        }
+      }
+      if (error) throw error;
+
+      toast.success('Serviço alterado com sucesso!');
+
+      // Recarregar listas (dia e mês) para refletir a mudança
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments(selectedMonth),
+      ]);
+    } catch (e) {
+      console.error('❌ Erro ao trocar serviço:', e);
+      toast.error('Erro ao trocar serviço. Tente novamente.');
+      throw e;
+    }
+  };
+
   // Função para abrir modal "Terminei Antes"
   const handleOpenFinishEarlyModal = (appointment: Appointment) => {
     setSelectedAppointmentForFinishEarly(appointment);
@@ -15285,6 +15344,15 @@ Estamos te aguardando! 😎✂️`;
                                                 title="Trocar a data/horário deste agendamento"
                                               >
                                                 🕒 Trocar horário
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => handleOpenChangeServiceModal(appointment)}
+                                                className="w-full px-2 py-1 text-xs font-extrabold rounded transition-colors bg-black text-white hover:bg-gray-800"
+                                                title="Trocar o serviço (altera valor e duração)"
+                                              >
+                                                ✂️ Trocar serviço
                                               </button>
 
                                               <button
@@ -25061,6 +25129,17 @@ Estamos te aguardando! 😎✂️`;
           use15MinuteInterval={use15MinuteInterval}
           use20MinuteSchedule={use20MinuteSchedule}
           use60MinuteSchedule={use60MinuteSchedule}
+        />
+      )}
+
+      {/* Modal Trocar serviço */}
+      {establishment && selectedAppointmentForServiceChange && (
+        <ChangeAppointmentServiceModal
+          isOpen={showChangeServiceModal}
+          onClose={handleCloseChangeServiceModal}
+          establishmentId={establishment.id}
+          appointment={selectedAppointmentForServiceChange as any}
+          onConfirm={handleChangeAppointmentService}
         />
       )}
 
