@@ -9102,6 +9102,10 @@ Estamos te aguardando! 😎✂️`;
 
     } catch (error: any) {
       console.error('❌ Erro ao adicionar cliente:', error);
+      const msg = String(error?.message || error?.error || 'Erro ao adicionar cliente');
+      const details = String(error?.details || '').trim();
+      const hint = String(error?.hint || '').trim();
+      const code = String(error?.code || '').trim();
 
       // Se for erro de RLS, tentar salvar apenas no localStorage como fallback
       if (error?.code === '42501' || error?.message?.includes('row-level security') || error?.message?.includes('violates row-level security')) {
@@ -9135,7 +9139,13 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
 
-      toast(error.message || 'Erro ao adicionar cliente', 'error');
+      toast(
+        msg +
+          (code ? ` (código ${code})` : '') +
+          (details ? ` • ${details}` : '') +
+          (hint ? ` • ${hint}` : ''),
+        'error'
+      );
     }
   };
 

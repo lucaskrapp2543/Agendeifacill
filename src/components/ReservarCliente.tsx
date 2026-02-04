@@ -1012,6 +1012,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
     setLoading(true);
     try {
+      if (!user?.id) {
+        throw new Error('Sessão expirada. Saia e entre novamente no app.');
+      }
       // Determinar serviços a serem inseridos
       const servicesToInsert = selectedServices.length > 0 ? selectedServices : [selectedService!];
       const totalPrice = selectedServices.length > 0
@@ -1230,7 +1233,29 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       onClose();
     } catch (error) {
       console.error('Erro ao criar reserva:', error);
-      alert('Erro ao criar reserva');
+
+      const err: any = error || {};
+      const msg =
+        String(err?.message || err?.error || 'Erro ao criar reserva').trim() ||
+        'Erro ao criar reserva';
+      const details = String(err?.details || '').trim();
+      const hint = String(err?.hint || '').trim();
+      const code = String(err?.code || '').trim();
+
+      const extraParts = [
+        code ? `Código: ${code}` : '',
+        details ? `Detalhes: ${details}` : '',
+        hint ? `Dica: ${hint}` : '',
+      ].filter(Boolean);
+
+      // Mensagem mais clara (inclui erro real do Supabase/Postgres)
+      alert(
+        `Erro ao criar reserva:\n${msg}` +
+        (extraParts.length ? `\n\n${extraParts.join('\n')}` : '') +
+        (msg.toLowerCase().includes('row-level security') || msg.toLowerCase().includes('policy')
+          ? '\n\n⚠️ Parece ser permissão (RLS) no Supabase. Avise o suporte para aplicar a policy de INSERT na tabela appointments.'
+          : '')
+      );
     } finally {
       setLoading(false);
     }

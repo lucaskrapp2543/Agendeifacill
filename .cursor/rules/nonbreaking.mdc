@@ -1,0 +1,24 @@
+---
+description: Garantir que mudanças novas não quebrem fluxos existentes
+alwaysApply: true
+---
+
+# Regra: NÃO QUEBRAR NADA (compatibilidade + não substituir)
+
+## Objetivo
+Qualquer mudança nova deve **manter todos os fluxos antigos funcionando**. Se algo exigir SQL/migration, isso deve ser dito de forma explícita e acompanhado do script.
+
+## Checklist obrigatório antes de finalizar
+- **Mapear impactos**: listar telas/fluxos afetados (ex.: Booking, Dashboard, Assinantes, Clientes, Reservar Cliente, Pagamento).
+- **RLS / policies**: se a mudança escreve em tabelas com RLS, garantir policy de `INSERT/UPDATE` com `USING` **e** `WITH CHECK`.
+- **Migrações seguras**: usar `ADD COLUMN IF NOT EXISTS`, evitar renames destrutivos, e manter fallback no frontend quando coluna pode não existir.
+- **Não substituir fluxo antigo**: só adicionar comportamento novo por trás de condição/flag; manter o caminho antigo como fallback.
+- **Erros claros**: nunca deixar `alert("Erro")` genérico; mostrar `message/code/details/hint` quando vier do Supabase.
+- **Compilar**: rodar build/TypeScript e corrigir qualquer erro introduzido.
+
+## Comunicação obrigatória ao usuário
+Ao terminar uma mudança, sempre responder com:
+- **“O que foi alterado”**
+- **“O que precisa colar no Supabase (se precisar)”**
+- **“Por que isso NÃO quebra nada antigo”** (explicar o fallback/compat)
+
