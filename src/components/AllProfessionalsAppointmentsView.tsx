@@ -149,6 +149,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         .filter((m) => m.length > 0 && !defaultPaymentMethodSet.has(m));
     };
     const [expandedAppointments, setExpandedAppointments] = useState<{ [key: string]: boolean }>({});
+    const [hiddenAppointmentsOpenByProfessional, setHiddenAppointmentsOpenByProfessional] = useState<Record<string, boolean>>({});
     const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(
       professionals.length > 0 ? professionals[0].id : ''
     );
@@ -1573,12 +1574,48 @@ export const AllProfessionalsAppointmentsView: React.FC<
               {professionals.map((professional, index) => {
                 const timeSlots = generateTimeSlotsWithAppointments(professional);
                 const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
-                // Contar TODOS os agendamentos não cancelados (pending, confirmed, completed)
-                const professionalAppointmentsCount = timeSlots.filter(
-                  (slot) => slot.appointment &&
-                    slot.appointment.appointment_date === selectedDateStr &&
-                    slot.appointment.status !== 'cancelled'
+                const slotTimeSet = new Set(timeSlots.map((s) => s.time));
+
+                // ✅ Agendamentos com horário "picado" (fora do intervalo), que não entram na grade
+                const hiddenAppointments = appointments
+                  .filter((apt) =>
+                    apt.professional === professional.id &&
+                    apt.appointment_date === selectedDateStr &&
+                    apt.status !== 'cancelled' &&
+                    !apt.is_squeeze &&
+                    !slotTimeSet.has(String(apt.appointment_time || '').trim())
+                  )
+                  .sort((a, b) =>
+                    parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
+                    parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+                  );
+
+                // Contar TODOS os agendamentos do dia (sem depender da grade)
+                const professionalAppointmentsCount = appointments.filter((apt) =>
+                  apt.professional === professional.id &&
+                  apt.appointment_date === selectedDateStr &&
+                  apt.status !== 'cancelled'
                 ).length;
+
+                const pendingCount = appointments.filter((apt) =>
+                  apt.professional === professional.id &&
+                  apt.appointment_date === selectedDateStr &&
+                  (apt.status === 'pending' || apt.status === 'confirmed')
+                ).length;
+
+                const completedCount = appointments.filter((apt) =>
+                  apt.professional === professional.id &&
+                  apt.appointment_date === selectedDateStr &&
+                  apt.status === 'completed'
+                ).length;
+
+                const cancelledCount = appointments.filter((apt) =>
+                  apt.professional === professional.id &&
+                  apt.appointment_date === selectedDateStr &&
+                  apt.status === 'cancelled'
+                ).length;
+
+                const hiddenOpen = Boolean(hiddenAppointmentsOpenByProfessional[professional.id]);
 
                 // Debug para comparar
                 if (professional.id === professionals[0]?.id) {
@@ -1587,6 +1624,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   console.log('  - Selected Date:', selectedDateStr);
                   console.log('  - Total slots com appointment:', timeSlots.filter(s => s.appointment).length);
                   console.log('  - Slots confirmados/completos na data:', professionalAppointmentsCount);
+                  console.log('  - Hidden appointments:', hiddenAppointments.length);
                 }
 
                 return (
@@ -1713,13 +1751,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         {/* Contadores de Status por Profissional */}
                         <div className="mt-2 flex gap-1 text-xs">
                           <span className="px-2 py-1 bg-red-600/80 text-white rounded border border-red-700">
-                            ❌ {timeSlots.filter(s => s.appointment && s.appointment.status === 'cancelled').length}
+                            ❌ {cancelledCount}
                           </span>
                           <span className="px-2 py-1 bg-yellow-600/80 text-white rounded border border-yellow-700">
-                            ⏳ {timeSlots.filter(s => s.appointment && (s.appointment.status === 'pending' || s.appointment.status === 'confirmed')).length}
+                            ⏳ {pendingCount}
                           </span>
                           <span className="px-2 py-1 bg-green-600/80 text-white rounded border border-green-700">
-                            ✅ {timeSlots.filter(s => s.appointment && s.appointment.status === 'completed').length}
+                            ✅ {completedCount}
                           </span>
                         </div>
 
@@ -2419,6 +2457,68 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           <div className="text-center py-8">
                             <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
                             <p className="text-gray-500 text-sm">Sem horário de trabalho hoje</p>
+                          </div>
+                        )}
+
+                        {/* ✅ Agendamentos ocultos (horário fora do intervalo) */}
+                        {hiddenAppointments.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-black/10">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setHiddenAppointmentsOpenByProfessional((prev) => ({
+                                  ...prev,
+                                  [professional.id]: !Boolean(prev[professional.id]),
+                                }))
+                              }
+                              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 transition-colors"
+                              title="Agendamentos em horário picado (fora do intervalo), que não aparecem na grade"
+                            >
+                              <span className="text-xs font-extrabold text-gray-900">
+                                Agendamentos ocultos ({hiddenAppointments.length})
+                              </span>
+                              <span className="text-xs text-gray-600 font-semibold">
+                                {hiddenOpen ? 'Ocultar' : 'Ver'}
+                              </span>
+                            </button>
+
+                            {hiddenOpen && (
+                              <div className="mt-2 space-y-2">
+                                {hiddenAppointments.map((apt) => (
+                                  <div
+                                    key={`hidden-${apt.id}`}
+                                    className="rounded-lg border border-amber-200 bg-amber-50 p-3"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <div className="text-xs font-extrabold text-amber-900">
+                                          ⛔ {apt.appointment_time} • {getDisplayedClientName(apt) || 'Cliente'}
+                                        </div>
+                                        <div className="text-[11px] text-amber-900/90 truncate">
+                                          {apt.service}
+                                        </div>
+                                      </div>
+                                      <div className="shrink-0 text-[11px] font-extrabold text-amber-900">
+                                        {formatCurrency(calculateTotalPrice(apt))}
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-2 flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenRescheduleModal(apt)}
+                                        className="flex-1 px-3 py-2 rounded bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
+                                      >
+                                        🕒 Trocar horário
+                                      </button>
+                                    </div>
+                                    <div className="mt-2 text-[10px] text-amber-900/80">
+                                      Esse agendamento está fora do intervalo configurado da agenda e por isso não aparece nos horários normais.
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
