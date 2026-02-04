@@ -8,6 +8,7 @@ interface Professional {
   id: string;
   name: string;
   photo?: string;
+  specific_services?: Array<{ id: string; name: string; price: number; duration: number }>;
 }
 
 interface Service {
@@ -398,7 +399,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         const formattedProfessionals = establishmentProfessionals.map((prof: any) => ({
           id: prof.id,
           name: prof.name,
-          photo: prof.photo_url || prof.photo
+          photo: prof.photo_url || prof.photo,
+          // ✅ PRESERVAR serviços específicos do profissional
+          specific_services: Array.isArray(prof?.specific_services) ? prof.specific_services : [],
         }));
 
         console.log('✅ Profissionais formatados:', formattedProfessionals);
@@ -514,6 +517,34 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       try {
         console.log('🔍 Carregando serviços (mesma fonte do "Meus serviços") para establishment:', establishmentId);
 
+        // ✅ Serviços específicos do profissional (configurado em "Profissionais")
+        const specificRaw = Array.isArray((selectedProfessional as any)?.specific_services)
+          ? (selectedProfessional as any).specific_services
+          : [];
+        const formattedSpecific: Service[] = specificRaw
+          .filter((s: any) => s && s.id && s.name)
+          .map((s: any) => ({
+            id: `specific-${String(s.id)}`,
+            name: String(s.name || '').trim(),
+            price: Number(s.price || 0),
+            duration: Number(s.duration || 30),
+          }))
+          .filter((s: any) => s.name && s.price > 0);
+
+        const normalizeNameKey = (name: any) =>
+          String(name || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim();
+
+        const mergeSpecific = (base: Service[]) => {
+          if (!formattedSpecific.length) return base;
+          const existingNames = new Set(base.map((s) => normalizeNameKey(s.name)));
+          const toAdd = formattedSpecific.filter((s) => !existingNames.has(normalizeNameKey(s.name)));
+          return [...base, ...toAdd];
+        };
+
         // 1) Preferir o sistema novo (categorias/subcategorias)
         const { data: subcats, error: subErr } = await supabase
           .from('service_subcategories')
@@ -551,8 +582,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
             duration: Number(s.duration || 30),
           })).filter((s: any) => s.name && s.price > 0);
 
-          console.log('✅ Serviços (categorias) carregados:', formatted);
-          setServices(formatted);
+          const combined = mergeSpecific(formatted);
+          console.log('✅ Serviços (categorias) carregados:', combined);
+          setServices(combined);
           return;
         }
 
@@ -584,8 +616,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           }))
           .filter((s: any) => s.name && s.price > 0);
 
-        console.log('✅ Serviços (fallback legado) carregados:', formattedLegacy);
-        setServices(formattedLegacy);
+        const combinedLegacy = mergeSpecific(formattedLegacy);
+        // Se não há serviços gerais mas há específicos, mostrar os específicos
+        const finalList = combinedLegacy.length > 0 ? combinedLegacy : formattedSpecific;
+        console.log('✅ Serviços (fallback legado + específicos) carregados:', finalList);
+        setServices(finalList);
       } catch (error) {
         console.error('❌ Erro ao carregar serviços:', error);
         alert('Erro ao carregar serviços');

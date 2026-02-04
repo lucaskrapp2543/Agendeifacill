@@ -3943,6 +3943,8 @@ const EstablishmentDashboard = () => {
           duration: Number(item?.duration || 30),
           is_active: Boolean(item?.is_active),
           display_order: Number(item?.display_order || 0),
+          hidden_from_booking: typeof item?.hidden_from_booking === 'boolean' ? item.hidden_from_booking : undefined,
+          oculto_da_reserva: typeof item?.oculto_da_reserva === 'boolean' ? item.oculto_da_reserva : undefined,
           created_at: String(item?.created_at || ''),
           updated_at: String(item?.updated_at || ''),
         }))
@@ -4368,7 +4370,9 @@ const EstablishmentDashboard = () => {
   };
 
   const isOcultoNoBooking = (obj: any): boolean => {
-    return Boolean(obj?.hidden_from_booking ?? obj?.oculto_da_reserva);
+    // ⚠️ Não usar "??" aqui, porque se hidden_from_booking existir e for false,
+    // ainda precisamos considerar oculto_da_reserva=true (compatibilidade entre schemas).
+    return Boolean(obj?.hidden_from_booking || obj?.oculto_da_reserva);
   };
 
   const updateOcultoNoBooking = async (table: 'service_categories' | 'service_subcategories', id: string, hidden: boolean) => {
