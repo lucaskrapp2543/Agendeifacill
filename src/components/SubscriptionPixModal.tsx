@@ -1115,10 +1115,19 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
               <label className="block text-sm text-gray-300 mb-1">WhatsApp (com DDD)</label>
               <input
                 value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
+                onChange={(e) => {
+                  // ✅ aceitar só números e limitar tamanho (DDD + número)
+                  let digits = onlyDigits(e.target.value || '');
+                  // Se colar com código do país (55...), remover para manter padrão de 10-11 dígitos
+                  if (digits.startsWith('55') && digits.length > 11) {
+                    digits = digits.slice(2);
+                  }
+                  setWhatsapp(digits.slice(0, 11));
+                }}
                 className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="(48) 99999-9999"
+                placeholder="99 9 9999-9999"
                 inputMode="tel"
+                maxLength={11}
               />
             </div>
             <div>

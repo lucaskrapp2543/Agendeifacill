@@ -177,6 +177,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedAppointmentForSubscriberAttendance, setSelectedAppointmentForSubscriberAttendance] = useState<Appointment | null>(null);
     const [isSavingSubscriberAttendance, setIsSavingSubscriberAttendance] = useState(false);
 
+    const normalizeSearch = (v: string): string => {
+      // remove acentos e padroniza
+      return String(v || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+    };
+
+    const matchesSubscriberQuery = (s: any, rawQuery: string): boolean => {
+      const qRaw = String(rawQuery || '');
+      const q = normalizeSearch(qRaw);
+      if (!q) return true;
+
+      const qDigits = qRaw.replace(/\D/g, '');
+      const wDigits = String(s?.whatsapp || '').replace(/\D/g, '');
+      if (qDigits && wDigits.includes(qDigits)) return true;
+
+      const name = normalizeSearch(String(s?.display_name || ''));
+      const plan = normalizeSearch(String(s?.plan_name || ''));
+      const tokens = q.split(/\s+/).filter(Boolean);
+      return tokens.every((t) => name.includes(t) || plan.includes(t));
+    };
+
     const handleOpenRescheduleModal = (apt: Appointment) => {
       setSelectedAppointmentForReschedule(apt);
       setShowRescheduleModal(true);
@@ -2551,11 +2575,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
             <div className="p-4">
               <div className="mb-3">
                 <input
+                  type="text"
+                  autoFocus
                   value={subscriberSearch}
                   onChange={(e) => setSubscriberSearch(e.target.value)}
                   placeholder="Pesquisar assinante por nome ou WhatsApp..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
                   disabled={subscriberOptionsLoading || isSavingSubscriberAttendance}
+                  autoComplete="off"
+                  spellCheck={false}
                 />
               </div>
 
@@ -2569,21 +2597,36 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   {subscriberOptionsLoading ? 'Carregando...' : 'Recarregar lista'}
                 </button>
                 <div className="text-xs text-gray-600">
-                  {subscriberOptions.length} assinante(s)
+                  {(() => {
+                    const q = String(subscriberSearch || '');
+                    const filtered = (subscriberOptions || []).filter((s: any) => matchesSubscriberQuery(s, q));
+                    return q ? `${filtered.length} de ${subscriberOptions.length} assinante(s)` : `${subscriberOptions.length} assinante(s)`;
+                  })()}
                 </div>
               </div>
 
               <div className="max-h-[45vh] overflow-y-auto border border-gray-200 rounded-lg">
-                {subscriberOptions
-                  .filter((s) => {
-                    const q = String(subscriberSearch || '').trim().toLowerCase();
-                    if (!q) return true;
+                {(() => {
+                  const q = String(subscriberSearch || '');
+                  const filtered = (subscriberOptions || []).filter((s: any) => matchesSubscriberQuery(s, q));
+
+                  if (subscriberOptions.length === 0) {
                     return (
-                      String(s.display_name || '').toLowerCase().includes(q) ||
-                      String(s.whatsapp || '').replace(/\D/g, '').includes(q.replace(/\D/g, ''))
+                      <div className="p-4 text-sm text-gray-600">
+                        Nenhum assinante encontrado. Clique em “Recarregar lista”.
+                      </div>
                     );
-                  })
-                  .map((s) => {
+                  }
+
+                  if (String(q || '').trim() && filtered.length === 0) {
+                    return (
+                      <div className="p-4 text-sm text-gray-600">
+                        Nenhum assinante encontrado para "{subscriberSearch}".
+                      </div>
+                    );
+                  }
+
+                  return filtered.map((s: any) => {
                     const selected = String(selectedSubscriberOptionId) === String(s.id);
                     return (
                       <button
@@ -2611,13 +2654,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         </div>
                       </button>
                     );
-                  })}
-
-                {subscriberOptions.length === 0 && (
-                  <div className="p-4 text-sm text-gray-600">
-                    Nenhum assinante encontrado. Clique em “Recarregar lista”.
-                  </div>
-                )}
+                  });
+                })()}
               </div>
             </div>
 
