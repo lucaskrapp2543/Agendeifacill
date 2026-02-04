@@ -300,6 +300,10 @@ const AdminDashboard = () => {
 
   // ✅ Saldo do dia: permitir navegar por dia (hoje / dia anterior / etc.)
   const [saldoDiaDate, setSaldoDiaDate] = useState<Date>(() => new Date());
+  const [lucroPixMonth, setLucroPixMonth] = useState<Date>(() => new Date());
+  const [qtdVendasPixMes, setQtdVendasPixMes] = useState<number>(0);
+  const [lucroPixMesTotal, setLucroPixMesTotal] = useState<number>(0);
+  const [isLoadingLucroPixMes, setIsLoadingLucroPixMes] = useState(false);
 
   const togglePagamentoAdiantadoAdmin = async (establishmentId: string, current: boolean) => {
     try {
@@ -392,11 +396,19 @@ const AdminDashboard = () => {
     return Math.round(n * 100);
   };
 
+  const TAXA_PLATAFORMA_PIX_POR_VENDA = 0.5; // R$ 0,50 por venda PIX (lucro do app)
+
   const calcularLiquidoPix = (bruto: number) => {
-    const taxaPlataforma = 0.5; // R$ 0,50
+    const taxaPlataforma = TAXA_PLATAFORMA_PIX_POR_VENDA; // R$ 0,50
     const taxaPixPercent = 1.19 / 100; // 1,19%
     const liquido = bruto - taxaPlataforma - bruto * taxaPixPercent;
     return Math.max(0, Math.round(liquido * 100) / 100);
+  };
+
+  const calcularLucroPix = (qtdPixPago: number) => {
+    const q = Number(qtdPixPago || 0);
+    if (!Number.isFinite(q) || q <= 0) return 0;
+    return Math.round(q * TAXA_PLATAFORMA_PIX_POR_VENDA * 100) / 100;
   };
 
   // (removido) carregarCostMetrics
@@ -477,6 +489,58 @@ const AdminDashboard = () => {
 
         totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto)) * 100) / 100;
         qtdMap[estId] = (qtdMap[estId] || 0) + 1;
+      }
+
+      // 3) Assinaturas PIX pagas (client_subscriptions) via Mercado Pago
+      // - Conta também no "Lucro PIX" (R$0,50 por venda) e no saldo (líquido após 1,19% + R$0,50)
+      // - Observação: não temos histórico por renovação; aqui conta a venda/assinatura paga atual.
+      try {
+        const subsQuery = supabase.from('client_subscriptions') as any;
+        const { data: subsData, error: subsError } = await subsQuery
+          .select(
+            'id,establishment_id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscriptions(value)'
+          )
+          .in('establishment_id', ids)
+          .eq('payment_status', 'paid');
+
+        if (subsError) throw subsError;
+
+        for (const sub of (subsData as any[]) || []) {
+          const estId = String(sub?.establishment_id || '');
+          if (!estId) continue;
+
+          // Dedupe: preferir order id quando existir (mais próximo de "venda"), senão id da assinatura
+          const orderKey = String(sub?.subscription_payment_order_id || '').trim();
+          const idKey = String(sub?.id || '').trim();
+          const uniqKey = orderKey || idKey;
+          if (!uniqKey) continue;
+
+          if (!seenByEst.has(estId)) seenByEst.set(estId, new Set());
+          const seen = seenByEst.get(estId)!;
+          if (seen.has(`sub:${uniqKey}`)) continue;
+          seen.add(`sub:${uniqKey}`);
+
+          const provider = String(sub?.subscription_payment_provider || '').toLowerCase().trim();
+          // Só contar PIX Mercado Pago (pedido do usuário)
+          if (provider !== 'mercadopago_pix') continue;
+
+          const bruto = Number((sub as any)?.subscriptions?.value ?? 0);
+          if (!Number.isFinite(bruto) || bruto <= 0) continue;
+
+          totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto)) * 100) / 100;
+          qtdMap[estId] = (qtdMap[estId] || 0) + 1;
+        }
+      } catch (e: any) {
+        // Fallback seguro: se o banco não tiver as colunas (schema antigo), ignora sem quebrar o admin
+        const msg = String(e?.message || '').toLowerCase();
+        const looksLikeMissingColumn =
+          msg.includes('column') ||
+          msg.includes('schema cache') ||
+          msg.includes('subscription_payment_provider') ||
+          msg.includes('subscription_payment_order_id');
+        if (!looksLikeMissingColumn) {
+          console.warn('⚠️ Falha ao incluir assinaturas no cálculo PIX (admin):', e);
+        }
       }
 
       const saldoMap: Record<string, number> = {};
@@ -1384,6 +1448,91 @@ const AdminDashboard = () => {
     }
   };
 
+  const carregarLucroPixPorMes = async (monthDate: Date) => {
+    const ids = establishments.map(e => e.id).filter(Boolean);
+    if (ids.length === 0) {
+      setQtdVendasPixMes(0);
+      setLucroPixMesTotal(0);
+      return;
+    }
+    setIsLoadingLucroPixMes(true);
+    try {
+      const { start: monthStart, end: monthEnd } = getMonthRange(monthDate);
+      const monthStartStr = format(monthStart, 'yyyy-MM-dd');
+      const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
+
+      let countAppts = 0;
+      const { data: appts, error: apptsError } = await supabase
+        .from('appointments')
+        .select('id,establishment_id,payment_status,pix_payment_status,payment_method,payment_transaction_id,status')
+        .in('establishment_id', ids)
+        .gte('appointment_date', monthStartStr)
+        .lte('appointment_date', monthEndStr)
+        .or('payment_status.eq.paid,pix_payment_status.eq.confirmado');
+
+      if (!apptsError && appts) {
+        const seen = new Set<string>();
+        for (const row of appts as any[]) {
+          const id = String(row?.id || '');
+          const estId = String(row?.establishment_id || '');
+          if (!estId || !id || seen.has(id)) continue;
+          const paymentStatus = String(row?.payment_status || '').toLowerCase();
+          const pixPaymentStatus = String(row?.pix_payment_status || '').toLowerCase();
+          const hasTransactionId = Boolean(String(row?.payment_transaction_id || '').trim());
+          const isPaid = paymentStatus === 'paid' || pixPaymentStatus === 'confirmado';
+          if (!isPaid) continue;
+          if (paymentStatus === 'paid' && !hasTransactionId && pixPaymentStatus !== 'confirmado') continue;
+          const metodo = String(row?.payment_method || '').toLowerCase();
+          const isPix =
+            metodo === 'pix' ||
+            metodo === 'pix_now' ||
+            pixPaymentStatus === 'confirmado' ||
+            (paymentStatus === 'paid' && hasTransactionId);
+          if (!isPix) continue;
+          if (String(row?.status || '').toLowerCase() !== 'confirmed') continue;
+          seen.add(id);
+          countAppts++;
+        }
+      }
+
+      let countSubs = 0;
+      try {
+        const subsQuery = supabase.from('client_subscriptions') as any;
+        const { data: subsData, error: subsError } = await subsQuery
+          .select('id,establishment_id,subscription_payment_provider,created_at')
+          .in('establishment_id', ids)
+          .eq('payment_status', 'paid')
+          .gte('created_at', monthStart.toISOString())
+          .lte('created_at', monthEnd.toISOString());
+
+        if (!subsError && subsData) {
+          for (const sub of subsData as any[]) {
+            if (String(sub?.subscription_payment_provider || '').toLowerCase().trim() !== 'mercadopago_pix') continue;
+            countSubs++;
+          }
+        }
+      } catch {
+        // schema antigo sem colunas
+      }
+
+      const totalVendas = countAppts + countSubs;
+      const lucro = Math.round(totalVendas * TAXA_PLATAFORMA_PIX_POR_VENDA * 100) / 100;
+      setQtdVendasPixMes(totalVendas);
+      setLucroPixMesTotal(lucro);
+    } catch (e) {
+      console.error('Erro ao carregar lucro PIX por mês:', e);
+      setQtdVendasPixMes(0);
+      setLucroPixMesTotal(0);
+    } finally {
+      setIsLoadingLucroPixMes(false);
+    }
+  };
+
+  useEffect(() => {
+    carregarLucroPixPorMes(lucroPixMonth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lucroPixMonth, establishments.length]);
+
   useEffect(() => {
     fetchClientsMonthCount(clientsMonth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1944,6 +2093,11 @@ const AdminDashboard = () => {
       return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
     });
 
+  const lucroPixFiltrado = filteredEstablishments.reduce((sum, est) => {
+    const qtd = Number(qtdPixPagoPorEstabelecimento[String(est.id)] || 0);
+    return sum + calcularLucroPix(qtd);
+  }, 0);
+
   // Filtrar estabelecimentos da lixeira
   const filteredDeletedEstablishments = deletedEstablishments.filter(establishment => {
     const rawTokens = String(searchTermDeleted || '')
@@ -2110,6 +2264,55 @@ const AdminDashboard = () => {
       </div>
 
       <div className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6">
+        {/* Lucro PIX por mês: vendas (serviços + assinaturas) e lucro R$ 0,50, com seletor de mês */}
+        <div className="mb-6">
+          <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl shadow-md p-6 max-w-lg">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center">
+                <DollarSign className="h-10 w-10 text-emerald-700 flex-shrink-0" />
+                <div className="ml-4">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-emerald-800">Lucro PIX</p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setLucroPixMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                        className="p-1 rounded hover:bg-emerald-100 text-emerald-800"
+                        title="Mês anterior"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <span className="text-xs font-medium text-emerald-800 min-w-[120px] capitalize">
+                        {lucroPixMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setLucroPixMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                        disabled={isSameMonthYear(lucroPixMonth, new Date())}
+                        className="p-1 rounded hover:bg-emerald-100 text-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="Próximo mês"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-bold text-emerald-900 mt-1">
+                    {isLoadingLucroPixMes ? '...' : fmtBRL(lucroPixMesTotal)}
+                  </p>
+                  <p className="text-xs text-emerald-700/90 mt-1">
+                    {isLoadingLucroPixMes
+                      ? 'Carregando...'
+                      : `Foram feitas ${qtdVendasPixMes} venda(s) neste mês para você ter lucro de ${fmtBRL(lucroPixMesTotal)}`}
+                  </p>
+                  <p className="text-xs text-emerald-600/90 mt-0.5">
+                    Total acumulado (todos os tempos): {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
@@ -2357,6 +2560,9 @@ const AdminDashboard = () => {
             </span>
             <span>
               <strong>Outros:</strong> {planCounts.outros}
+            </span>
+            <span title="Lucro do app com PIX via Mercado Pago (R$ 0,50 por venda PIX paga)">
+              <strong>Lucro PIX:</strong> {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
             </span>
             <button
               type="button"
@@ -2735,6 +2941,11 @@ const AdminDashboard = () => {
                             {qtdPixPagoPorEstabelecimento[establishment.id]
                               ? `${qtdPixPagoPorEstabelecimento[establishment.id]} PIX pago(s)`
                               : '—'}
+                          </div>
+                          <div className="text-[10px] text-gray-700 font-semibold" title="Lucro do app: R$ 0,50 por venda PIX paga">
+                            {qtdPixPagoPorEstabelecimento[establishment.id]
+                              ? `Lucro: ${fmtBRL(calcularLucroPix(Number(qtdPixPagoPorEstabelecimento[establishment.id] || 0)))}`
+                              : 'Lucro: —'}
                           </div>
                         </td>
 
