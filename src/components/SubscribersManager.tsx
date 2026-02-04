@@ -147,6 +147,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [isSavingAttendance, setIsSavingAttendance] = useState(false);
   const [subscriberAttendances, setSubscriberAttendances] = useState<any[]>([]);
   const [subscriberAttendanceCountsByClientSubId, setSubscriberAttendanceCountsByClientSubId] = useState<Record<string, number>>({});
+  // Histórico (ex.: Fev 1) -> counts por mês (YYYY-MM) por assinante
+  const [subscriberAttendanceCountsHistoryByClientSubId, setSubscriberAttendanceCountsHistoryByClientSubId] = useState<
+    Record<string, Record<string, number>>
+  >({});
   const [subscriptionSaleCommissions, setSubscriptionSaleCommissions] = useState<any[]>([]);
   const [professionals, setProfessionals] = useState<any[]>([]);
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
@@ -169,6 +173,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
   ];
+  const monthAbbr = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const [professionalPaymentHistory, setProfessionalPaymentHistory] = useState<any[]>([]);
 
   // Estados para modal de visualizar atendimentos
@@ -641,6 +646,45 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // ✅ Histórico de contagens (mês atual + meses anteriores) para exibir "Fev 1" etc.
+  const fetchSubscriberAttendanceCountsHistory = async (month?: number, year?: number, monthsBack: number = 6) => {
+    try {
+      const targetMonth = month !== undefined ? month : selectedMonth;
+      const targetYear = year !== undefined ? year : selectedYear;
+
+      const start = new Date(targetYear, targetMonth - monthsBack, 1);
+      const end = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+      const min = start.toISOString().split('T')[0];
+      const max = end.toISOString().split('T')[0];
+
+      const { data, error } = await supabase
+        .from('subscriber_attendances')
+        .select('client_subscription_id, attendance_date')
+        .eq('establishment_id', establishmentId)
+        .gte('attendance_date', min)
+        .lte('attendance_date', max);
+
+      if (error) {
+        console.error('Erro ao buscar histórico de contagem de atendimentos:', error);
+        return;
+      }
+
+      const history: Record<string, Record<string, number>> = {};
+      (data || []).forEach((row: any) => {
+        const id = String(row?.client_subscription_id || '');
+        const dateStr = String(row?.attendance_date || '').slice(0, 10);
+        if (!id || dateStr.length < 7) return;
+        const ym = dateStr.slice(0, 7); // YYYY-MM
+        if (!history[id]) history[id] = {};
+        history[id][ym] = (history[id][ym] || 0) + 1;
+      });
+
+      setSubscriberAttendanceCountsHistoryByClientSubId(history);
+    } catch (e) {
+      console.error('Erro ao buscar histórico de contagem de atendimentos:', e);
+    }
+  };
+
   // Função para buscar comissões de venda de assinatura (do mês selecionado)
   const fetchSubscriptionSaleCommissions = async (month?: number, year?: number) => {
     try {
@@ -995,6 +1039,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Recarregar dados
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
       await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
+      await fetchSubscriberAttendanceCountsHistory(selectedMonth, selectedYear);
 
     } catch (error: any) {
       console.error('Erro ao adicionar atendimento:', error);
@@ -1025,6 +1070,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Recarregar dados
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
       await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
+      await fetchSubscriberAttendanceCountsHistory(selectedMonth, selectedYear);
 
     } catch (error: any) {
       console.error('Erro ao remover atendimento:', error);
@@ -1148,6 +1194,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       fetchProfessionals();
       fetchSubscriberAttendances(selectedMonth, selectedYear);
       fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
+      fetchSubscriberAttendanceCountsHistory(selectedMonth, selectedYear);
       fetchProfessionalPayments(selectedMonth, selectedYear);
       fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
 
@@ -1179,6 +1226,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (establishmentId) {
       fetchSubscriberAttendances(selectedMonth, selectedYear);
       fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
+      fetchSubscriberAttendanceCountsHistory(selectedMonth, selectedYear);
       fetchProfessionalPayments(selectedMonth, selectedYear);
       fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
     }
@@ -1923,6 +1971,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       await fetchClientSubscriptions();
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
       await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
+      await fetchSubscriberAttendanceCountsHistory(selectedMonth, selectedYear);
       await fetchProfessionalPayments(selectedMonth, selectedYear);
       await fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
       toast.success('Saldo atualizado!');
@@ -1980,6 +2029,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setSelectedYear(year);
     await fetchSubscriberAttendances(month, year);
     await fetchSubscriberAttendanceCounts(month, year);
+    await fetchSubscriberAttendanceCountsHistory(month, year);
     await fetchProfessionalPayments(month, year);
     await fetchSubscriptionSaleCommissions(month, year);
   };
@@ -2009,6 +2059,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   return (
     <div className="space-y-6">
       <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
+        {/* Vídeo (topo da página de assinantes) */}
+        <div className="mb-4 sm:mb-6">
+          <div className="rounded-xl overflow-hidden border border-gray-700 bg-black">
+            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+              <iframe
+                className="absolute inset-0 w-full h-full"
+                src="https://www.youtube.com/embed/NiSALt7Tv9E"
+                title="Vídeo - Meus Assinantes"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
           <h2 className="text-lg sm:text-xl font-semibold">Resumo de Assinaturas</h2>
           
@@ -2598,6 +2665,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
         <h2 className="text-xl font-semibold mb-4">Tipos de Assinatura Criados</h2>
 
+        {/* Vídeo (Tipos de Assinatura Criados) */}
+        <div className="mb-4 sm:mb-6">
+          <div className="rounded-xl overflow-hidden border border-gray-700 bg-black">
+            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+              <iframe
+                className="absolute inset-0 w-full h-full"
+                src="https://www.youtube.com/embed/mJX4iP9zTUU"
+                title="Vídeo - Tipos de Assinatura Criados"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Título */}
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-200">Criar Novo Tipo de Assinatura</h3>
@@ -3109,6 +3193,44 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               : `${concludedCount} concluído(s)`}
                           </span>
                         )}
+
+                        {/* Meses anteriores (ex.: Fev 1) */}
+                        {(() => {
+                          const hist = subscriberAttendanceCountsHistoryByClientSubId[String(cs.id)] || {};
+                          const items: { label: string; count: number }[] = [];
+                          const pad2 = (n: number) => String(n).padStart(2, '0');
+                          const ymKey = (y: number, m0: number) => `${y}-${pad2(m0 + 1)}`;
+
+                          // Mostrar até 3 meses anteriores com contagem > 0
+                          for (let i = 1; i <= 3; i++) {
+                            const d = new Date(selectedYear, selectedMonth - i, 1);
+                            const y = d.getFullYear();
+                            const m0 = d.getMonth();
+                            const key = ymKey(y, m0);
+                            const c = Number(hist[key] || 0);
+                            if (Number.isFinite(c) && c > 0) {
+                              const ab = monthAbbr[m0] || String(m0 + 1);
+                              const suffix = y !== selectedYear ? `/${String(y).slice(-2)}` : '';
+                              items.push({ label: `${ab}${suffix}`, count: c });
+                            }
+                          }
+
+                          if (!items.length) return null;
+                          return (
+                            <div className="flex items-center gap-1">
+                              {items.map((it) => (
+                                <span
+                                  key={`${it.label}-${it.count}`}
+                                  className="bg-black/20 text-white/90 text-[11px] px-2 py-1 rounded-full font-bold border border-white/10"
+                                  title={`Atendimentos em ${it.label}`}
+                                >
+                                  {it.label} {it.count}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
+
                         {isVencido && (
                           <span className="bg-red-600 text-white text-xs px-2 py-1 rounded-full font-medium">
                             VENCIDO

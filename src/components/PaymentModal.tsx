@@ -152,6 +152,14 @@ export const PaymentModal = ({
     }
   }, [isOpen, establishmentId]);
 
+  // ✅ Regra do produto: pagamento de AGENDAMENTO é somente PIX (cartão é só na assinatura).
+  // Trava defensiva caso algum estado antigo tente cair no fluxo de cartão.
+  useEffect(() => {
+    if (selectedMethod === 'credit_card' || selectedMethod === 'debit_card') {
+      setSelectedMethod(null);
+    }
+  }, [selectedMethod]);
+
   // ✅ Se já existe transação pendente no agendamento, reaproveitar pra evitar “pagar duas vezes”
   useEffect(() => {
     if (!isOpen || !appointmentId) return;
@@ -1695,7 +1703,7 @@ export const PaymentModal = ({
             </div>
 
             <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-4">
-              <label className="block text-sm text-gray-300 mb-2">CPF/CNPJ do pagador (obrigatório para PIX e cartão)</label>
+              <label className="block text-sm text-gray-300 mb-2">CPF/CNPJ do pagador (obrigatório para PIX)</label>
               <input
                 value={cpfCliente}
                 onChange={(e) => setCpfCliente(e.target.value)}
@@ -1705,8 +1713,8 @@ export const PaymentModal = ({
               />
               <p className="text-xs text-gray-400 mt-2">
                 {hasMercadoPago 
-                  ? 'O Mercado Pago exige CPF/CNPJ para pagamentos (principalmente PIX e cartão).'
-                  : 'A Pagar.me costuma exigir CPF/CNPJ para pagamentos (principalmente PIX e cartão).'}
+                  ? 'O Mercado Pago exige CPF/CNPJ para pagamentos (PIX).'
+                  : 'A Pagar.me costuma exigir CPF/CNPJ para pagamentos (PIX).'}
               </p>
             </div>
 
@@ -1744,17 +1752,6 @@ export const PaymentModal = ({
                       <div className="text-sm text-gray-400">Aprovação imediata (Pagar.me)</div>
                     </div>
                   </button>
-
-                  <button
-                    onClick={() => setSelectedMethod('credit_card')}
-                    className="w-full p-4 bg-[#2a2b2c] border border-gray-600 rounded-lg hover:border-green-500 transition-colors flex items-center gap-3"
-                  >
-                    <Wallet className="h-6 w-6 text-green-400" />
-                    <div className="flex-1 text-left">
-                      <div className="text-white font-medium">Cartão de Crédito</div>
-                      <div className="text-sm text-gray-400">Tokenização segura (Pagar.me)</div>
-                    </div>
-                  </button>
                 </>
               )}
 
@@ -1770,18 +1767,6 @@ export const PaymentModal = ({
                     <div className="flex-1 text-left">
                       <div className="text-white font-medium">PIX</div>
                       <div className="text-sm text-gray-400">Aprovação imediata (Mercado Pago)</div>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => setSelectedMethod('credit_card')}
-                    disabled={isProcessing || isCheckingPayment}
-                    className="w-full p-4 bg-[#2a2b2c] border border-[#009EE3] rounded-lg hover:border-[#0088C7] transition-colors flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    <CreditCard className="h-6 w-6 text-[#009EE3]" />
-                    <div className="flex-1 text-left">
-                      <div className="text-white font-medium">Cartão de Crédito</div>
-                      <div className="text-sm text-gray-400">Via Mercado Pago</div>
                     </div>
                   </button>
                 </>
