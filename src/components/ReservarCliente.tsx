@@ -105,6 +105,26 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string>('');
 
+  // ✅ Normalização para DEDUPLICAR clientes por WhatsApp (BR)
+  // - Agrupa "55 + DDD + número" e "DDD + número" como o MESMO cliente
+  const normalizeWhatsappKey = (raw: any) => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55')) {
+      const after = digits.slice(2);
+      if (after.length === 10 || after.length === 11) return after;
+    }
+    return digits;
+  };
+
+  const normalizeText = (raw: any) => {
+    return String(raw || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+  };
+
   // Reserva recorrente mensal (mesmo dia da semana/horário, até o fim do mês)
   const [reservarMensal, setReservarMensal] = useState(false);
   const [showReservarMensalModal, setShowReservarMensalModal] = useState(false);
@@ -202,8 +222,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
     try {
       console.log('🔍 Carregando clientes para establishment:', establishmentId);
 
-      // Buscar todos os agendamentos do estabelecimento que não são avulsos
-      // Incluir clientes que têm client_id e client_whatsapp, excluindo apenas os explicitamente avulsos
+      // Buscar todos os agendamentos do estabelecimento
+      // (Não filtrar is_avulso aqui, senão a lista pode ficar vazia mesmo tendo clientes no "Meus Clientes")
       const { data: appointments, error } = await supabase
         .from('appointments')
         .select('client_id, client_name, client_whatsapp, is_avulso')
@@ -217,39 +237,33 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         throw error;
       }
 
-      // Agrupar por client_whatsapp (chave única para identificar cliente)
-      // Filtrar apenas clientes que não são avulsos (is_avulso !== true)
+      // Agrupar por WhatsApp (chave única para identificar cliente)
       const clientsMap = new Map<string, Client>();
 
       if (appointments && appointments.length > 0) {
         appointments.forEach((appointment) => {
-          // Pular agendamentos explicitamente avulsos
-          if (appointment.is_avulso === true) {
-            return;
-          }
-
-          // Usar WhatsApp como chave única para identificar o cliente
-          // Isso evita problemas quando múltiplos clientes manuais usam o mesmo user?.id como fallback
-          const clientWhatsapp = appointment.client_whatsapp?.replace(/\D/g, '') || '';
-          if (!clientWhatsapp) return; // Pular se não tiver WhatsApp
+          const rawWhatsapp = (appointment as any)?.client_whatsapp;
+          const keyWhatsapp = normalizeWhatsappKey(rawWhatsapp);
+          if (!keyWhatsapp) return; // Pular se não tiver WhatsApp
 
           // Usar client_id se existir e for UUID válido, senão usar manual_whatsapp
-          const clientId = appointment.client_id && !appointment.client_id.startsWith('manual_')
-            ? appointment.client_id
-            : `manual_${clientWhatsapp}`;
+          const clientId =
+            (appointment as any)?.client_id && !String((appointment as any)?.client_id || '').startsWith('manual_')
+              ? String((appointment as any)?.client_id)
+              : `manual_${keyWhatsapp}`;
 
-          // Usar WhatsApp como chave do Map para garantir agrupamento correto
-          if (!clientsMap.has(clientWhatsapp)) {
-            clientsMap.set(clientWhatsapp, {
+          // Usar WhatsApp normalizado como chave do Map para garantir dedupe
+          if (!clientsMap.has(keyWhatsapp)) {
+            clientsMap.set(keyWhatsapp, {
               id: clientId, // Manter o ID original para uso no banco
-              name: appointment.client_name || 'Cliente sem nome',
-              whatsapp: appointment.client_whatsapp || '',
+              name: (appointment as any)?.client_name || 'Cliente sem nome',
+              whatsapp: String(rawWhatsapp || '').replace(/\D/g, '') || keyWhatsapp,
               appointmentCount: 0
             });
           }
 
           // Incrementar contagem de agendamentos
-          const client = clientsMap.get(clientWhatsapp)!;
+          const client = clientsMap.get(keyWhatsapp)!;
           client.appointmentCount = (client.appointmentCount || 0) + 1;
         });
       }
@@ -266,8 +280,10 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
       // Adicionar clientes manuais que ainda não estão na lista
       Object.values(manualClients).forEach((manualClient: any) => {
-        const cleanWhatsapp = manualClient.whatsapp?.replace(/\D/g, '') || '';
-        if (!cleanWhatsapp || !manualClient.name || !manualClient.whatsapp) return;
+        const cleanWhatsapp = normalizeWhatsappKey(manualClient?.whatsapp);
+        const nome = String(manualClient?.name || '').trim();
+        const whatsappOriginal = String(manualClient?.whatsapp || '').trim();
+        if (!cleanWhatsapp || !nome || !whatsappOriginal) return;
 
         const clientId = `manual_${cleanWhatsapp}`;
 
@@ -275,10 +291,15 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         if (!clientsMap.has(cleanWhatsapp)) {
           clientsMap.set(cleanWhatsapp, {
             id: clientId, // Manter o ID original para uso no banco
-            name: manualClient.name,
-            whatsapp: manualClient.whatsapp,
+            name: nome,
+            whatsapp: whatsappOriginal,
             appointmentCount: 0 // Clientes manuais começam com 0 agendamentos
           });
+        } else {
+          // ✅ Prioridade TOTAL do nome salvo manualmente
+          const existing = clientsMap.get(cleanWhatsapp)!;
+          existing.name = nome;
+          existing.whatsapp = whatsappOriginal;
         }
       });
 
@@ -295,16 +316,16 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         } else if (Array.isArray(manualDb) && manualDb.length > 0) {
           console.log('📋 Clientes manuais (banco) encontrados:', manualDb.length);
           manualDb.forEach((mc: any) => {
-            const cleanWhatsapp = String(mc?.whatsapp || '').replace(/\D/g, '');
+            const cleanWhatsapp = normalizeWhatsappKey(mc?.whatsapp);
             const nome = String(mc?.name || '').trim();
             const whatsappOriginal = String(mc?.whatsapp || '').trim();
             if (!cleanWhatsapp || !nome || !whatsappOriginal) return;
 
-            // Se já existe pelo WhatsApp, apenas garante nome/whatsapp (não pisa contagem de agendamentos)
+            // ✅ Se já existe pelo WhatsApp, SEMPRE priorizar o nome/whatsapp salvo manualmente
             if (clientsMap.has(cleanWhatsapp)) {
               const existing = clientsMap.get(cleanWhatsapp)!;
-              if (!existing.name || existing.name === 'Cliente sem nome') existing.name = nome;
-              if (!existing.whatsapp) existing.whatsapp = whatsappOriginal;
+              existing.name = nome;
+              existing.whatsapp = whatsappOriginal;
               return;
             }
 
@@ -881,10 +902,15 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   };
 
   // Filtrar clientes por busca
-  const filteredClients = clients.filter(client =>
-    client.name.toLowerCase().includes(clientSearchQuery.toLowerCase()) ||
-    client.whatsapp.includes(clientSearchQuery)
-  );
+  const filteredClients = clients.filter((client) => {
+    const q = String(clientSearchQuery || '').trim();
+    if (!q) return true;
+    const qName = normalizeText(q);
+    const qDigits = q.replace(/\D/g, '');
+    const name = normalizeText(client?.name);
+    const wpp = String(client?.whatsapp || '').replace(/\D/g, '');
+    return (qName && name.includes(qName)) || (qDigits && wpp.includes(qDigits));
+  });
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);

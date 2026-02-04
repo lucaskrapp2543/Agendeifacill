@@ -675,6 +675,12 @@ export function AppointmentForm({
   const [subscriberBookingError, setSubscriberBookingError] = useState<string | null>(null);
   const [isValidatingBooking, setIsValidatingBooking] = useState(false);
   const [showSubscriberNotification, setShowSubscriberNotification] = useState(false);
+  const [showNormalSubscriberConfirm, setShowNormalSubscriberConfirm] = useState(false);
+
+  // Se mudou o assinante detectado ou sumiu a notificação, resetar confirmação
+  useEffect(() => {
+    setShowNormalSubscriberConfirm(false);
+  }, [detectedSubscriber, showSubscriberNotification]);
 
   // Log quando estados de assinante mudam
   useEffect(() => {
@@ -1883,6 +1889,7 @@ export function AppointmentForm({
                       <button
                         type="button"
                         onClick={async () => {
+                          setShowNormalSubscriberConfirm(false);
                           // Converter para agendamento de assinante
                           setShowSubscriberNotification(false);
                           console.log('🔄 Convertendo para agendamento de assinante:', detectedSubscriber);
@@ -1909,30 +1916,81 @@ export function AppointmentForm({
                             onConvertToSubscriber(detectedSubscriber);
                           }
                         }}
-                        className="mt-2 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                        className="mt-2 px-3 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700 transition-colors"
                       >
-                        Usar como Assinante
+                        Agendar como Assinante
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // Marcar como agendamento normal (não assinante)
-                        if (onConvertToSubscriber) {
-                          onConvertToSubscriber(false);
-                        }
-                        setShowSubscriberNotification(false);
-                        setDetectedSubscriber(null); // ✅ Limpar dados do assinante detectado
-                        setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
-                        setMonthlyLimitError(null); // ✅ Limpar erro de limite mensal
-                        setMonthlyLimitData(null); // ✅ Limpar dados de limite mensal
-                        setMonthlyLimitValidationDisabled(true); // ✅ Desabilitar validação de limite mensal
-                        console.log('🚫 DEBUG - Detecção de assinante DESABILITADA (Continuar Normal)');
-                      }}
-                      className="mt-2 ml-2 px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
-                    >
-                      Continuar Normal
-                    </button>
+                    {showNormalSubscriberConfirm ? (
+                      <div className="mt-3 p-3 rounded-xl border border-white/10 bg-white/5">
+                        <p className="text-xs text-white/80">
+                          Tem certeza que não vai usar a assinatura? Se continuar normal, será necessário pagar pelo serviço escolhido.
+                        </p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Marcar como agendamento normal (não assinante)
+                              if (onConvertToSubscriber) {
+                                onConvertToSubscriber(false);
+                              }
+                              setShowSubscriberNotification(false);
+                              setDetectedSubscriber(null); // ✅ Limpar dados do assinante detectado
+                              setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
+                              setMonthlyLimitError(null); // ✅ Limpar erro de limite mensal
+                              setMonthlyLimitData(null); // ✅ Limpar dados de limite mensal
+                              setMonthlyLimitValidationDisabled(true); // ✅ Desabilitar validação de limite mensal
+                              setShowNormalSubscriberConfirm(false);
+                              console.log('🚫 DEBUG - Detecção de assinante DESABILITADA (Continuar Normal confirmado)');
+                            }}
+                            className="px-3 py-1 rounded text-xs border border-gray-500/40 text-gray-200 hover:bg-white/10 transition-colors"
+                          >
+                            Continuar normal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              // mesma ação do botão principal (assinante)
+                              setShowNormalSubscriberConfirm(false);
+                              setShowSubscriberNotification(false);
+                              console.log('🔄 Convertendo para agendamento de assinante (via confirmação):', detectedSubscriber);
+
+                              // VALIDAR LIMITE MENSAL antes de converter
+                              if (clientWhatsapp && establishment?.id) {
+                                console.log('🔍 Verificando limite mensal antes de converter...');
+                                const limitCheck = await checkMonthlyLimit(clientWhatsapp, establishment.id, selectedDate);
+
+                                if (!limitCheck.canBook && limitCheck.errorMessage) {
+                                  console.log('🚫 Limite mensal excedido, não convertendo:', limitCheck.errorMessage);
+                                  setMonthlyLimitError(limitCheck.errorMessage);
+                                  setMonthlyLimitData({
+                                    currentUsage: limitCheck.currentUsage,
+                                    monthlyLimit: limitCheck.monthlyLimit,
+                                    subscriptionName: limitCheck.subscriptionName
+                                  });
+                                  return; // Não converte se limite excedido
+                                }
+                              }
+
+                              if (onConvertToSubscriber) {
+                                onConvertToSubscriber(detectedSubscriber);
+                              }
+                            }}
+                            className="px-3 py-1 rounded text-xs bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                          >
+                            Agendar como assinante
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowNormalSubscriberConfirm(true)}
+                        className="mt-2 ml-2 px-2 py-1 text-[11px] text-white/55 hover:text-white/80 underline decoration-white/20 hover:decoration-white/40 transition-colors"
+                      >
+                        Continuar sem assinatura
+                      </button>
+                    )}
                   </>
                 ) : (
                   <div className="mt-2 flex flex-col gap-2">

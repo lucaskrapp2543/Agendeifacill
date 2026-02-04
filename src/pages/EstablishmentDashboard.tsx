@@ -9877,34 +9877,54 @@ Estamos te aguardando! 😎✂️`;
       // Mapeia e agrupa os clientes a partir dos dados de agendamento e perfis
       const clientsMap = new Map<
         string,
-        { id: string; name: string; count: number; completed: number; spent: number; isSubscriber: boolean; birthday: string | null }
+        { id: string; name: string; count: number; completed: number; spent: number; isSubscriber: boolean; birthday: string | null; whatsapp: string }
       >();
 
+      // ✅ Normalização para DEDUPLICAR clientes por WhatsApp
+      // Regra: para BR, tratar "55 + DDD + número" e "DDD + número" como o MESMO cliente.
+      // (Evita duplicar cadastros quando um registro vem com 55 e outro sem 55.)
       const normalizeWhatsappKey = (raw: any) => {
         const digits = String(raw || '').replace(/\D/g, '');
         if (!digits) return '';
-        // Corrigir caso "55" duplicado antes de outro DDI (ex: 5554...)
+
         if (digits.startsWith('55')) {
           const after = digits.slice(2);
-          const known = [
-            { code: '351', minLength: 12 },
-            { code: '244', minLength: 12 },
-            { code: '54', minLength: 12 },
-            { code: '56', minLength: 11 },
-            { code: '55', minLength: 12 },
-            { code: '34', minLength: 11 },
-            { code: '1', minLength: 11 }
+          // Caso raro: "55" duplicado antes de outro DDI (ex: 55 + 351...)
+          const otherDDI = [
+            { code: '351', minLength: 11 }, // PT
+            { code: '244', minLength: 11 }, // AO
+            { code: '54', minLength: 11 },  // AR
+            { code: '56', minLength: 10 },  // CL
+            { code: '34', minLength: 10 },  // ES
+            { code: '1', minLength: 10 },   // US/CA
           ];
-          const hasOther = known.some(({ code, minLength }) => after.startsWith(code) && after.length >= minLength);
+          const hasOther = otherDDI.some(({ code, minLength }) => after.startsWith(code) && after.length >= minLength);
           if (hasOther) return after;
+
+          // BR padrão: remover o 55 para usar como CHAVE de comparação (10-11 dígitos)
+          if (after.length === 10 || after.length === 11) return after;
         }
+
         return digits;
       };
 
+      const possibleWhatsappLookupKeys = (raw: any): string[] => {
+        const digits = String(raw || '').replace(/\D/g, '');
+        if (!digits) return [];
+        if (digits.startsWith('55')) {
+          const after = digits.slice(2);
+          return [digits, after].filter(Boolean);
+        }
+        // Se for BR local (10/11), também considerar com 55
+        if (digits.length === 10 || digits.length === 11) return [digits, `55${digits}`];
+        return [digits];
+      };
+
       appointmentsData.forEach(appointment => {
-        const whatsapp = normalizeWhatsappKey((appointment as any).client_whatsapp);
-        if (whatsapp) {
-          const currentClient = clientsMap.get(whatsapp);
+        const rawWhatsapp = (appointment as any).client_whatsapp;
+        const key = normalizeWhatsappKey(rawWhatsapp);
+        if (key) {
+          const currentClient = clientsMap.get(key);
           const profileInfo = profilesMapForClients.get(appointment.client_id); // Buscar pelo client_id (que corresponde ao user_id)
           const isSubscriber = profileInfo?.is_subscriber || false;
           const birthday = profileInfo?.birthday || null;
@@ -9919,33 +9939,38 @@ Estamos te aguardando! 😎✂️`;
           const safeValue = Number.isFinite(baseValue) ? baseValue : 0;
 
           if (currentClient) {
-            clientsMap.set(whatsapp, {
+            // manter whatsapp "bonito" (preferir o que já está salvo, senão o que veio agora)
+            const nextWhatsapp = currentClient.whatsapp || String(rawWhatsapp || '').replace(/\D/g, '') || key;
+            clientsMap.set(key, {
               id: profileId, // Usar o ID real do perfil
               name: clientName,
               count: currentClient.count + 1,
               completed: currentClient.completed + (isDone ? 1 : 0),
               spent: currentClient.spent + (isDone ? safeValue : 0),
               isSubscriber: currentClient.isSubscriber || isSubscriber,
-              birthday: birthday || currentClient.birthday // Manter o birthday se já existe
+              birthday: birthday || currentClient.birthday, // Manter o birthday se já existe
+              whatsapp: nextWhatsapp,
             });
           } else {
-            clientsMap.set(whatsapp, {
+            const displayWhatsapp = String(rawWhatsapp || '').replace(/\D/g, '') || key;
+            clientsMap.set(key, {
               id: profileId, // Usar o ID real do perfil
               name: clientName,
               count: 1,
               completed: isDone ? 1 : 0,
               spent: isDone ? safeValue : 0,
               isSubscriber: isSubscriber,
-              birthday: birthday
+              birthday: birthday,
+              whatsapp: displayWhatsapp,
             });
           }
         }
       });
 
       // Converte o mapa de clientes para um array e atualiza o estado
-      const uniqueClients: Client[] = Array.from(clientsMap, ([whatsapp, { id, name, count, completed, spent, isSubscriber, birthday }]) => ({
+      const uniqueClients: Client[] = Array.from(clientsMap, ([key, { id, name, count, completed, spent, isSubscriber, birthday, whatsapp }]) => ({
         id, // Adicionar o ID
-        whatsapp,
+        whatsapp: whatsapp || key,
         name,
         appointmentCount: count,
         completedCount: completed,
@@ -9971,7 +9996,7 @@ Estamos te aguardando! 😎✂️`;
           // Cliente manual que ainda não fez agendamentos
           uniqueClients.push({
             id: `manual_${cleanManualWhatsapp}`, // ID único para cliente manual
-            whatsapp: cleanManualWhatsapp,
+            whatsapp: String(manualClient.whatsapp || '').replace(/\D/g, '') || cleanManualWhatsapp,
             name: manualClient.name,
             appointmentCount: 0,
             isSubscriber: false,
@@ -9981,6 +10006,8 @@ Estamos te aguardando! 😎✂️`;
         } else {
           // Cliente manual que já fez agendamentos - usar nome mais atualizado
           existingClient.name = manualClient.name;
+          // Priorizar whatsapp salvo no manual_clients (evita alternar formatos)
+          existingClient.whatsapp = String(manualClient.whatsapp || '').replace(/\D/g, '') || existingClient.whatsapp;
           if (manualClient.birthday) {
             existingClient.birthday = manualClient.birthday;
           }
@@ -9997,7 +10024,8 @@ Estamos te aguardando! 😎✂️`;
       console.log('🎂 Aniversários mesclados (Supabase + localStorage):', allBirthdays);
 
       uniqueClients.forEach(client => {
-        const savedBirthday = allBirthdays[client.whatsapp];
+        const keys = possibleWhatsappLookupKeys(client.whatsapp);
+        const savedBirthday = keys.map((k) => allBirthdays[k]).find(Boolean);
         if (savedBirthday) {
           client.birthday = savedBirthday.birthday;
           console.log(`✅ Aniversário aplicado ao cliente ${client.name}:`, savedBirthday.birthday);
@@ -10013,7 +10041,8 @@ Estamos te aguardando! 😎✂️`;
       console.log('⚠️ Alertas mesclados (Supabase + localStorage):', allAlerts);
 
       uniqueClients.forEach(client => {
-        const savedAlert = allAlerts[client.whatsapp];
+        const keys = possibleWhatsappLookupKeys(client.whatsapp);
+        const savedAlert = keys.map((k) => allAlerts[k]).find(Boolean);
         if (savedAlert) {
           client.alert = savedAlert.alert;
           console.log(`⚠️ Alerta aplicado ao cliente ${client.name}:`, savedAlert.alert);
@@ -10022,7 +10051,15 @@ Estamos te aguardando! 😎✂️`;
 
       // ✅ Buscar faltas no banco (interno) e mesclar por WhatsApp
       try {
-        const whList = uniqueClients.map((c) => String(c.whatsapp || '').replace(/\D/g, '')).filter(Boolean);
+        // Para buscar faltas, usar chaves possíveis (com e sem 55) e deduplicar
+        const whList = Array.from(
+          new Set(
+            uniqueClients
+              .flatMap((c) => possibleWhatsappLookupKeys(c.whatsapp))
+              .map((x) => String(x || '').replace(/\D/g, ''))
+              .filter(Boolean)
+          )
+        );
         if (whList.length > 0) {
           const { data: faltasData, error: faltasErr } = await supabase
             .from('client_no_shows')
@@ -10036,8 +10073,10 @@ Estamos te aguardando! 😎✂️`;
               map.set(String(r.client_whatsapp || '').replace(/\D/g, ''), Number(r.misses || 0));
             });
             uniqueClients.forEach((c) => {
-              const key = String(c.whatsapp || '').replace(/\D/g, '');
-              c.faltas = map.get(key) ?? 0;
+              // tentar achar por qualquer key (com/sem 55)
+              const keys = possibleWhatsappLookupKeys(c.whatsapp).map((k) => String(k || '').replace(/\D/g, ''));
+              const found = keys.map((k) => map.get(k)).find((v) => v !== undefined);
+              c.faltas = found ?? 0;
             });
           } else {
             const msg = String((faltasErr as any)?.message || '');
