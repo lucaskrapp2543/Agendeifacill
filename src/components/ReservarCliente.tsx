@@ -1236,23 +1236,24 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         return true;
       });
 
+      // Barbeiro cria a reserva: client_id tem que ser um id que existe em auth.users (NOT NULL + FK).
+      // Sempre usamos o user do dono logado; cliente identificado por client_name e client_whatsapp.
       const payloads = datasSemConflito.map((dateStr) => ({
-        client_id: clientId,
+        client_id: user?.id,
         establishment_id: establishmentId,
-        professional: selectedProfessional.id, // Usar ID do profissional
+        professional: selectedProfessional.id,
         service: serviceNames,
         client_name: clientName,
         client_whatsapp: clientWhatsapp,
         appointment_date: dateStr,
         appointment_time: selectedTime,
-        status: 'confirmed', // Reservas internas sempre confirmadas (sem pagamento antecipado)
+        status: 'confirmed',
         price: totalPrice,
         total_price: totalPrice,
         duration: totalDuration,
-        // ✅ Reserva interna: deixar um padrão (para não ficar "Forma de Pagamento")
         payment_method: isSubscriber ? 'assinante' : 'dinheiro',
         is_avulso: isAvulso,
-        is_subscriber: isSubscriber // Salvar se é assinante
+        is_subscriber: isSubscriber
       }));
 
       if (payloads.length === 0) {
@@ -2013,13 +2014,12 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                               return Array.from(set).sort();
                             });
                           }}
-                          className={`h-10 rounded-lg border text-sm font-semibold transition-colors ${
-                            isPast
-                              ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
-                              : isSelected
-                                ? 'border-black bg-black text-white'
-                                : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
-                          }`}
+                          className={`h-10 rounded-lg border text-sm font-semibold transition-colors ${isPast
+                            ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
+                            : isSelected
+                              ? 'border-black bg-black text-white'
+                              : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
+                            }`}
                           title={`${getWeekdayLabelPtBr(dt.getDay())} ${dt.toLocaleDateString('pt-BR')}`}
                         >
                           {dt.getDate()}

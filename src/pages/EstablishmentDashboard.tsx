@@ -12789,9 +12789,9 @@ Estamos te aguardando! 😎✂️`;
     const professional = professionals.find(p => p.name === professionalName);
     if (!professional || professional.percentage !== 100) return 0;
 
-    // Filtrar apenas agendamentos deste profissional (tanto por nome quanto por ID)
+    // Filtrar apenas agendamentos deste profissional (matching seguro, sem dupla contagem)
     const professionalAppointments = appointments.filter(apt =>
-      apt.professional === professionalName || apt.professional === professional.id
+      appointmentBelongsToProfessional(apt, professional)
     );
 
     // Calcular o líquido total (bruto do SERVIÇO + SERVIÇOS EXTRA - taxas de cartão)
@@ -12844,9 +12844,9 @@ Estamos te aguardando! 😎✂️`;
       return calculateOwnerNetValue(professionalName, appointments);
     }
 
-    // Filtrar apenas agendamentos deste profissional (tanto por nome quanto por ID)
+    // Filtrar apenas agendamentos deste profissional (matching seguro, sem dupla contagem)
     const professionalAppointments = appointments.filter(apt =>
-      apt.professional === professionalName || apt.professional === professional.id
+      appointmentBelongsToProfessional(apt, professional)
     );
 
     console.log(`🔍 Calculando líquido para ${professionalName}:`, {
@@ -12991,6 +12991,15 @@ Estamos te aguardando! 😎✂️`;
 
     // Valor bruto é sempre o valor original, independente do método de pagamento
     return baseValue;
+  };
+
+  // Evita que o mesmo agendamento conte para dois profissionais (id vs nome).
+  // Se professional no appointment for UUID, só bate com professional.id; senão só com professional.name.
+  const appointmentBelongsToProfessional = (apt: Appointment, professional: { id: string; name: string }): boolean => {
+    const p = String(apt.professional ?? '').trim();
+    if (!p) return false;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(p);
+    return isUuid ? p === professional.id : p === professional.name;
   };
 
   // Função para calcular valor total que o CLIENTE PAGA (incluindo produtos V2)
@@ -19787,11 +19796,10 @@ Estamos te aguardando! 😎✂️`;
 
                     <div className="space-y-5">
                       {professionals.map(professional => {
-                        // IMPORTANTE: `appointments.professional` historicamente pode ser salvo como ID OU como nome.
-                        // Para evitar divergências no financeiro, aceitar ambos (id ou nome).
+                        // Matching seguro: cada agendamento conta só para um profissional (evita colisão id/nome).
                         const professionalAppointments = monthlyAppointments.filter(
                           (apt) =>
-                            (apt.professional === professional.id || apt.professional === professional.name) &&
+                            appointmentBelongsToProfessional(apt, professional) &&
                             apt.status === 'completed'
                         );
 
@@ -19946,7 +19954,7 @@ Estamos te aguardando! 😎✂️`;
 
                                   const base = monthlyAppointments
                                     .filter((apt) =>
-                                      (apt.professional === professional.id || apt.professional === professional.name) &&
+                                      appointmentBelongsToProfessional(apt, professional) &&
                                       apt.status === 'completed'
                                     )
                                     .filter((apt) => {

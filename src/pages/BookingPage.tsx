@@ -1,4 +1,3 @@
-import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { format } from 'date-fns';
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Download, Home, LogOut, ThumbsUp, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -8,6 +7,7 @@ import { AppointmentForm } from '../components/AppointmentForm';
 import { PaymentModal } from '../components/PaymentModal';
 import { QuickBookingModal } from '../components/QuickBookingModal';
 import ReadMore from '../components/ReadMore';
+import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { useAuth } from '../context/AuthContext';
 import { createGuestClientAndLogin, getSubscriptions, supabase, updateClientLastAccess } from '../lib/supabase';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
@@ -251,7 +251,7 @@ export default function BookingPage() {
       navigator.serviceWorker.getRegistrations().then(registrations => {
         registrations.forEach(registration => {
           console.log('🗑️ Removendo Service Worker no booking:', registration.scope);
-          registration.unregister().catch(() => {});
+          registration.unregister().catch(() => { });
         });
       });
     }
@@ -262,7 +262,7 @@ export default function BookingPage() {
         cacheNames.forEach(cacheName => {
           if (cacheName.includes('agendafacil') || cacheName.includes('booking')) {
             console.log('🗑️ Limpando cache:', cacheName);
-            caches.delete(cacheName).catch(() => {});
+            caches.delete(cacheName).catch(() => { });
           }
         });
       });
@@ -467,7 +467,7 @@ export default function BookingPage() {
         data = res2.data;
         error = res2.error;
       }
-      
+
       // ✅ Adicionar timestamp para evitar cache do navegador
       const fetchTimestamp = Date.now();
       console.log('⏰ Timestamp da busca:', fetchTimestamp);
@@ -791,7 +791,7 @@ export default function BookingPage() {
     const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
     const isPagarmeSubscriptionPixEnabled =
       Boolean((establishment as any)?.use_pagarme_subscription_pix === true) && Boolean(pagarmeRecipientId);
-    
+
     // Verificar Mercado Pago: SEMPRE priorizar valor do banco de dados
     // ✅ Usar try-catch para evitar erro se coluna não existir ainda
     let isMercadoPagoSubscriptionPixEnabled = false;
@@ -951,18 +951,18 @@ export default function BookingPage() {
       const mercadopagoAccessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
       const isSubscriber = appointmentData?.is_subscriber === true;
       const valorAgendamento = Number(appointmentData?.price || 0);
-      
+
       // Verificar se tem Pagar.me ou Mercado Pago configurado
       const hasPagarMe = !!pagarmeRecipientId;
       const hasMercadoPago = !!mercadopagoAccessToken;
-      
+
       // ✅ CORRIGIDO: Cada gateway funciona INDEPENDENTE do outro
       // Se Mercado Pago está configurado para exigir → usar Mercado Pago
       // Se Pagar.me está configurado para exigir → usar Pagar.me
       // Prioridade: Mercado Pago se ambos estiverem marcados
       const usarMercadoPago = hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
       const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
-      
+
       // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
       // Se algum gateway está configurado para exigir pagamento, funciona independente
       const pagamentoAdiantadoAtivo = (usarPagarMe || usarMercadoPago) && !isSubscriber && valorAgendamento > 0;
@@ -1716,7 +1716,7 @@ export default function BookingPage() {
 
       const mensagem = encodeURIComponent(
         'Opa, fui agendar no Agendei Fácil e não consegui. O que houve?\n\n' +
-          'Preciso agendar e não abriu para mim. Diz: "Página desativada temporariamente".'
+        'Preciso agendar e não abriu para mim. Diz: "Página desativada temporariamente".'
       );
 
       window.open(`https://wa.me/${whatsappE164}?text=${mensagem}`, '_blank', 'noopener,noreferrer');
@@ -1808,14 +1808,14 @@ export default function BookingPage() {
     close2: null
   } : null;
 
-    return (
-     <div
-       className="app-background relative overflow-x-hidden text-white"
-       style={{
-         background:
-           'radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.42) 100%), radial-gradient(circle at top center, #262626 0%, #161616 35%, #0B0B0B 70%), #0B0B0B'
-       }}
-     >
+  return (
+    <div
+      className="app-background relative overflow-x-hidden text-white"
+      style={{
+        background:
+          'radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.42) 100%), radial-gradient(circle at top center, #262626 0%, #161616 35%, #0B0B0B 70%), #0B0B0B'
+      }}
+    >
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex flex-col space-y-6">
           {/* Cabeçalho */}
@@ -2062,17 +2062,16 @@ export default function BookingPage() {
                           <button
                             type="button"
                             onClick={() => {
-              if (filaEsperaFechada) return;
-              setShowWaitlistModal(true);
-              setShowJoinWaitlistForm(false);
+                              if (filaEsperaFechada) return;
+                              setShowWaitlistModal(true);
+                              setShowJoinWaitlistForm(false);
                             }}
-            className={`w-[230px] sm:w-[260px] font-extrabold py-2.5 px-4 text-sm uppercase tracking-[0.18em] rounded-2xl transition-all duration-300 border border-white/15 active:scale-[0.99] ${
-              filaEsperaFechada
-                ? 'bg-white/5 text-white/50 cursor-not-allowed'
-                : 'bg-white/5 text-white/90 hover:bg-white/10'
-            }`}
+                            className={`w-[230px] sm:w-[260px] font-extrabold py-2.5 px-4 text-sm uppercase tracking-[0.18em] rounded-2xl transition-all duration-300 border border-white/15 active:scale-[0.99] ${filaEsperaFechada
+                              ? 'bg-white/5 text-white/50 cursor-not-allowed'
+                              : 'bg-white/5 text-white/90 hover:bg-white/10'
+                              }`}
                           >
-            {filaEsperaFechada ? 'FILA FECHADA' : 'FILA DE ESPERA'}
+                            {filaEsperaFechada ? 'FILA FECHADA' : 'FILA DE ESPERA'}
                           </button>
                         </div>
                       )}
@@ -2210,35 +2209,35 @@ export default function BookingPage() {
 
                 return (
                   <div className="flex items-center justify-center gap-6 relative my-10">
-                {/* Linha esquerda - vai da borda até antes do Instagram com distância */}
+                    {/* Linha esquerda - vai da borda até antes do Instagram com distância */}
                     <div
                       className="absolute left-0 top-1/2 transform -translate-y-1/2 h-px bg-white/10"
                       style={{ width: `calc(50% - ${lineOffsetPx}px)` }}
                     ></div>
 
-                {/* Linha direita - vai depois do WhatsApp até a borda com distância */}
+                    {/* Linha direita - vai depois do WhatsApp até a borda com distância */}
                     <div
                       className="absolute right-0 top-1/2 transform -translate-y-1/2 h-px bg-white/10"
                       style={{ width: `calc(50% - ${lineOffsetPx}px)` }}
                     ></div>
-                {/* Instagram */}
-                <a
-                  href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`group transition-all duration-200 ${establishment?.social_media_link
-                    ? 'cursor-pointer'
-                    : 'opacity-50 cursor-not-allowed'
-                    }`}
-                >
-                  <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
-                    <img
-                      src="/INST.png"
-                      alt="Instagram"
-                      className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
-                    />
-                  </div>
-                </a>
+                    {/* Instagram */}
+                    <a
+                      href={establishment?.social_media_link && !establishment.social_media_link.startsWith('http') ? `https://${establishment.social_media_link}` : establishment.social_media_link || '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`group transition-all duration-200 ${establishment?.social_media_link
+                        ? 'cursor-pointer'
+                        : 'opacity-50 cursor-not-allowed'
+                        }`}
+                    >
+                      <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
+                        <img
+                          src="/INST.png"
+                          alt="Instagram"
+                          className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                        />
+                      </div>
+                    </a>
 
                     {/* PIX (só aparece se tiver chave válida; "naotenhopix" desativa) */}
                     {hasPixKey && (
@@ -2292,51 +2291,51 @@ export default function BookingPage() {
                       </button>
                     )}
 
-                {/* WhatsApp */}
-                <a
-                  href={establishment?.whatsapp ? (() => {
-                    let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
+                    {/* WhatsApp */}
+                    <a
+                      href={establishment?.whatsapp ? (() => {
+                        let phoneNumber = establishment.whatsapp.replace(/\D/g, '');
 
-                    // Lista de códigos de países com validação de tamanho mínimo
-                    const countryCodes = [
-                      { code: '351', minLength: 12 },
-                      { code: '244', minLength: 12 },
-                      { code: '54', minLength: 12 },
-                      { code: '56', minLength: 11 },
-                      { code: '55', minLength: 12 },
-                      { code: '34', minLength: 11 },
-                      { code: '1', minLength: 11 }
-                    ];
+                        // Lista de códigos de países com validação de tamanho mínimo
+                        const countryCodes = [
+                          { code: '351', minLength: 12 },
+                          { code: '244', minLength: 12 },
+                          { code: '54', minLength: 12 },
+                          { code: '56', minLength: 11 },
+                          { code: '55', minLength: 12 },
+                          { code: '34', minLength: 11 },
+                          { code: '1', minLength: 11 }
+                        ];
 
-                    // Verificar se o número já começa com algum código de país E tem tamanho válido
-                    const hasCountryCode = countryCodes.some(
-                      ({ code, minLength }) => phoneNumber.startsWith(code) && phoneNumber.length >= minLength
-                    );
+                        // Verificar se o número já começa com algum código de país E tem tamanho válido
+                        const hasCountryCode = countryCodes.some(
+                          ({ code, minLength }) => phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                        );
 
-                    // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
-                    if (!hasCountryCode) {
-                      if (phoneNumber.length >= 10 && phoneNumber.length <= 11) {
-                        phoneNumber = '55' + phoneNumber;
-                      }
-                    }
+                        // Se não tiver código de país e for número brasileiro (10 ou 11 dígitos), adicionar 55
+                        if (!hasCountryCode) {
+                          if (phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                            phoneNumber = '55' + phoneNumber;
+                          }
+                        }
 
-                    return `https://wa.me/${phoneNumber}`;
-                  })() : '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`group transition-all duration-200 ${establishment?.whatsapp
-                    ? 'cursor-pointer'
-                    : 'opacity-50 cursor-not-allowed'
-                    }`}
-                >
-                  <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
-                    <img
-                      src="/wppicon.png"
-                      alt="WhatsApp"
-                      className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
-                    />
-                  </div>
-                </a>
+                        return `https://wa.me/${phoneNumber}`;
+                      })() : '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`group transition-all duration-200 ${establishment?.whatsapp
+                        ? 'cursor-pointer'
+                        : 'opacity-50 cursor-not-allowed'
+                        }`}
+                    >
+                      <div className="booking-social-icon transition-transform duration-200 group-hover:scale-[1.03]">
+                        <img
+                          src="/wppicon.png"
+                          alt="WhatsApp"
+                          className="absolute inset-0 m-auto h-11 w-11 drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                        />
+                      </div>
+                    </a>
                   </div>
                 );
               })()}
@@ -2905,34 +2904,34 @@ export default function BookingPage() {
                   // Verificar Pagar.me
                   const hasPagarMe = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
                   const exigirPagarMe = (establishment as any)?.exigir_pagamento_antecipado === true;
-                  
+
                   // Verificar Mercado Pago
                   const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
                   const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
-                  
+
                   // ✅ CORRIGIDO: Cada gateway funciona INDEPENDENTE do outro
                   // Se Mercado Pago está configurado para exigir → ativar
                   // Se Pagar.me está configurado para exigir → ativar
                   const usarMercadoPago = hasMercadoPago && exigirMercadoPago;
                   const usarPagarMe = hasPagarMe && exigirPagarMe;
-                  
+
                   // Se QUALQUER um estiver configurado para exigir pagamento, ativar
                   const algumGatewayExigePagamento = usarMercadoPago || usarPagarMe;
-                  
+
                   if (!algumGatewayExigePagamento) {
                     return false; // Nenhum gateway exige pagamento
                   }
-                  
+
                   // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
                   // Cada gateway funciona independente - se está configurado para exigir, funciona
                   // Verificar se é opcional (depende de qual gateway está sendo usado)
                   const pagamentoAdiantadoOpcional = usarMercadoPago
                     ? (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true
                     : (establishment as any)?.pagamento_adiantado_opcional === true;
-                  
+
                   // Se algum gateway exige E não é opcional → precisa pagamento
                   const precisaPagamento = algumGatewayExigePagamento && !pagamentoAdiantadoOpcional;
-                  
+
                   return precisaPagamento;
                 })()}
                 onConvertToSubscriber={handleConvertToSubscriber}
@@ -3108,11 +3107,10 @@ export default function BookingPage() {
                           key={p.id}
                           type="button"
                           onClick={() => setWaitlistQueueProfessionalId(p.id)}
-                          className={`px-3 py-2 rounded-lg text-xs font-extrabold border transition-colors ${
-                            active
-                              ? 'bg-white text-black border-white'
-                              : 'bg-white/5 text-white/90 border-white/10 hover:bg-white/10'
-                          }`}
+                          className={`px-3 py-2 rounded-lg text-xs font-extrabold border transition-colors ${active
+                            ? 'bg-white text-black border-white'
+                            : 'bg-white/5 text-white/90 border-white/10 hover:bg-white/10'
+                            }`}
                         >
                           {p.name} <span className={active ? 'text-black/70' : 'text-white/60'}>({count})</span>
                         </button>
@@ -3142,48 +3140,48 @@ export default function BookingPage() {
                           : 'border-white/10 bg-black/20';
 
                       return (
-                      <div
-                        key={e.id}
-                        className={`rounded-xl border ${boxClass} p-3 flex items-start justify-between gap-2`}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-sm font-extrabold text-white truncate">
-                            {isAtual ? `${e.client_name} — em atendimento` : isProximo ? `Próximo: ${e.client_name}` : e.client_name}
-                          </div>
-                          <div className="text-[11px] text-white/60 space-y-0.5">
-                            <div>
-                              Serviço: <span className="font-semibold text-white/80">{e.service_name}</span>
+                        <div
+                          key={e.id}
+                          className={`rounded-xl border ${boxClass} p-3 flex items-start justify-between gap-2`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-extrabold text-white truncate">
+                              {isAtual ? `${e.client_name} — em atendimento` : isProximo ? `Próximo: ${e.client_name}` : e.client_name}
                             </div>
-                            <div className="flex flex-wrap gap-x-3 gap-y-1">
-                              {Number.isFinite(Number(e.service_price)) && (
-                                <span>
-                                  Valor: <span className="font-semibold text-white/85">{fmtBRL(Number(e.service_price))}</span>
-                                </span>
-                              )}
-                              {Number.isFinite(Number(e.service_duration_minutes)) && Number(e.service_duration_minutes) > 0 && (
-                                <span>
-                                  Tempo: <span className="font-semibold text-white/85">{Number(e.service_duration_minutes)}min</span>
-                                </span>
-                              )}
-                              {idx === 0 && e.started_at && (
-                                <span>
-                                  Início: <span className="font-semibold text-white/85">{String(new Date(e.started_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))}</span>
-                                </span>
-                              )}
-                              {(() => {
-                                const min = calcularMinutosRestantes(waitlistEntries, idx);
-                                if (min === null) return null;
-                                return (
+                            <div className="text-[11px] text-white/60 space-y-0.5">
+                              <div>
+                                Serviço: <span className="font-semibold text-white/80">{e.service_name}</span>
+                              </div>
+                              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                {Number.isFinite(Number(e.service_price)) && (
                                   <span>
-                                    {idx === 0 ? 'Falta:' : 'Estimativa:'}{' '}
-                                    <span className="font-semibold text-white/85">{min}min</span>
+                                    Valor: <span className="font-semibold text-white/85">{fmtBRL(Number(e.service_price))}</span>
                                   </span>
-                                );
-                              })()}
+                                )}
+                                {Number.isFinite(Number(e.service_duration_minutes)) && Number(e.service_duration_minutes) > 0 && (
+                                  <span>
+                                    Tempo: <span className="font-semibold text-white/85">{Number(e.service_duration_minutes)}min</span>
+                                  </span>
+                                )}
+                                {idx === 0 && e.started_at && (
+                                  <span>
+                                    Início: <span className="font-semibold text-white/85">{String(new Date(e.started_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))}</span>
+                                  </span>
+                                )}
+                                {(() => {
+                                  const min = calcularMinutosRestantes(waitlistEntries, idx);
+                                  if (min === null) return null;
+                                  return (
+                                    <span>
+                                      {idx === 0 ? 'Falta:' : 'Estimativa:'}{' '}
+                                      <span className="font-semibold text-white/85">{min}min</span>
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
                       );
                     })}
                   </div>
@@ -3280,9 +3278,8 @@ export default function BookingPage() {
                         return (
                           <label
                             key={id}
-                            className={`flex items-center gap-2 px-2 py-2 rounded-md border ${
-                              checked ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-white/10 bg-black/20'
-                            } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                            className={`flex items-center gap-2 px-2 py-2 rounded-md border ${checked ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-white/10 bg-black/20'
+                              } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                           >
                             <input
                               type="checkbox"
@@ -3416,8 +3413,8 @@ export default function BookingPage() {
           appointmentId={pendingAppointmentId}
           amount={pendingPaymentAmount}
           establishmentId={String(establishment?.id || '')}
-          recipientId={(window as any).__paymentGateway === 'pagarme' 
-            ? String((establishment as any)?.pagarme_recipient_id || '') 
+          recipientId={(window as any).__paymentGateway === 'pagarme'
+            ? String((establishment as any)?.pagarme_recipient_id || '')
             : undefined}
           onPaymentSuccess={(clientPhone) => {
             setShowPaymentModal(false);
@@ -3491,7 +3488,7 @@ export default function BookingPage() {
                 return false;
               }
             })() &&
-            !!String((establishment as any)?.mercadopago_access_token || '').trim()
+              !!String((establishment as any)?.mercadopago_access_token || '').trim()
               ? 'mercadopago'
               : 'pagarme'
           }
@@ -3533,9 +3530,9 @@ export default function BookingPage() {
                       (pendingCustomerData?.phone || guestClientData?.phone || localStorage.getItem('last_booking_phone') || '').toString();
                     const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
                     // ✅ Proteção contra múltiplos redirects
-        if (isReloadingRef.current) return;
-        isReloadingRef.current = true;
-        window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
+                    if (isReloadingRef.current) return;
+                    isReloadingRef.current = true;
+                    window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
                   }, 800);
                 }}
                 className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors"
