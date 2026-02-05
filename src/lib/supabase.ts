@@ -3,101 +3,69 @@ import { addMonths } from 'date-fns';
 import type { Database } from '../types/supabase';
 import { dlog } from '../utils/debugConsole';
 
-const supabaseUrlPrincipal = import.meta.env.VITE_SUPABASE_URL_PRINCIPAL || '';
-const supabaseUrlReserva = import.meta.env.VITE_SUPABASE_URL_RESERVA || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-const urlReserva = supabaseUrlReserva || 'https://placeholder.supabase.co';
-const keyInicial = supabaseAnonKey || 'placeholder_key';
-
-if (!supabaseUrlReserva || !supabaseAnonKey) {
-  console.error('❌ CRÍTICO: VITE_SUPABASE_URL_RESERVA e VITE_SUPABASE_ANON_KEY são obrigatórios.');
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('❌ CRÍTICO: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY são obrigatórios.');
   if (import.meta.env.DEV) {
-    console.warn('⚠️ Usando placeholder para desenvolvimento.');
+    console.warn('⚠️ Defina no .env: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY');
   }
 }
 
-const supabaseClientOptions = {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-    storageKey: 'agendafacil_auth_token',
-    flowType: 'pkce' as const,
-    debug: false,
-    storage: {
-      getItem: (key: string) => {
-        try {
-          const value = localStorage.getItem(key);
-          dlog(`📱 PWA - Lendo ${key}:`, value ? 'encontrado' : 'não encontrado');
-          return value;
-        } catch (error) {
-          console.warn('❌ Erro ao acessar localStorage:', error);
-          return null;
-        }
-      },
-      setItem: (key: string, value: string) => {
-        try {
-          localStorage.setItem(key, value);
-          dlog(`💾 PWA - Salvando ${key}:`, 'sucesso');
-        } catch (error) {
-          console.warn('❌ Erro ao salvar no localStorage:', error);
-        }
-      },
-      removeItem: (key: string) => {
-        try {
-          localStorage.removeItem(key);
-          dlog(`🗑️ PWA - Removendo ${key}:`, 'sucesso');
-        } catch (error) {
-          console.warn('❌ Erro ao remover do localStorage:', error);
+export const supabase: SupabaseClient<Database> = createClient(
+  supabaseUrl || 'https://api.agendeifacil.com',
+  supabaseAnonKey || '',
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+      storageKey: 'agendafacil_auth_token',
+      flowType: 'pkce',
+      debug: false,
+      storage: {
+        getItem: (key: string) => {
+          try {
+            const value = localStorage.getItem(key);
+            dlog(`📱 PWA - Lendo ${key}:`, value ? 'encontrado' : 'não encontrado');
+            return value;
+          } catch (error) {
+            console.warn('❌ Erro ao acessar localStorage:', error);
+            return null;
+          }
+        },
+        setItem: (key: string, value: string) => {
+          try {
+            localStorage.setItem(key, value);
+            dlog(`💾 PWA - Salvando ${key}:`, 'sucesso');
+          } catch (error) {
+            console.warn('❌ Erro ao salvar no localStorage:', error);
+          }
+        },
+        removeItem: (key: string) => {
+          try {
+            localStorage.removeItem(key);
+            dlog(`🗑️ PWA - Removendo ${key}:`, 'sucesso');
+          } catch (error) {
+            console.warn('❌ Erro ao remover do localStorage:', error);
+          }
         }
       }
-    }
-  },
-  global: {
-    headers: { 'x-application-name': 'agendafacil' },
-  },
-  db: {
-    schema: 'public'
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 2
-    }
-  }
-};
-
-function createSupabaseClient(url: string, key: string): SupabaseClient<Database> {
-  return createClient(url, key, supabaseClientOptions);
-}
-
-// App sempre inicia com URL reserva (nunca principal antes do teste)
-let currentClient = createSupabaseClient(urlReserva, keyInicial);
-
-function trySwitchToPrincipal(): void {
-  if (!supabaseUrlPrincipal || !supabaseUrlReserva || supabaseUrlPrincipal === supabaseUrlReserva) return;
-  const base = supabaseUrlPrincipal.replace(/\/$/, '');
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1500);
-  fetch(`${base}/auth/v1/health`, { method: 'GET', mode: 'cors', cache: 'no-store', signal: controller.signal })
-    .then((res) => {
-      if (res.ok) {
-        currentClient = createSupabaseClient(supabaseUrlPrincipal, supabaseAnonKey);
+    },
+    global: {
+      headers: { 'x-application-name': 'agendafacil' },
+    },
+    db: {
+      schema: 'public'
+    },
+    realtime: {
+      params: {
+        eventsPerSecond: 2
       }
-    })
-    .catch(() => { })
-    .finally(() => clearTimeout(timeoutId));
-}
-
-trySwitchToPrincipal();
-
-export const supabase = new Proxy({} as SupabaseClient<Database>, {
-  get(_, prop: string) {
-    const val = (currentClient as Record<string, unknown>)[prop];
-    if (typeof val === 'function') return (val as (...args: unknown[]) => unknown).bind(currentClient);
-    return val;
+    }
   }
-});
+);
 
 // Auth functions
 export const signUp = async (email: string, password: string, userRole: string, meta: Record<string, any> = {}) => {
