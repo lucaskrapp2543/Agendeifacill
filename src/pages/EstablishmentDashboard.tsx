@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
+import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 import { DiscountCouponsModal } from '../components/DiscountCouponsModal';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
@@ -19,9 +20,8 @@ import PinPasswordModal from '../components/PinPasswordModal';
 import { ProfessionalPaymentControl } from '../components/ProfessionalPaymentControl';
 import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
-import ReservarCliente from '../components/ReservarCliente';
 import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentModal';
-import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
+import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
@@ -1666,9 +1666,9 @@ const EstablishmentDashboard = () => {
       const allWaiting = ((filaEntries as any[]) || []).filter((e: any) => String(e?.status || '') === 'waiting');
       const list = selected
         ? allWaiting.filter((e: any) => {
-            const key = String(e?.professional_id || filaEsperaProfissionalId || '').trim();
-            return key === selected;
-          })
+          const key = String(e?.professional_id || filaEsperaProfissionalId || '').trim();
+          return key === selected;
+        })
         : allWaiting;
 
       const sorted = [...list].sort((a: any, b: any) => {
@@ -2696,6 +2696,8 @@ const EstablishmentDashboard = () => {
   const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
+  const [blockMonthsSameTime, setBlockMonthsSameTime] = useState(false);
+  const [selectedMonthsForBlock, setSelectedMonthsForBlock] = useState<number[]>([]);
 
   // Estados para gerenciar horários de trabalho dos profissionais
   const [showWorkHoursModal, setShowWorkHoursModal] = useState(false);
@@ -9148,9 +9150,9 @@ Estamos te aguardando! 😎✂️`;
 
       toast(
         msg +
-          (code ? ` (código ${code})` : '') +
-          (details ? ` • ${details}` : '') +
-          (hint ? ` • ${hint}` : ''),
+        (code ? ` (código ${code})` : '') +
+        (details ? ` • ${details}` : '') +
+        (hint ? ` • ${hint}` : ''),
         'error'
       );
     }
@@ -12183,6 +12185,8 @@ Estamos te aguardando! 😎✂️`;
       setSelectedBlockedHours([]);
     }
 
+    setBlockMonthsSameTime(false);
+    setSelectedMonthsForBlock([]);
     setShowBlockTimeModal(true);
   };
 
@@ -12191,6 +12195,8 @@ Estamos te aguardando! 😎✂️`;
     setSelectedProfessionalForBlock(null);
     setSelectedBlockedHours([]);
     setBlockTimeDate(new Date().toISOString().split('T')[0]);
+    setBlockMonthsSameTime(false);
+    setSelectedMonthsForBlock([]);
   };
 
   const handleToggleBlockedHour = (hour: string) => {
@@ -12204,8 +12210,22 @@ Estamos te aguardando! 😎✂️`;
     });
   };
 
+  const handleToggleMonthForBlock = (month: number) => {
+    setSelectedMonthsForBlock(prev =>
+      prev.includes(month) ? prev.filter(m => m !== month) : [...prev, month].sort((a, b) => a - b)
+    );
+  };
+
   const handleSaveBlockedHours = async () => {
     if (!selectedProfessionalForBlock || !establishment) return;
+    if (selectedBlockedHours.length === 0) {
+      toast.error('Selecione pelo menos um horário para bloquear.');
+      return;
+    }
+    if (blockMonthsSameTime && selectedMonthsForBlock.length === 0) {
+      toast.error('Selecione pelo menos um mês para bloquear.');
+      return;
+    }
 
     try {
       // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
@@ -12229,10 +12249,21 @@ Estamos te aguardando! 😎✂️`;
           // Buscar dados locais do profissional
           const localProfessional = professionals.find(p => p.id === selectedProfessionalForBlock);
           const currentBlockedHours = (localProfessional as any)?.blocked_hours || dbProfessional.blocked_hours || {};
-          const updatedBlockedHours = {
-            ...currentBlockedHours,
-            [blockTimeDate]: selectedBlockedHours
-          };
+          let updatedBlockedHours: Record<string, string[]> = { ...currentBlockedHours };
+
+          if (blockMonthsSameTime && selectedMonthsForBlock.length > 0) {
+            // Bloquear o mesmo horário em todos os dias dos meses selecionados (ano da data atual do modal)
+            const year = parseInt(blockTimeDate.slice(0, 4), 10);
+            for (const month of selectedMonthsForBlock) {
+              const daysInMonth = new Date(year, month, 0).getDate();
+              for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                updatedBlockedHours[dateStr] = [...selectedBlockedHours];
+              }
+            }
+          } else {
+            updatedBlockedHours[blockTimeDate] = selectedBlockedHours;
+          }
 
           // Mesclar todos os campos, preservando dados do banco
           return {
@@ -12297,15 +12328,15 @@ Estamos te aguardando! 😎✂️`;
     const baseWorkHours: Record<string, any> = shouldApplyDefaultsForProfessionals
       ? buildDefaultProfessionalWorkHoursFromEstablishment()
       : {
-          // ✅ Comportamento antigo (não herda Configurações em contas já concluídas)
-          monday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-          tuesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-          wednesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-          thursday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-          friday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
-          saturday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' },
-          sunday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' }
-        };
+        // ✅ Comportamento antigo (não herda Configurações em contas já concluídas)
+        monday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        tuesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        wednesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        thursday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        friday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+        saturday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' },
+        sunday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' }
+      };
 
     // Carregar horários de trabalho existentes do profissional (sempre com todos os dias)
     const professional = professionals.find(p => p.id === professionalId);
@@ -15866,11 +15897,10 @@ Estamos te aguardando! 😎✂️`;
                           type="button"
                           onClick={() => setFilaReorderMode((v) => !v)}
                           disabled={filaEntriesFiltradas.length <= 2 || filaQueuePositionSupported === false}
-                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-extrabold border ${
-                            filaReorderMode
+                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-extrabold border ${filaReorderMode
                               ? 'bg-indigo-700 text-white border-indigo-700 hover:bg-indigo-800'
                               : 'bg-white text-gray-900 border-gray-300 hover:bg-gray-50'
-                          } ${filaEntriesFiltradas.length <= 2 ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            } ${filaEntriesFiltradas.length <= 2 ? 'opacity-60 cursor-not-allowed' : ''}`}
                           title="Trocar ordem da fila"
                         >
                           🔀 Trocar ordem
@@ -21194,6 +21224,54 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Bloquear meses no mesmo horário */}
+                  {selectedBlockedHours.length > 0 && (
+                    <div className="mb-6 p-4 bg-[#242628] rounded-lg border border-gray-600">
+                      <label className="flex items-center gap-2 cursor-pointer mb-3">
+                        <input
+                          type="checkbox"
+                          checked={blockMonthsSameTime}
+                          onChange={(e) => setBlockMonthsSameTime(e.target.checked)}
+                          className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-gray-200 font-medium">Bloquear meses no mesmo horário</span>
+                      </label>
+                      {blockMonthsSameTime && (
+                        <p className="text-gray-400 text-sm mb-3">
+                          Os horários selecionados acima serão bloqueados em todos os dias dos meses escolhidos (ano da data selecionada).
+                        </p>
+                      )}
+                      {blockMonthsSameTime && (
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { n: 1, label: 'Jan' },
+                            { n: 2, label: 'Fev' },
+                            { n: 3, label: 'Mar' },
+                            { n: 4, label: 'Abr' },
+                            { n: 5, label: 'Mai' },
+                            { n: 6, label: 'Jun' },
+                            { n: 7, label: 'Jul' },
+                            { n: 8, label: 'Ago' },
+                            { n: 9, label: 'Set' },
+                            { n: 10, label: 'Out' },
+                            { n: 11, label: 'Nov' },
+                            { n: 12, label: 'Dez' }
+                          ].map(({ n, label }) => (
+                            <label key={n} className="flex items-center gap-1.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedMonthsForBlock.includes(n)}
+                                onChange={() => handleToggleMonthForBlock(n)}
+                                className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-300">{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
