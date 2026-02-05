@@ -7900,7 +7900,9 @@ Estamos te aguardando! 😎✂️`;
     // Só subtrair o que vai para profissionais que NÃO são dono (100%). O dono não "se paga" — o líquido dele já é do estabelecimento.
     const totalToNonOwnerProfessionals = calculateTotalNonOwnerProfessionalsLiquid(appointments);
 
-    const currentMonthPayments = allProfessionalPayments.filter(payment => {
+    const monthKeyPayments = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    const currentMonthPayments = allProfessionalPayments.filter((payment: any) => {
+      if (payment.for_month != null && payment.for_month !== '') return payment.for_month === monthKeyPayments;
       const paymentDate = new Date(payment.payment_date);
       return paymentDate.getFullYear() === selectedMonth.getFullYear() &&
         paymentDate.getMonth() === selectedMonth.getMonth();
@@ -20222,28 +20224,12 @@ Estamos te aguardando! 😎✂️`;
                                           .filter((p: any) => p.professional_id === professional.id)
                                           .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
 
-                                        console.log('🔍 DEBUG Novas Vendas:', {
-                                          professionalId: professional.id,
-                                          professionalName: professional.name,
-                                          allPayments: allProfessionalPayments.filter((p: any) => p.professional_id === professional.id),
-                                          lastPayment: lastPayment,
-                                          filteredAppointments: filteredAppointments.map(apt => ({
-                                            id: apt.id,
-                                            date: apt.appointment_date,
-                                            value: apt.total_price || apt.price,
-                                            status: apt.status
-                                          }))
-                                        });
-
                                         const newSalesTotal = lastPayment
                                           ? filteredAppointments
                                             .filter(apt => {
-                                              // Usar created_at do agendamento em vez de appointment_date para comparação
                                               const aptDate = new Date(apt.created_at);
                                               const paymentDate = new Date(lastPayment.payment_date);
-                                              const isAfterPayment = aptDate > paymentDate;
-                                              console.log(`📅 Comparando: ${apt.created_at} > ${lastPayment.payment_date} = ${isAfterPayment}`);
-                                              return isAfterPayment;
+                                              return aptDate > paymentDate;
                                             })
                                             .reduce((total, apt) => {
                                               const baseValue = getAppointmentRevenueBase(apt);
@@ -20273,12 +20259,20 @@ Estamos te aguardando! 😎✂️`;
                                                   netValue = (baseValue * (professional?.percentage || 0)) / 100;
                                                 }
                                               }
-                                              console.log(`💰 Agendamento ${apt.id}: R$ ${baseValue} -> Líquido: R$ ${netValue}`);
                                               return total + netValue;
                                             }, 0)
-                                          : netTotal; // Se não há pagamentos, todas as vendas são "novas"
+                                          : netTotal;
 
-                                        console.log('💰 Total Novas Vendas:', newSalesTotal);
+                                        // Se já pagou >= líquido do mês, zerar "Novas Vendas" no resumo (evita mostrar valor que não é pendente)
+                                        const monthKeyResumo = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+                                        const paymentsThisMonth = allProfessionalPayments.filter((p: any) => {
+                                          if (p.professional_id !== professional.id || (p.amount && p.amount <= 0)) return false;
+                                          if (p.for_month != null && p.for_month !== '') return p.for_month === monthKeyResumo;
+                                          const d = new Date(p.payment_date);
+                                          return d.getFullYear() === selectedMonth.getFullYear() && d.getMonth() === selectedMonth.getMonth();
+                                        });
+                                        const totalPaidThisMonth = paymentsThisMonth.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+                                        const displayNewSales = totalPaidThisMonth >= netTotal ? 0 : newSalesTotal;
 
                                         return (
                                           <div className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
@@ -20301,7 +20295,7 @@ Estamos te aguardando! 😎✂️`;
                                               <div className="flex justify-between items-center border-t border-gray-200 pt-2">
                                                 <span className="text-gray-600 font-medium">Novas Vendas:</span>
                                                 <span className="font-bold text-purple-600">
-                                                  {formatCurrency(newSalesTotal)}
+                                                  {formatCurrency(displayNewSales)}
                                                 </span>
                                               </div>
                                             </div>

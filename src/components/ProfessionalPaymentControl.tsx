@@ -53,14 +53,17 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   } = useProfessionalLiquidValue(establishmentId, professionalId, currentLiquidValue, selectedMonth);
 
   // O valor original (total do mês) é o currentLiquidValue passado como prop
-  // O valor pendente é o que sobra após descontar pagamentos já feitos
-  const totalLiquidValue = currentLiquidValue; // Valor total do mês (antes de descontar pagamentos)
+  const totalLiquidValue = currentLiquidValue; // Valor total do mês
   const overpaidAmount = Math.max(0, totalPaid - totalLiquidValue);
-  const pendingToPay =
-    typeof newSalesValue === 'number' && Number.isFinite(newSalesValue) ? Math.max(0, newSalesValue) : pendingAmount;
+  // Pendente = o que falta para fechar o mês (líquido - já pago). Se já pagou a mais, pendente = 0. Assim não aparece valor "enfiado" tipo Novas Vendas quando já está coberto.
+  const pendingToPay = Math.max(0, totalLiquidValue - totalPaid);
 
   const paymentSummary = getPaymentSummary(professionalId);
   const professionalPayments = getProfessionalPayments(professionalId);
+
+  const forMonthKey = selectedMonth
+    ? `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`
+    : undefined;
 
   const handlePayFullAmount = async () => {
     if (pendingToPay <= 0) {
@@ -76,7 +79,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     setIsProcessing(true);
 
     try {
-      await recordPayment(professionalId, professionalName, pendingToPay);
+      await recordPayment(professionalId, professionalName, pendingToPay, forMonthKey);
       toast.success(`Pagamento de ${formatCurrency(pendingToPay)} registrado para ${professionalName}`);
       onPaymentRecorded?.();
       setShowPaymentOptions(false);
@@ -115,7 +118,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     setIsProcessing(true);
 
     try {
-      await recordPayment(professionalId, professionalName, amount);
+      await recordPayment(professionalId, professionalName, amount, forMonthKey);
       toast.success(`Pagamento de ${formatCurrency(amount)} registrado para ${professionalName}`);
       onPaymentRecorded?.();
       setCustomAmount('');
@@ -179,15 +182,17 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     try {
       // Registrar como "pagamento negativo" para o profissional
       // Isso vai diminuir o valor líquido dele e aumentar o caixa do estabelecimento
+      const retiradaPayload: Record<string, unknown> = {
+        establishment_id: establishmentId,
+        professional_id: professionalId,
+        professional_name: professionalName,
+        amount: -amount,
+        payment_date: new Date().toISOString()
+      };
+      if (forMonthKey) retiradaPayload.for_month = forMonthKey;
       const { data, error } = await supabase
         .from('professional_payments')
-        .insert({
-          establishment_id: establishmentId,
-          professional_id: professionalId,
-          professional_name: professionalName,
-          amount: -amount, // VALOR NEGATIVO para "retirar" do profissional
-          payment_date: new Date().toISOString()
-        })
+        .insert(retiradaPayload)
         .select()
         .single();
 
@@ -375,9 +380,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {/* Mensagem quando não há valor pendente */}
           {pendingToPay <= 0 && !isProcessing && (
             <div
-              className={`w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 text-sm rounded ${
-                overpaidAmount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
-              }`}
+              className={`w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 text-sm rounded ${overpaidAmount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+                }`}
               title={
                 overpaidAmount > 0
                   ? `Pago a mais: ${formatCurrency(overpaidAmount)} (ver Histórico para corrigir)`

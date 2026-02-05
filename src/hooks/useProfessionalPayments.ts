@@ -9,6 +9,8 @@ interface ProfessionalPayment {
   amount: number;
   payment_date: string;
   created_at: string;
+  /** Mês a que o pagamento se refere (YYYY-MM). Null = considerar pela payment_date. */
+  for_month?: string | null;
 }
 
 interface PaymentSummary {
@@ -54,16 +56,7 @@ export const useProfessionalPayments = (
         query = query.or('payment_source.is.null,payment_source.eq.normal');
       }
 
-      // Se um mês específico foi selecionado, filtrar por esse mês
-      if (selectedMonth) {
-        const startOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
-        const endOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0, 23, 59, 59);
-
-        query = query
-          .gte('payment_date', startOfMonth.toISOString())
-          .lte('payment_date', endOfMonth.toISOString());
-      }
-
+      // Não filtrar por data aqui quando há selectedMonth: vamos filtrar por for_month + fallback por payment_date
       let { data, error } = await query.order('payment_date', { ascending: false });
 
       // Fallback: bancos antigos sem coluna payment_source
@@ -83,8 +76,20 @@ export const useProfessionalPayments = (
         }
       }
 
-      setPayments(data || []);
-      console.log('💰 Pagamentos carregados para o mês:', selectedMonth?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) || 'todos', ':', data?.length || 0);
+      let list = data || [];
+      // Quando há mês selecionado: considerar pagamentos "deste mês" por for_month ou por payment_date (compat)
+      if (selectedMonth) {
+        const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+        const startOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1).getTime();
+        const endOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0, 23, 59, 59).getTime();
+        list = list.filter((p: ProfessionalPayment) => {
+          if (p.for_month != null && p.for_month !== '') return p.for_month === monthKey;
+          const t = new Date(p.payment_date).getTime();
+          return t >= startOfMonth && t <= endOfMonth;
+        });
+      }
+      setPayments(list);
+      console.log('💰 Pagamentos carregados para o mês:', selectedMonth?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) || 'todos', ':', list.length);
     } catch (err: any) {
       console.error('❌ Erro ao buscar pagamentos:', err);
       setError(err.message);
@@ -93,25 +98,29 @@ export const useProfessionalPayments = (
     }
   };
 
-  // Registrar pagamento
+  // Registrar pagamento. forMonth = mês a que o pagamento se refere (YYYY-MM); quando na aba de um mês, deve ser passado.
   const recordPayment = async (
     professionalId: string,
     professionalName: string,
-    amount: number
+    amount: number,
+    forMonth?: string
   ) => {
     setLoading(true);
     setError(null);
 
     try {
+      const payload: Record<string, unknown> = {
+        establishment_id: establishmentId,
+        professional_id: professionalId,
+        professional_name: professionalName,
+        amount: amount,
+        payment_date: new Date().toISOString()
+      };
+      if (forMonth) payload.for_month = forMonth;
+
       const { data, error } = await supabase
         .from('professional_payments')
-        .insert({
-          establishment_id: establishmentId,
-          professional_id: professionalId,
-          professional_name: professionalName,
-          amount: amount,
-          payment_date: new Date().toISOString()
-        })
+        .insert(payload)
         .select()
         .single();
 
