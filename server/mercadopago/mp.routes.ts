@@ -4,11 +4,11 @@
  * Define as rotas para OAuth e criação de pagamentos do Mercado Pago
  */
 
-import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { Request, Response, Router } from 'express';
 // Importar de src/lib para compatibilidade (também funciona em server local)
-import { getAuthorizationUrl, exchangeCodeForToken } from '../../src/lib/mercadopago/mp-oauth';
-import { createMPPayment, checkMPPaymentStatus, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
+import { exchangeCodeForToken, getAuthorizationUrl } from '../../src/lib/mercadopago/mp-oauth';
+import { checkMPPaymentStatus, createMPPayment, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
 
 const router = Router();
 
@@ -16,7 +16,7 @@ const router = Router();
 function getSupabaseAdmin() {
   const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
   const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  
+
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.warn('⚠️ [MP Routes] Supabase admin não configurado:', {
       hasUrl: !!SUPABASE_URL,
@@ -24,7 +24,7 @@ function getSupabaseAdmin() {
     });
     return null;
   }
-  
+
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -234,11 +234,11 @@ router.post('/create-payment', async (req: Request, res: Response) => {
         email: String(payer.email),
         ...(payer.identification
           ? {
-              identification: {
-                type: payer.identification.type === 'CPF' ? 'CPF' : 'CNPJ',
-                number: String(payer.identification.number),
-              },
-            }
+            identification: {
+              type: payer.identification.type === 'CPF' ? 'CPF' : 'CNPJ',
+              number: String(payer.identification.number),
+            },
+          }
           : {}),
         ...(payer.address ? { address: payer.address } : {}),
       },
@@ -343,7 +343,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     // Parse do body
     let webhookData: any = req.body;
-    
+
     // Se vier como form-urlencoded, tentar parse do campo 'data'
     if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
       const dataParam = (req.body as any)?.data;
@@ -365,7 +365,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     if (webhookData?.type === 'payment') {
       const paymentId = webhookData.data?.id || webhookData.id;
-      
+
       if (!paymentId) {
         return res.status(400).json({ error: 'Payment ID não encontrado' });
       }
@@ -405,7 +405,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Sempre usar o payment_method_id do pagamento (fonte mais confiável)
         const paymentMethodId = String(payment.payment_method_id || '').toLowerCase();
         let paymentMethod = 'pix'; // Padrão
-        
+
         if (paymentMethodId === 'credit_card') {
           paymentMethod = 'credito';
         } else if (paymentMethodId === 'debit_card') {

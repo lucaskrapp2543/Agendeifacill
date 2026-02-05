@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { dlog } from '../utils/debugConsole';
 
@@ -23,12 +23,12 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
         .from('establishments')
         .select('id')
         .limit(1);
-      
+
       const connected = !error;
       setIsConnected(connected);
       setLastCheck(new Date());
       onConnectionStatusChange?.(connected);
-      
+
       dlog('🔍 Verificação de conectividade:', connected ? '✅ Conectado' : '❌ Desconectado');
     } catch (error) {
       console.error('❌ Erro na verificação de conectividade:', error);
@@ -43,10 +43,10 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
   useEffect(() => {
     // Verificar conectividade inicial
     checkConnectivity();
-    
+
     // Verificar a cada 30 segundos
     const interval = setInterval(checkConnectivity, 30000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -55,7 +55,7 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
     const handleFocus = () => {
       checkConnectivity();
     };
-    
+
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
@@ -68,8 +68,11 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
           <h3 className="text-lg font-semibold text-gray-900 mb-2">
             Problema de Conectividade
           </h3>
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 mb-2">
             Não foi possível conectar ao servidor. Verifique sua conexão com a internet.
+          </p>
+          <p className="text-sm text-gray-500 mb-4">
+            Dica: se continuar, tente usar <strong>dados móveis (4G)</strong> ou <strong>reiniciar o roteador</strong>.
           </p>
           <div className="space-y-2">
             <button

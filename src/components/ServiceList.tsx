@@ -1,5 +1,4 @@
-import React from 'react';
-import { Clock, DollarSign, Calendar } from 'lucide-react';
+import { Calendar, Clock, DollarSign } from 'lucide-react';
 
 interface Service {
   id: string;
@@ -35,7 +34,7 @@ export function ServiceList({ services, selectedService, onSelectService, onBook
                 {service.name}
               </span>
             </div>
-            
+
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-1 font-semibold" style={{ color: selectedService?.id === service.id ? '#E6C78B' : '#A1A1A1' }}>
                 <DollarSign className="h-4 w-4" style={{ color: selectedService?.id === service.id ? '#E6C78B' : '#A1A1A1' }} />
@@ -53,11 +52,10 @@ export function ServiceList({ services, selectedService, onSelectService, onBook
               <button
                 type="button"
                 onClick={() => onSelectService(service)}
-                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-                  selectedService?.id === service.id
+                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${selectedService?.id === service.id
                     ? 'bg-blue-600 text-white hover:bg-blue-700'
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
+                  }`}
               >
                 {selectedService?.id === service.id ? '✓ Selecionado' : 'Selecionar Serviço'}
               </button>

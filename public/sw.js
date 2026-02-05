@@ -66,7 +66,7 @@ self.addEventListener('install', (event) => {
         console.log('📦 Cache estático aberto');
         // Tentar adicionar arquivos ao cache, mas não falhar se algum não existir
         return Promise.allSettled(
-          ALWAYS_UPDATE.map(url => 
+          ALWAYS_UPDATE.map(url =>
             cache.add(url).catch(err => {
               console.warn(`⚠️ Não foi possível fazer cache de ${url}:`, err.message);
               return null; // Não falhar se um arquivo não existir
@@ -102,7 +102,7 @@ self.addEventListener('activate', (event) => {
       try {
         const cacheNames = await caches.keys();
         console.log('🗑️ Limpando TODOS os caches de HTML ao ativar...');
-        
+
         // Remover TODOS os caches que podem conter HTML antigo
         await Promise.all(
           cacheNames.map(async (cacheName) => {
@@ -119,7 +119,7 @@ self.addEventListener('activate', (event) => {
             return null;
           })
         );
-        
+
         // ⚠️ CRÍTICO: Limpar TODOS os caches que podem conter respostas do Supabase
         // Isso evita problemas de autenticação (401) causados por cache antigo
         try {
@@ -144,12 +144,12 @@ self.addEventListener('activate', (event) => {
         } catch (error) {
           console.warn('⚠️ Erro ao limpar cache do Supabase:', error);
         }
-        
+
         console.log('✅ Todos os caches de HTML limpos');
       } catch (error) {
         console.error('❌ Erro ao limpar caches:', error);
       }
-      
+
       // Continuar com ativação normal
       // ⚠️ PROTEÇÃO: Não fazer claim() se houver erro (evita loops no Brave)
       try {
@@ -167,19 +167,19 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
-  
+
   // ⚠️ CRÍTICO: NUNCA interceptar requisições para Netlify Functions
   // Deixar passar direto para a rede (evita problemas de 404)
   if (url.pathname.includes('/.netlify/functions/')) {
     event.respondWith(fetch(request, { cache: 'no-store' }));
     return;
   }
-  
+
   // ⚠️ CRÍTICO: NUNCA interceptar requisições para APIs que fazem redirect para Netlify Functions
   // Isso evita que o Service Worker interfira no redirect do Netlify
-  if (url.pathname.includes('/api/mercadopago/get-payment-method') || 
-      url.pathname.includes('/api/mercadopago/create-payment') ||
-      url.pathname.includes('/api/mercadopago/check-status')) {
+  if (url.pathname.includes('/api/mercadopago/get-payment-method') ||
+    url.pathname.includes('/api/mercadopago/create-payment') ||
+    url.pathname.includes('/api/mercadopago/check-status')) {
     event.respondWith(fetch(request, { cache: 'no-store' }));
     return;
   }
@@ -196,16 +196,16 @@ self.addEventListener('fetch', (event) => {
         // ⚠️ DETECTAR MOBILE PELO USER-AGENT
         const userAgent = request.headers.get('user-agent') || '';
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-        
+
         // ⚠️ SEMPRE limpar cache de HTML antes de servir (garantia extra)
         try {
           // Limpar cache desta URL específica
           await caches.delete(request);
-          
+
           // Limpar cache de index.html também (pode estar em cache)
           await caches.delete(new Request(url.origin + '/index.html'));
           await caches.delete(new Request(url.origin + '/'));
-          
+
           // ⚠️ SE FOR MOBILE: Limpar TODOS os caches (mais agressivo)
           if (isMobile) {
             const allCaches = await caches.keys();
@@ -221,18 +221,18 @@ self.addEventListener('fetch', (event) => {
         } catch (e) {
           // Ignorar erros de limpeza
         }
-        
+
         // ⚠️ SEMPRE buscar HTML da rede (não importa se mobile ou desktop)
         // Service Worker NUNCA faz cache de HTML, então sempre busca da rede
         console.log('🔄 Buscando HTML da rede (nunca usa cache)');
-        
+
         try {
           const controller = new AbortController();
           // ⚠️ Timeout menor para mobile (5s em vez de 8s)
           const timeout = isMobile ? 5000 : 8000;
           const timeoutId = setTimeout(() => controller.abort(), timeout);
-          
-          const networkResponse = await fetch(request, { 
+
+          const networkResponse = await fetch(request, {
             signal: controller.signal,
             cache: 'no-store', // ⚠️ SEMPRE buscar da rede (nunca usar cache do navegador)
             headers: {
@@ -241,36 +241,36 @@ self.addEventListener('fetch', (event) => {
               'Expires': '0'
             }
           });
-          
+
           clearTimeout(timeoutId);
-          
+
           if (networkResponse.ok && networkResponse.status === 200) {
             const contentType = networkResponse.headers.get('content-type') || '';
             if (contentType.includes('text/html')) {
               const text = await networkResponse.clone().text();
-              
+
               // Validar HTML
               if (!text.includes('</html>') && !text.includes('</body>')) {
                 throw new Error('HTML corrompido');
               }
-              
+
               // ⚠️ CRÍTICO: NUNCA fazer cache de HTML (nem mobile, nem desktop)
               // Isso garante que sempre terá versão mais nova
               // Lado positivo: Cliente sempre vê atualizações sem precisar atualizar!
               console.log('✅ HTML válido recebido da rede - NÃO fazendo cache (sempre versão nova)');
-              
+
               return networkResponse;
             }
             return networkResponse;
           }
-          
+
           throw new Error('Resposta inválida');
         } catch (error) {
           console.log('⚠️ Erro ao buscar da rede:', error.message);
-          
+
           // ⚠️ NUNCA usar cache para HTML - sempre tentar rede novamente
           try {
-            return await fetch(request, { 
+            return await fetch(request, {
               cache: 'no-store',
               headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
@@ -318,9 +318,9 @@ self.addEventListener('fetch', (event) => {
                 </script>
               </body>
               </html>
-            `, { 
+            `, {
               status: 503,
-              headers: { 
+              headers: {
                 'Content-Type': 'text/html',
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache',
@@ -349,7 +349,7 @@ self.addEventListener('fetch', (event) => {
     'googlesyndication.com',
     'googleads.g.doubleclick.net'
   ];
-  
+
   if (analyticsDomains.some(domain => url.hostname.includes(domain))) {
     // ⚠️ Reduzir logs excessivos - não logar cada requisição (causa spam no console)
     // Deixar passar direto sem interceptar
@@ -375,7 +375,7 @@ self.addEventListener('fetch', (event) => {
       );
       return;
     }
-    
+
     // Arquivos estáticos - Cache First
     if (STATIC_FILES.some(file => url.pathname.includes(file))) {
       event.respondWith(cacheFirst(request));
@@ -433,7 +433,7 @@ async function networkFirst(request) {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
       }
     });
-    
+
     // ⚠️ NÃO fazer cache de respostas de erro (404, 500, etc)
     // Apenas cachear respostas bem-sucedidas (200-299)
     if (networkResponse.ok && networkResponse.status >= 200 && networkResponse.status < 300) {
@@ -445,7 +445,7 @@ async function networkFirst(request) {
       await cache.delete(request);
       console.log('⚠️ Resposta de erro detectada, cache limpo para:', request.url);
     }
-    
+
     return networkResponse;
   } catch (error) {
     console.log('Erro de rede, tentando cache:', error);
@@ -476,10 +476,10 @@ async function networkFirstWithFallback(request) {
     // Timeout de 8 segundos para requisições de rede
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
-    
+
     const networkResponse = await fetch(request, { signal: controller.signal });
     clearTimeout(timeoutId);
-    
+
     // Verificar se a resposta é válida (não corrompida)
     if (networkResponse.ok) {
       // Para HTML, verificar se não está corrompido
@@ -492,7 +492,7 @@ async function networkFirstWithFallback(request) {
           throw new Error('HTML corrompido');
         }
       }
-      
+
       const cache = await caches.open(DYNAMIC_CACHE);
       cache.put(request, networkResponse.clone());
     }
@@ -516,7 +516,7 @@ async function networkFirstWithFallback(request) {
               return indexFallback;
             }
             // Último recurso: retornar resposta válida
-            return new Response('Erro ao carregar página', { 
+            return new Response('Erro ao carregar página', {
               status: 503,
               headers: { 'Content-Type': 'text/html' }
             });
@@ -531,7 +531,7 @@ async function networkFirstWithFallback(request) {
       return fallback;
     }
     // Último recurso: retornar erro
-    return new Response('Erro ao carregar página. Tente recarregar.', { 
+    return new Response('Erro ao carregar página. Tente recarregar.', {
       status: 503,
       headers: { 'Content-Type': 'text/html' }
     });
@@ -560,7 +560,7 @@ async function staleWhileRevalidate(request) {
   if (cachedResponse) {
     return cachedResponse;
   }
-  
+
   // Se não houver cache, aguardar a promise da rede
   return fetchPromise.then(response => {
     // Se a rede também falhar, retornar resposta vazia válida
@@ -594,5 +594,5 @@ self.addEventListener('message', (event) => {
 setInterval(() => {
   // ⚠️ Não deixar erro de update virar "Uncaught (in promise)" no console.
   // Durante deploy/cache, pode dar 404 momentâneo e isso não deve quebrar UX.
-  self.registration.update().catch(() => {});
+  self.registration.update().catch(() => { });
 }, 30 * 60 * 1000); // 30 minutos (suficiente e muito mais estável)

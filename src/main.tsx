@@ -69,7 +69,7 @@ const handleChunkErrors = () => {
 
         // ⚠️ PROTEÇÃO: Verificar se navegador tem proteções agressivas antes de fazer reload
         const hasProtections = disableAggressiveReloads; // Já inclui detecção de navegadores com proteções
-        
+
         // Evitar loops infinitos
         if (!hasProtections && reloadAttempts < maxReloadAttempts) {
           reloadAttempts++;

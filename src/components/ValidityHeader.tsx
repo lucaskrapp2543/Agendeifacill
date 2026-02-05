@@ -13,9 +13,12 @@ interface ValidityHeaderProps {
   establishmentId: string;
 }
 
+const VALIDITY_FETCH_TIMEOUT_MS = 12000; // 12s - evita travar em "Carregando validade..." quando Supabase está lento
+
 export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId }) => {
   const [validity, setValidity] = useState<EstablishmentValidity | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [daysRemaining, setDaysRemaining] = useState(0);
 
   useEffect(() => {
@@ -25,21 +28,33 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
   const fetchValidity = async () => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase
+      setFetchError(false);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), VALIDITY_FETCH_TIMEOUT_MS)
+      );
+      const fetchPromise = supabase
         .from('establishments')
         .select('payment_due_date, payment_status, plan_type, name')
         .eq('id', establishmentId)
         .single();
 
+      const result = await Promise.race([
+        fetchPromise,
+        timeoutPromise
+      ]) as { data: EstablishmentValidity | null; error: { message: string } | null };
+      const { data, error } = result;
+
       if (error) {
         console.error('Erro ao buscar validade:', error);
+        setFetchError(true);
         return;
       }
 
       setValidity(data);
       calculateDaysRemaining(data.payment_due_date);
     } catch (error) {
-      console.error('Erro:', error);
+      console.error('Erro ao buscar validade (timeout ou rede):', error);
+      setFetchError(true);
     } finally {
       setIsLoading(false);
     }
@@ -92,6 +107,21 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
       return `Vence em ${daysRemaining} dias`;
     }
   };
+
+  if (fetchError) {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="text-xs text-amber-600">Falha ao carregar. Conexão lenta.</span>
+        <button
+          type="button"
+          onClick={() => fetchValidity()}
+          className="text-xs text-blue-600 hover:underline"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
 
   if (isLoading || !validity) {
     return (

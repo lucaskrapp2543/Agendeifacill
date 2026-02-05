@@ -69,12 +69,12 @@ self.addEventListener('activate', (event) => {
 // Interceptação de requisições - APENAS para desenvolvimento
 self.addEventListener('fetch', (event) => {
   // NÃO interceptar requisições externas em desenvolvimento
-  if (event.request.url.startsWith('http://localhost') || 
-      event.request.url.startsWith('https://localhost')) {
+  if (event.request.url.startsWith('http://localhost') ||
+    event.request.url.startsWith('https://localhost')) {
     // Apenas log para debug
     console.log('Fetch interceptado (dev):', event.request.url);
   }
-  
+
   // Deixar todas as requisições passarem normalmente
   return;
 });
