@@ -3,23 +3,17 @@ import { addMonths } from 'date-fns';
 import type { Database } from '../types/supabase';
 import { dlog } from '../utils/debugConsole';
 
-// URLs: principal (ou legado VITE_SUPABASE_URL) e reserva para fallback quando DNS falha
-const supabaseUrlPrincipal =
-  import.meta.env.VITE_SUPABASE_URL_PRINCIPAL || import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseUrlPrincipal = import.meta.env.VITE_SUPABASE_URL_PRINCIPAL || '';
 const supabaseUrlReserva = import.meta.env.VITE_SUPABASE_URL_RESERVA || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-const urlInicial = supabaseUrlPrincipal || 'https://placeholder.supabase.co';
+const urlReserva = supabaseUrlReserva || 'https://placeholder.supabase.co';
 const keyInicial = supabaseAnonKey || 'placeholder_key';
 
-// Verificar se as variáveis de ambiente estão definidas
-if (!supabaseUrlPrincipal && !import.meta.env.VITE_SUPABASE_URL) {
-  console.error('❌ CRÍTICO: Variáveis de ambiente do Supabase não estão definidas!');
-  console.error('Por favor, crie um arquivo .env na raiz do projeto com:');
-  console.error('VITE_SUPABASE_URL ou VITE_SUPABASE_URL_PRINCIPAL');
-  console.error('VITE_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase');
+if (!supabaseUrlReserva || !supabaseAnonKey) {
+  console.error('❌ CRÍTICO: VITE_SUPABASE_URL_RESERVA e VITE_SUPABASE_ANON_KEY são obrigatórios.');
   if (import.meta.env.DEV) {
-    console.warn('⚠️ Usando configuração de fallback para desenvolvimento...');
+    console.warn('⚠️ Usando placeholder para desenvolvimento.');
   }
 }
 
@@ -77,20 +71,25 @@ function createSupabaseClient(url: string, key: string): SupabaseClient<Database
   return createClient(url, key, supabaseClientOptions);
 }
 
-let currentClient = createSupabaseClient(urlInicial, keyInicial);
+// App sempre inicia com URL reserva (nunca principal antes do teste)
+let currentClient = createSupabaseClient(urlReserva, keyInicial);
 
-function tryPrincipalThenReserva(): void {
-  if (!supabaseUrlReserva || !supabaseUrlPrincipal || supabaseUrlReserva === supabaseUrlPrincipal) return;
+function trySwitchToPrincipal(): void {
+  if (!supabaseUrlPrincipal || !supabaseUrlReserva || supabaseUrlPrincipal === supabaseUrlReserva) return;
   const base = supabaseUrlPrincipal.replace(/\/$/, '');
-  fetch(`${base}/rest/v1/`, { method: 'HEAD', mode: 'cors', cache: 'no-store' })
-    .then(() => { })
-    .catch(() => {
-      console.warn('[Supabase] URL principal inacessível (DNS/rede), usando URL reserva.');
-      currentClient = createSupabaseClient(supabaseUrlReserva, supabaseAnonKey || keyInicial);
-    });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 1500);
+  fetch(`${base}/auth/v1/health`, { method: 'GET', mode: 'cors', cache: 'no-store', signal: controller.signal })
+    .then((res) => {
+      if (res.ok) {
+        currentClient = createSupabaseClient(supabaseUrlPrincipal, supabaseAnonKey);
+      }
+    })
+    .catch(() => { })
+    .finally(() => clearTimeout(timeoutId));
 }
 
-tryPrincipalThenReserva();
+trySwitchToPrincipal();
 
 export const supabase = new Proxy({} as SupabaseClient<Database>, {
   get(_, prop: string) {
