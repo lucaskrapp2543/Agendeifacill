@@ -92,6 +92,7 @@ interface Establishment {
   business_hours: Record<string, BusinessHours>;
   professionals: Professional[];
   professionals_pins: ProfessionalPin[];
+  deleted_professionals?: (Professional & { deleted_at?: string })[];
   services_with_prices: Service[];
   updated_at?: string;
   profile_image_url?: string;
@@ -2472,6 +2473,7 @@ const EstablishmentDashboard = () => {
   const [expensesTotal, setExpensesTotal] = useState(0);
   const [allProfessionalPayments, setAllProfessionalPayments] = useState<any[]>([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showDeletedProfessionalsModal, setShowDeletedProfessionalsModal] = useState(false);
   const [showExpensesList, setShowExpensesList] = useState(false);
   const [newExpenseName, setNewExpenseName] = useState('');
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
@@ -2761,6 +2763,7 @@ const EstablishmentDashboard = () => {
   const [isEditingGrossValue, setIsEditingGrossValue] = useState(false);
   const [editingGrossValue, setEditingGrossValue] = useState('');
   const [monthlyGrossValues, setMonthlyGrossValues] = useState<{ [key: string]: number }>({});
+  const [grossValueHistory, setGrossValueHistory] = useState<{ value_before: number | null; value_after: number; created_at: string }[]>([]);
 
   // Estados para produtos
   const [products, setProducts] = useState<EstablishmentProduct[]>([]);
@@ -3146,6 +3149,16 @@ const EstablishmentDashboard = () => {
     try {
       const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
 
+      // Buscar valor atual para registrar no histórico
+      let valueBefore: number | null = null;
+      const { data: current } = await supabase
+        .from('establishment_initial_values')
+        .select('initial_gross_revenue')
+        .eq('establishment_id', establishment.id)
+        .eq('month_year', monthKey)
+        .maybeSingle();
+      if (current?.initial_gross_revenue != null) valueBefore = Number(current.initial_gross_revenue);
+
       // Atualiza o estado local
       setMonthlyGrossValues(prev => ({
         ...prev,
@@ -3167,6 +3180,16 @@ const EstablishmentDashboard = () => {
         toast('Erro ao salvar valor bruto', 'error');
         return;
       }
+
+      // Registrar no histórico de edições (sempre, mesmo na primeira vez)
+      await supabase.from('establishment_initial_values_history').insert({
+        establishment_id: establishment.id,
+        month_year: monthKey,
+        value_before: valueBefore,
+        value_after: value
+      });
+
+      loadGrossValueHistory();
 
       setIsEditingGrossValue(false);
       setEditingGrossValue('');
@@ -5280,10 +5303,10 @@ const EstablishmentDashboard = () => {
       console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
       console.log('📱 Verificando WhatsApp:', professionals.map(p => ({ name: p.name, whatsapp: p.whatsapp })));
 
-      // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
+      // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS E HISTÓRICO DE EXCLUÍDOS
       const { data: establishmentData, error: fetchError } = await supabase
         .from('establishments')
-        .select('professionals, professionals_pins')
+        .select('professionals, professionals_pins, deleted_professionals')
         .eq('id', establishment.id)
         .single();
 
@@ -5293,7 +5316,18 @@ const EstablishmentDashboard = () => {
       }
 
       const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const existingDeleted = (establishmentData?.deleted_professionals || []) as any[];
+      // Profissionais que estavam no banco e foram removidos na lista local (por id)
+      const removed = dbProfessionals.filter(
+        (dbP: any) => dbP?.id && !professionals.some((lp: any) => lp.id === dbP.id)
+      );
+      const now = new Date().toISOString();
+      const newlyDeleted = removed.map((p: any) => ({ ...p, deleted_at: now }));
+      const updatedDeletedProfessionals = [...existingDeleted, ...newlyDeleted];
       console.log('📦 Profissionais do banco:', dbProfessionals);
+      if (newlyDeleted.length > 0) {
+        console.log('📥 Movendo para histórico de excluídos:', newlyDeleted.map((p: any) => p.name));
+      }
 
       // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
       const updatedProfessionals = professionals.map(localProfessional => {
@@ -5369,21 +5403,26 @@ const EstablishmentDashboard = () => {
 
       console.log('🔐 Pins atualizados:', updatedPins);
 
+      const payload: { professionals: any[]; professionals_pins: any[]; deleted_professionals?: any[] } = {
+        professionals: updatedProfessionals.filter(p => p.name),
+        professionals_pins: updatedPins
+      };
+      if (updatedDeletedProfessionals.length > 0) {
+        payload.deleted_professionals = updatedDeletedProfessionals;
+      }
+
       const { error } = await supabase
         .from('establishments')
-        .update({
-          professionals: updatedProfessionals.filter(p => p.name),
-          professionals_pins: updatedPins
-        })
+        .update(payload)
         .eq('id', establishment.id);
 
       if (error) throw error;
 
-      // Atualizar o estado local do establishment também
       setEstablishment({
         ...establishment,
         professionals: updatedProfessionals,
-        professionals_pins: updatedPins
+        professionals_pins: updatedPins,
+        deleted_professionals: updatedDeletedProfessionals
       });
 
       // Atualizar o estado local dos profissionais com os dados mesclados
@@ -5476,6 +5515,37 @@ const EstablishmentDashboard = () => {
     };
     console.log('Adicionando serviço:', newService);
     setServicesWithPrices(prev => [...prev, newService]);
+  };
+
+  const handleRestoreDeletedProfessional = async (deletedProfessional: Professional & { deleted_at?: string }) => {
+    if (!establishment) return;
+    const id = deletedProfessional.id;
+    const currentDeleted = (establishment.deleted_professionals || []).filter((p: any) => p.id !== id);
+    const restored = { ...deletedProfessional };
+    delete (restored as any).deleted_at;
+    const newProfessionals = [...professionals, restored];
+    const newPins = [...(establishment.professionals_pins || [])];
+    if (!newPins.find((p: any) => p.professional_id === id)) {
+      newPins.push({ professional_id: id, pin: '0000' });
+    }
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          professionals: newProfessionals,
+          professionals_pins: newPins,
+          deleted_professionals: currentDeleted
+        })
+        .eq('id', establishment.id);
+      if (error) throw error;
+      setEstablishment({ ...establishment, professionals: newProfessionals, professionals_pins: newPins, deleted_professionals: currentDeleted });
+      setProfessionals(newProfessionals);
+      setShowDeletedProfessionalsModal(false);
+      toast.success(`${deletedProfessional.name} reativado. Ele volta a aparecer na Receita por Profissional e pode receber pagamentos.`);
+    } catch (e: any) {
+      console.error('Erro ao reativar profissional:', e);
+      toast(e?.message || 'Erro ao reativar profissional', 'error');
+    }
   };
 
   const handleRemoveService = (id: string) => {
@@ -7699,14 +7769,50 @@ Estamos te aguardando! 😎✂️`;
     }
   }, [establishment?.id]);
 
+  const loadInitialValuesForMonth = useCallback(async () => {
+    if (!establishment?.id) return;
+    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    try {
+      const { data } = await supabase
+        .from('establishment_initial_values')
+        .select('initial_gross_revenue')
+        .eq('establishment_id', establishment.id)
+        .eq('month_year', monthKey)
+        .maybeSingle();
+      if (data?.initial_gross_revenue != null) {
+        setMonthlyGrossValues(prev => ({ ...prev, [monthKey]: Number(data.initial_gross_revenue) }));
+      }
+    } catch (e) {
+      console.error('Erro ao carregar valor bruto editado:', e);
+    }
+  }, [establishment?.id, selectedMonth]);
+
+  const loadGrossValueHistory = useCallback(async () => {
+    if (!establishment?.id) return;
+    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    try {
+      const { data } = await supabase
+        .from('establishment_initial_values_history')
+        .select('value_before, value_after, created_at')
+        .eq('establishment_id', establishment.id)
+        .eq('month_year', monthKey)
+        .order('created_at', { ascending: false });
+      setGrossValueHistory(data || []);
+    } catch (e) {
+      console.error('Erro ao carregar histórico do valor bruto:', e);
+    }
+  }, [establishment?.id, selectedMonth]);
+
   // Carregar assinantes pagos e despesas quando trocar de aba ou estabelecimento mudar
   useEffect(() => {
     if (establishment?.id && establishment.professionals && establishment.professionals.length > 0) {
       loadPaidSubscribers();
       loadExpenses();
       loadProfessionalPayments();
+      loadInitialValuesForMonth();
+      loadGrossValueHistory();
     }
-  }, [establishment?.id, activeTab, establishment?.professionals, selectedMonth, loadExpenses, loadProfessionalPayments]);
+  }, [establishment?.id, activeTab, establishment?.professionals, selectedMonth, loadExpenses, loadProfessionalPayments, loadInitialValuesForMonth, loadGrossValueHistory]);
 
   // Removido useEffect que causava loop infinito
 
@@ -7714,13 +7820,9 @@ Estamos te aguardando! 😎✂️`;
 
   const calculateDailyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      // Só incluir no faturamento se o status for 'completed' (verde - FEITO)
       if (appointment.status === 'completed') {
-        // Excluir do faturamento se for assinante pago (serviço gratuito)
-        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
-          return total; // Não adiciona ao faturamento
-        }
-        return total + calculateGrossValueWithCardTax(appointment);
+        if (isClientPaidSubscriber(appointment.client_whatsapp)) return total;
+        return total + getAppointmentRevenueBase(appointment);
       }
       return total;
     }, 0);
@@ -7728,13 +7830,9 @@ Estamos te aguardando! 😎✂️`;
 
   const calculateMonthlyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      // Só incluir no faturamento se o status for 'completed' (verde - FEITO)
       if (appointment.status === 'completed') {
-        // Excluir do faturamento se for assinante pago (serviço gratuito)
-        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
-          return total; // Não adiciona ao faturamento
-        }
-        return total + calculateGrossValueWithCardTax(appointment);
+        if (isClientPaidSubscriber(appointment.client_whatsapp)) return total;
+        return total + getAppointmentRevenueBase(appointment);
       }
       return total;
     }, 0);
@@ -7748,17 +7846,14 @@ Estamos te aguardando! 😎✂️`;
     return monthlyGross + editedGrossValue;
   };
 
-  // Função para calcular total das taxas de cartão do mês
+  // Função para calcular total das taxas de cartão do mês (usa mesma base que receita: serviço + extras, cap total_price)
   const calculateTotalCardTaxes = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
-        const baseValue = appointment.total_price || appointment.price || 0;
+        const baseValue = getAppointmentRevenueBase(appointment);
         const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
-
-        // Só aplicar taxa se for cartão
         if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
-          const cardTax = (baseValue * paymentTax) / 100;
-          return total + cardTax;
+          return total + (baseValue * paymentTax) / 100;
         }
       }
       return total;
@@ -7778,40 +7873,33 @@ Estamos te aguardando! 😎✂️`;
     return totalGross - expenses - totalCardTaxes;
   };
 
+  // Total líquido que vai para TODOS os profissionais (mesma soma que aparece em "Receita por Profissional")
+  const calculateTotalProfessionalsLiquid = (appointments: Appointment[]): number => {
+    return professionals.reduce(
+      (sum, pro) => sum + calculateProfessionalNetValue(pro.name, appointments),
+      0
+    );
+  };
+
+  // Total líquido que vai só para profissionais que NÃO são dono (para subtrair do Líquido Estabelecimento)
+  const calculateTotalNonOwnerProfessionalsLiquid = (appointments: Appointment[]): number => {
+    return professionals
+      .filter(pro => (pro.percentage ?? 100) !== 100)
+      .reduce((sum, pro) => sum + calculateProfessionalNetValue(pro.name, appointments), 0);
+  };
+
   // Função que inclui valor bruto editado no cálculo líquido do estabelecimento (por mês)
+  // O dono É o estabelecimento: só subtraímos o que vai para outros profissionais. O saldo do dono fica no Líquido Estabelecimento.
   const calculateTotalEstablishmentLiquidWithInitial = (appointments: Appointment[], expenses: number): number => {
     const monthlyGross = calculateMonthlyBalance(appointments);
     const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
     const editedGrossValue = monthlyGrossValues[monthKey] || 0;
     const totalGross = monthlyGross + editedGrossValue;
 
-    // Calcular total das taxas de cartão
     const totalCardTaxes = calculateTotalCardTaxes(appointments);
+    // Só subtrair o que vai para profissionais que NÃO são dono (100%). O dono não "se paga" — o líquido dele já é do estabelecimento.
+    const totalToNonOwnerProfessionals = calculateTotalNonOwnerProfessionalsLiquid(appointments);
 
-    // Calcular total que você paga para outros profissionais (SEM descontar taxa do profissional)
-    const totalPaidToOthers = appointments.reduce((total, appointment) => {
-      if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
-        const professionalPercentage = getProfessionalPercentageByName(appointment.professional);
-
-        // Só subtrair se não for dono (100%)
-        if (professionalPercentage < 100) {
-          // IMPORTANTE: Usar price + additional_products (serviços extra)
-          // Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
-          const serviceBasePrice = appointment.price || 0;
-          const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-          const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
-
-          // Profissional recebe % do valor BRUTO (serviço + serviços extra, sem produtos V2, sem descontar taxa)
-          const professionalShare = (baseValue * professionalPercentage) / 100;
-
-          return total + professionalShare;
-        }
-      }
-      return total;
-    }, 0);
-
-    // Calcular total de retiradas dos profissionais (valores negativos)
-    // Buscar pagamentos do mês atual para calcular retiradas
     const currentMonthPayments = allProfessionalPayments.filter(payment => {
       const paymentDate = new Date(payment.payment_date);
       return paymentDate.getFullYear() === selectedMonth.getFullYear() &&
@@ -7822,17 +7910,17 @@ Estamos te aguardando! 😎✂️`;
       .filter(payment => payment.amount < 0)
       .reduce((total, payment) => total + Math.abs(payment.amount), 0);
 
+    // Líquido estabelecimento = Bruto - Despesas - Taxas - (só o que paga para outros profissionais) + Retiradas. Inclui o saldo do dono.
+    const result = totalGross - expenses - totalCardTaxes - totalToNonOwnerProfessionals + totalWithdrawals;
     console.log('💰 Cálculo Líquido Estabelecimento:', {
       totalGross,
       expenses,
       totalCardTaxes,
-      totalPaidToOthers,
+      totalToNonOwnerProfessionals,
       totalWithdrawals,
-      result: totalGross - expenses - totalCardTaxes - totalPaidToOthers + totalWithdrawals
+      result
     });
-
-    // Líquido do estabelecimento = Líquido total - O que você paga para outros + Retiradas
-    return totalGross - expenses - totalCardTaxes - totalPaidToOthers + totalWithdrawals;
+    return result;
   };
 
   // Função para calcular valor bruto mensal do profissional selecionado
@@ -7859,12 +7947,10 @@ Estamos te aguardando! 😎✂️`;
         }
 
         if (selectedProfessional === 'all') {
-          // Se "todos" selecionado, soma todos os agendamentos do mês
-          return total + calculateGrossValueWithCardTax(appointment);
+          return total + getAppointmentRevenueBase(appointment);
         } else {
-          // Se profissional específico selecionado, soma apenas dele
           if (appointment.professional === selectedProfessional) {
-            return total + calculateGrossValueWithCardTax(appointment);
+            return total + getAppointmentRevenueBase(appointment);
           }
         }
       }
@@ -12808,21 +12894,15 @@ Estamos te aguardando! 😎✂️`;
 
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
-        // Usar price + additional_products (serviços extra)
-        // Produtos V2 (appointment_products) NÃO entram no cálculo da porcentagem do profissional
-        const serviceBasePrice = appointment.price || 0;
-        const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-        const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
+        const baseValue = getAppointmentRevenueBase(appointment);
         const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
 
-        // Se for cartão, descontar a taxa apenas do serviço
         if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
           const cardTax = (baseValue * paymentTax) / 100;
           const netValue = baseValue - cardTax;
           console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço) - R$ ${cardTax} (taxa) = R$ ${netValue}`);
           return total + netValue;
         } else {
-          // Se não for cartão, valor do serviço
           console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço, sem taxa)`);
           return total + baseValue;
         }
@@ -12864,18 +12944,11 @@ Estamos te aguardando! 😎✂️`;
     // Calcular o líquido total (profissionais recebem % do valor após descontar taxa de cartão: serviço + serviços extra, SEM produtos V2)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
-        // Usar price + additional_products (serviços extra)
-        // Produtos V2 (appointment_products) NÃO entram no cálculo da porcentagem do profissional
-        const serviceBasePrice = appointment.price || 0;
-        const additionalServicesTotal = (appointment.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-        const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
-
-        // Verificar se taxa é descontada do estabelecimento ou do profissional
+        const baseValue = getAppointmentRevenueBase(appointment);
         const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
         let netValue;
 
         if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
-          // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
           if (establishment?.tax_deducted_by_establishment) {
             netValue = (baseValue * (professional?.percentage || 0)) / 100;
           } else {
@@ -12991,6 +13064,20 @@ Estamos te aguardando! 😎✂️`;
 
     // Valor bruto é sempre o valor original, independente do método de pagamento
     return baseValue;
+  };
+
+  /**
+   * Valor base da receita do agendamento para o profissional (serviço + serviços extras).
+   * Usa price + additional_products e, se total_price estiver preenchido e for menor que essa soma,
+   * limita ao total_price para evitar totais inflados por dados inconsistentes no banco.
+   */
+  const getAppointmentRevenueBase = (apt: Appointment): number => {
+    const serviceBasePrice = apt.price || 0;
+    const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
+    const raw = serviceBasePrice + additionalServicesTotal;
+    const total = apt.total_price != null && apt.total_price > 0 ? apt.total_price : null;
+    if (total != null && raw > total) return total;
+    return raw;
   };
 
   // Evita que o mesmo agendamento conte para dois profissionais (id vs nome).
@@ -19689,6 +19776,34 @@ Estamos te aguardando! 😎✂️`;
                               {formatCurrency(calculateTotalGrossWithInitial(monthlyAppointments))}
                             </p>
                             <p className="text-sm text-gray-700 mt-1">Total faturado no mês</p>
+                            <details className="mt-3 text-left">
+                              <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-800 list-none flex items-center gap-1">
+                                <span className="font-medium">Histórico de edições</span>
+                                {grossValueHistory.length > 0 && (
+                                  <span className="text-gray-400">({grossValueHistory.length})</span>
+                                )}
+                              </summary>
+                              <div className="mt-2 border-t border-gray-200 pt-2 max-h-32 overflow-y-auto">
+                                {grossValueHistory.length === 0 ? (
+                                  <p className="text-xs text-gray-500">Nenhuma edição registrada para este mês.</p>
+                                ) : (
+                                  <ul className="pl-0 space-y-1.5 text-xs text-gray-600">
+                                    {grossValueHistory.map((entry, i) => (
+                                      <li key={i} className="flex flex-wrap items-baseline gap-1">
+                                        <span className="text-gray-500 shrink-0">
+                                          {format(new Date(entry.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                                        </span>
+                                        <span>
+                                          {entry.value_before != null
+                                            ? `${formatCurrency(entry.value_before)} → ${formatCurrency(entry.value_after)}`
+                                            : `Valor definido: ${formatCurrency(entry.value_after)}`}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            </details>
                           </>
                         )}
                       </div>
@@ -19721,6 +19836,13 @@ Estamos te aguardando! 😎✂️`;
                         </p>
                       </div>
                     </div>
+
+                    <p className="text-sm text-gray-600 mb-4">
+                      Total líquido dos profissionais (soma da seção abaixo):{' '}
+                      <span className="font-semibold text-gray-800">
+                        {formatCurrency(calculateTotalProfessionalsLiquid(monthlyAppointments))}
+                      </span>
+                    </p>
 
                     {/* Taxas de Cartão */}
                     <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 mb-4">
@@ -19788,11 +19910,19 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Receita por Profissional */}
                   <div className="bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200 rounded-xl shadow-lg border border-gray-300/50 p-6">
-                    <h3 className="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
-                      <span className="text-2xl">💼</span>
-                      <span>Receita por Profissional</span>
-                    </h3>
-
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+                      <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <span className="text-2xl">💼</span>
+                        <span>Receita por Profissional</span>
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setShowDeletedProfessionalsModal(true)}
+                        className="px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2"
+                      >
+                        Histórico de profissionais
+                      </button>
+                    </div>
 
                     <div className="space-y-5">
                       {professionals.map(professional => {
@@ -19811,12 +19941,7 @@ Estamos te aguardando! 😎✂️`;
                             console.log(`💰 Assinante pago - não contabilizado: ${apt.client_name} - R$ ${apt.total_price || apt.price}`);
                             return total; // Não adiciona ao faturamento se for assinante pago
                           }
-                          // Manter consistente com o restante do financeiro:
-                          // Receita do PROFISSIONAL considera serviço + serviços extras (additional_products).
-                          // Produtos V2 (sold_products) não entram aqui (cada estabelecimento decide comissão em outra lógica).
-                          const serviceBasePrice = apt.price || 0;
-                          const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-                          const appointmentValue = serviceBasePrice + additionalServicesTotal;
+                          const appointmentValue = getAppointmentRevenueBase(apt);
                           console.log(`💰 Agendamento normal: ${apt.client_name} - R$ ${appointmentValue}`);
                           return total + appointmentValue;
                         }, 0);
@@ -19933,77 +20058,81 @@ Estamos te aguardando! 😎✂️`;
                               </div>
                             </div>
 
-                            {/* Controle de Pagamentos - Agora em linha separada */}
+                            {/* Controle de Pagamentos - Dono não se paga, o líquido já é do estabelecimento */}
                             <div className="border-t border-gray-300/60 pt-4 mt-5 bg-gradient-to-r from-gray-50/30 to-gray-100/30 rounded-lg p-3 -mx-3 -mb-3">
-                              <ProfessionalPaymentControl
-                                establishmentId={establishment?.id || ''}
-                                professionalId={professional.id}
-                                professionalName={professional.name}
-                                currentLiquidValue={calculateProfessionalNetValue(professional.name, monthlyAppointments)}
-                                // ✅ Pagar baseado em "Novas Vendas" (desde o último pagamento),
-                                // para não travar quando existe um pagamento antigo no mês (ex.: pagamento do mês anterior registrado no dia 01).
-                                newSalesValue={(() => {
-                                  // Usar apenas pagamentos "normais" (não assinatura) como referência do último pagamento
-                                  const lastPayment = allProfessionalPayments
-                                    .filter((p: any) => p.professional_id === professional.id)
-                                    .filter((p: any) => {
-                                      const src = String((p as any)?.payment_source || '').toLowerCase();
-                                      return !src || src === 'normal';
-                                    })
-                                    .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
+                              {professional.percentage === 100 ? (
+                                <p className="text-sm text-gray-600 italic">
+                                  Dono (100%): este valor já está incluído no <strong>Líquido Estabelecimento</strong> acima. Não é necessário registrar pagamento para si mesmo.
+                                </p>
+                              ) : (
+                                <ProfessionalPaymentControl
+                                  establishmentId={establishment?.id || ''}
+                                  professionalId={professional.id}
+                                  professionalName={professional.name}
+                                  currentLiquidValue={calculateProfessionalNetValue(professional.name, monthlyAppointments)}
+                                  // ✅ Pagar baseado em "Novas Vendas" (desde o último pagamento),
+                                  // para não travar quando existe um pagamento antigo no mês (ex.: pagamento do mês anterior registrado no dia 01).
+                                  newSalesValue={(() => {
+                                    // Usar apenas pagamentos "normais" (não assinatura) como referência do último pagamento
+                                    const lastPayment = allProfessionalPayments
+                                      .filter((p: any) => p.professional_id === professional.id)
+                                      .filter((p: any) => {
+                                        const src = String((p as any)?.payment_source || '').toLowerCase();
+                                        return !src || src === 'normal';
+                                      })
+                                      .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
 
-                                  const base = monthlyAppointments
-                                    .filter((apt) =>
-                                      appointmentBelongsToProfessional(apt, professional) &&
-                                      apt.status === 'completed'
-                                    )
-                                    .filter((apt) => {
-                                      // manter consistente com o cálculo exibido em "Novas Vendas"
-                                      if (!lastPayment) return true;
-                                      const aptDate = new Date((apt as any).created_at);
-                                      const paymentDate = new Date(lastPayment.payment_date);
-                                      return aptDate > paymentDate;
-                                    });
+                                    const base = monthlyAppointments
+                                      .filter((apt) =>
+                                        appointmentBelongsToProfessional(apt, professional) &&
+                                        apt.status === 'completed'
+                                      )
+                                      .filter((apt) => {
+                                        // manter consistente com o cálculo exibido em "Novas Vendas"
+                                        if (!lastPayment) return true;
+                                        const aptDate = new Date((apt as any).created_at);
+                                        const paymentDate = new Date(lastPayment.payment_date);
+                                        return aptDate > paymentDate;
+                                      });
 
-                                  const total = base.reduce((total, apt) => {
-                                    const serviceBasePrice = apt.price || 0;
-                                    const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-                                    const baseValue = serviceBasePrice + additionalServicesTotal;
-                                    let netValue: number;
+                                    const total = base.reduce((total, apt) => {
+                                      const baseValue = getAppointmentRevenueBase(apt);
+                                      let netValue: number;
 
-                                    if (professional.percentage === 100) {
-                                      const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                      if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                        const cardTax = (baseValue * paymentTax) / 100;
-                                        netValue = baseValue - cardTax;
-                                      } else {
-                                        netValue = baseValue;
-                                      }
-                                    } else {
-                                      const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                      if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                        if (establishment?.tax_deducted_by_establishment) {
-                                          netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                      if (professional.percentage === 100) {
+                                        const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                        if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                          const cardTax = (baseValue * paymentTax) / 100;
+                                          netValue = baseValue - cardTax;
                                         } else {
-                                          const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-                                          netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                          netValue = baseValue;
                                         }
                                       } else {
-                                        netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                        const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                        if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                          if (establishment?.tax_deducted_by_establishment) {
+                                            netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                          } else {
+                                            const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+                                            netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                          }
+                                        } else {
+                                          netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                        }
                                       }
-                                    }
 
-                                    return total + netValue;
-                                  }, 0);
+                                      return total + netValue;
+                                    }, 0);
 
-                                  return total;
-                                })()}
-                                selectedMonth={selectedMonth}
-                                onPaymentRecorded={() => {
-                                  // Recarregar dados se necessário
-                                  console.log('💰 Pagamento registrado para', professional.name);
-                                }}
-                              />
+                                    return total;
+                                  })()}
+                                  selectedMonth={selectedMonth}
+                                  onPaymentRecorded={() => {
+                                    // Recarregar dados se necessário
+                                    console.log('💰 Pagamento registrado para', professional.name);
+                                  }}
+                                />
+                              )}
                             </div>
                             {/* Mostrar detalhamento dos serviços */}
                             {professionalAppointments.length > 0 && (
@@ -20045,16 +20174,12 @@ Estamos te aguardando! 😎✂️`;
                                           .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter);
 
                                         const grossTotal = filteredAppointments.reduce((total, apt) => {
-                                          const serviceBasePrice = apt.price || 0;
-                                          const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-                                          const baseValue = serviceBasePrice + additionalServicesTotal;
+                                          const baseValue = getAppointmentRevenueBase(apt);
                                           return total + baseValue;
                                         }, 0);
 
                                         const netTotal = filteredAppointments.reduce((total, apt) => {
-                                          const serviceBasePrice = apt.price || 0;
-                                          const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-                                          const baseValue = serviceBasePrice + additionalServicesTotal;
+                                          const baseValue = getAppointmentRevenueBase(apt);
                                           let netValue;
 
                                           if (professional.percentage === 100) {
@@ -20121,9 +20246,7 @@ Estamos te aguardando! 😎✂️`;
                                               return isAfterPayment;
                                             })
                                             .reduce((total, apt) => {
-                                              const serviceBasePrice = apt.price || 0;
-                                              const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + (p.price || 0), 0);
-                                              const baseValue = serviceBasePrice + additionalServicesTotal;
+                                              const baseValue = getAppointmentRevenueBase(apt);
                                               let netValue;
                                               if (professional.percentage === 100) {
                                                 const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
@@ -20192,7 +20315,7 @@ Estamos te aguardando! 😎✂️`;
                                       .filter(apt => apt.status === 'completed')
                                       .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter)
                                       .map((apt, index) => {
-                                        const baseValue = apt.total_price || apt.price || 0;
+                                        const baseValue = getAppointmentRevenueBase(apt);
                                         let netValue;
 
                                         if (professional.percentage === 100) {
@@ -20312,44 +20435,19 @@ Estamos te aguardando! 😎✂️`;
                           const day = i + 1;
                           // Filtrar agendamentos do dia específico
                           const dayAppointments = monthlyAppointments.filter(apt => {
-                            if (apt.status === 'cancelled') return false;
-
-                            // Extrair apenas a data (YYYY-MM-DD) e comparar o dia
-                            const aptDateStr = apt.appointment_date?.split('T')[0] || ''; // Pega só a data
+                            if (apt.status !== 'completed') return false;
+                            const aptDateStr = apt.appointment_date?.split('T')[0] || '';
                             if (!aptDateStr) return false;
-
                             const aptDateParts = aptDateStr.split('-');
                             if (aptDateParts.length !== 3) return false;
-
-                            const aptDay = parseInt(aptDateParts[2], 10); // Dia do mês
-
+                            const aptDay = parseInt(aptDateParts[2], 10);
                             return aptDay === day;
                           });
 
-                          console.log(`🔍 Dia ${day} - Total de agendamentos encontrados:`, dayAppointments.length);
-                          if (dayAppointments.length > 0) {
-                            console.log(`📋 Agendamentos do dia ${day}:`, dayAppointments.map(apt => ({
-                              id: apt.id,
-                              client: apt.client_name,
-                              date: apt.appointment_date,
-                              status: apt.status,
-                              price: apt.total_price || apt.price,
-                              isSubscriber: isClientPaidSubscriber(apt.client_whatsapp)
-                            })));
-                          }
-
-                          // Calcular receita (excluindo assinantes pagos)
                           const dayRevenue = dayAppointments.reduce((total, apt) => {
-                            if (isClientPaidSubscriber(apt.client_whatsapp)) {
-                              console.log(`💰 Assinante pago excluído da receita: ${apt.client_name} - R$ ${apt.total_price || apt.price}`);
-                              return total; // Não adiciona ao faturamento se for assinante pago
-                            }
-                            const value = apt.total_price || apt.price || 0;
-                            console.log(`💰 Agendamento normal: ${apt.client_name} - R$ ${value}`);
-                            return total + value;
+                            if (isClientPaidSubscriber(apt.client_whatsapp)) return total;
+                            return total + getAppointmentRevenueBase(apt);
                           }, 0);
-
-                          console.log(`💰 Dia ${day} - Receita total: R$ ${dayRevenue}, Agendamentos: ${dayAppointments.length}`);
 
                           return { day, revenue: dayRevenue, appointments: dayAppointments.length };
                         }).filter(day => day.revenue > 0 || day.appointments > 0);
@@ -20370,28 +20468,19 @@ Estamos te aguardando! 😎✂️`;
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
                           {Array.from({ length: 31 }, (_, i) => {
                             const day = i + 1;
-                            // Filtrar agendamentos do dia específico
                             const dayAppointments = monthlyAppointments.filter(apt => {
-                              if (apt.status === 'cancelled') return false;
-
-                              // Extrair apenas a data (YYYY-MM-DD) e comparar o dia
-                              const aptDateStr = apt.appointment_date?.split('T')[0] || ''; // Pega só a data
+                              if (apt.status !== 'completed') return false;
+                              const aptDateStr = apt.appointment_date?.split('T')[0] || '';
                               if (!aptDateStr) return false;
-
                               const aptDateParts = aptDateStr.split('-');
                               if (aptDateParts.length !== 3) return false;
-
-                              const aptDay = parseInt(aptDateParts[2], 10); // Dia do mês
-
+                              const aptDay = parseInt(aptDateParts[2], 10);
                               return aptDay === day;
                             });
 
-                            // Calcular receita (excluindo assinantes pagos)
                             const dayRevenue = dayAppointments.reduce((total, apt) => {
-                              if (isClientPaidSubscriber(apt.client_whatsapp)) {
-                                return total; // Não adiciona ao faturamento se for assinante pago
-                              }
-                              return total + (apt.total_price || apt.price || 0);
+                              if (isClientPaidSubscriber(apt.client_whatsapp)) return total;
+                              return total + getAppointmentRevenueBase(apt);
                             }, 0);
 
                             return (
@@ -21704,6 +21793,65 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Histórico de profissionais (excluídos) */}
+          {showDeletedProfessionalsModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-lg mx-4 max-h-[85vh] overflow-hidden flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Histórico de profissionais</h3>
+                  <button
+                    onClick={() => setShowDeletedProfessionalsModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">
+                  Profissionais que foram removidos da lista. Você pode reativar para que voltem a aparecer na Receita por Profissional e possam receber pagamentos (saldo vinculado ao mesmo ID).
+                </p>
+                <div className="overflow-y-auto flex-1 min-h-0">
+                  {(establishment?.deleted_professionals || []).length === 0 ? (
+                    <p className="text-gray-500 text-center py-6">Nenhum profissional no histórico.</p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {(establishment?.deleted_professionals || []).map((p: any) => (
+                        <li key={p.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <div>
+                            <span className="font-medium text-gray-900">{p.name || 'Sem nome'}</span>
+                            {p.percentage != null && (
+                              <span className="text-sm text-gray-500 ml-2">{p.percentage}%</span>
+                            )}
+                            {p.deleted_at && (
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                Removido em {format(new Date(p.deleted_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreDeletedProfessional(p)}
+                            className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                          >
+                            Reativar
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => setShowDeletedProfessionalsModal(false)}
+                    className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Fechar
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -23528,7 +23676,16 @@ Estamos te aguardando! 😎✂️`;
           {/* Tab de Profissionais */}
           {activeTab === 'professionals' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Profissionais</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">Profissionais</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowDeletedProfessionalsModal(true)}
+                  className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Histórico de profissionais
+                </button>
+              </div>
 
               {/* Alerta para novos estabelecimentos */}
               {isNewUser && (
