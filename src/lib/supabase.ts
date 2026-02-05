@@ -3,81 +3,102 @@ import { addMonths } from 'date-fns';
 import type { Database } from '../types/supabase';
 import { dlog } from '../utils/debugConsole';
 
-// These environment variables need to be set after connecting to Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+// URLs: principal (ou legado VITE_SUPABASE_URL) e reserva para fallback quando DNS falha
+const supabaseUrlPrincipal =
+  import.meta.env.VITE_SUPABASE_URL_PRINCIPAL || import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseUrlReserva = import.meta.env.VITE_SUPABASE_URL_RESERVA || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+const urlInicial = supabaseUrlPrincipal || 'https://placeholder.supabase.co';
+const keyInicial = supabaseAnonKey || 'placeholder_key';
+
 // Verificar se as variáveis de ambiente estão definidas
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrlPrincipal && !import.meta.env.VITE_SUPABASE_URL) {
   console.error('❌ CRÍTICO: Variáveis de ambiente do Supabase não estão definidas!');
   console.error('Por favor, crie um arquivo .env na raiz do projeto com:');
-  console.error('VITE_SUPABASE_URL=sua_url_do_supabase');
+  console.error('VITE_SUPABASE_URL ou VITE_SUPABASE_URL_PRINCIPAL');
   console.error('VITE_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase');
-
-  // Fallback temporário para desenvolvimento
   if (import.meta.env.DEV) {
     console.warn('⚠️ Usando configuração de fallback para desenvolvimento...');
   }
 }
 
-// Initialize the Supabase client
-export const supabase: SupabaseClient<Database> = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder_key',
-  {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: true,
-      storageKey: 'agendafacil_auth_token',
-      flowType: 'pkce',
-      // Configurações otimizadas para PWA
-      debug: false,
-      // Permitir múltiplas sessões simultâneas (PC + Celular)
-      // multiTabPersistence: true, // Removido - não é uma propriedade válida
-      // Configurações específicas para PWA
-      storage: {
-        getItem: (key: string) => {
-          try {
-            const value = localStorage.getItem(key);
-            dlog(`📱 PWA - Lendo ${key}:`, value ? 'encontrado' : 'não encontrado');
-            return value;
-          } catch (error) {
-            console.warn('❌ Erro ao acessar localStorage:', error);
-            return null;
-          }
-        },
-        setItem: (key: string, value: string) => {
-          try {
-            localStorage.setItem(key, value);
-            dlog(`💾 PWA - Salvando ${key}:`, 'sucesso');
-          } catch (error) {
-            console.warn('❌ Erro ao salvar no localStorage:', error);
-          }
-        },
-        removeItem: (key: string) => {
-          try {
-            localStorage.removeItem(key);
-            dlog(`🗑️ PWA - Removendo ${key}:`, 'sucesso');
-          } catch (error) {
-            console.warn('❌ Erro ao remover do localStorage:', error);
-          }
+const supabaseClientOptions = {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+    storageKey: 'agendafacil_auth_token',
+    flowType: 'pkce' as const,
+    debug: false,
+    storage: {
+      getItem: (key: string) => {
+        try {
+          const value = localStorage.getItem(key);
+          dlog(`📱 PWA - Lendo ${key}:`, value ? 'encontrado' : 'não encontrado');
+          return value;
+        } catch (error) {
+          console.warn('❌ Erro ao acessar localStorage:', error);
+          return null;
+        }
+      },
+      setItem: (key: string, value: string) => {
+        try {
+          localStorage.setItem(key, value);
+          dlog(`💾 PWA - Salvando ${key}:`, 'sucesso');
+        } catch (error) {
+          console.warn('❌ Erro ao salvar no localStorage:', error);
+        }
+      },
+      removeItem: (key: string) => {
+        try {
+          localStorage.removeItem(key);
+          dlog(`🗑️ PWA - Removendo ${key}:`, 'sucesso');
+        } catch (error) {
+          console.warn('❌ Erro ao remover do localStorage:', error);
         }
       }
-    },
-    global: {
-      headers: { 'x-application-name': 'agendafacil' },
-    },
-    db: {
-      schema: 'public'
-    },
-    realtime: {
-      params: {
-        eventsPerSecond: 2
-      }
+    }
+  },
+  global: {
+    headers: { 'x-application-name': 'agendafacil' },
+  },
+  db: {
+    schema: 'public'
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 2
     }
   }
-);
+};
+
+function createSupabaseClient(url: string, key: string): SupabaseClient<Database> {
+  return createClient(url, key, supabaseClientOptions);
+}
+
+let currentClient = createSupabaseClient(urlInicial, keyInicial);
+
+function tryPrincipalThenReserva(): void {
+  if (!supabaseUrlReserva || !supabaseUrlPrincipal || supabaseUrlReserva === supabaseUrlPrincipal) return;
+  const base = supabaseUrlPrincipal.replace(/\/$/, '');
+  fetch(`${base}/rest/v1/`, { method: 'HEAD', mode: 'cors', cache: 'no-store' })
+    .then(() => { })
+    .catch(() => {
+      console.warn('[Supabase] URL principal inacessível (DNS/rede), usando URL reserva.');
+      currentClient = createSupabaseClient(supabaseUrlReserva, supabaseAnonKey || keyInicial);
+    });
+}
+
+tryPrincipalThenReserva();
+
+export const supabase = new Proxy({} as SupabaseClient<Database>, {
+  get(_, prop: string) {
+    const val = (currentClient as Record<string, unknown>)[prop];
+    if (typeof val === 'function') return (val as (...args: unknown[]) => unknown).bind(currentClient);
+    return val;
+  }
+});
 
 // Auth functions
 export const signUp = async (email: string, password: string, userRole: string, meta: Record<string, any> = {}) => {
@@ -1036,7 +1057,7 @@ export const getAppointmentsByPhone = async (phone: string) => {
     ];
     let localNumber = cleanPhone;
     let hasCountryCode = false;
-    
+
     // Verificar se começa com código de país (do maior para o menor para evitar falsos positivos)
     for (const { code, minLength } of countryCodes) {
       if (cleanPhone.startsWith(code) && cleanPhone.length >= minLength) {
