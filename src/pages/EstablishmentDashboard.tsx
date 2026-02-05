@@ -12614,9 +12614,18 @@ Estamos te aguardando! 😎✂️`;
         };
       });
 
-      // Atualizar o estado local
+      // Atualizar o estado local (calendário/dia)
       setAppointments(prevAppointments =>
         prevAppointments.map(apt =>
+          apt.id === appointmentId
+            ? { ...apt, price: newValue, total_price: correctTotal }
+            : apt
+        )
+      );
+
+      // Atualizar monthlyAppointments para o financeiro refletir na hora (Valor bruto, totais, etc.)
+      setMonthlyAppointments(prev =>
+        prev.map(apt =>
           apt.id === appointmentId
             ? { ...apt, price: newValue, total_price: correctTotal }
             : apt
@@ -15898,8 +15907,8 @@ Estamos te aguardando! 😎✂️`;
                           onClick={() => setFilaReorderMode((v) => !v)}
                           disabled={filaEntriesFiltradas.length <= 2 || filaQueuePositionSupported === false}
                           className={`px-3 py-2 rounded-lg transition-colors text-sm font-extrabold border ${filaReorderMode
-                              ? 'bg-indigo-700 text-white border-indigo-700 hover:bg-indigo-800'
-                              : 'bg-white text-gray-900 border-gray-300 hover:bg-gray-50'
+                            ? 'bg-indigo-700 text-white border-indigo-700 hover:bg-indigo-800'
+                            : 'bg-white text-gray-900 border-gray-300 hover:bg-gray-50'
                             } ${filaEntriesFiltradas.length <= 2 ? 'opacity-60 cursor-not-allowed' : ''}`}
                           title="Trocar ordem da fila"
                         >

@@ -1,12 +1,12 @@
 import { format, parse, parseISO } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Clock, Crown, Package, Phone, Plus, Trash2, User, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
 import { RescheduleAppointmentModal } from './RescheduleAppointmentModal';
-import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { useToast } from './ui/Toaster';
-import { useAuth } from '../context/AuthContext';
 
 interface Professional {
   id: string;
@@ -751,7 +751,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         }
 
         // Bloquear todos os horários dentro do intervalo do encaixe
-      const squeezeDuration = getDuracaoTotalAgendamento(squeeze, interval);
+        const squeezeDuration = getDuracaoTotalAgendamento(squeeze, interval);
         const squeezeStartDate = parse(squeezeStartTime, 'HH:mm', selectedDate);
 
         allSlots.forEach(slot => {
@@ -901,9 +901,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
           return;
         }
 
+        const appointment = appointments.find(apt => apt.id === appointmentId);
+        const soldProductsTotal = appointment?.sold_products?.reduce((sum, p) =>
+          sum + (p.quantity * p.unit_price), 0) ?? 0;
+        const additionalProductsTotal = appointment?.additional_products?.reduce((sum, p) =>
+          sum + (p.price ?? 0), 0) ?? 0;
+        const correctTotal = numericValue + soldProductsTotal + additionalProductsTotal;
+
         const { error } = await supabase
           .from('appointments')
-          .update({ price: numericValue })
+          .update({ price: numericValue, total_price: correctTotal })
           .eq('id', appointmentId);
 
         if (error) throw error;
@@ -1210,7 +1217,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const dailyNet = dailyAppointments.reduce((total, apt) => {
         const baseValue = calculateServiceTotal(apt);
         const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-        
+
         if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
           // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
           if (establishment?.tax_deducted_by_establishment) {
@@ -1230,7 +1237,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const monthlyNet = monthlyAppointmentsForPro.reduce((total, apt) => {
         const baseValue = calculateServiceTotal(apt);
         const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-        
+
         if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
           // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
           if (establishment?.tax_deducted_by_establishment) {
@@ -1743,8 +1750,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             <button
                               onClick={() => setSelectedProfessionalForInfo(professional.id)}
                               className={`flex-1 px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                  ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                  : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                                 }`}
                             >
                               💰 Financeiro
@@ -1753,8 +1760,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               <button
                                 onClick={() => onGoToProfessionalConfig(professional.id)}
                                 className={`flex-1 px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                    ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                    : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                                  ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                                  : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                                   }`}
                                 title="Ir para configurações do profissional"
                               >
@@ -1766,8 +1773,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             <button
                               onClick={onGoToClients}
                               className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                  ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                  : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                                 }`}
                               title="Ir para Meus Clientes"
                             >
@@ -1780,8 +1787,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setShowSqueezeServiceModal(true);
                             }}
                             className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                              ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                              : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                               }`}
                             title="Criar Encaixe"
                           >
@@ -1795,8 +1802,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setShowAvailabilityModal(true);
                             }}
                             className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                              ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                              : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                               }`}
                             title="Ver horários disponíveis (somente visualização)"
                           >
@@ -2354,9 +2361,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 e.stopPropagation();
                                                 handleUpdateAppointmentStatus(apt.id, 'completed');
                                               }}
-                                              className={`px-2 py-1.5 text-xs text-white rounded transition-colors ${
-                                                apt.is_squeeze ? 'bg-gray-700 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'
-                                              }`}
+                                              className={`px-2 py-1.5 text-xs text-white rounded transition-colors ${apt.is_squeeze ? 'bg-gray-700 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'
+                                                }`}
                                             >
                                               {apt.is_squeeze ? (
                                                 <>
@@ -2600,267 +2606,266 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </div>
         </div>
 
-      {/* Modal: Horários disponíveis (somente leitura) */}
-      {showAvailabilityModal && (
-        <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-amber-500/30 bg-gradient-to-b from-[#0b0b0c] to-black">
-            <div className="p-4 border-b border-white/10">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-white font-extrabold text-lg">Horários disponíveis</div>
-                  <div className="text-xs text-white/70 mt-1">
-                    {availabilityProfessionalName} • {format(selectedDate, 'dd/MM/yyyy')}
+        {/* Modal: Horários disponíveis (somente leitura) */}
+        {showAvailabilityModal && (
+          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-amber-500/30 bg-gradient-to-b from-[#0b0b0c] to-black">
+              <div className="p-4 border-b border-white/10">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-white font-extrabold text-lg">Horários disponíveis</div>
+                    <div className="text-xs text-white/70 mt-1">
+                      {availabilityProfessionalName} • {format(selectedDate, 'dd/MM/yyyy')}
+                    </div>
+                    <div className="text-[11px] text-white/60 mt-1">
+                      Visualização para print (não dá pra clicar/agendar).
+                    </div>
                   </div>
-                  <div className="text-[11px] text-white/60 mt-1">
-                    Visualização para print (não dá pra clicar/agendar).
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAvailabilityModal(false)}
-                  className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/15 text-white flex items-center justify-center"
-                  title="Fechar"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 max-h-[70vh] overflow-y-auto">
-              {/* Grade no estilo do Booking (TimeSlotSelector) */}
-              <div className="grid grid-cols-4 gap-2">
-                {availabilitySlots.map((slot, idx) => {
-                  const appointment = slot.appointment || slot.parentAppointment;
-                  const isPast = Boolean((slot as any).isPast);
-                  const isAvailable = slot.isEmpty && !slot.isBlocked && !isPast;
-                  const isBlocked = slot.isBlocked;
-                  const isAvulso = Boolean((appointment as any)?.is_avulso);
-                  const isSqueeze = Boolean((appointment as any)?.is_squeeze);
-                  const isReserved = Boolean(appointment) && !isAvulso && !isSqueeze;
-
-                  const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isSqueeze || isPast;
-
-                  const badgeText = isAvulso
-                    ? 'RESERVA'
-                    : isSqueeze
-                      ? 'ENCAIXE'
-                      : isPast
-                        ? 'Já passou'
-                        : isBlocked
-                        ? 'Horário Fechado'
-                        : isReserved
-                          ? 'Horário Reservado'
-                          : '';
-
-                  return (
-                    <button
-                      type="button"
-                      key={`${slot.time}-${idx}`}
-                      // Só visualização: não faz nada ao clicar
-                      onClick={() => { }}
-                      className={`
-                        px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 cursor-default
-                        ${isAvulso
-                          ? 'bg-orange-100 text-orange-800'
-                          : isSqueeze
-                            ? 'bg-purple-700 text-white'
-                            : isPast
-                              ? 'bg-zinc-700 text-white'
-                              : isDisabled
-                              ? 'bg-red-600 text-white'
-                              : 'bg-green-600 text-white'
-                        }
-                      `}
-                      aria-disabled="true"
-                    >
-                      <div className="flex flex-col items-center">
-                        <span>{slot.time}</span>
-                        {badgeText && (
-                          <span className={`text-xs mt-1 ${isAvulso ? 'text-orange-600' : 'text-white'}`}>
-                            {badgeText}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-white/10">
-              <button
-                type="button"
-                onClick={() => setShowAvailabilityModal(false)}
-                className="w-full rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-extrabold py-3 transition-colors"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Trocar horário */}
-      {showRescheduleModal && selectedAppointmentForReschedule && (
-        <RescheduleAppointmentModal
-          isOpen={showRescheduleModal}
-          onClose={handleCloseRescheduleModal}
-          onConfirm={handleRescheduleAppointment}
-          appointment={selectedAppointmentForReschedule as any}
-          establishment={{
-            id: String(establishment?.id || ''),
-            business_hours: businessHours,
-            professionals: Array.isArray(establishment?.professionals) ? establishment.professionals : [],
-          } as any}
-          use15MinuteInterval={Boolean((establishment as any)?.use_15_minute_interval)}
-          use20MinuteSchedule={Boolean((establishment as any)?.use_20_minute_schedule)}
-          use60MinuteSchedule={Boolean((establishment as any)?.use_60_minute_schedule)}
-        />
-      )}
-
-      {/* Modal: Trocar serviço */}
-      {showChangeServiceModal && selectedAppointmentForServiceChange && establishment?.id && (
-        <ChangeAppointmentServiceModal
-          isOpen={showChangeServiceModal}
-          onClose={handleCloseChangeServiceModal}
-          establishmentId={String(establishment.id)}
-          appointment={selectedAppointmentForServiceChange as any}
-          onConfirm={handleConfirmChangeService}
-        />
-      )}
-
-      {/* Modal: Atendimento assinatura */}
-      {showSubscriberAttendanceModal && (
-        <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-white">
-            <div className="p-4 border-b border-gray-200">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-gray-900 font-extrabold text-lg">Atendimento assinatura</div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    Selecione o assinante para registrar 1 atendimento concluído.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCloseSubscriberAttendanceModal}
-                  className="h-9 w-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center"
-                  title="Fechar"
-                  disabled={isSavingSubscriberAttendance}
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4">
-              <div className="mb-3">
-                <input
-                  type="text"
-                  autoFocus
-                  value={subscriberSearch}
-                  onChange={(e) => setSubscriberSearch(e.target.value)}
-                  placeholder="Pesquisar assinante por nome ou WhatsApp..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  disabled={subscriberOptionsLoading || isSavingSubscriberAttendance}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </div>
-
-              <div className="mb-3 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={loadSubscriberOptions}
-                  className="text-sm px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800"
-                  disabled={subscriberOptionsLoading || isSavingSubscriberAttendance}
-                >
-                  {subscriberOptionsLoading ? 'Carregando...' : 'Recarregar lista'}
-                </button>
-                <div className="text-xs text-gray-600">
-                  {(() => {
-                    const q = String(subscriberSearch || '');
-                    const filtered = (subscriberOptions || []).filter((s: any) => matchesSubscriberQuery(s, q));
-                    return q ? `${filtered.length} de ${subscriberOptions.length} assinante(s)` : `${subscriberOptions.length} assinante(s)`;
-                  })()}
+                  <button
+                    type="button"
+                    onClick={() => setShowAvailabilityModal(false)}
+                    className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/15 text-white flex items-center justify-center"
+                    title="Fechar"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
                 </div>
               </div>
 
-              <div className="max-h-[45vh] overflow-y-auto border border-gray-200 rounded-lg">
-                {(() => {
-                  const q = String(subscriberSearch || '');
-                  const filtered = (subscriberOptions || []).filter((s: any) => matchesSubscriberQuery(s, q));
+              <div className="p-4 max-h-[70vh] overflow-y-auto">
+                {/* Grade no estilo do Booking (TimeSlotSelector) */}
+                <div className="grid grid-cols-4 gap-2">
+                  {availabilitySlots.map((slot, idx) => {
+                    const appointment = slot.appointment || slot.parentAppointment;
+                    const isPast = Boolean((slot as any).isPast);
+                    const isAvailable = slot.isEmpty && !slot.isBlocked && !isPast;
+                    const isBlocked = slot.isBlocked;
+                    const isAvulso = Boolean((appointment as any)?.is_avulso);
+                    const isSqueeze = Boolean((appointment as any)?.is_squeeze);
+                    const isReserved = Boolean(appointment) && !isAvulso && !isSqueeze;
 
-                  if (subscriberOptions.length === 0) {
-                    return (
-                      <div className="p-4 text-sm text-gray-600">
-                        Nenhum assinante encontrado. Clique em “Recarregar lista”.
-                      </div>
-                    );
-                  }
+                    const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isSqueeze || isPast;
 
-                  if (String(q || '').trim() && filtered.length === 0) {
-                    return (
-                      <div className="p-4 text-sm text-gray-600">
-                        Nenhum assinante encontrado para "{subscriberSearch}".
-                      </div>
-                    );
-                  }
+                    const badgeText = isAvulso
+                      ? 'RESERVA'
+                      : isSqueeze
+                        ? 'ENCAIXE'
+                        : isPast
+                          ? 'Já passou'
+                          : isBlocked
+                            ? 'Horário Fechado'
+                            : isReserved
+                              ? 'Horário Reservado'
+                              : '';
 
-                  return filtered.map((s: any) => {
-                    const selected = String(selectedSubscriberOptionId) === String(s.id);
                     return (
                       <button
                         type="button"
-                        key={s.id}
-                        onClick={() => setSelectedSubscriberOptionId(s.id)}
-                        className={`w-full text-left px-3 py-2 border-b border-gray-100 hover:bg-gray-50 ${
-                          selected ? 'bg-emerald-50' : ''
-                        }`}
-                        disabled={isSavingSubscriberAttendance}
+                        key={`${slot.time}-${idx}`}
+                        // Só visualização: não faz nada ao clicar
+                        onClick={() => { }}
+                        className={`
+                        px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 cursor-default
+                        ${isAvulso
+                            ? 'bg-orange-100 text-orange-800'
+                            : isSqueeze
+                              ? 'bg-purple-700 text-white'
+                              : isPast
+                                ? 'bg-zinc-700 text-white'
+                                : isDisabled
+                                  ? 'bg-red-600 text-white'
+                                  : 'bg-green-600 text-white'
+                          }
+                      `}
+                        aria-disabled="true"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-gray-900 truncate">
-                              {s.display_name}
-                            </div>
-                            <div className="text-xs text-gray-600 truncate">
-                              {String(s.whatsapp || '').replace(/\D/g, '')}
-                              {s.plan_name ? ` • ${s.plan_name}` : ''}
-                            </div>
-                          </div>
-                          {selected && (
-                            <span className="text-xs font-bold text-emerald-700">SELECIONADO</span>
+                        <div className="flex flex-col items-center">
+                          <span>{slot.time}</span>
+                          {badgeText && (
+                            <span className={`text-xs mt-1 ${isAvulso ? 'text-orange-600' : 'text-white'}`}>
+                              {badgeText}
+                            </span>
                           )}
                         </div>
                       </button>
                     );
-                  });
-                })()}
+                  })}
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setShowAvailabilityModal(false)}
+                  className="w-full rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-extrabold py-3 transition-colors"
+                >
+                  Fechar
+                </button>
               </div>
             </div>
+          </div>
+        )}
 
-            <div className="p-4 border-t border-gray-200 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleCloseSubscriberAttendanceModal}
-                className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm"
-                disabled={isSavingSubscriberAttendance}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmSubscriberAttendance}
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isSavingSubscriberAttendance || !selectedSubscriberOptionId}
-              >
-                {isSavingSubscriberAttendance ? 'Salvando...' : 'Concluir e registrar'}
-              </button>
+        {/* Modal: Trocar horário */}
+        {showRescheduleModal && selectedAppointmentForReschedule && (
+          <RescheduleAppointmentModal
+            isOpen={showRescheduleModal}
+            onClose={handleCloseRescheduleModal}
+            onConfirm={handleRescheduleAppointment}
+            appointment={selectedAppointmentForReschedule as any}
+            establishment={{
+              id: String(establishment?.id || ''),
+              business_hours: businessHours,
+              professionals: Array.isArray(establishment?.professionals) ? establishment.professionals : [],
+            } as any}
+            use15MinuteInterval={Boolean((establishment as any)?.use_15_minute_interval)}
+            use20MinuteSchedule={Boolean((establishment as any)?.use_20_minute_schedule)}
+            use60MinuteSchedule={Boolean((establishment as any)?.use_60_minute_schedule)}
+          />
+        )}
+
+        {/* Modal: Trocar serviço */}
+        {showChangeServiceModal && selectedAppointmentForServiceChange && establishment?.id && (
+          <ChangeAppointmentServiceModal
+            isOpen={showChangeServiceModal}
+            onClose={handleCloseChangeServiceModal}
+            establishmentId={String(establishment.id)}
+            appointment={selectedAppointmentForServiceChange as any}
+            onConfirm={handleConfirmChangeService}
+          />
+        )}
+
+        {/* Modal: Atendimento assinatura */}
+        {showSubscriberAttendanceModal && (
+          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-white">
+              <div className="p-4 border-b border-gray-200">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-gray-900 font-extrabold text-lg">Atendimento assinatura</div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      Selecione o assinante para registrar 1 atendimento concluído.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCloseSubscriberAttendanceModal}
+                    className="h-9 w-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center"
+                    title="Fechar"
+                    disabled={isSavingSubscriberAttendance}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4">
+                <div className="mb-3">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={subscriberSearch}
+                    onChange={(e) => setSubscriberSearch(e.target.value)}
+                    placeholder="Pesquisar assinante por nome ou WhatsApp..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    disabled={subscriberOptionsLoading || isSavingSubscriberAttendance}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </div>
+
+                <div className="mb-3 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={loadSubscriberOptions}
+                    className="text-sm px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800"
+                    disabled={subscriberOptionsLoading || isSavingSubscriberAttendance}
+                  >
+                    {subscriberOptionsLoading ? 'Carregando...' : 'Recarregar lista'}
+                  </button>
+                  <div className="text-xs text-gray-600">
+                    {(() => {
+                      const q = String(subscriberSearch || '');
+                      const filtered = (subscriberOptions || []).filter((s: any) => matchesSubscriberQuery(s, q));
+                      return q ? `${filtered.length} de ${subscriberOptions.length} assinante(s)` : `${subscriberOptions.length} assinante(s)`;
+                    })()}
+                  </div>
+                </div>
+
+                <div className="max-h-[45vh] overflow-y-auto border border-gray-200 rounded-lg">
+                  {(() => {
+                    const q = String(subscriberSearch || '');
+                    const filtered = (subscriberOptions || []).filter((s: any) => matchesSubscriberQuery(s, q));
+
+                    if (subscriberOptions.length === 0) {
+                      return (
+                        <div className="p-4 text-sm text-gray-600">
+                          Nenhum assinante encontrado. Clique em “Recarregar lista”.
+                        </div>
+                      );
+                    }
+
+                    if (String(q || '').trim() && filtered.length === 0) {
+                      return (
+                        <div className="p-4 text-sm text-gray-600">
+                          Nenhum assinante encontrado para "{subscriberSearch}".
+                        </div>
+                      );
+                    }
+
+                    return filtered.map((s: any) => {
+                      const selected = String(selectedSubscriberOptionId) === String(s.id);
+                      return (
+                        <button
+                          type="button"
+                          key={s.id}
+                          onClick={() => setSelectedSubscriberOptionId(s.id)}
+                          className={`w-full text-left px-3 py-2 border-b border-gray-100 hover:bg-gray-50 ${selected ? 'bg-emerald-50' : ''
+                            }`}
+                          disabled={isSavingSubscriberAttendance}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-gray-900 truncate">
+                                {s.display_name}
+                              </div>
+                              <div className="text-xs text-gray-600 truncate">
+                                {String(s.whatsapp || '').replace(/\D/g, '')}
+                                {s.plan_name ? ` • ${s.plan_name}` : ''}
+                              </div>
+                            </div>
+                            {selected && (
+                              <span className="text-xs font-bold text-emerald-700">SELECIONADO</span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-gray-200 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleCloseSubscriberAttendanceModal}
+                  className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm"
+                  disabled={isSavingSubscriberAttendance}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSubscriberAttendance}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isSavingSubscriberAttendance || !selectedSubscriberOptionId}
+                >
+                  {isSavingSubscriberAttendance ? 'Salvando...' : 'Concluir e registrar'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
         {/* Modal de Informações do Profissional */}
         {selectedProfessionalForInfo && (
