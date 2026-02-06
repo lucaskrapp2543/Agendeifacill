@@ -24245,36 +24245,25 @@ Estamos te aguardando! 😎✂️`;
                       )}
                     </div>
 
-                    {/* Campo de WhatsApp do profissional */}
+                    {/* Campo de WhatsApp do profissional — 55 fixo (não apagável), só complementar com DDD + número */}
                     <div className="space-y-2">
                       <label className="block text-sm text-gray-400">WhatsApp do profissional</label>
-                      <input
-                        type="text"
-                        value={professional.whatsapp || ''}
-                        onChange={(e) => handleProfessionalChange(professional.id, 'whatsapp', e.target.value)}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                        placeholder={(() => {
-                          // Detectar país do estabelecimento pelo WhatsApp
-                          const establishmentWhatsapp = establishment?.whatsapp || '';
-                          const cleanEstablishmentWhatsapp = establishmentWhatsapp.replace(/\D/g, '');
-
-                          if (cleanEstablishmentWhatsapp.startsWith('351')) {
-                            return '+351 964 272 201'; // Portugal
-                          } else if (cleanEstablishmentWhatsapp.startsWith('34')) {
-                            return '+34 612 345 678'; // Espanha
-                          } else if (cleanEstablishmentWhatsapp.startsWith('54')) {
-                            return '+54 11 1234-5678'; // Argentina
-                          } else if (cleanEstablishmentWhatsapp.startsWith('56')) {
-                            return '+56 9 1234 5678'; // Chile
-                          } else if (cleanEstablishmentWhatsapp.startsWith('244')) {
-                            return '+244 912 345 678'; // Angola
-                          } else if (cleanEstablishmentWhatsapp.startsWith('1') && cleanEstablishmentWhatsapp.length >= 10) {
-                            return '+1 (555) 123-4567'; // EUA
-                          }
-                          return '(47) 99999-9999'; // Brasil (padrão)
-                        })()}
-                        maxLength={20}
-                      />
+                      <div className="flex items-center rounded-lg border border-gray-700 bg-[#1a1b1c] overflow-hidden">
+                        <span className="flex-shrink-0 px-4 py-2 text-white bg-gray-800 border-r border-gray-700 select-none" aria-hidden="true">55</span>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          value={(professional.whatsapp || '').replace(/^55/, '').replace(/\D/g, '')}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, '');
+                            handleProfessionalChange(professional.id, 'whatsapp', digits ? `55${digits}` : '55');
+                          }}
+                          placeholder="99 9 9999-9999"
+                          className="flex-1 min-w-0 px-4 py-2 bg-[#1a1b1c] text-white focus:outline-none focus:ring-0 border-0"
+                          maxLength={11}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500">Exemplo: 99 9 9999-9999 (DDD + 9 + número). O 55 já está incluído.</p>
                     </div>
 
                     {/* ✅ Saldo por produtos (repasse do mês) */}
