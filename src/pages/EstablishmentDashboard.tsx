@@ -2701,6 +2701,7 @@ const EstablishmentDashboard = () => {
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
   const [blockMonthsSameTime, setBlockMonthsSameTime] = useState(false);
   const [selectedMonthsForBlock, setSelectedMonthsForBlock] = useState<number[]>([]);
+  const [showResetBlockConfirm, setShowResetBlockConfirm] = useState(false);
 
   // Estados para gerenciar horários de trabalho dos profissionais
   const [showWorkHoursModal, setShowWorkHoursModal] = useState(false);
@@ -12298,6 +12299,7 @@ Estamos te aguardando! 😎✂️`;
     setBlockRecurringWeekdays([]);
     setBlockMonthsSameTime(false);
     setSelectedMonthsForBlock([]);
+    setShowResetBlockConfirm(false);
   };
 
   const handleToggleBlockedHour = (hour: string) => {
@@ -12415,6 +12417,52 @@ Estamos te aguardando! 😎✂️`;
     } catch (error) {
       console.error('Erro ao salvar horários bloqueados:', error);
       toast.error('Erro ao salvar horários bloqueados');
+    }
+  };
+
+  const handleResetBlockedHours = async () => {
+    if (!selectedProfessionalForBlock || !establishment) return;
+    setShowResetBlockConfirm(false);
+    try {
+      const { data: establishmentData, error: fetchError } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishment.id)
+        .single();
+      if (fetchError) {
+        toast.error('Erro ao remover bloqueios');
+        return;
+      }
+      const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const updatedProfessionals = dbProfessionals.map((p: any) => {
+        if (p.id === selectedProfessionalForBlock) {
+          return {
+            ...p,
+            blocked_hours: {},
+            block_modal_last_options: { useRecurring: false, months: [], weekdays: [] }
+          };
+        }
+        return p;
+      });
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+      if (updateError) {
+        toast.error('Erro ao remover bloqueios');
+        return;
+      }
+      setProfessionals(updatedProfessionals);
+      setEstablishment(prev => prev ? { ...prev, professionals: updatedProfessionals } : prev);
+      setSelectedBlockedHours([]);
+      setBlockRecurringWeekdays([]);
+      setSelectedMonthsForBlock([]);
+      setBlockMonthsSameTime(false);
+      toast.success('Todos os bloqueios deste profissional foram removidos.');
+      handleCloseBlockTimeModal();
+    } catch (error) {
+      console.error('Erro ao resetar bloqueios:', error);
+      toast.error('Erro ao remover bloqueios');
     }
   };
 
@@ -21457,7 +21505,35 @@ Estamos te aguardando! 😎✂️`;
                   <p className="text-gray-400 text-xs mb-3 text-right">
                     Ao clicar em Salvar abaixo, os horários são gravados imediatamente. Não é necessário clicar em Salvar Profissionais.
                   </p>
-                  <div className="flex gap-3 justify-end">
+                  {showResetBlockConfirm && (
+                    <div className="mb-4 p-4 bg-red-900/30 border border-red-500/50 rounded-lg">
+                      <p className="text-white font-medium mb-3">Deseja mesmo remover todos os bloqueios criados?</p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleResetBlockedHours}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                        >
+                          Sim
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowResetBlockConfirm(false)}
+                          className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                        >
+                          Não
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-3 justify-end items-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowResetBlockConfirm(true)}
+                      className="px-4 py-2 bg-gray-700 text-red-200 border border-red-500/50 rounded-lg hover:bg-gray-600 transition-colors"
+                    >
+                      Resetar bloqueios
+                    </button>
                     <button
                       onClick={handleCloseBlockTimeModal}
                       className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
