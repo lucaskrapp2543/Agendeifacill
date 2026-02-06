@@ -789,6 +789,21 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         }
         console.log('🔍 DEBUG - Intervalo de horários:', interval, 'minutos');
 
+        // Agendamentos do profissional para incluir horário de término como slot (ex: 14:50)
+        const professionalAppointments = appointments?.filter(
+          a => a.professional === selectedProfessional?.id
+        ) || [];
+
+        const buildPeriodSlotMinutes = (periodStart: number, periodEnd: number) => {
+          const candidate = new Set<number>();
+          for (let m = periodStart; m < periodEnd; m += interval) candidate.add(m);
+          professionalAppointments.forEach((apt) => {
+            const aptEndMins = timeToMinutes(apt.appointment_time) + (apt.duration || 30);
+            if (aptEndMins >= periodStart && aptEndMins < periodEnd) candidate.add(aptEndMins);
+          });
+          return Array.from(candidate).sort((a, b) => a - b);
+        };
+
         // Gerar slots para o primeiro período
         if (workHours.open1 && workHours.close1) {
           const startMinutes = timeToMinutes(workHours.open1);
@@ -802,7 +817,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
             interval
           });
 
-          for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
+          const periodMinutes = buildPeriodSlotMinutes(startMinutes, endMinutes);
+          for (const minutes of periodMinutes) {
             const time = minutesToTime(minutes);
             const slotStart = new Date(`${selectedDate}T${time}:00`);
             const slotEnd = new Date(slotStart.getTime() + totalDuration * 60000);
@@ -813,17 +829,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
             let reason = '';
             let appointmentId: string | undefined;
             let appointmentStartTime: string | undefined;
-            let slotAdded = false;
 
             if (appointments) {
-              // Filtrar apenas agendamentos do profissional selecionado (por ID)
-              const professionalAppointments = appointments.filter(
-                appointment => {
-                  const matchesId = appointment.professional === selectedProfessional?.id;
-                  return matchesId;
-                }
-              );
-
               for (const appointment of professionalAppointments) {
                 const apptStart = new Date(`${selectedDate}T${appointment.appointment_time}:00`);
                 const apptEnd = new Date(apptStart.getTime() + (appointment.duration || 30) * 60000);
@@ -836,7 +843,6 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
 
-                  // Se este slot é exatamente o horário de início do agendamento, marcar para mostrar o X
                   if (time === appointment.appointment_time) {
                     appointmentId = appointment.id;
                     appointmentStartTime = appointment.appointment_time;
@@ -861,7 +867,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
           const startMinutes = timeToMinutes(workHours.open2);
           const endMinutes = timeToMinutes(workHours.close2);
 
-          for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
+          const periodMinutes = buildPeriodSlotMinutes(startMinutes, endMinutes);
+          for (const minutes of periodMinutes) {
             const time = minutesToTime(minutes);
             const slotStart = new Date(`${selectedDate}T${time}:00`);
             const slotEnd = new Date(slotStart.getTime() + totalDuration * 60000);
@@ -874,10 +881,6 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
             let appointmentStartTime: string | undefined;
 
             if (appointments) {
-              const professionalAppointments = appointments.filter(
-                appointment => appointment.professional === selectedProfessional?.id
-              );
-
               for (const appointment of professionalAppointments) {
                 const apptStart = new Date(`${selectedDate}T${appointment.appointment_time}:00`);
                 const apptEnd = new Date(apptStart.getTime() + (appointment.duration || 30) * 60000);
@@ -889,7 +892,6 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
 
-                  // Se este slot é exatamente o horário de início do agendamento, marcar para mostrar o X
                   if (time === appointment.appointment_time) {
                     appointmentId = appointment.id;
                     appointmentStartTime = appointment.appointment_time;
@@ -1073,9 +1075,17 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
     setLoading(true);
     try {
-      if (!user?.id) {
-        throw new Error('Sessão expirada. Saia e entre novamente no app.');
+      // Atualizar sessão antes de criar a reserva (evita FK 23503 quando a página fica aberta muito tempo)
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      const currentUser = refreshData?.session?.user ?? refreshData?.user ?? null;
+      if (refreshError || !currentUser?.id) {
+        setLoading(false);
+        alert(
+          'Sessão expirada ou inválida. Recarregue a página ou faça login novamente para criar a reserva.'
+        );
+        return;
       }
+      const currentUserId = currentUser.id;
       // Determinar serviços a serem inseridos
       const servicesToInsert = selectedServices.length > 0 ? selectedServices : [selectedService!];
       const totalPrice = selectedServices.length > 0
@@ -1151,7 +1161,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         if (selectedClient.id.startsWith('manual_')) {
           // Usar o user_id do estabelecimento como client_id (passa a foreign key check)
           // Mas o cliente será identificado pelo client_name e client_whatsapp
-          clientId = user?.id || '';
+          clientId = currentUserId;
         } else {
           clientId = selectedClient.id; // Cliente com UUID válido (deve existir em users)
         }
@@ -1159,12 +1169,12 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         clientWhatsapp = normalizeWhatsappForStorage(selectedClient.whatsapp);
         isAvulso = false; // Cliente conhecido não é avulso
       } else if (isSubscriber) {
-        clientId = user?.id || '';
+        clientId = currentUserId;
         clientName = 'ASSINANTE';
         clientWhatsapp = null;
         isAvulso = false;
       } else {
-        clientId = user?.id || '';
+        clientId = currentUserId;
         clientName = 'CLIENTE AVULSO';
         clientWhatsapp = null;
         isAvulso = true;
@@ -1237,9 +1247,9 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       });
 
       // Barbeiro cria a reserva: client_id tem que ser um id que existe em auth.users (NOT NULL + FK).
-      // Sempre usamos o user do dono logado; cliente identificado por client_name e client_whatsapp.
+      // Sempre usamos o user do dono logado (currentUserId da sessão atualizada); cliente identificado por client_name e client_whatsapp.
       const payloads = datasSemConflito.map((dateStr) => ({
-        client_id: user?.id,
+        client_id: currentUserId,
         establishment_id: establishmentId,
         professional: selectedProfessional.id,
         service: serviceNames,
@@ -1297,12 +1307,21 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
       console.error('Erro ao criar reserva:', error);
 
       const err: any = error || {};
+      const code = String(err?.code ?? '').trim();
       const msg =
         String(err?.message || err?.error || 'Erro ao criar reserva').trim() ||
         'Erro ao criar reserva';
       const details = String(err?.details || '').trim();
       const hint = String(err?.hint || '').trim();
-      const code = String(err?.code || '').trim();
+
+      // 23503 = foreign_key_violation (client_id não existe em users) — geralmente sessão expirada
+      if (code === '23503' || (details && details.toLowerCase().includes('key is not present in table'))) {
+        setLoading(false);
+        alert(
+          'Sessão expirada ou inválida. Recarregue a página ou faça login novamente e tente criar a reserva de novo.'
+        );
+        return;
+      }
 
       const extraParts = [
         code ? `Código: ${code}` : '',

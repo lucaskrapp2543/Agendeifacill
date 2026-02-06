@@ -103,6 +103,8 @@ interface AllProfessionalsAppointmentsViewProps {
   onOpenReminderModal?: (appointment: Appointment) => void;
   onOpenFinishEarlyModal?: (appointment: Appointment) => void;
   onGoToProfessionalConfig?: (professionalId: string) => void;
+  onOpenBlockHoursModal?: (professionalId: string) => void;
+  onOpenAbsenceModal?: (professionalId: string) => void;
   onGoToClients?: () => void;
   onCancelAppointment?: (appointmentId: string) => void;
   useLightLayout?: boolean;
@@ -128,6 +130,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onOpenReminderModal,
   onOpenFinishEarlyModal,
   onGoToProfessionalConfig,
+  onOpenBlockHoursModal,
+  onOpenAbsenceModal,
   onGoToClients,
   onCancelAppointment,
   useLightLayout = false,
@@ -702,6 +706,28 @@ export const AllProfessionalsAppointmentsView: React.FC<
           parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
       );
 
+      // Incluir só horário de TÉRMINO fora do grid (ex: 14:50) — não adicionar 16:30, 16:50 etc. se já estão na grade ou não há agendamento terminando ali
+      const periodStartMins = parse(startTime, 'HH:mm', selectedDate).getTime();
+      const periodEndMins = parse(endTime, 'HH:mm', selectedDate).getTime();
+      professionalAppointments.forEach((apt) => {
+        const aptStart = parse(apt.appointment_time, 'HH:mm', selectedDate);
+        const duration = getDuracaoTotalAgendamento(apt, interval);
+        const aptEnd = new Date(aptStart.getTime() + duration * 60000);
+        const endTimeStr = format(aptEnd, 'HH:mm');
+        const [eh, em] = endTimeStr.split(':').map(Number);
+        const aptEndMins = eh * 60 + em;
+        const isOffGrid = aptEndMins % interval !== 0;
+        const inPeriod = aptEnd.getTime() >= periodStartMins && aptEnd.getTime() < periodEndMins;
+        if (isOffGrid && inPeriod && !allSlots.includes(endTimeStr)) {
+          allSlots.push(endTimeStr);
+        }
+      });
+      allSlots.sort((a, b) => {
+        const [ah, am] = a.split(':').map(Number);
+        const [bh, bm] = b.split(':').map(Number);
+        return (ah * 60 + am) - (bh * 60 + bm);
+      });
+
       const occupiedSlots = new Map<string, { appointment?: Appointment; isOccupied: boolean; parentAppointment?: Appointment; isSqueeze?: boolean }>();
       const squeezeSlotsMap = new Map<string, Appointment[]>(); // Mapa de slot -> encaixes
 
@@ -717,6 +743,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
           const occupiedTime = format(new Date(startDate.getTime() + i * 60000), 'HH:mm');
           occupiedSlots.set(occupiedTime, { isOccupied: true, parentAppointment: apt });
         }
+      });
+
+      // Marcar como OCUPADOS todos os slots que caem DENTRO da duração (ex: 13:50 60min → 14:00, 14:20, 14:40)
+      // O loop acima só preenche horários no grid start+k*interval (ex: 14:10, 14:30); slots como 14:00/14:20/14:40 ficavam livres
+      normalAppointments.forEach((apt) => {
+        const [startH, startM] = apt.appointment_time.split(':').map(Number);
+        const startTotal = startH * 60 + startM;
+        const duration = getDuracaoTotalAgendamento(apt, interval);
+        const endTotal = startTotal + duration;
+        allSlots.forEach((slot) => {
+          const [sh, sm] = slot.split(':').map(Number);
+          const slotTotal = sh * 60 + sm;
+          if (slotTotal > startTotal && slotTotal < endTotal) {
+            const existing = occupiedSlots.get(slot);
+            if (!existing?.appointment) {
+              occupiedSlots.set(slot, { isOccupied: true, parentAppointment: apt });
+            }
+          }
+        });
       });
 
       // Processar encaixes - adicionar como appointment no slot mais próximo e bloquear horários
@@ -1769,6 +1814,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               </button>
                             )}
                           </div>
+                          {onOpenBlockHoursModal && (
+                            <button
+                              onClick={() => onOpenBlockHoursModal(professional.id)}
+                              className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
+                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                                }`}
+                              title="Bloquear horários deste profissional"
+                            >
+                              🔒 Bloquear horários
+                            </button>
+                          )}
+                          {onOpenAbsenceModal && (
+                            <button
+                              onClick={() => onOpenAbsenceModal(professional.id)}
+                              className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
+                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                                }`}
+                              title="Configurar dias de ausência deste profissional"
+                            >
+                              📅 Ausência
+                            </button>
+                          )}
                           {onGoToClients && (
                             <button
                               onClick={onGoToClients}

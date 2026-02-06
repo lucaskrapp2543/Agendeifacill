@@ -2696,6 +2696,7 @@ const EstablishmentDashboard = () => {
   const [showBlockTimeModal, setShowBlockTimeModal] = useState(false);
   const [selectedProfessionalForBlock, setSelectedProfessionalForBlock] = useState<string | null>(null);
   const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [blockRecurringWeekdays, setBlockRecurringWeekdays] = useState<number[]>([]); // 0=dom, 1=seg, ..., 6=sáb — dias que serão bloqueados nos meses (ao mudar a data com opção marcada, adiciona o dia)
   const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
   const [blockMonthsSameTime, setBlockMonthsSameTime] = useState(false);
@@ -5351,7 +5352,14 @@ const EstablishmentDashboard = () => {
           offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
           work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
           absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
-          blocked_hours: (localProfessional as any).blocked_hours || dbProfessional.blocked_hours || {} // ✅ PRESERVAR HORÁRIOS BLOQUEADOS!
+          // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: nunca zerar — preferir local; se local vazio e DB tem dados, manter do DB
+          blocked_hours: (() => {
+            const local = (localProfessional as any).blocked_hours;
+            const db = dbProfessional.blocked_hours;
+            if (local && typeof local === 'object' && Object.keys(local).length > 0) return local;
+            if (db && typeof db === 'object' && Object.keys(db).length > 0) return db;
+            return local || db || {};
+          })()
         };
 
         // ✅ VALIDAÇÃO FINAL APÓS MESCLAR: Verificar se profissional com nome tem horário
@@ -8171,11 +8179,14 @@ Estamos te aguardando! 😎✂️`;
       const appointmentTimes = new Set<number>();
       filteredAppointments.forEach(apt => {
         const aptStartMinutes = convertToMinutes(apt.appointment_time);
-        const aptDuration = apt.duration || 30;
+        const aptDuration = Number(apt.duration) || 30;
         const aptEndMinutes = aptStartMinutes + aptDuration;
 
         // Adicionar horário de início
         appointmentTimes.add(aptStartMinutes);
+
+        // Sempre adicionar horário de TÉRMINO como slot (ex: 13:50) para aparecer como disponível após o serviço
+        appointmentTimes.add(aptEndMinutes);
 
         // Adicionar horários intermediários usando o intervalo configurado
         let checkMinutes = aptStartMinutes + intervalMinutes;
@@ -8220,10 +8231,10 @@ Estamos te aguardando! 😎✂️`;
           // Verificar se este horário está dentro da duração de algum agendamento
           const occupyingAppointment = filteredAppointments.find(apt => {
             const aptStartMinutes = convertToMinutes(apt.appointment_time);
-            const aptDuration = apt.duration || 30;
+            const aptDuration = Number(apt.duration) || 30;
             const aptEndMinutes = aptStartMinutes + aptDuration;
 
-            // Este horário está entre o início e o fim do agendamento?
+            // Este horário está entre o início e o fim do agendamento? (término = disponível, por isso < e não <=)
             return currentMinutes > aptStartMinutes && currentMinutes < aptEndMinutes;
           });
 
@@ -12258,23 +12269,24 @@ Estamos te aguardando! 😎✂️`;
   const handleOpenBlockTimeModal = (professionalId: string) => {
     setSelectedProfessionalForBlock(professionalId);
 
-    // Carregar horários bloqueados existentes do profissional
     const professional = professionals.find(p => p.id === professionalId);
+    const lastOptions = (professional as any)?.block_modal_last_options;
+
     if (professional && (professional as any).blocked_hours) {
       setBlockedHours(prev => ({
         ...prev,
         [professionalId]: (professional as any).blocked_hours
       }));
-
-      // Carregar horários bloqueados para a data atual
       const today = new Date().toISOString().split('T')[0];
       setSelectedBlockedHours((professional as any).blocked_hours[today] || []);
     } else {
       setSelectedBlockedHours([]);
     }
 
-    setBlockMonthsSameTime(false);
-    setSelectedMonthsForBlock([]);
+    setBlockMonthsSameTime(Boolean(lastOptions?.useRecurring));
+    setSelectedMonthsForBlock(Array.isArray(lastOptions?.months) ? lastOptions.months : []);
+    setBlockRecurringWeekdays(Array.isArray(lastOptions?.weekdays) ? lastOptions.weekdays : []);
+    setBlockTimeDate(new Date().toISOString().split('T')[0]);
     setShowBlockTimeModal(true);
   };
 
@@ -12283,6 +12295,7 @@ Estamos te aguardando! 😎✂️`;
     setSelectedProfessionalForBlock(null);
     setSelectedBlockedHours([]);
     setBlockTimeDate(new Date().toISOString().split('T')[0]);
+    setBlockRecurringWeekdays([]);
     setBlockMonthsSameTime(false);
     setSelectedMonthsForBlock([]);
   };
@@ -12306,10 +12319,6 @@ Estamos te aguardando! 😎✂️`;
 
   const handleSaveBlockedHours = async () => {
     if (!selectedProfessionalForBlock || !establishment) return;
-    if (selectedBlockedHours.length === 0) {
-      toast.error('Selecione pelo menos um horário para bloquear.');
-      return;
-    }
     if (blockMonthsSameTime && selectedMonthsForBlock.length === 0) {
       toast.error('Selecione pelo menos um mês para bloquear.');
       return;
@@ -12340,11 +12349,15 @@ Estamos te aguardando! 😎✂️`;
           let updatedBlockedHours: Record<string, string[]> = { ...currentBlockedHours };
 
           if (blockMonthsSameTime && selectedMonthsForBlock.length > 0) {
-            // Bloquear o mesmo horário em todos os dias dos meses selecionados (ano da data atual do modal)
+            // Bloquear o mesmo horário nos dias da semana que o usuário "marcou" mudando a data (ex.: sexta e terça)
             const year = parseInt(blockTimeDate.slice(0, 4), 10);
+            const weekdaysToBlock = blockRecurringWeekdays.length > 0
+              ? new Set(blockRecurringWeekdays)
+              : new Set([new Date(blockTimeDate + 'T12:00:00').getDay()]); // fallback: só o dia da data atual
             for (const month of selectedMonthsForBlock) {
               const daysInMonth = new Date(year, month, 0).getDate();
               for (let day = 1; day <= daysInMonth; day++) {
+                if (!weekdaysToBlock.has(new Date(year, month - 1, day).getDay())) continue;
                 const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 updatedBlockedHours[dateStr] = [...selectedBlockedHours];
               }
@@ -12353,14 +12366,20 @@ Estamos te aguardando! 😎✂️`;
             updatedBlockedHours[blockTimeDate] = selectedBlockedHours;
           }
 
-          // Mesclar todos os campos, preservando dados do banco
+          // Persistir últimas opções do modal para reabrir com meses e dias preenchidos
+          const block_modal_last_options = {
+            useRecurring: blockMonthsSameTime,
+            months: blockMonthsSameTime ? selectedMonthsForBlock : [],
+            weekdays: blockRecurringWeekdays
+          };
+
           return {
             ...dbProfessional,
             ...(localProfessional || {}),
-            blocked_hours: updatedBlockedHours
+            blocked_hours: updatedBlockedHours,
+            block_modal_last_options
           };
         }
-        // Preservar outros profissionais sem alterações
         return dbProfessional;
       });
 
@@ -12391,7 +12410,7 @@ Estamos te aguardando! 😎✂️`;
       });
 
       console.log('✅ Horários bloqueados salvos:', updatedProfessionals.find(p => p.id === selectedProfessionalForBlock)?.blocked_hours);
-      toast.success('Horários bloqueados salvos com sucesso!');
+      toast.success('Horários bloqueados salvos! Já gravados no sistema — não é necessário clicar em Salvar Profissionais.');
       handleCloseBlockTimeModal();
     } catch (error) {
       console.error('Erro ao salvar horários bloqueados:', error);
@@ -14335,6 +14354,8 @@ Estamos te aguardando! 😎✂️`;
                       onOpenReminderModal={handleOpenReminderModal as any}
                       onOpenFinishEarlyModal={handleOpenFinishEarlyModal as any}
                       onGoToProfessionalConfig={handleGoToProfessionalConfig}
+                      onOpenBlockHoursModal={handleOpenBlockTimeModal}
+                      onOpenAbsenceModal={handleOpenAbsenceModal}
                       onGoToClients={handleGoToClients}
                       onCancelAppointment={handleCancelClick}
                       useLightLayout={useLightLayout}
@@ -21196,13 +21217,19 @@ Estamos te aguardando! 😎✂️`;
                         type="date"
                         value={blockTimeDate}
                         onChange={(e) => {
-                          setBlockTimeDate(e.target.value);
-                          // Carregar horários bloqueados para a nova data
-                          const professional = professionals.find(p => p.id === selectedProfessionalForBlock);
-                          if (professional && (professional as any).blocked_hours) {
-                            setSelectedBlockedHours((professional as any).blocked_hours[e.target.value] || []);
+                          const newDate = e.target.value;
+                          setBlockTimeDate(newDate);
+                          if (blockMonthsSameTime) {
+                            const weekday = new Date(newDate + 'T12:00:00').getDay();
+                            setBlockRecurringWeekdays(prev => prev.includes(weekday) ? prev : [...prev, weekday].sort((a, b) => a - b));
+                            // Não trocar os horários selecionados: mantém os mesmos para todos os dias da semana
                           } else {
-                            setSelectedBlockedHours([]);
+                            const professional = professionals.find(p => p.id === selectedProfessionalForBlock);
+                            if (professional && (professional as any).blocked_hours) {
+                              setSelectedBlockedHours((professional as any).blocked_hours[newDate] || []);
+                            } else {
+                              setSelectedBlockedHours([]);
+                            }
                           }
                         }}
                         min={new Date().toISOString().split('T')[0]}
@@ -21235,9 +21262,9 @@ Estamos te aguardando! 😎✂️`;
                           };
 
                           const englishDay = dayMap[dayName];
-                          const businessHours = establishment?.business_hours?.[englishDay];
+                          const dayHours = establishment?.business_hours?.[englishDay];
 
-                          if (!businessHours || !businessHours.enabled) {
+                          if (!dayHours || !dayHours.enabled) {
                             return (
                               <div className="col-span-6 text-center text-gray-400 py-4">
                                 Estabelecimento fechado neste dia
@@ -21245,23 +21272,68 @@ Estamos te aguardando! 😎✂️`;
                             );
                           }
 
-                          const slots = [];
-                          // Usar a MESMA configuração que a tela já está usando (state),
-                          // porque o objeto `establishment` pode estar desatualizado após autosave/estado local.
-                          // Isso evita cair em 15min mesmo quando o usuário configurou 20min.
+                          // Usar horários do PROFISSIONAL (igual Reservar Cliente), senão do estabelecimento — evita 13:30, 13:50, 16:30, 16:50 quando o profissional entra às 13:00
+                          const profDay = (professional as any).work_hours?.[englishDay];
+                          let open1: string;
+                          let close1: string;
+                          let open2: string | null = null;
+                          let close2: string | null = null;
+                          if (profDay?.enabled && profDay?.entry_time && profDay?.exit_time) {
+                            open1 = profDay.entry_time;
+                            close1 = profDay.exit_time;
+                            if (profDay.break_start && profDay.break_end) {
+                              close1 = profDay.break_start;
+                              open2 = profDay.break_end;
+                              close2 = profDay.exit_time;
+                            }
+                          } else {
+                            open1 = dayHours.open1 || '08:00';
+                            close1 = dayHours.close1 || '18:00';
+                            open2 = dayHours.open2 || null;
+                            close2 = dayHours.close2 || null;
+                          }
+
                           const interval = use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15;
+                          const toMins = (h: number, m: number) => h * 60 + m;
+                          const toTime = (total: number) => `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 
-                          // Primeiro período
-                          const startMinutes = parseInt(businessHours.open1.split(':')[0]) * 60 + parseInt(businessHours.open1.split(':')[1]);
-                          const endMinutes = parseInt(businessHours.close1.split(':')[0]) * 60 + parseInt(businessHours.close1.split(':')[1]);
+                          const slotMinutes = new Set<number>();
+                          const collectPeriod = (start: string, end: string) => {
+                            const [sh, sm] = start.split(':').map(Number);
+                            const [eh, em] = end.split(':').map(Number);
+                            for (let m = toMins(sh, sm); m < toMins(eh, em); m += interval) slotMinutes.add(m);
+                          };
+                          collectPeriod(open1, close1);
+                          if (open2 && close2) collectPeriod(open2, close2);
 
-                          for (let minutes = startMinutes; minutes < endMinutes; minutes += interval) {
-                            const hours = Math.floor(minutes / 60);
-                            const mins = minutes % 60;
-                            const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                          // Incluir horários de TÉRMINO dos agendamentos (ex: 13:50, 14:50) quando a data do bloqueio é a do dia na agenda
+                          const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+                          if (blockTimeDate === selectedDateStr && appointments?.length) {
+                            const profAppointments = appointments.filter(
+                              (apt: any) => apt.professional === selectedProfessionalForBlock && apt.appointment_date === blockTimeDate
+                            );
+                            const [o1h, o1m] = open1.split(':').map(Number);
+                            const [c1h, c1m] = close1.split(':').map(Number);
+                            const periodRanges: [number, number][] = [[toMins(o1h, o1m), toMins(c1h, c1m)]];
+                            if (open2 && close2) {
+                              const [o2h, o2m] = open2.split(':').map(Number);
+                              const [c2h, c2m] = close2.split(':').map(Number);
+                              periodRanges.push([toMins(o2h, o2m), toMins(c2h, c2m)]);
+                            }
+                            profAppointments.forEach((apt: any) => {
+                              const [ah, am] = (apt.appointment_time || '00:00').split(':').map(Number);
+                              const aptEnd = toMins(ah, am) + (Number(apt.duration) || 30);
+                              const offGrid = aptEnd % interval !== 0;
+                              const inSomePeriod = periodRanges.some(([s, e]) => aptEnd >= s && aptEnd < e);
+                              if (offGrid && inSomePeriod) slotMinutes.add(aptEnd);
+                            });
+                          }
+
+                          const sorted = Array.from(slotMinutes).sort((a, b) => a - b);
+                          const slots: React.ReactNode[] = sorted.map((minutes) => {
+                            const timeString = toTime(minutes);
                             const isSelected = selectedBlockedHours.includes(timeString);
-
-                            slots.push(
+                            return (
                               <button
                                 key={timeString}
                                 onClick={() => handleToggleBlockedHour(timeString)}
@@ -21273,33 +21345,7 @@ Estamos te aguardando! 😎✂️`;
                                 {timeString}
                               </button>
                             );
-                          }
-
-                          // Segundo período (se existir)
-                          if (businessHours.open2 && businessHours.close2) {
-                            const startMinutes2 = parseInt(businessHours.open2.split(':')[0]) * 60 + parseInt(businessHours.open2.split(':')[1]);
-                            const endMinutes2 = parseInt(businessHours.close2.split(':')[0]) * 60 + parseInt(businessHours.close2.split(':')[1]);
-
-                            for (let minutes = startMinutes2; minutes < endMinutes2; minutes += interval) {
-                              const hours = Math.floor(minutes / 60);
-                              const mins = minutes % 60;
-                              const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-                              const isSelected = selectedBlockedHours.includes(timeString);
-
-                              slots.push(
-                                <button
-                                  key={timeString}
-                                  onClick={() => handleToggleBlockedHour(timeString)}
-                                  className={`px-3 py-2 text-sm rounded-lg transition-colors ${isSelected
-                                    ? 'bg-red-600 text-white hover:bg-red-700'
-                                    : 'bg-gray-700 text-white hover:bg-gray-600'
-                                    }`}
-                                >
-                                  {timeString}
-                                </button>
-                              );
-                            }
-                          }
+                          });
 
                           return slots;
                         })()}
@@ -21327,22 +21373,54 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Bloquear meses no mesmo horário */}
+                  {/* Bloquear meses no mesmo horário e dia selecionado */}
                   {selectedBlockedHours.length > 0 && (
                     <div className="mb-6 p-4 bg-[#242628] rounded-lg border border-gray-600">
                       <label className="flex items-center gap-2 cursor-pointer mb-3">
                         <input
                           type="checkbox"
                           checked={blockMonthsSameTime}
-                          onChange={(e) => setBlockMonthsSameTime(e.target.checked)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setBlockMonthsSameTime(checked);
+                            if (checked) {
+                              const weekday = new Date(blockTimeDate + 'T12:00:00').getDay();
+                              setBlockRecurringWeekdays(prev => prev.includes(weekday) ? prev : [...prev, weekday].sort((a, b) => a - b));
+                            }
+                          }}
                           className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500"
                         />
-                        <span className="text-gray-200 font-medium">Bloquear meses no mesmo horário</span>
+                        <span className="text-gray-200 font-medium">Bloquear meses no mesmo horário e dia selecionado</span>
                       </label>
                       {blockMonthsSameTime && (
                         <p className="text-gray-400 text-sm mb-3">
-                          Os horários selecionados acima serão bloqueados em todos os dias dos meses escolhidos (ano da data selecionada).
+                          Os horários selecionados serão bloqueados nos dias da semana que você incluir abaixo. Mude a data acima para outro dia (ex.: terça) para adicionar esse dia da semana — nos meses escolhidos serão bloqueadas todas as terças e sextas (ou os dias que você adicionar).
                         </p>
+                      )}
+                      {blockMonthsSameTime && blockRecurringWeekdays.length > 0 && (
+                        <div className="mb-3">
+                          <span className="block text-sm font-medium text-gray-300 mb-2">Dias da semana que serão bloqueados nos meses:</span>
+                          <div className="flex flex-wrap gap-2">
+                            {([0, 1, 2, 3, 4, 5, 6] as const).filter(d => blockRecurringWeekdays.includes(d)).map((d) => {
+                              const labels: Record<number, string> = { 0: 'Dom', 1: 'Seg', 2: 'Ter', 3: 'Qua', 4: 'Qui', 5: 'Sex', 6: 'Sáb' };
+                              return (
+                                <div key={d} className="flex items-center gap-1.5 bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm">
+                                  <span>{labels[d]}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBlockRecurringWeekdays(prev => prev.filter(w => w !== d))}
+                                    className="hover:text-red-200 transition-colors"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <p className="text-gray-500 text-xs mt-1">
+                            Mude a data no campo &quot;Data&quot; acima para outro dia (ex.: terça) para incluir esse dia na lista.
+                          </p>
+                        </div>
                       )}
                       {blockMonthsSameTime && (
                         <div className="flex flex-wrap gap-2">
@@ -21376,6 +21454,9 @@ Estamos te aguardando! 😎✂️`;
                   )}
 
                   {/* Botões */}
+                  <p className="text-gray-400 text-xs mb-3 text-right">
+                    Ao clicar em Salvar abaixo, os horários são gravados imediatamente. Não é necessário clicar em Salvar Profissionais.
+                  </p>
                   <div className="flex gap-3 justify-end">
                     <button
                       onClick={handleCloseBlockTimeModal}
@@ -21436,6 +21517,51 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                       </div>
                     )}
+
+                    <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4">
+                      <p className="text-blue-200 text-sm font-medium mb-2">Igualar ao horário de outro profissional</p>
+                      <p className="text-gray-400 text-xs mb-3">
+                        Os horários que aparecem na agenda e em Bloquear horários vêm dos <strong>Horários de trabalho</strong> de cada profissional. Para este profissional ficar igual a outro, selecione abaixo — os horários serão copiados na hora.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          className="px-3 py-2 bg-[#242628] border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+                          onChange={(e) => {
+                            const fromId = e.target.value;
+                            if (!fromId) return;
+                            const source = professionals.find(p => p.id === fromId);
+                            const wh = (source as any)?.work_hours;
+                            if (!source || !wh) {
+                              toast.error('Esse profissional ainda não tem horários configurados.');
+                              return;
+                            }
+                            const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+                            const base: Record<string, any> = {
+                              monday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+                              tuesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+                              wednesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+                              thursday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+                              friday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
+                              saturday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' },
+                              sunday: { enabled: undefined, entry_time: '08:00', break_start: '', break_end: '', exit_time: '12:00' }
+                            };
+                            const merged = WEEK_DAYS.reduce((acc: Record<string, any>, day) => {
+                              const existing = (wh as any)[day] || {};
+                              acc[day] = { ...base[day], ...existing, enabled: typeof existing.enabled === 'boolean' ? existing.enabled : base[day].enabled };
+                              return acc;
+                            }, {} as Record<string, any>);
+                            setWorkHoursData(merged);
+                            toast.success(`Horários copiados de ${source.name}. Clique em "Salvar Horários de Trabalho" para gravar.`);
+                            e.target.value = '';
+                          }}
+                        >
+                          <option value="">Copiar de quem?</option>
+                          {professionals.filter(p => p.id !== selectedProfessionalForWorkHours).map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-4">
