@@ -170,11 +170,11 @@ export default function BookingPage() {
     // Salvar dados do assinante
     setConvertedSubscriberData(subscriberData);
 
-    // Configurar o serviço de assinante - compatível com novo e antigo sistema
+    // Configurar o serviço de assinante - duração vem da RPC (service_duration) ou do join subscriptions
     const subscriberService = {
       id: subscriberData.subscription_id || subscriberData.subscriptions?.id,
       name: subscriberData.subscription_name || subscriberData.subscriptions?.name,
-      service_duration: subscriberData.subscriptions?.service_duration || 30,
+      service_duration: subscriberData.service_duration ?? subscriberData.subscriptions?.service_duration ?? 30,
       weekdays: subscriberData.weekdays || subscriberData.subscriptions?.weekdays || []
     };
 

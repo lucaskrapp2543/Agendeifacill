@@ -156,7 +156,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedProfessionalForHistory, setSelectedProfessionalForHistory] = useState<string>('');
-  
+
   // Estado para controlar o mês/ano selecionado (padrão: mês atual)
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -230,7 +230,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (establishment?.limit_subscribers_one_week !== undefined) {
       setLimitSubscribersOneWeek(establishment.limit_subscribers_one_week);
     }
-    
+
     // Se não tiver recipient_id, forçar desativar recorrência Pagar.me
     const hasRecipientId = !!String(establishment?.pagarme_recipient_id || '').trim();
     if (!hasRecipientId) {
@@ -244,7 +244,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         localStorage.setItem(localStoragePagarmeKey, establishment.use_pagarme_subscription_pix ? 'true' : 'false');
       } catch { }
     }
-    
+
     // Se não tiver access_token, forçar desativar recorrência Mercado Pago
     const hasAccessToken = !!String(establishment?.mercadopago_access_token || '').trim();
     if (!hasAccessToken) {
@@ -1464,25 +1464,42 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
 
     try {
-      const { error } = await supabase
+      const payload = {
+        description: editDescription.trim() || null,
+        name: editName.trim(),
+        value: nextValue,
+        weekdays: editWeekdays,
+        service_duration: editDuration,
+        fixed_commission_value: nextFixedCommissionValue,
+        divide_total_enabled: nextDivideEnabled,
+        divide_total_attendances: nextDivideEnabled ? nextDivideAttendancesNum : null,
+      };
+      const { data: updatedRow, error } = await supabase
         .from('subscriptions')
-        .update({ 
-          description: editDescription.trim() || null,
-          name: editName.trim(),
-          value: nextValue,
-          weekdays: editWeekdays,
-          service_duration: editDuration,
-          fixed_commission_value: nextFixedCommissionValue,
-          divide_total_enabled: nextDivideEnabled,
-          divide_total_attendances: nextDivideEnabled ? nextDivideAttendancesNum : null,
-        })
-        .eq('id', selectedSubscriptionForEdit.id);
+        .update(payload)
+        .eq('id', selectedSubscriptionForEdit.id)
+        .eq('establishment_id', establishmentId)
+        .select('id')
+        .single();
 
       if (error) {
         throw error;
       }
+      if (!updatedRow) {
+        toast.error('Assinatura não encontrada ou sem permissão para editar.');
+        return;
+      }
 
-      toast.success('Assinatura atualizada com sucesso!');
+      // Atualizar lista na hora (evita “voltar em 30 min” ao reabrir o modal)
+      setSubscriptions(prev =>
+        prev.map((s) =>
+          s.id === selectedSubscriptionForEdit.id
+            ? { ...s, ...payload }
+            : s
+        )
+      );
+
+      toast.success('Assinatura atualizada com sucesso! Novos agendamentos usarão a nova duração.');
       setShowEditDescriptionModal(false);
       setSelectedSubscriptionForEdit(null);
       setEditDescription('');
@@ -1493,10 +1510,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setEditRepassePercent('');
       setEditDivideTotalEnabled(false);
       setEditDivideTotalAttendances('');
-      fetchSubscriptions(); // Atualizar lista
+      fetchSubscriptions(); // Revalidar lista com o servidor
     } catch (error: any) {
       console.error('Erro ao salvar assinatura:', error);
-      toast.error(error.message || 'Erro ao salvar assinatura.');
+      const msg = error?.message || error?.error_description || 'Erro ao salvar assinatura.';
+      toast.error(msg);
     }
   };
 
@@ -2078,7 +2096,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
           <h2 className="text-lg sm:text-xl font-semibold">Resumo de Assinaturas</h2>
-          
+
           {/* Seletor de Mês/Ano */}
           <div className="flex items-center gap-2 sm:gap-3">
             <button
@@ -2088,13 +2106,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             >
               ←
             </button>
-            
+
             <div className="flex items-center gap-2 bg-[#2a2b2c] px-3 py-1.5 rounded-lg">
               <span className="text-sm sm:text-base font-medium text-white">
                 {monthNames[selectedMonth]} {selectedYear}
               </span>
             </div>
-            
+
             <button
               onClick={goToNextMonth}
               className="px-3 py-1.5 bg-[#2a2b2c] hover:bg-[#3a3b3c] text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2103,7 +2121,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             >
               →
             </button>
-            
+
             {!isCurrentMonth && (
               <button
                 onClick={goToCurrentMonth}
@@ -2533,9 +2551,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 setNewPercentualComissaoDiaria(Math.max(0, Math.min(100, nextPercent)));
               }}
               disabled={newSubscriptionValue <= 0}
-              className={`w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500 ${
-                newSubscriptionValue <= 0 ? 'opacity-60 cursor-not-allowed' : ''
-              }`}
+              className={`w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500 ${newSubscriptionValue <= 0 ? 'opacity-60 cursor-not-allowed' : ''
+                }`}
               step="0.1"
               min="0"
               max="100"
@@ -2545,10 +2562,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               {newSubscriptionValue <= 0
                 ? 'Primeiro preencha o valor da assinatura para habilitar o percentual.'
                 : (() => {
-                    const valorComissao = Math.round((newSubscriptionValue * (newPercentualComissaoDiaria || 0) / 100) * 100) / 100;
-                    const valorFormatado = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorComissao);
-                    return `Isso dá ${valorFormatado} por serviço diário (calculado em cima do valor da assinatura).`;
-                  })()}
+                  const valorComissao = Math.round((newSubscriptionValue * (newPercentualComissaoDiaria || 0) / 100) * 100) / 100;
+                  const valorFormatado = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorComissao);
+                  return `Isso dá ${valorFormatado} por serviço diário (calculado em cima do valor da assinatura).`;
+                })()}
             </p>
           </div>
 
@@ -2574,9 +2591,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 value={newDivideTotalAttendances}
                 onChange={(e) => setNewDivideTotalAttendances(e.target.value)}
                 disabled={!newDivideTotalEnabled}
-                className={`w-full px-3 py-2 bg-black/30 rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500 ${
-                  !newDivideTotalEnabled ? 'opacity-60 cursor-not-allowed' : ''
-                }`}
+                className={`w-full px-3 py-2 bg-black/30 rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500 ${!newDivideTotalEnabled ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
                 placeholder="Ex: 4"
               />
             </div>
@@ -2688,73 +2704,71 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
           {/* Opção Pagar.me (PIX manual) - Só mostrar se tiver recipient_id configurado */}
           {String(establishment?.pagarme_recipient_id || '').trim() && (
-          <div
-            className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(34,197,94,0.18)]"
-            style={{
-              background:
-                'linear-gradient(135deg, rgba(34,197,94,0.55), rgba(59,130,246,0.35), rgba(34,197,94,0.18))',
-            }}
-          >
-            {/* brilho suave */}
-            <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-green-500/20 blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
+            <div
+              className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(34,197,94,0.18)]"
+              style={{
+                background:
+                  'linear-gradient(135deg, rgba(34,197,94,0.55), rgba(59,130,246,0.35), rgba(34,197,94,0.18))',
+              }}
+            >
+              {/* brilho suave */}
+              <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-green-500/20 blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
 
-            <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
-                  <span className="inline-flex w-fit items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase bg-green-500/15 border border-green-500/30 text-green-200">
-                    ⭐ Recomendado
-                  </span>
-                  <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
-                    Usar recorrência pagarme{' '}
-                    <span className="text-green-200/90 font-extrabold">(taxas mais baixas)</span>
-                  </p>
+              <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+                      <span className="inline-flex w-fit items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase bg-green-500/15 border border-green-500/30 text-green-200">
+                        ⭐ Recomendado
+                      </span>
+                      <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
+                        Usar recorrência pagarme{' '}
+                        <span className="text-green-200/90 font-extrabold">(taxas mais baixas)</span>
+                      </p>
+                    </div>
+                    <p className="text-sm text-gray-300 mt-1">
+                      As taxas da Pagar.me é baixa apenas <span className="font-semibold">1,19% + R$0,50</span> apenas diferencial,
+                      não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const recipientId = String(establishment?.pagarme_recipient_id || '').trim();
+                      if (!usePagarmeSubscriptionPix && !recipientId) {
+                        toast.error('Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me) nas Configurações.');
+                        return;
+                      }
+                      handleUpdateUsePagarmeSubscriptionPix(!usePagarmeSubscriptionPix);
+                    }}
+                    disabled={
+                      isUpdatingPagarmeSubscriptionPix ||
+                      (!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()) ||
+                      !String(establishment?.pagarme_recipient_id || '').trim() // Desabilitar se não tiver recipient_id
+                    }
+                    className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${usePagarmeSubscriptionPix
+                        ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
+                        : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
+                      } ${(isUpdatingPagarmeSubscriptionPix || !String(establishment?.pagarme_recipient_id || '').trim()) ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
+                      }`}
+                    title={
+                      !String(establishment?.pagarme_recipient_id || '').trim()
+                        ? 'Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me) nas Configurações primeiro'
+                        : !usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()
+                          ? 'Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me)'
+                          : undefined
+                    }
+                  >
+                    {usePagarmeSubscriptionPix ? 'ATIVADO' : 'ATIVAR'}
+                  </button>
                 </div>
-                <p className="text-sm text-gray-300 mt-1">
-                  As taxas da Pagar.me é baixa apenas <span className="font-semibold">1,19% + R$0,50</span> apenas diferencial,
-                  não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
+                <p className="text-xs text-gray-500 mt-3">
+                  Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX da Pagar.me (com CPF).
+                  Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const recipientId = String(establishment?.pagarme_recipient_id || '').trim();
-                  if (!usePagarmeSubscriptionPix && !recipientId) {
-                    toast.error('Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me) nas Configurações.');
-                    return;
-                  }
-                  handleUpdateUsePagarmeSubscriptionPix(!usePagarmeSubscriptionPix);
-                }}
-                disabled={
-                  isUpdatingPagarmeSubscriptionPix ||
-                  (!usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()) ||
-                  !String(establishment?.pagarme_recipient_id || '').trim() // Desabilitar se não tiver recipient_id
-                }
-                className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
-                  usePagarmeSubscriptionPix
-                    ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
-                    : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
-                } ${
-                  (isUpdatingPagarmeSubscriptionPix || !String(establishment?.pagarme_recipient_id || '').trim()) ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
-                }`}
-                title={
-                  !String(establishment?.pagarme_recipient_id || '').trim()
-                    ? 'Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me) nas Configurações primeiro'
-                    : !usePagarmeSubscriptionPix && !String(establishment?.pagarme_recipient_id || '').trim()
-                    ? 'Você precisa criar e colocar seus dados de recebimento (Recebedor Pagar.me)'
-                    : undefined
-                }
-              >
-                {usePagarmeSubscriptionPix ? 'ATIVADO' : 'ATIVAR'}
-              </button>
             </div>
-            <p className="text-xs text-gray-500 mt-3">
-              Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX da Pagar.me (com CPF).
-              Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
-            </p>
-          </div>
-          </div>
           )}
 
           {/* Opção Mercado Pago (PIX manual) - sempre mostrar; se não conectado, orientar a conectar */}
@@ -2770,128 +2784,124 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
 
             <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
-                  <span className="inline-flex w-fit items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase bg-green-500/15 border border-green-500/30 text-green-200">
-                    ⭐ Recomendado
-                  </span>
-                  <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
-                    Usar recorrência Mercado Pago{' '}
-                    <span className="text-green-200/90 font-extrabold">(taxas mais baixas)</span>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+                    <span className="inline-flex w-fit items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase bg-green-500/15 border border-green-500/30 text-green-200">
+                      ⭐ Recomendado
+                    </span>
+                    <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
+                      Usar recorrência Mercado Pago{' '}
+                      <span className="text-green-200/90 font-extrabold">(taxas mais baixas)</span>
+                    </p>
+                  </div>
+                  <p className="text-sm text-gray-300 mt-1">
+                    As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$0,50</span> da plataforma,
+                    não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
                   </p>
                 </div>
-                <p className="text-sm text-gray-300 mt-1">
-                  As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$0,50</span> da plataforma,
-                  não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const accessToken = String(establishment?.mercadopago_access_token || '').trim();
-                  if (!useMercadoPagoSubscriptionPix && !accessToken) {
-                    toast.error('Você precisa conectar sua conta do Mercado Pago nas Configurações para ativar.');
-                    return;
-                  }
-                  handleUpdateUseMercadoPagoSubscriptionPix(!useMercadoPagoSubscriptionPix);
-                }}
-                disabled={
-                  isUpdatingMercadoPagoSubscriptionPix
-                }
-                className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
-                  useMercadoPagoSubscriptionPix
-                    ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
-                    : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
-                } ${
-                  isUpdatingMercadoPagoSubscriptionPix ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
-                }`}
-                title={
-                  !useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim()
-                    ? 'Você precisa conectar sua conta do Mercado Pago nas Configurações'
-                    : undefined
-                }
-              >
-                {useMercadoPagoSubscriptionPix ? 'ATIVADO' : 'ATIVAR'}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-3">
-              Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX do Mercado Pago (com CPF).
-              Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
-            </p>
-            {!useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim() && (
-              <p className="text-xs text-yellow-200/90 mt-2">
-                ⚠️ Para ativar essa opção, você precisa <span className="font-semibold">conectar sua conta do Mercado Pago</span> nas Configurações.
-              </p>
-            )}
-          </div>
-          </div>
-        
-        {/* Mostrar assinaturas por completo no Booking */}
-        <div
-          className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(99,102,241,0.20)]"
-          style={{
-            background:
-              'linear-gradient(135deg, rgba(99,102,241,0.55), rgba(34,197,94,0.22), rgba(99,102,241,0.18))',
-          }}
-        >
-          <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
-            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
-                  Mostrar assinaturas toda na pagina
-                </p>
-                <p className="text-sm text-gray-300 mt-1 leading-relaxed">
-                  ao ativar essa opção seu sistema ficara igual da foto ao lado suas assinaturas ficaram aparecendo na tela por completo sem
-                  necessidade de clicar em ( PLANOS MENSAIS) para ver as assinatura mas sim tera escrito encima planos mensais e as assinaturas
-                  abaixo já todas
-                </p>
-
-                {/* Prévia (mobile/tablet) */}
-                <div className="mt-3 lg:hidden">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-2 overflow-hidden">
-                    <img
-                      src="/planos67.png"
-                      alt="Prévia - Planos mensais no booking"
-                      className="w-full h-auto rounded-lg object-contain max-h-[240px] mx-auto"
-                      loading="lazy"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="shrink-0 w-full lg:w-[420px]">
-                {/* Prévia (PC) */}
-                <div className="hidden lg:block mb-3">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-2 overflow-hidden">
-                    <img
-                      src="/planos67.png"
-                      alt="Prévia - Planos mensais no booking"
-                      className="w-full h-auto rounded-lg object-contain max-h-[220px] mx-auto"
-                      loading="lazy"
-                    />
-                  </div>
-                </div>
-
                 <button
                   type="button"
-                  onClick={() => handleUpdateShowSubscriptionsFullpage(!showSubscriptionsFullpage)}
-                  disabled={isUpdatingShowSubscriptionsFullpage}
-                  className={`w-full px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${
-                    showSubscriptionsFullpage
-                      ? 'bg-indigo-600 text-white border-indigo-500/40 hover:bg-indigo-700'
+                  onClick={() => {
+                    const accessToken = String(establishment?.mercadopago_access_token || '').trim();
+                    if (!useMercadoPagoSubscriptionPix && !accessToken) {
+                      toast.error('Você precisa conectar sua conta do Mercado Pago nas Configurações para ativar.');
+                      return;
+                    }
+                    handleUpdateUseMercadoPagoSubscriptionPix(!useMercadoPagoSubscriptionPix);
+                  }}
+                  disabled={
+                    isUpdatingMercadoPagoSubscriptionPix
+                  }
+                  className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${useMercadoPagoSubscriptionPix
+                      ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
                       : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
-                  } ${
-                    isUpdatingShowSubscriptionsFullpage ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
-                  }`}
-                  title={showSubscriptionsFullpage ? 'Desativar' : 'Ativar'}
+                    } ${isUpdatingMercadoPagoSubscriptionPix ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
+                    }`}
+                  title={
+                    !useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim()
+                      ? 'Você precisa conectar sua conta do Mercado Pago nas Configurações'
+                      : undefined
+                  }
                 >
-                  {showSubscriptionsFullpage ? 'ATIVADO' : 'DESATIVADO'}
+                  {useMercadoPagoSubscriptionPix ? 'ATIVADO' : 'ATIVAR'}
                 </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-3">
+                Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX do Mercado Pago (com CPF).
+                Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
+              </p>
+              {!useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim() && (
+                <p className="text-xs text-yellow-200/90 mt-2">
+                  ⚠️ Para ativar essa opção, você precisa <span className="font-semibold">conectar sua conta do Mercado Pago</span> nas Configurações.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Mostrar assinaturas por completo no Booking */}
+          <div
+            className="relative overflow-hidden rounded-xl p-[1px] mb-5 shadow-[0_0_0_1px_rgba(99,102,241,0.20)]"
+            style={{
+              background:
+                'linear-gradient(135deg, rgba(99,102,241,0.55), rgba(34,197,94,0.22), rgba(99,102,241,0.18))',
+            }}
+          >
+            <div className="bg-[#0f1112] border border-white/10 rounded-xl p-5">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-extrabold text-base sm:text-lg leading-tight">
+                    Mostrar assinaturas toda na pagina
+                  </p>
+                  <p className="text-sm text-gray-300 mt-1 leading-relaxed">
+                    ao ativar essa opção seu sistema ficara igual da foto ao lado suas assinaturas ficaram aparecendo na tela por completo sem
+                    necessidade de clicar em ( PLANOS MENSAIS) para ver as assinatura mas sim tera escrito encima planos mensais e as assinaturas
+                    abaixo já todas
+                  </p>
+
+                  {/* Prévia (mobile/tablet) */}
+                  <div className="mt-3 lg:hidden">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2 overflow-hidden">
+                      <img
+                        src="/planos67.png"
+                        alt="Prévia - Planos mensais no booking"
+                        className="w-full h-auto rounded-lg object-contain max-h-[240px] mx-auto"
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shrink-0 w-full lg:w-[420px]">
+                  {/* Prévia (PC) */}
+                  <div className="hidden lg:block mb-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2 overflow-hidden">
+                      <img
+                        src="/planos67.png"
+                        alt="Prévia - Planos mensais no booking"
+                        className="w-full h-auto rounded-lg object-contain max-h-[220px] mx-auto"
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateShowSubscriptionsFullpage(!showSubscriptionsFullpage)}
+                    disabled={isUpdatingShowSubscriptionsFullpage}
+                    className={`w-full px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${showSubscriptionsFullpage
+                        ? 'bg-indigo-600 text-white border-indigo-500/40 hover:bg-indigo-700'
+                        : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
+                      } ${isUpdatingShowSubscriptionsFullpage ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
+                      }`}
+                    title={showSubscriptionsFullpage ? 'Desativar' : 'Ativar'}
+                  >
+                    {showSubscriptionsFullpage ? 'ATIVADO' : 'DESATIVADO'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
         </div>
 
@@ -2961,13 +2971,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       setEditName(sub.name || '');
                       setEditWeekdays(sub.weekdays || []);
                       setEditDuration(sub.service_duration || 30);
-                  setEditSubscriptionValue(String(Number(sub.value || 0).toFixed(2)).replace('.', ','));
-                  {
-                    const fixed = Number((sub as any).fixed_commission_value || 0);
-                    const base = Number(sub.value || 0);
-                    const pct = base > 0 && fixed > 0 ? (fixed / base) * 100 : 0;
-                    setEditRepassePercent(String(Math.round(pct * 100) / 100).replace('.', ','));
-                  }
+                      setEditSubscriptionValue(String(Number(sub.value || 0).toFixed(2)).replace('.', ','));
+                      {
+                        const fixed = Number((sub as any).fixed_commission_value || 0);
+                        const base = Number(sub.value || 0);
+                        const pct = base > 0 && fixed > 0 ? (fixed / base) * 100 : 0;
+                        setEditRepassePercent(String(Math.round(pct * 100) / 100).replace('.', ','));
+                      }
                       setEditDivideTotalEnabled(Boolean((sub as any)?.divide_total_enabled));
                       setEditDivideTotalAttendances(
                         Number.isFinite(Number((sub as any)?.divide_total_attendances)) && Number((sub as any)?.divide_total_attendances) > 0
@@ -4108,9 +4118,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     value={editDivideTotalAttendances}
                     onChange={(e) => setEditDivideTotalAttendances(e.target.value)}
                     disabled={!editDivideTotalEnabled}
-                    className={`w-full px-3 py-2 bg-black/30 rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500 ${
-                      !editDivideTotalEnabled ? 'opacity-60 cursor-not-allowed' : ''
-                    }`}
+                    className={`w-full px-3 py-2 bg-black/30 rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500 ${!editDivideTotalEnabled ? 'opacity-60 cursor-not-allowed' : ''
+                      }`}
                     placeholder="Ex: 4"
                   />
                 </div>
