@@ -138,11 +138,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [isUpdatingOneWeekLimit, setIsUpdatingOneWeekLimit] = useState(false);
 
 
-  // Estados para funcionalidade de Adicionar Atendimento
+  // Estados para funcionalidade de Adicionar Atendimento (data e profissional vêm do "Atendimento assinatura" na agenda)
   const [showAddAttendanceModal, setShowAddAttendanceModal] = useState(false);
   const [selectedClientForAttendance, setSelectedClientForAttendance] = useState<ClientSubscription | null>(null);
-  const [attendanceDate, setAttendanceDate] = useState('');
-  const [attendanceProfessional, setAttendanceProfessional] = useState('');
   const [attendanceValue, setAttendanceValue] = useState<number>(0);
   const [isSavingAttendance, setIsSavingAttendance] = useState(false);
   const [subscriberAttendances, setSubscriberAttendances] = useState<any[]>([]);
@@ -965,10 +963,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const handleAddAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedClientForAttendance || !attendanceDate || !attendanceProfessional || !attendanceValue) {
-      toast.error('Preencha todos os campos para adicionar o atendimento.');
+    if (!selectedClientForAttendance || !attendanceValue) {
+      toast.error('Informe o valor repassado ao profissional para adicionar o atendimento.');
       return;
     }
+    // Data e profissional não são mais escolhidos aqui; use "Atendimento assinatura" na agenda para isso
+    const attendanceDateToSave = format(new Date(), 'yyyy-MM-dd');
+    const attendanceProfessionalToSave = 'Adicionado em Meus Assinantes';
 
     // ✅ Bloquear se bater o limite do cliente (não permitir 5/4)
     const limit = Number((selectedClientForAttendance as any)?.monthly_limit || 0);
@@ -1014,8 +1015,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         .insert({
           establishment_id: establishmentId,
           client_subscription_id: selectedClientForAttendance.id,
-          professional_name: attendanceProfessional,
-          attendance_date: attendanceDate,
+          professional_name: attendanceProfessionalToSave,
+          attendance_date: attendanceDateToSave,
           repass_value: repassValueToSave,
           created_by: user?.id
         });
@@ -1027,11 +1028,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const suffix = hasSaleDiscount
         ? ` (com desconto de venda ${salePercent}% aplicado)`
         : '';
-      toast.success(`Atendimento adicionado: ${attendanceProfessional} atendeu ${selectedClientForAttendance.profiles?.full_name} no dia ${format(parse(String(attendanceDate || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })} e recebeu ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValueToSave)}.${suffix}`);
+      toast.success(`Atendimento adicionado para ${selectedClientForAttendance.profiles?.full_name} (${format(parse(attendanceDateToSave, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}). Valor: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValueToSave)}.${suffix}`);
 
       // Limpar formulário
-      setAttendanceDate('');
-      setAttendanceProfessional('');
       setAttendanceValue(0);
       setShowAddAttendanceModal(false);
       setSelectedClientForAttendance(null);
@@ -3390,8 +3389,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
                       >
                         <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                        <span className="hidden sm:inline">Atendimento</span>
-                        <span className="sm:hidden">Add</span>
+                        <span className="hidden sm:inline">(Profissional vendedor)</span>
+                        <span className="sm:hidden">(Prof. vendedor)</span>
                       </button>
                       <button
                         onClick={() => openEditEndDateModal(cs)}
@@ -3449,8 +3448,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 onClick={() => {
                   setShowAddAttendanceModal(false);
                   setSelectedClientForAttendance(null);
-                  setAttendanceDate('');
-                  setAttendanceProfessional('');
                   setAttendanceValue(0);
                   setSaleCommissionProfessional('');
                   setSaleCommissionPercent('');
@@ -3468,49 +3465,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </div>
 
             <form onSubmit={handleAddAttendance} className="space-y-4">
-              <div>
-                <label htmlFor="attendanceDate" className="block text-sm font-medium text-gray-400 mb-1">
-                  Data do Atendimento
-                </label>
-                <input
-                  type="date"
-                  id="attendanceDate"
-                  value={attendanceDate}
-                  onChange={(e) => setAttendanceDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="attendanceProfessional" className="block text-sm font-medium text-gray-400 mb-1">
-                  Profissional que Atendeu
-                </label>
-                <select
-                  id="attendanceProfessional"
-                  value={attendanceProfessional}
-                  onChange={(e) => setAttendanceProfessional(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                  required
-                >
-                  <option value="">Selecione o profissional</option>
-                  {professionals.map((professional) => (
-                    <option key={professional.id} value={professional.full_name}>
-                      {professional.full_name}
-                    </option>
-                  ))}
-                </select>
-                {professionals.length === 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    ⚠️ Nenhum profissional encontrado. Execute o SQL primeiro ou adicione profissionais.
-                  </p>
-                )}
-                {professionals.length > 0 && (
-                  <p className="text-xs text-gray-600 mt-1">
-                    ✅ {professionals.length} profissional(is) encontrado(s)
-                  </p>
-                )}
-              </div>
+              <p className="text-xs text-gray-500">
+                Para registrar data e profissional do atendimento, use o botão &quot;✅ Atendimento assinatura&quot; na aba Agendamentos do Dia.
+              </p>
 
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1">
