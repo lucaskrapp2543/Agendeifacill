@@ -2697,6 +2697,7 @@ const EstablishmentDashboard = () => {
   const [selectedProfessionalForBlock, setSelectedProfessionalForBlock] = useState<string | null>(null);
   const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [blockRecurringWeekdays, setBlockRecurringWeekdays] = useState<number[]>([]); // 0=dom, 1=seg, ..., 6=sáb — dias que serão bloqueados nos meses (ao mudar a data com opção marcada, adiciona o dia)
+  const [blockRecurringWeekdayHours, setBlockRecurringWeekdayHours] = useState<Record<number, string[]>>({}); // horários bloqueados por dia da semana (sexta um conjunto, sábado outro) para "Bloquear meses"
   const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
   const [blockMonthsSameTime, setBlockMonthsSameTime] = useState(false);
@@ -12272,22 +12273,38 @@ Estamos te aguardando! 😎✂️`;
 
     const professional = professionals.find(p => p.id === professionalId);
     const lastOptions = (professional as any)?.block_modal_last_options;
+    const useRecurring = Boolean(lastOptions?.useRecurring);
+    const weekdays = Array.isArray(lastOptions?.weekdays) ? lastOptions.weekdays : [];
+    const rawWeekdayHours = lastOptions?.weekdayHours;
+    const weekdayHours: Record<number, string[]> = rawWeekdayHours && typeof rawWeekdayHours === 'object'
+      ? Object.entries(rawWeekdayHours).reduce((acc, [k, v]) => {
+        acc[Number(k)] = Array.isArray(v) ? v : [];
+        return acc;
+      }, {} as Record<number, string[]>)
+      : {};
 
+    setBlockMonthsSameTime(useRecurring);
+    setSelectedMonthsForBlock(Array.isArray(lastOptions?.months) ? lastOptions.months : []);
+    setBlockRecurringWeekdays(weekdays);
+    setBlockRecurringWeekdayHours(weekdayHours);
+    setBlockTimeDate(new Date().toISOString().split('T')[0]);
+
+    const today = new Date().toISOString().split('T')[0];
+    const todayWeekday = new Date(today + 'T12:00:00').getDay();
     if (professional && (professional as any).blocked_hours) {
       setBlockedHours(prev => ({
         ...prev,
         [professionalId]: (professional as any).blocked_hours
       }));
-      const today = new Date().toISOString().split('T')[0];
-      setSelectedBlockedHours((professional as any).blocked_hours[today] || []);
+      if (useRecurring && weekdayHours[todayWeekday]?.length) {
+        setSelectedBlockedHours(weekdayHours[todayWeekday]);
+      } else {
+        setSelectedBlockedHours((professional as any).blocked_hours[today] || []);
+      }
     } else {
-      setSelectedBlockedHours([]);
+      setSelectedBlockedHours(useRecurring && weekdayHours[todayWeekday]?.length ? weekdayHours[todayWeekday] : []);
     }
 
-    setBlockMonthsSameTime(Boolean(lastOptions?.useRecurring));
-    setSelectedMonthsForBlock(Array.isArray(lastOptions?.months) ? lastOptions.months : []);
-    setBlockRecurringWeekdays(Array.isArray(lastOptions?.weekdays) ? lastOptions.weekdays : []);
-    setBlockTimeDate(new Date().toISOString().split('T')[0]);
     setShowBlockTimeModal(true);
   };
 
@@ -12297,6 +12314,7 @@ Estamos te aguardando! 😎✂️`;
     setSelectedBlockedHours([]);
     setBlockTimeDate(new Date().toISOString().split('T')[0]);
     setBlockRecurringWeekdays([]);
+    setBlockRecurringWeekdayHours({});
     setBlockMonthsSameTime(false);
     setSelectedMonthsForBlock([]);
     setShowResetBlockConfirm(false);
@@ -12318,6 +12336,13 @@ Estamos te aguardando! 😎✂️`;
       prev.includes(month) ? prev.filter(m => m !== month) : [...prev, month].sort((a, b) => a - b)
     );
   };
+
+  // Com "Bloquear meses" ativo, manter horários do dia atual sincronizados em blockRecurringWeekdayHours (cada dia da semana com seu próprio conjunto)
+  useEffect(() => {
+    if (!blockMonthsSameTime || !blockTimeDate) return;
+    const w = new Date(blockTimeDate + 'T12:00:00').getDay();
+    setBlockRecurringWeekdayHours(prev => ({ ...prev, [w]: selectedBlockedHours }));
+  }, [blockMonthsSameTime, blockTimeDate, selectedBlockedHours]);
 
   const handleSaveBlockedHours = async () => {
     if (!selectedProfessionalForBlock || !establishment) return;
@@ -12351,28 +12376,38 @@ Estamos te aguardando! 😎✂️`;
           let updatedBlockedHours: Record<string, string[]> = { ...currentBlockedHours };
 
           if (blockMonthsSameTime && selectedMonthsForBlock.length > 0) {
-            // Bloquear o mesmo horário nos dias da semana que o usuário "marcou" mudando a data (ex.: sexta e terça)
+            // Cada dia da semana com seu próprio conjunto de horários: sexta 11:00–13:20, sábado outro horário, etc.
             const year = parseInt(blockTimeDate.slice(0, 4), 10);
+            const currentWeekday = new Date(blockTimeDate + 'T12:00:00').getDay();
+            const resolvedWeekdayHours: Record<number, string[]> = { ...blockRecurringWeekdayHours, [currentWeekday]: selectedBlockedHours };
             const weekdaysToBlock = blockRecurringWeekdays.length > 0
               ? new Set(blockRecurringWeekdays)
-              : new Set([new Date(blockTimeDate + 'T12:00:00').getDay()]); // fallback: só o dia da data atual
+              : new Set([currentWeekday]);
             for (const month of selectedMonthsForBlock) {
               const daysInMonth = new Date(year, month, 0).getDate();
               for (let day = 1; day <= daysInMonth; day++) {
-                if (!weekdaysToBlock.has(new Date(year, month - 1, day).getDay())) continue;
+                const w = new Date(year, month - 1, day).getDay();
+                if (!weekdaysToBlock.has(w)) continue;
+                const hours = resolvedWeekdayHours[w] || [];
                 const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                updatedBlockedHours[dateStr] = [...selectedBlockedHours];
+                updatedBlockedHours[dateStr] = [...hours];
               }
             }
           } else {
             updatedBlockedHours[blockTimeDate] = selectedBlockedHours;
           }
 
-          // Persistir últimas opções do modal para reabrir com meses e dias preenchidos
+          // Persistir últimas opções do modal (inclui horários por dia da semana para "Bloquear meses")
+          const currentW = new Date(blockTimeDate + 'T12:00:00').getDay();
+          const savedWeekdayHours = { ...blockRecurringWeekdayHours, [currentW]: selectedBlockedHours };
+          const weekdayHoursForStorage = Object.fromEntries(
+            Object.entries(savedWeekdayHours).map(([k, v]) => [String(k), v])
+          );
           const block_modal_last_options = {
             useRecurring: blockMonthsSameTime,
             months: blockMonthsSameTime ? selectedMonthsForBlock : [],
-            weekdays: blockRecurringWeekdays
+            weekdays: blockRecurringWeekdays,
+            weekdayHours: weekdayHoursForStorage
           };
 
           return {
@@ -12439,7 +12474,7 @@ Estamos te aguardando! 😎✂️`;
           return {
             ...p,
             blocked_hours: {},
-            block_modal_last_options: { useRecurring: false, months: [], weekdays: [] }
+            block_modal_last_options: { useRecurring: false, months: [], weekdays: [], weekdayHours: {} }
           };
         }
         return p;
@@ -21266,12 +21301,16 @@ Estamos te aguardando! 😎✂️`;
                         value={blockTimeDate}
                         onChange={(e) => {
                           const newDate = e.target.value;
-                          setBlockTimeDate(newDate);
+                          const newWeekday = new Date(newDate + 'T12:00:00').getDay();
                           if (blockMonthsSameTime) {
-                            const weekday = new Date(newDate + 'T12:00:00').getDay();
-                            setBlockRecurringWeekdays(prev => prev.includes(weekday) ? prev : [...prev, weekday].sort((a, b) => a - b));
-                            // Não trocar os horários selecionados: mantém os mesmos para todos os dias da semana
+                            const currentWeekday = new Date(blockTimeDate + 'T12:00:00').getDay();
+                            const nextWeekdayHours = { ...blockRecurringWeekdayHours, [currentWeekday]: selectedBlockedHours };
+                            setBlockRecurringWeekdayHours(nextWeekdayHours);
+                            setBlockTimeDate(newDate);
+                            setBlockRecurringWeekdays(prev => prev.includes(newWeekday) ? prev : [...prev, newWeekday].sort((a, b) => a - b));
+                            setSelectedBlockedHours(nextWeekdayHours[newWeekday] || []);
                           } else {
+                            setBlockTimeDate(newDate);
                             const professional = professionals.find(p => p.id === selectedProfessionalForBlock);
                             if (professional && (professional as any).blocked_hours) {
                               setSelectedBlockedHours((professional as any).blocked_hours[newDate] || []);
@@ -21434,6 +21473,7 @@ Estamos te aguardando! 😎✂️`;
                             if (checked) {
                               const weekday = new Date(blockTimeDate + 'T12:00:00').getDay();
                               setBlockRecurringWeekdays(prev => prev.includes(weekday) ? prev : [...prev, weekday].sort((a, b) => a - b));
+                              setBlockRecurringWeekdayHours(prev => ({ ...prev, [weekday]: selectedBlockedHours }));
                             }
                           }}
                           className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500"
@@ -21442,7 +21482,7 @@ Estamos te aguardando! 😎✂️`;
                       </label>
                       {blockMonthsSameTime && (
                         <p className="text-gray-400 text-sm mb-3">
-                          Os horários selecionados serão bloqueados nos dias da semana que você incluir abaixo. Mude a data acima para outro dia (ex.: terça) para adicionar esse dia da semana — nos meses escolhidos serão bloqueadas todas as terças e sextas (ou os dias que você adicionar).
+                          Cada dia da semana pode ter horários diferentes: selecione sexta e bloqueie 11:00–13:20, mude a data para sábado e bloqueie outro horário. Nos meses escolhidos, todas as sextas usam o bloqueio da sexta e todos os sábados usam o bloqueio do sábado.
                         </p>
                       )}
                       {blockMonthsSameTime && blockRecurringWeekdays.length > 0 && (
