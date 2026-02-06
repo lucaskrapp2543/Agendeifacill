@@ -2761,6 +2761,12 @@ const EstablishmentDashboard = () => {
   const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
+  // Chaves localStorage para "Lembrar neste aparelho" — só pré-preencher a senha (usuário ainda clica em Validar)
+  const pinPrefillDashboardKey = (id: string) => `pin_prefill_dashboard_${String(id)}`;
+  const pinPrefillSettingsKey = (id: string) => `pin_prefill_settings_${String(id)}`;
+  const pinSettingsPrefill = (() => { try { return establishment?.id ? (localStorage.getItem(pinPrefillSettingsKey(establishment.id)) ?? '') : ''; } catch { return ''; } })();
+  const pinDashboardPrefill = (() => { try { return establishment?.id ? (localStorage.getItem(pinPrefillDashboardKey(establishment.id)) ?? '') : ''; } catch { return ''; } })();
+
   // Estados para valores financeiros iniciais
   // Estados para edição do valor bruto por mês
   const [isEditingGrossValue, setIsEditingGrossValue] = useState(false);
@@ -10580,6 +10586,14 @@ Estamos te aguardando! 😎✂️`;
 
       if (error) throw error;
 
+      // Limpar senha pré-preenchida ao trocar a senha — novo PIN será exigido
+      try {
+        localStorage.removeItem(pinPrefillDashboardKey(establishment.id));
+        localStorage.removeItem(pinPrefillSettingsKey(establishment.id));
+      } catch {
+        // ignore
+      }
+
       // Atualiza os dados do estabelecimento localmente
       setEstablishment({
         ...establishment,
@@ -10594,19 +10608,25 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
-  // Função para validar a senha
-  const handleValidatePin = async (enteredPin: string) => {
+  // Função para validar a senha (configurações / Meus serviços / Meus assinantes / etc.)
+  const handleValidatePin = async (enteredPin: string, remember?: boolean) => {
     const targetTab: TabType = pendingTabAfterPin || 'settings';
     if (!establishment?.pin_password || establishment.pin_password.length === 0) {
-      // Se não tem senha configurada, libera o acesso
       setIsSettingsUnlocked(true);
       setShowPinModal(false);
-      setActiveTab(targetTab); // ✅ Entrar automaticamente na aba solicitada
+      setActiveTab(targetTab);
       setPendingTabAfterPin(null);
     } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
+      if (remember && establishment?.id) {
+        try {
+          localStorage.setItem(pinPrefillSettingsKey(establishment.id), enteredPin);
+        } catch {
+          // ignore
+        }
+      }
       setIsSettingsUnlocked(true);
       setShowPinModal(false);
-      setActiveTab(targetTab); // ✅ Entrar automaticamente na aba solicitada
+      setActiveTab(targetTab);
       setPendingTabAfterPin(null);
     } else {
       toast.error('Senha incorreta');
@@ -13357,16 +13377,22 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
-  const handleValidateDashboardPin = async (enteredPin: string) => {
+  const handleValidateDashboardPin = async (enteredPin: string, remember?: boolean) => {
     if (!establishment?.pin_password || establishment.pin_password.length === 0) {
-      // Se não tem senha configurada, libera o acesso
       setIsDashboardUnlocked(true);
       setShowDashboardPinModal(false);
-      setActiveTab('financial-dashboard'); // ✅ Entrar automaticamente no dashboard financeiro
+      setActiveTab('financial-dashboard');
     } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
+      if (remember && establishment?.id) {
+        try {
+          localStorage.setItem(pinPrefillDashboardKey(establishment.id), enteredPin);
+        } catch {
+          // ignore
+        }
+      }
       setIsDashboardUnlocked(true);
       setShowDashboardPinModal(false);
-      setActiveTab('financial-dashboard'); // ✅ Entrar automaticamente no dashboard financeiro
+      setActiveTab('financial-dashboard');
     } else {
       toast('Senha incorreta', 'error');
     }
@@ -13397,6 +13423,13 @@ Estamos te aguardando! 😎✂️`;
     // 🔒 Bloquear "Meus Serviços" quando existir senha de 4 dígitos (mesma regra das configurações)
     if (tab === 'service-categories' && hasPin && !isSettingsUnlocked) {
       setPendingTabAfterPin('service-categories');
+      setShowPinModal(true);
+      return;
+    }
+
+    // 🔒 Bloquear "Meus assinantes" quando existir senha de 4 dígitos (mesma regra das configurações)
+    if (tab === 'subscribers' && hasPin && !isSettingsUnlocked) {
+      setPendingTabAfterPin('subscribers');
       setShowPinModal(true);
       return;
     }
@@ -16916,6 +16949,7 @@ Estamos te aguardando! 😎✂️`;
                                 'Ela pode bloquear/autorizar, por exemplo:\n' +
                                 '• Entrar em Configurações / Página\n' +
                                 '• Entrar em Meus serviços (criar/editar/excluir serviços)\n' +
+                                '• Entrar em Meus assinantes\n' +
                                 '• Entrar no Financeiro e visualizar/alterar dados (inclusive de outros profissionais)\n' +
                                 '• Alterar dados sensíveis dos profissionais (ex: % comissão e senha)\n' +
                                 '• Cancelar agendamentos quando o sistema exigir senha\n\n' +
@@ -16939,6 +16973,7 @@ Estamos te aguardando! 😎✂️`;
                                   <span className="block mt-1">
                                     • Entrar em <strong>Configurações / Página</strong><br />
                                     • Entrar em <strong>Meus serviços</strong> (criar/editar/excluir serviços)<br />
+                                    • Entrar em <strong>Meus assinantes</strong><br />
                                     • Entrar no <strong>Financeiro</strong> e ver/alterar dados (inclusive de outros profissionais)<br />
                                     • Alterar dados dos profissionais (ex: <strong>% comissão</strong> e senha)<br />
                                     • Cancelar agendamentos quando o sistema exigir senha
@@ -21049,6 +21084,10 @@ Estamos te aguardando! 😎✂️`;
               onClose={handleClosePinModal}
               onSubmit={handleValidatePin}
               title="Digite a senha para acessar as configurações"
+              showRememberOption
+              prefillPin={pinSettingsPrefill}
+              clearPrefillStorageKey={establishment?.id ? pinPrefillSettingsKey(establishment.id) : ''}
+              onClearPrefill={(key) => { try { if (key) localStorage.removeItem(key); } catch { /* ignore */ } }}
             />
           )}
 
@@ -21057,6 +21096,10 @@ Estamos te aguardando! 😎✂️`;
               onClose={handleCloseDashboardPinModal}
               onSubmit={handleValidateDashboardPin}
               title="Digite a senha para acessar o dashboard"
+              showRememberOption
+              prefillPin={pinDashboardPrefill}
+              clearPrefillStorageKey={establishment?.id ? pinPrefillDashboardKey(establishment.id) : ''}
+              onClearPrefill={(key) => { try { if (key) localStorage.removeItem(key); } catch { /* ignore */ } }}
             />
           )}
 

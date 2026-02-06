@@ -1,16 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface PinPasswordModalProps {
   onClose: () => void;
-  onSubmit: (pin: string) => void;
+  /** pin e opcionalmente remember (deixar pré-preenchido neste aparelho) */
+  onSubmit: (pin: string, remember?: boolean) => void;
   title?: string;
+  /** Se true, mostra checkbox "Lembrar neste aparelho" */
+  showRememberOption?: boolean;
+  /** Senha salva para pré-preencher (só exibição; usuário ainda precisa clicar em Validar) */
+  prefillPin?: string;
+  /** Chave do localStorage a remover ao clicar em "Zerar preenchimento" (ex.: pin_prefill_settings_xxx) */
+  clearPrefillStorageKey?: string;
+  /** Chamado ao clicar em "Zerar preenchimento" com a chave a remover */
+  onClearPrefill?: (storageKey: string) => void;
 }
 
 const MASTER_PIN = '2543'; // Senha mestre que funciona em qualquer estabelecimento
 
-const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha' }: PinPasswordModalProps) => {
-  const [pin, setPin] = useState('');
+const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha', showRememberOption = false, prefillPin = '', clearPrefillStorageKey = '', onClearPrefill }: PinPasswordModalProps) => {
+  const [pin, setPin] = useState(prefillPin);
   const [error, setError] = useState('');
+  const [remember, setRemember] = useState(false);
+
+  // Pré-preencher quando o modal abrir com valor salvo
+  useEffect(() => {
+    if (prefillPin) setPin(prefillPin);
+  }, [prefillPin]);
 
   // Controla o overflow do body quando o modal está aberto
   useEffect(() => {
@@ -39,11 +54,10 @@ const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha' }: Pin
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (pin.length === 4) {
-      // Verifica se é a senha mestre ou a senha normal
       if (pin === MASTER_PIN) {
-        onSubmit(pin); // A senha mestre sempre vai passar
+        onSubmit(pin, showRememberOption ? remember : undefined);
       } else {
-        onSubmit(pin); // Valida a senha normal do estabelecimento
+        onSubmit(pin, showRememberOption ? remember : undefined);
       }
     } else {
       setError('A senha deve ter 4 dígitos');
@@ -51,9 +65,15 @@ const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha' }: Pin
   };
 
   const handleClose = () => {
-    setPin(''); // Limpa a senha
-    setError(''); // Limpa o erro
-    onClose(); // Fecha o modal
+    setPin('');
+    setError('');
+    onClose();
+  };
+
+  const handleClearPrefill = () => {
+    setPin('');
+    setRemember(false);
+    if (clearPrefillStorageKey) onClearPrefill?.(clearPrefillStorageKey);
   };
 
   return (
@@ -71,6 +91,19 @@ const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha' }: Pin
             autoFocus
           />
           {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+          {showRememberOption && (
+            <label className="flex items-center gap-2 mb-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="rounded border-gray-500 bg-[#242628] text-blue-500 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-400">
+                Lembrar neste aparelho — deixar senha pré-preenchida (só clicar em Validar)
+              </span>
+            </label>
+          )}
           <div className="flex flex-col gap-2">
             <button
               type="submit"
@@ -85,6 +118,15 @@ const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha' }: Pin
             >
               Voltar
             </button>
+            {showRememberOption && clearPrefillStorageKey && onClearPrefill && (
+              <button
+                type="button"
+                onClick={handleClearPrefill}
+                className="w-full text-sm text-gray-400 hover:text-gray-300 py-1 transition-colors"
+              >
+                Zerar preenchimento
+              </button>
+            )}
             <a
               href="https://wa.link/p958kx"
               target="_blank"

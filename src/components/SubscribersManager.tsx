@@ -3464,51 +3464,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               <p className="text-white font-medium">{selectedClientForAttendance.profiles?.full_name}</p>
             </div>
 
-            <form onSubmit={handleAddAttendance} className="space-y-4">
-              <p className="text-xs text-gray-500">
-                Para registrar data e profissional do atendimento, use o botão &quot;✅ Atendimento assinatura&quot; na aba Agendamentos do Dia.
-              </p>
-
+            <div className="space-y-4">
+              {/* Resumo: quanto é a assinatura, após repasse/venda, quanto fica por atendimento */}
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <label htmlFor="attendanceValue" className="block text-sm font-medium text-gray-400">
-                    Valor Repassado ao Profissional (R$)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const clientSubscription = selectedClientForAttendance;
-                      const subscription = subscriptions.find((sub) => sub.id === clientSubscription.subscription_id);
-                      const fixedCommission = Number((subscription as any)?.fixed_commission_value || 0);
-                      const subscriptionValue = Number((subscription as any)?.value || 0);
-
-                      if (!subscription) {
-                        toast.error('Assinatura não encontrada para calcular a % de repasse.');
-                        return;
-                      }
-
-                      if (!Number.isFinite(fixedCommission) || fixedCommission <= 0) {
-                        toast.error('Essa assinatura não tem % de repasse configurada (valor fixo do repasse está 0).');
-                        return;
-                      }
-
-                      if (!Number.isFinite(subscriptionValue) || subscriptionValue <= 0) {
-                        toast.error('Não foi possível calcular a % (valor da assinatura inválido).');
-                        return;
-                      }
-
-                      const percentFromFixed = Math.round((fixedCommission / subscriptionValue) * 10000) / 100; // 2 casas
-                      toast.success(
-                        `✅ % de repasse configurada na assinatura: ${percentFromFixed}% (R$ ${fixedCommission.toFixed(2).replace('.', ',')} por atendimento)`
-                      );
-                    }}
-                    className="shrink-0 h-7 w-7 rounded-full border border-white/15 bg-white/10 text-white/90 hover:bg-white/15 transition-colors font-extrabold text-sm flex items-center justify-center"
-                    title="Ver percentual configurado"
-                    aria-label="Ver percentual configurado"
-                  >
-                    %
-                  </button>
-                </div>
                 {(() => {
                   const clientSubscription = selectedClientForAttendance;
                   const subscription = subscriptions.find(sub => sub.id === clientSubscription.subscription_id);
@@ -3539,56 +3497,34 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         : null;
                     const finalDividedRepass =
                       divideEnabled && Number.isFinite(divideCount) && divideCount > 0 ? round2(finalWithDiscount / divideCount) : null;
-                    // Se tem valor fixo, campo vem preenchido e desabilitado
                     return (
                       <>
-                        {/* ✅ Info (configurado na assinatura): Dividir valor total */}
+                        <div className="text-sm font-medium text-gray-400 mb-2">Valor Repassado ao Profissional (R$)</div>
+                        {/* Bloco igual à imagem: Dividir valor total com todas as explicações */}
                         {divideEnabled && (
                           <div className="mb-2 p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
                             <div className="text-sm text-white font-semibold">👉 Dividir valor total (ativo na assinatura)</div>
-                            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-200">
-                              <div>
-                                <div className="text-gray-300">Valor líquido da assinatura</div>
-                                <div className="text-white font-bold">
-                                  {fmtBRL(netTotal)}
-                                  {hasSaleDiscount ? <span className="text-gray-300 font-medium"> (venda {percent}%)</span> : null}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-gray-300">Qtd. atendimentos</div>
-                                <div className="text-white font-bold">{divideCount > 0 ? divideCount : '—'}</div>
-                              </div>
-                            </div>
-
                             <div className="mt-2 text-xs text-gray-200 space-y-1">
                               <div>
-                                <span className="text-gray-300">Valor por atendimento:</span>{' '}
-                                <strong className="text-white">{dividedValue !== null ? fmtBRL(dividedValue) : '—'}</strong>
+                                Valor líquido da assinatura <strong className="text-white">{fmtBRL(netTotal)}</strong>
+                                {hasSaleDiscount ? <span className="text-gray-300"> (venda {percent}%)</span> : null}
                               </div>
                               <div>
-                                <span className="text-gray-300">Repasse configurado:</span>{' '}
-                                <strong className="text-white">{percentFromFixed !== null ? `${percentFromFixed}%` : '—'}</strong>
+                                Qtd. atendimentos <strong className="text-white">{divideCount > 0 ? divideCount : '—'}</strong>
                               </div>
                               <div>
-                                <span className="text-gray-300">Profissional recebe:</span>{' '}
-                                <strong className="text-white">{finalDividedRepass !== null ? fmtBRL(finalDividedRepass) : '—'}</strong>
-                                <span className="text-gray-300"> por atendimento</span>
+                                Valor por atendimento: <strong className="text-white">{dividedValue !== null ? fmtBRL(dividedValue) : '—'}</strong>
+                              </div>
+                              <div>
+                                Repasse configurado: <strong className="text-white">{percentFromFixed !== null ? `${percentFromFixed}%` : '—'}</strong>
+                              </div>
+                              <div>
+                                Profissional recebe: <strong className="text-white">{finalDividedRepass !== null ? fmtBRL(finalDividedRepass) : '—'}</strong> por atendimento
                               </div>
                             </div>
                           </div>
                         )}
 
-                        <input
-                          type="number"
-                          id="attendanceValue"
-                          value={fixedCommission}
-                          onChange={(e) => setAttendanceValue(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                          step="0.01"
-                          min="0"
-                          required
-                          disabled
-                        />
                         <div className="mt-2 p-2 bg-gray-100 border border-gray-300 rounded-lg">
                           <p className="text-xs text-gray-700">
                             ✅ Valor fixo configurado: R$ {fixedCommission.toFixed(2).replace('.', ',')} (não editável)
@@ -3608,27 +3544,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </>
                     );
                   } else {
+                    const subscriptionValueElse = Number((subscription as any)?.value || 0);
+                    const netTotalElse = round2(subscriptionValueElse * multiplier);
                     const finalWithDiscount = round2(Number(attendanceValue || 0) * multiplier);
-                    // Se não tem valor fixo, campo normal para preenchimento manual
                     return (
                       <>
-                        <input
-                          type="number"
-                          id="attendanceValue"
-                          value={attendanceValue}
-                          onChange={(e) => setAttendanceValue(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500 text-white"
-                          step="0.01"
-                          min="0"
-                          required
-                        />
+                        <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg mb-2">
+                          <div className="text-xs text-gray-300">Valor da assinatura</div>
+                          <div className="text-white font-bold">{fmtBRL(subscriptionValueElse)}</div>
+                          {hasSaleDiscount && (
+                            <div className="text-xs text-gray-400 mt-1">
+                              Após comissão de venda ({percent}%): <strong className="text-white">{fmtBRL(netTotalElse)}</strong>
+                            </div>
+                          )}
+                        </div>
                         <div className="mt-2 p-2 bg-gray-100 border border-gray-300 rounded-lg">
                           <p className="text-xs text-gray-700">
-                            ⚠️ Nenhum valor fixo configurado para esta assinatura. Preencha manualmente.
+                            ⚠️ Nenhum valor fixo de repasse configurado nesta assinatura. Use &quot;✅ Atendimento assinatura&quot; na agenda para registrar atendimentos.
                           </p>
-                          {hasSaleDiscount && (
+                          {hasSaleDiscount && finalWithDiscount > 0 && (
                             <p className="text-xs text-gray-700 mt-1">
-                              🔻 Com desconto de venda ({percent}%): <strong>R$ {finalWithDiscount.toFixed(2).replace('.', ',')}</strong> (valor que será salvo no atendimento)
+                              🔻 Com desconto de venda ({percent}%): <strong>R$ {finalWithDiscount.toFixed(2).replace('.', ',')}</strong>
                             </p>
                           )}
                         </div>
@@ -3644,7 +3580,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   % do profissional por venda da assinatura (SALVA AUTOMATICAMENTE)
                 </p>
                 <p className="text-xs text-gray-400 mb-3">
-                  Isso é um bônus de venda (paga 1x). <strong>Não precisa clicar em “Salvar Atendimento”.</strong>
+                  Bônus de venda (paga 1x). Ao escolher o profissional e o %, já salva sozinho.
                 </p>
 
                 <div className="space-y-3">
@@ -3722,32 +3658,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddAttendanceModal(false);
-                    setSelectedClientForAttendance(null);
-                    setAttendanceDate('');
-                    setAttendanceProfessional('');
-                    setAttendanceValue(0);
-                    setSaleCommissionProfessional('');
-                    setSaleCommissionPercent('');
-                    setSaleCommissionLastSavedAt(null);
-                  }}
-                  className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingAttendance}
-                  className="flex-1 px-4 py-2 bg-black hover:bg-gray-800 text-white rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {isSavingAttendance ? 'Salvando...' : 'Salvar Atendimento'}
-                </button>
-              </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
