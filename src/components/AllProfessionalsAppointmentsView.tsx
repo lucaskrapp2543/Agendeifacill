@@ -399,12 +399,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const selectedSub = subscriberOptions.find((s) => String(s.id) === String(selectedSubscriberOptionId));
         const limit = Number(selectedSub?.monthly_limit || 0);
         if (Number.isFinite(limit) && limit > 0) {
-          const dateStr = String(apt.appointment_date || '').slice(0, 10);
-          const [y, m] = dateStr.split('-').map(Number);
-          const first = new Date(y || new Date().getFullYear(), (m || (new Date().getMonth() + 1)) - 1, 1);
-          const last = new Date(y || new Date().getFullYear(), (m || (new Date().getMonth() + 1)) - 1 + 1, 0);
-          const min = first.toISOString().split('T')[0];
-          const max = last.toISOString().split('T')[0];
+          // Usar a data do dia da agenda (selectedDate) para evitar dia anterior por UTC
+          const y = selectedDate.getFullYear();
+          const m = selectedDate.getMonth();
+          const first = new Date(y, m, 1);
+          const last = new Date(y, m + 1, 0);
+          const min = format(first, 'yyyy-MM-dd');
+          const max = format(last, 'yyyy-MM-dd');
 
           const { data: countRows, error: countErr } = await (supabase as any)
             .from('subscriber_attendances')
@@ -481,11 +482,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
           repassValue = round2(repassValue / divideCount);
         }
 
+        // Data do dia da agenda (evita mostrar dia anterior em Meus Assinantes por causa de UTC)
+        const attendanceDateStr = format(selectedDate, 'yyyy-MM-dd');
         const payload: any = {
           establishment_id: establishmentId,
           client_subscription_id: String(selectedSubscriberOptionId),
           professional_name: professionalName,
-          attendance_date: String(apt.appointment_date || '').slice(0, 10),
+          attendance_date: attendanceDateStr,
           repass_value: repassValue,
         };
         if (user?.id) payload.created_by = user.id;

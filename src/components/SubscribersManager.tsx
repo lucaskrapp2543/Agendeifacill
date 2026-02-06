@@ -1,4 +1,4 @@
-import { format, isPast, parseISO } from 'date-fns';
+import { format, isPast, parse, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, Plus, Trash2, Users, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -1027,7 +1027,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const suffix = hasSaleDiscount
         ? ` (com desconto de venda ${salePercent}% aplicado)`
         : '';
-      toast.success(`Atendimento adicionado: ${attendanceProfessional} atendeu ${selectedClientForAttendance.profiles?.full_name} no dia ${new Date(attendanceDate).toLocaleDateString('pt-BR')} e recebeu ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValueToSave)}.${suffix}`);
+      toast.success(`Atendimento adicionado: ${attendanceProfessional} atendeu ${selectedClientForAttendance.profiles?.full_name} no dia ${format(parse(String(attendanceDate || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })} e recebeu ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValueToSave)}.${suffix}`);
 
       // Limpar formulário
       setAttendanceDate('');
@@ -1051,7 +1051,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // Função para remover atendimento
   const handleRemoveAttendance = async (attendanceId: string, professionalName: string, attendanceDate: string, repassValue: number) => {
-    if (!confirm(`Tem certeza que deseja remover o atendimento de ${professionalName} em ${new Date(attendanceDate).toLocaleDateString('pt-BR')} (${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValue)})?`)) {
+    if (!confirm(`Tem certeza que deseja remover o atendimento de ${professionalName} em ${format(parse(String(attendanceDate || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })} (${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValue)})?`)) {
       return;
     }
 
@@ -2748,8 +2748,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       !String(establishment?.pagarme_recipient_id || '').trim() // Desabilitar se não tiver recipient_id
                     }
                     className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${usePagarmeSubscriptionPix
-                        ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
-                        : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
+                      ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
+                      : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
                       } ${(isUpdatingPagarmeSubscriptionPix || !String(establishment?.pagarme_recipient_id || '').trim()) ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
                       }`}
                     title={
@@ -2814,8 +2814,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     isUpdatingMercadoPagoSubscriptionPix
                   }
                   className={`shrink-0 w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${useMercadoPagoSubscriptionPix
-                      ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
-                      : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
+                    ? 'bg-green-600 text-white border-green-500/40 hover:bg-green-700'
+                    : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
                     } ${isUpdatingMercadoPagoSubscriptionPix ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
                     }`}
                   title={
@@ -2890,8 +2890,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     onClick={() => handleUpdateShowSubscriptionsFullpage(!showSubscriptionsFullpage)}
                     disabled={isUpdatingShowSubscriptionsFullpage}
                     className={`w-full px-5 py-2.5 rounded-xl font-extrabold transition-all border shadow-lg ${showSubscriptionsFullpage
-                        ? 'bg-indigo-600 text-white border-indigo-500/40 hover:bg-indigo-700'
-                        : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
+                      ? 'bg-indigo-600 text-white border-indigo-500/40 hover:bg-indigo-700'
+                      : 'bg-white/10 text-white border-white/15 hover:bg-white/15'
                       } ${isUpdatingShowSubscriptionsFullpage ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
                       }`}
                     title={showSubscriptionsFullpage ? 'Desativar' : 'Ativar'}
@@ -3977,7 +3977,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           <div className="flex-1">
                             <p className="text-sm font-medium text-white">{attendance.professional_name}</p>
                             <p className="text-xs text-gray-400">
-                              {new Date(attendance.attendance_date).toLocaleDateString('pt-BR')}
+                              {format(parse(String(attendance.attendance_date || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}
                             </p>
                           </div>
                           <div className="flex items-center gap-3">
