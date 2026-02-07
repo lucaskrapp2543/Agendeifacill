@@ -107,6 +107,7 @@ interface AllProfessionalsAppointmentsViewProps {
   onOpenAbsenceModal?: (professionalId: string) => void;
   onGoToClients?: () => void;
   onCancelAppointment?: (appointmentId: string) => void;
+  onClientNoShow?: (appointment: Appointment) => void;
   useLightLayout?: boolean;
 }
 
@@ -134,6 +135,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onOpenAbsenceModal,
   onGoToClients,
   onCancelAppointment,
+  onClientNoShow,
   useLightLayout = false,
 }) => {
     console.log('📋 AllProfessionalsAppointmentsView - Total de appointments recebidos:', appointments.length);
@@ -535,6 +537,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const getDisplayedClientName = (apt: Appointment): string => {
       return localClientNameOverrides[apt.id] ?? apt.client_name ?? '';
+    };
+
+    const getDisplayedClientNameWithSubscriberLabel = (apt: Appointment): string => {
+      const name = getDisplayedClientName(apt);
+      if (!apt.is_subscriber) return name;
+      const base = (name || '').trim().toUpperCase() === 'ASSINANTE' || !(name || '').trim() ? 'Assinante' : name;
+      const alreadyHasLabel = (name || '').includes('(ASSINANTE)');
+      return alreadyHasLabel ? `${base} 👑` : `${base} (ASSINANTE) 👑`;
     };
 
     const isAvulsoLike = (apt: Appointment): boolean => {
@@ -1716,6 +1726,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
               {professionals.map((professional, index) => {
                 const timeSlots = generateTimeSlotsWithAppointments(professional);
                 const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+                const isProfessionalAbsentOnSelectedDate = ((professional as any)?.absences as string[] | undefined)?.includes(selectedDateStr) ?? false;
                 const slotTimeSet = new Set(timeSlots.map((s) => s.time));
 
                 // ✅ Agendamentos com horário "picado" (fora do intervalo), que não entram na grade
@@ -1965,19 +1976,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 </div>
                               );
                             } else if (slot.isEmpty) {
-                              // Horário disponível - pode ter encaixes abaixo
+                              // Horário disponível (ou dia de ausência) - pode ter encaixes abaixo
                               const squeezes = (slot as any).squeezes || [];
+                              const isAbsentSlot = isProfessionalAbsentOnSelectedDate;
                               return (
                                 <div key={`${slot.time}-${slotIndex}`}>
                                   <div
-                                    className={`${slotColor} border-2 rounded-lg px-3 py-2`}
+                                    className={`${isAbsentSlot ? 'bg-amber-100 border-amber-300' : slotColor} border-2 rounded-lg px-3 py-2`}
                                   >
                                     <div className="flex items-center justify-between">
                                       <span className="text-black font-bold text-sm">
                                         {slot.time}
                                       </span>
-                                      <span className="text-green-600 text-xs font-semibold">
-                                        ✓ DISPONÍVEL
+                                      <span className={`text-xs font-semibold ${isAbsentSlot ? 'text-amber-700' : 'text-green-600'}`}>
+                                        {isAbsentSlot ? '📅 AUSENTE' : '✓ DISPONÍVEL'}
                                       </span>
                                     </div>
                                   </div>
@@ -2116,7 +2128,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       <div className="text-white font-semibold text-sm mb-1 truncate">
                                         <div className="flex items-center gap-2 min-w-0">
                                           <span className="truncate">
-                                            {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientName(apt)}
+                                            {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientNameWithSubscriberLabel(apt)}
                                           </span>
                                           {isAvulsoLike(apt) && !apt.is_squeeze && (
                                             <button
@@ -2134,7 +2146,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             </button>
                                           )}
                                         </div>
-                                        {apt.is_subscriber && ' 👑'}
                                       </div>
                                       <div className="text-white/90 text-xs truncate">
                                         {apt.service}
@@ -2169,7 +2180,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <div className="flex items-center gap-2 mb-2">
                                           <User className="w-4 h-4 text-white" />
                                           <span className="text-white font-semibold">
-                                            {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientName(apt)}
+                                            {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientNameWithSubscriberLabel(apt)}
                                           </span>
                                           {isAvulsoLike(apt) && !apt.is_squeeze && editingAvulsoNameId !== apt.id && (
                                             <button
@@ -2181,7 +2192,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               ✏️
                                             </button>
                                           )}
-                                          {apt.is_premium && <Crown className="w-4 h-4 text-gray-300" />}
+                                          {apt.is_premium && !apt.is_subscriber && <Crown className="w-4 h-4 text-gray-300" />}
                                           {apt.is_squeeze && <span className="text-gray-300 text-xs">🟣</span>}
                                         </div>
                                         {isAvulsoLike(apt) && !apt.is_squeeze && (
@@ -2550,6 +2561,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             >
                                               IMPREVISTO
                                             </button>
+
+                                            {onClientNoShow && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const clientName = apt.client_name || 'este cliente';
+                                                  if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
+                                                  onClientNoShow(apt);
+                                                }}
+                                                className="px-2 py-1.5 text-xs bg-orange-700 text-white rounded hover:bg-orange-800"
+                                                title="Registrar que o cliente faltou (mesma função de Meus clientes)"
+                                              >
+                                                Cliente Faltou
+                                              </button>
+                                            )}
                                           </div>
 
                                           {/* Botões secundários */}
@@ -2668,7 +2694,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     <div className="flex items-center justify-between gap-2">
                                       <div className="min-w-0">
                                         <div className="text-xs font-extrabold text-amber-900">
-                                          ⛔ {apt.appointment_time} • {getDisplayedClientName(apt) || 'Cliente'}
+                                          ⛔ {apt.appointment_time} • {apt.is_squeeze ? 'ENCAIXE' : (getDisplayedClientNameWithSubscriberLabel(apt) || 'Cliente')}
                                         </div>
                                         <div className="text-[11px] text-amber-900/90 truncate">
                                           {apt.service}

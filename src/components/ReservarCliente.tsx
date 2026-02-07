@@ -73,6 +73,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [breakRange, setBreakRange] = useState<{ start: string; end: string } | null>(null);
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | null>(null);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
@@ -761,7 +762,14 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
         if (!workHours.enabled) {
           console.log('⚠️ Dia não habilitado para trabalho');
           setTimeSlots([]);
+          setBreakRange(null);
           return;
+        }
+
+        if (workHours.open2 && workHours.close2 && workHours.close1) {
+          setBreakRange({ start: workHours.close1, end: workHours.open2 });
+        } else {
+          setBreakRange(null);
         }
 
         // Gerar slots baseados nos horários de trabalho
@@ -851,6 +859,12 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
               }
             }
 
+            // Não permitir horário que invada o intervalo: serviço terminando depois do fim do período 1
+            if (available && minutes + totalDuration > endMinutes) {
+              available = false;
+              reason = 'Intervalo';
+            }
+
             slots.push({
               time,
               available,
@@ -898,6 +912,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   }
                 }
               }
+            }
+
+            if (available && minutes + totalDuration > endMinutes) {
+              available = false;
+              reason = 'Fim do expediente';
             }
 
             slots.push({
@@ -1769,6 +1788,14 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                 />
               </div>
 
+              {breakRange && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm font-medium text-amber-800">
+                    ⏸️ <strong>Seu intervalo:</strong> {breakRange.start} às {breakRange.end}. Nenhum horário é oferecido nesse período, e horários que invadiriam o intervalo aparecem bloqueados.
+                  </p>
+                </div>
+              )}
+
               {loading ? (
                 <div className="text-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black mx-auto"></div>
@@ -1786,9 +1813,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                         disabled={!slot.available}
                         className={`w-full p-3 text-sm rounded-lg transition-all relative ${slot.available
                           ? 'bg-green-100 hover:bg-green-200 text-green-900 border border-green-400 font-semibold'
-                          : slot.isAvulso
-                            ? 'bg-blue-100 text-blue-900 border border-blue-400 cursor-not-allowed'
-                            : 'bg-red-100 text-red-900 border border-red-400 cursor-not-allowed'
+                          : slot.reason === 'Intervalo' || slot.reason === 'Fim do expediente'
+                            ? 'bg-amber-100 text-amber-900 border border-amber-400 cursor-not-allowed'
+                            : slot.isAvulso
+                              ? 'bg-blue-100 text-blue-900 border border-blue-400 cursor-not-allowed'
+                              : 'bg-red-100 text-red-900 border border-red-400 cursor-not-allowed'
                           }`}
                       >
                         <div className="text-center">
@@ -1799,8 +1828,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                             </div>
                           )}
                           {!slot.available && !slot.isAvulso && (
-                            <div className="text-xs text-red-700 mt-1 font-medium">
-                              BLOQUEADO
+                            <div className={`text-xs mt-1 font-medium ${slot.reason === 'Intervalo' || slot.reason === 'Fim do expediente' ? 'text-amber-700' : 'text-red-700'}`}>
+                              {slot.reason === 'Intervalo' ? 'INTERVALO' : slot.reason === 'Fim do expediente' ? 'FIM EXP.' : 'BLOQUEADO'}
                             </div>
                           )}
                         </div>

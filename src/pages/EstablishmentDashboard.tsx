@@ -2618,6 +2618,25 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleClientNoShowFromAppointment = async (appointment: { id: string; client_whatsapp?: string | null }) => {
+    const whatsapp = String(appointment.client_whatsapp || '').trim().replace(/\D/g, '');
+    if (!whatsapp) {
+      toast.error('Agendamento sem WhatsApp; não é possível registrar falta.');
+      return;
+    }
+    const client = { id: '', whatsapp: appointment.client_whatsapp || '', name: '' } as Client;
+    await ajustarFaltaCliente(client, 1);
+    try {
+      const { error } = await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointment.id);
+      if (error) throw error;
+      toast.success('Agendamento cancelado.');
+      fetchAppointments();
+      fetchMonthlyAppointments();
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao cancelar agendamento');
+    }
+  };
+
   // Estados para edição de valor do agendamento
   const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -14476,6 +14495,7 @@ Estamos te aguardando! 😎✂️`;
                       onOpenAbsenceModal={handleOpenAbsenceModal}
                       onGoToClients={handleGoToClients}
                       onCancelAppointment={handleCancelClick}
+                      onClientNoShow={handleClientNoShowFromAppointment}
                       useLightLayout={useLightLayout}
                     />
                   </div>
