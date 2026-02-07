@@ -85,6 +85,7 @@ interface AppointmentFormProps {
   isSubscriberBooking?: boolean; // Indica se é agendamento de assinante
   requireAdvancePayment?: boolean; // Se true: não exigir forma de pagamento/PIX aqui (pagamento será no PaymentModal)
   onConvertToSubscriber?: (subscriberData: any) => void; // Callback para converter para assinante
+  onOpenRenewSubscription?: (detectedSubscriber: any) => void; // Callback para abrir fluxo de renovação (dados + pagamento)
   subscriberDetectionDisabled?: boolean; // Estado externo para desabilitar detecção
   onSubscriberDetectionDisabledChange?: (disabled: boolean) => void; // Callback para mudar o estado
   guestClientData?: { name: string; phone: string } | null; // Dados do cliente convidado (sem login)
@@ -100,6 +101,7 @@ export function AppointmentForm({
   isSubscriberBooking = false,
   requireAdvancePayment = false,
   onConvertToSubscriber,
+  onOpenRenewSubscription,
   subscriberDetectionDisabled: externalSubscriberDetectionDisabled,
   guestClientData,
   onSubscriberDetectionDisabledChange
@@ -2008,19 +2010,19 @@ export function AppointmentForm({
                       <button
                         type="button"
                         onClick={() => {
-                          // Redirecionar para WhatsApp do estabelecimento
-                          const establishmentWhatsapp = establishment?.whatsapp;
-                          const subscriptionName = detectedSubscriber.subscription_name || 'Plano não identificado';
-
-                          if (establishmentWhatsapp) {
-                            const message = `Quero renovar minha assinatura: ${subscriptionName}`;
-                            const whatsappUrl = `https://wa.me/${establishmentWhatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
-                            window.open(whatsappUrl, '_blank');
+                          if (onOpenRenewSubscription) {
+                            onOpenRenewSubscription(detectedSubscriber);
+                            setShowSubscriberNotification(false);
                           } else {
-                            console.error('WhatsApp do estabelecimento não encontrado');
+                            const establishmentWhatsapp = establishment?.whatsapp;
+                            const subscriptionName = detectedSubscriber.subscription_name || 'Plano não identificado';
+                            if (establishmentWhatsapp) {
+                              const message = `Quero renovar minha assinatura: ${subscriptionName}`;
+                              const whatsappUrl = `https://wa.me/${establishmentWhatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                              window.open(whatsappUrl, '_blank');
+                            }
+                            setShowSubscriberNotification(false);
                           }
-
-                          setShowSubscriberNotification(false);
                         }}
                         className="flex-1 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
                       >
@@ -2168,13 +2170,17 @@ export function AppointmentForm({
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
-                        // Verificar se o estabelecimento tem WhatsApp configurado
+                        if (onOpenRenewSubscription && detectedSubscriber) {
+                          onOpenRenewSubscription(detectedSubscriber);
+                          setMonthlyLimitError(null);
+                          setMonthlyLimitData(null);
+                          setShowSubscriberNotification(false);
+                          return;
+                        }
                         if (!establishment?.whatsapp) {
                           alert('❌ WhatsApp do estabelecimento não está configurado. Entre em contato por telefone ou email.');
                           return;
                         }
-
-                        // Abrir WhatsApp do ESTABELECIMENTO para renovação de assinatura
                         const cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
                         const whatsappUrl = `https://wa.me/55${cleanWhatsapp}?text=Olá! Gostaria de renovar minha assinatura. Como posso proceder?`;
                         window.open(whatsappUrl, '_blank');

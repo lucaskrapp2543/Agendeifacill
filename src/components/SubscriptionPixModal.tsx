@@ -60,6 +60,8 @@ type SubscriptionPixModalProps = {
   externalPaymentLink?: string;
   // ✅ Define qual fluxo abrir primeiro (ex.: pedido via WhatsApp, sem abrir WhatsApp direto)
   initialFlow?: 'default' | 'credit' | 'whatsapp';
+  // ✅ Renovação: pré-preenche nome e WhatsApp do assinante (mesmo número = atualiza o registro existente ao pagar)
+  initialPrefill?: { name: string; whatsapp: string };
 };
 
 export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
@@ -73,6 +75,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   paymentProvider = 'pagarme', // Padrão: Pagar.me
   externalPaymentLink,
   initialFlow = 'default',
+  initialPrefill,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'pix' | 'credit_card' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -128,6 +131,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       12;
     container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   };
+
+  // ✅ Renovação: pré-preenher nome e WhatsApp quando abrir com initialPrefill
+  useEffect(() => {
+    if (isOpen && initialPrefill) {
+      if (initialPrefill.name) setNome(initialPrefill.name);
+      const w = String(initialPrefill.whatsapp || '').replace(/\D/g, '');
+      if (w) setWhatsapp(w);
+    }
+  }, [isOpen, initialPrefill?.name, initialPrefill?.whatsapp]);
 
   // ✅ Carregar email salvo ao abrir o modal
   useEffect(() => {
@@ -515,7 +527,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       // ✅ VALIDAÇÃO: Email é obrigatório e deve ser válido
       const payerEmail = String(email || '').trim();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      
+
       if (!payerEmail || !emailRegex.test(payerEmail)) {
         toast.error('Email inválido. Informe um email válido para continuar o pagamento.');
         return;
@@ -605,9 +617,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             ? 'O servidor de pagamentos demorou demais para responder. Tente novamente.'
             : isCpfInvalid
               ? 'CPF inválido. Confira e digite um CPF válido (11 dígitos) para gerar o PIX.'
-            : isPixNotEnabled
-              ? 'PIX indisponível no Mercado Pago deste barbeiro. Ele precisa ativar/cadastrar uma chave PIX no app do Mercado Pago para gerar QR Code.'
-              : `Erro ao gerar PIX: ${rawMsg || 'Erro desconhecido'}`
+              : isPixNotEnabled
+                ? 'PIX indisponível no Mercado Pago deste barbeiro. Ele precisa ativar/cadastrar uma chave PIX no app do Mercado Pago para gerar QR Code.'
+                : `Erro ao gerar PIX: ${rawMsg || 'Erro desconhecido'}`
         );
 
         // Se o PIX falhar por configuração do recebedor, não deixar o usuário preso
@@ -994,7 +1006,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isProcessing) {
@@ -1023,402 +1035,402 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           style={{ minHeight: 0, WebkitOverflowScrolling: 'touch' }}
         >
           <div className="bg-[#111213] border border-gray-700 rounded-lg p-4 mb-4">
-          <p className="text-sm text-gray-200">
-            Plano: <span className="font-semibold">{subscription.name}</span>
-          </p>
-          <p className="text-sm text-gray-200 mt-1">
-            Valor: <span className="font-semibold">R$ {Number(subscription.value || 0).toFixed(2).replace('.', ',')}</span>
-          </p>
-          <p className="text-xs text-gray-400 mt-2">
-            Todo mês você será lembrado para renovar sua assinatura automaticamente.
-          </p>
-        </div>
-
-        {(isPaid || isCreditClaimed || isExternalClaimed) ? (
-          <div className="space-y-4">
-            <div className="bg-green-600/15 border border-green-500/40 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="h-6 w-6 text-green-300 mt-0.5" />
-                <div>
-                  <p className="text-green-200 font-extrabold text-base">
-                    {(isCreditClaimed || isExternalClaimed) ? 'Solicitação enviada ✅' : 'Parabéns! Você assinou ✅'}
-                  </p>
-                  <p className="text-sm text-gray-200 mt-1">
-                    Plano: <span className="font-semibold">{subscription.name}</span> da barbearia{' '}
-                    <span className="font-semibold">{establishmentName}</span>.
-                  </p>
-                  <p className="text-sm text-gray-300 mt-2">
-                    {(isCreditClaimed || isExternalClaimed)
-                      ? 'Pagamento externo. Agora peça para o barbeiro confirmar no sistema para liberar seu uso.'
-                      : 'Agora avise seu barbeiro e pronto.'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                const phone = String(establishmentWhatsapp || '').replace(/\D/g, '');
-                if (!phone) {
-                  toast.error('WhatsApp do estabelecimento não configurado.');
-                  return;
-                }
-                const phoneWithCountry = phone.startsWith('55') ? phone : `55${phone}`;
-                const message = isCreditClaimed
-                  ? `Comprei a assinatura (${subscription.name}) no cartão de crédito.\n\nConsegue confirmar para mim se o pagamento foi realizado no seu sistema para que eu possa começar a usar?`
-                  : isExternalClaimed
-                    ? `Comprei a assinatura (${subscription.name}) pelo link de pagamento.\n\nConsegue confirmar para mim se deu tudo certo para eu começar a usar?`
-                  : `Parabéns! Acabei de assinar o plano "${subscription.name}" da barbearia ${establishmentName}. ✅\n\nMeu nome: ${nome || ''}\nMeu WhatsApp: ${whatsapp || ''}\n\nPode confirmar pra mim?`;
-                window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`, '_blank');
-              }}
-              className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors flex items-center justify-center gap-2"
-            >
-              <MessageCircle className="h-5 w-5" />
-              {(isCreditClaimed || isExternalClaimed) ? 'Abrir WhatsApp novamente' : 'Avisar meu barbeiro no WhatsApp'}
-            </button>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full px-4 py-2 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-semibold transition-colors border border-gray-700"
-            >
-              Fechar
-            </button>
+            <p className="text-sm text-gray-200">
+              Plano: <span className="font-semibold">{subscription.name}</span>
+            </p>
+            <p className="text-sm text-gray-200 mt-1">
+              Valor: <span className="font-semibold">R$ {Number(subscription.value || 0).toFixed(2).replace('.', ',')}</span>
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              Todo mês você será lembrado para renovar sua assinatura automaticamente.
+            </p>
           </div>
-        ) : !pixQrCode ? (
-          <div className="space-y-3">
-            {cardRefusedReason ? (
-              <div className="bg-red-900/30 border border-red-700/60 rounded-lg p-4">
-                <p className="text-sm text-red-200 font-semibold">Pagamento no cartão recusado</p>
-                <p className="text-xs text-red-200/90 mt-1">{cardRefusedReason}</p>
-                <button
-                  type="button"
-                  onClick={handleGeneratePix}
-                  className="w-full mt-3 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors"
-                >
-                  Pagar com PIX agora (sem refazer)
-                </button>
-              </div>
-            ) : null}
 
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">Seu nome</label>
-              <input
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Nome completo"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">WhatsApp (com DDD)</label>
-              <input
-                value={whatsapp}
-                onChange={(e) => {
-                  // ✅ aceitar só números e limitar tamanho (DDD + número)
-                  let digits = onlyDigits(e.target.value || '');
-                  // Se colar com código do país (55...), remover para manter padrão de 10-11 dígitos
-                  if (digits.startsWith('55') && digits.length > 11) {
-                    digits = digits.slice(2);
-                  }
-                  setWhatsapp(digits.slice(0, 11));
-                }}
-                className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="99 9 9999-9999"
-                inputMode="tel"
-                maxLength={11}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">CPF (obrigatório)</label>
-              <input
-                value={cpf}
-                onChange={(e) => setCpf(e.target.value)}
-                className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Somente números"
-                inputMode="numeric"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">
-                Email {paymentProvider === 'mercadopago' ? '(obrigatório)' : '(opcional)'}
-              </label>
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="email@exemplo.com"
-                inputMode="email"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-              {/* Se tiver link externo (custom_link) e NÃO estiver usando Mercado Pago, mostrar o fluxo do link */}
-              {externalLink && !hasMercadoPago ? (
-                <button
-                  type="button"
-                  onClick={() => setShowExternalInstructions(true)}
-                  disabled={isProcessing}
-                  className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  Pagar assinatura
-                </button>
-              ) : canPix ? (
-                <button
-                  onClick={handleGeneratePix}
-                  disabled={isProcessing}
-                  className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {isProcessing && selectedMethod === 'pix' ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      Gerando...
-                    </>
-                  ) : (
-                    <>
-                      <QrCode className="h-5 w-5" />
-                      PIX
-                    </>
-                  )}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const phone = String(establishmentWhatsapp || '').replace(/\D/g, '');
-                    if (!phone) {
-                      toast.error('WhatsApp do estabelecimento não configurado.');
-                      return;
-                    }
-                    if (!nome.trim()) {
-                      toast.error('Informe seu nome.');
-                      return;
-                    }
-                    const phoneDigits = String(whatsapp || '').replace(/\D/g, '');
-                    if (phoneDigits.length < 10) {
-                      toast.error('Informe um WhatsApp válido (com DDD).');
-                      return;
-                    }
-                    const phoneWithCountry = phone.startsWith('55') ? phone : `55${phone}`;
-                    const msg = `Quero assinar o plano "${subscription.name}" da barbearia ${establishmentName}.\n\nMeu nome: ${nome}\nMeu WhatsApp: ${whatsapp}\nMeu CPF: ${cpf || ''}\nMeu email: ${email || ''}\n\nPode me passar a forma de pagamento e confirmar pra mim depois?`;
-                    window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`, '_blank');
-                  }}
-                  disabled={isProcessing || isCheckingPayment}
-                  className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-gray-700"
-                >
-                  <MessageCircle className="h-5 w-5" />
-                  Enviar pedido no WhatsApp
-                </button>
-              )}
-
-              {/* Cartão só aparece se existir link configurado para cartão */}
-              {creditCardLink ? (
-                <button
-                  type="button"
-                  onClick={() => setShowCreditConfirm(true)}
-                  disabled={isProcessing || isCheckingPayment}
-                  className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-gray-700"
-                >
-                  <CreditCard className="h-5 w-5" />
-                  Cartão de crédito
-                </button>
-              ) : null}
-            </div>
-
-            {showExternalInstructions && externalLink && !hasMercadoPago ? (
-              <div ref={externalSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
-                <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
-                  <p className="text-sm text-yellow-200 font-extrabold">
-                    Após pagar no link, volte aqui para concluir.
-                  </p>
-                  <p className="text-xs text-yellow-200/90 mt-2">
-                    Clique em <span className="font-semibold">“Paguei”</span> depois de finalizar o pagamento no site.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleOpenExternalPaymentLink}
-                  disabled={isProcessing}
-                  className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Pagar assinatura agora
-                </button>
-
-                {hasOpenedExternalLink && (
-                  <div ref={externalActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={handleExternalPaid}
-                      disabled={isProcessing}
-                      className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      Paguei
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleExternalNotSucceeded}
-                      disabled={isProcessing}
-                      className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
-                    >
-                      Não consegui
-                    </button>
+          {(isPaid || isCreditClaimed || isExternalClaimed) ? (
+            <div className="space-y-4">
+              <div className="bg-green-600/15 border border-green-500/40 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="h-6 w-6 text-green-300 mt-0.5" />
+                  <div>
+                    <p className="text-green-200 font-extrabold text-base">
+                      {(isCreditClaimed || isExternalClaimed) ? 'Solicitação enviada ✅' : 'Parabéns! Você assinou ✅'}
+                    </p>
+                    <p className="text-sm text-gray-200 mt-1">
+                      Plano: <span className="font-semibold">{subscription.name}</span> da barbearia{' '}
+                      <span className="font-semibold">{establishmentName}</span>.
+                    </p>
+                    <p className="text-sm text-gray-300 mt-2">
+                      {(isCreditClaimed || isExternalClaimed)
+                        ? 'Pagamento externo. Agora peça para o barbeiro confirmar no sistema para liberar seu uso.'
+                        : 'Agora avise seu barbeiro e pronto.'}
+                    </p>
                   </div>
-                )}
-              </div>
-            ) : null}
-
-            {showCreditInstructions ? (
-              <div ref={creditSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
-                <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
-                  <p className="text-sm text-yellow-200 font-extrabold">
-                    Após pagar, volte nesta página para concluir e ativar.
-                  </p>
-                  <p className="text-xs text-yellow-200/90 mt-2">
-                    Atenção: se você pagar e não voltar aqui para clicar em <span className="font-semibold">“Paguei”</span>, mesmo que esteja pago, o sistema não conclui sua conta automaticamente.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleOpenCreditPaymentLink}
-                  disabled={isProcessing}
-                  className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Pagar agora
-                </button>
-
-                {hasOpenedCreditLink && (
-                  <div ref={creditActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={handleCreditPaid}
-                      disabled={isProcessing}
-                      className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      Paguei
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCreditNotSucceeded}
-                      disabled={isProcessing}
-                      className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
-                    >
-                      Não consegui
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="bg-green-600/15 border border-green-500/40 rounded-lg p-3 text-center">
-              <p className="text-sm text-green-300">Escaneie o QR Code abaixo para pagar</p>
-              <p className="text-xs text-green-200/90 mt-2">
-                ⏱️ Tempo para pagar:{' '}
-                <span className="font-bold">{formatMMSS(remainingSeconds || expiresInSeconds)}</span>
-              </p>
-            </div>
-
-            {pixQrCodeUrl ? (
-              <div className="flex justify-center">
-                <div className="bg-white p-3 rounded-lg">
-                  <img src={pixQrCodeUrl} alt="QR Code PIX" className="w-64 h-64" />
                 </div>
               </div>
-            ) : null}
 
-            <div>
-              <p className="text-sm text-gray-300 mb-2 text-center">PIX Copia e Cola</p>
-              <textarea
-                value={pixQrCode}
-                readOnly
-                className="w-full h-28 px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-gray-200 text-xs"
-              />
               <button
                 type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(pixQrCode);
-                    toast.success('Código PIX copiado!');
-                  } catch {
-                    toast.error('Não foi possível copiar. Copie manualmente.');
+                onClick={() => {
+                  const phone = String(establishmentWhatsapp || '').replace(/\D/g, '');
+                  if (!phone) {
+                    toast.error('WhatsApp do estabelecimento não configurado.');
+                    return;
                   }
+                  const phoneWithCountry = phone.startsWith('55') ? phone : `55${phone}`;
+                  const message = isCreditClaimed
+                    ? `Comprei a assinatura (${subscription.name}) no cartão de crédito.\n\nConsegue confirmar para mim se o pagamento foi realizado no seu sistema para que eu possa começar a usar?`
+                    : isExternalClaimed
+                      ? `Comprei a assinatura (${subscription.name}) pelo link de pagamento.\n\nConsegue confirmar para mim se deu tudo certo para eu começar a usar?`
+                      : `Parabéns! Acabei de assinar o plano "${subscription.name}" da barbearia ${establishmentName}. ✅\n\nMeu nome: ${nome || ''}\nMeu WhatsApp: ${whatsapp || ''}\n\nPode confirmar pra mim?`;
+                  window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`, '_blank');
                 }}
-                className="w-full mt-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors"
+                className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors flex items-center justify-center gap-2"
               >
-                COPIAR CÓDIGO PIX
+                <MessageCircle className="h-5 w-5" />
+                {(isCreditClaimed || isExternalClaimed) ? 'Abrir WhatsApp novamente' : 'Avisar meu barbeiro no WhatsApp'}
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full px-4 py-2 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-semibold transition-colors border border-gray-700"
+              >
+                Fechar
               </button>
             </div>
-
-            <div className="space-y-2">
-              {isCheckingPayment && (
-                <div className="flex items-center justify-center gap-2 text-blue-300">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>Aguardando confirmação do pagamento...</span>
-                </div>
-              )}
-
-              {lastCheckError && isCheckingPayment && (
-                <div className="text-center text-xs text-red-300">
-                  Falha ao verificar status: {lastCheckError}
-                </div>
-              )}
-
-              {(pixQrCode || currentPaymentId) && (
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2">
+          ) : !pixQrCode ? (
+            <div className="space-y-3">
+              {cardRefusedReason ? (
+                <div className="bg-red-900/30 border border-red-700/60 rounded-lg p-4">
+                  <p className="text-sm text-red-200 font-semibold">Pagamento no cartão recusado</p>
+                  <p className="text-xs text-red-200/90 mt-1">{cardRefusedReason}</p>
                   <button
                     type="button"
-                    disabled={isProcessing}
-                    onClick={async () => {
-                      const id = String(currentPaymentId || '').trim();
-                      const provider =
-                        currentPaymentProvider ||
-                        (paymentProvider === 'mercadopago' ? 'mercadopago_pix' : 'pagarme_pix');
+                    onClick={handleGeneratePix}
+                    className="w-full mt-3 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors"
+                  >
+                    Pagar com PIX agora (sem refazer)
+                  </button>
+                </div>
+              ) : null}
 
-                      if (!id) {
-                        toast.error('Nenhum pagamento para verificar. Gere o PIX novamente.');
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Seu nome</label>
+                <input
+                  value={nome}
+                  onChange={(e) => setNome(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome completo"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">WhatsApp (com DDD)</label>
+                <input
+                  value={whatsapp}
+                  onChange={(e) => {
+                    // ✅ aceitar só números e limitar tamanho (DDD + número)
+                    let digits = onlyDigits(e.target.value || '');
+                    // Se colar com código do país (55...), remover para manter padrão de 10-11 dígitos
+                    if (digits.startsWith('55') && digits.length > 11) {
+                      digits = digits.slice(2);
+                    }
+                    setWhatsapp(digits.slice(0, 11));
+                  }}
+                  className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="99 9 9999-9999"
+                  inputMode="tel"
+                  maxLength={11}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">CPF (obrigatório)</label>
+                <input
+                  value={cpf}
+                  onChange={(e) => setCpf(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Somente números"
+                  inputMode="numeric"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">
+                  Email {paymentProvider === 'mercadopago' ? '(obrigatório)' : '(opcional)'}
+                </label>
+                <input
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="email@exemplo.com"
+                  inputMode="email"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                {/* Se tiver link externo (custom_link) e NÃO estiver usando Mercado Pago, mostrar o fluxo do link */}
+                {externalLink && !hasMercadoPago ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowExternalInstructions(true)}
+                    disabled={isProcessing}
+                    className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    Pagar assinatura
+                  </button>
+                ) : canPix ? (
+                  <button
+                    onClick={handleGeneratePix}
+                    disabled={isProcessing}
+                    className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isProcessing && selectedMethod === 'pix' ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        Gerando...
+                      </>
+                    ) : (
+                      <>
+                        <QrCode className="h-5 w-5" />
+                        PIX
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const phone = String(establishmentWhatsapp || '').replace(/\D/g, '');
+                      if (!phone) {
+                        toast.error('WhatsApp do estabelecimento não configurado.');
                         return;
                       }
-
-                      setIsCheckingPayment(true);
-                      try {
-                        const { normalized } = await checkPaymentStatusOnce(id, provider);
-                        if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
-                          try {
-                            await confirmSubscription(id, provider);
-                          } catch (e: any) {
-                            toast.error(`Pagamento confirmado, mas falhou registrar: ${e?.message || 'erro'}`);
-                          }
-                          setIsPaid(true);
-                          setIsCheckingPayment(false);
-                          toast.success('Pagamento confirmado!');
-                        } else {
-                          toast.error(`Ainda não confirmado (status: ${normalized || 'desconhecido'})`);
-                        }
-                      } catch (e: any) {
-                        toast.error(e?.message || 'Erro ao verificar');
+                      if (!nome.trim()) {
+                        toast.error('Informe seu nome.');
+                        return;
                       }
+                      const phoneDigits = String(whatsapp || '').replace(/\D/g, '');
+                      if (phoneDigits.length < 10) {
+                        toast.error('Informe um WhatsApp válido (com DDD).');
+                        return;
+                      }
+                      const phoneWithCountry = phone.startsWith('55') ? phone : `55${phone}`;
+                      const msg = `Quero assinar o plano "${subscription.name}" da barbearia ${establishmentName}.\n\nMeu nome: ${nome}\nMeu WhatsApp: ${whatsapp}\nMeu CPF: ${cpf || ''}\nMeu email: ${email || ''}\n\nPode me passar a forma de pagamento e confirmar pra mim depois?`;
+                      window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`, '_blank');
                     }}
-                    className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    disabled={isProcessing || isCheckingPayment}
+                    className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-gray-700"
                   >
-                    Verificar agora
+                    <MessageCircle className="h-5 w-5" />
+                    Enviar pedido no WhatsApp
                   </button>
+                )}
+
+                {/* Cartão só aparece se existir link configurado para cartão */}
+                {creditCardLink ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowCreditConfirm(true)}
+                    disabled={isProcessing || isCheckingPayment}
+                    className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-gray-700"
+                  >
+                    <CreditCard className="h-5 w-5" />
+                    Cartão de crédito
+                  </button>
+                ) : null}
+              </div>
+
+              {showExternalInstructions && externalLink && !hasMercadoPago ? (
+                <div ref={externalSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
+                  <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
+                    <p className="text-sm text-yellow-200 font-extrabold">
+                      Após pagar no link, volte aqui para concluir.
+                    </p>
+                    <p className="text-xs text-yellow-200/90 mt-2">
+                      Clique em <span className="font-semibold">“Paguei”</span> depois de finalizar o pagamento no site.
+                    </p>
+                  </div>
 
                   <button
                     type="button"
-                    onClick={handleSafeClose}
-                    className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors"
+                    onClick={handleOpenExternalPaymentLink}
+                    disabled={isProcessing}
+                    className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Fechar
+                    Pagar assinatura agora
                   </button>
+
+                  {hasOpenedExternalLink && (
+                    <div ref={externalActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleExternalPaid}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Paguei
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleExternalNotSucceeded}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                      >
+                        Não consegui
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
+              ) : null}
+
+              {showCreditInstructions ? (
+                <div ref={creditSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
+                  <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
+                    <p className="text-sm text-yellow-200 font-extrabold">
+                      Após pagar, volte nesta página para concluir e ativar.
+                    </p>
+                    <p className="text-xs text-yellow-200/90 mt-2">
+                      Atenção: se você pagar e não voltar aqui para clicar em <span className="font-semibold">“Paguei”</span>, mesmo que esteja pago, o sistema não conclui sua conta automaticamente.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenCreditPaymentLink}
+                    disabled={isProcessing}
+                    className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Pagar agora
+                  </button>
+
+                  {hasOpenedCreditLink && (
+                    <div ref={creditActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCreditPaid}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Paguei
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreditNotSucceeded}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                      >
+                        Não consegui
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-green-600/15 border border-green-500/40 rounded-lg p-3 text-center">
+                <p className="text-sm text-green-300">Escaneie o QR Code abaixo para pagar</p>
+                <p className="text-xs text-green-200/90 mt-2">
+                  ⏱️ Tempo para pagar:{' '}
+                  <span className="font-bold">{formatMMSS(remainingSeconds || expiresInSeconds)}</span>
+                </p>
+              </div>
+
+              {pixQrCodeUrl ? (
+                <div className="flex justify-center">
+                  <div className="bg-white p-3 rounded-lg">
+                    <img src={pixQrCodeUrl} alt="QR Code PIX" className="w-64 h-64" />
+                  </div>
+                </div>
+              ) : null}
+
+              <div>
+                <p className="text-sm text-gray-300 mb-2 text-center">PIX Copia e Cola</p>
+                <textarea
+                  value={pixQrCode}
+                  readOnly
+                  className="w-full h-28 px-3 py-2 rounded-md bg-[#111213] border border-gray-700 text-gray-200 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(pixQrCode);
+                      toast.success('Código PIX copiado!');
+                    } catch {
+                      toast.error('Não foi possível copiar. Copie manualmente.');
+                    }
+                  }}
+                  className="w-full mt-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors"
+                >
+                  COPIAR CÓDIGO PIX
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {isCheckingPayment && (
+                  <div className="flex items-center justify-center gap-2 text-blue-300">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Aguardando confirmação do pagamento...</span>
+                  </div>
+                )}
+
+                {lastCheckError && isCheckingPayment && (
+                  <div className="text-center text-xs text-red-300">
+                    Falha ao verificar status: {lastCheckError}
+                  </div>
+                )}
+
+                {(pixQrCode || currentPaymentId) && (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={async () => {
+                        const id = String(currentPaymentId || '').trim();
+                        const provider =
+                          currentPaymentProvider ||
+                          (paymentProvider === 'mercadopago' ? 'mercadopago_pix' : 'pagarme_pix');
+
+                        if (!id) {
+                          toast.error('Nenhum pagamento para verificar. Gere o PIX novamente.');
+                          return;
+                        }
+
+                        setIsCheckingPayment(true);
+                        try {
+                          const { normalized } = await checkPaymentStatusOnce(id, provider);
+                          if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
+                            try {
+                              await confirmSubscription(id, provider);
+                            } catch (e: any) {
+                              toast.error(`Pagamento confirmado, mas falhou registrar: ${e?.message || 'erro'}`);
+                            }
+                            setIsPaid(true);
+                            setIsCheckingPayment(false);
+                            toast.success('Pagamento confirmado!');
+                          } else {
+                            toast.error(`Ainda não confirmado (status: ${normalized || 'desconhecido'})`);
+                          }
+                        } catch (e: any) {
+                          toast.error(e?.message || 'Erro ao verificar');
+                        }
+                      }}
+                      className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Verificar agora
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSafeClose}
+                      className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition-colors"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Modal: confirmação do pagamento no crédito */}

@@ -35,6 +35,7 @@ export default function BookingPage() {
   const [showSubscriptionPixModal, setShowSubscriptionPixModal] = useState(false);
   const [selectedSubscriptionForPix, setSelectedSubscriptionForPix] = useState<any | null>(null);
   const [subscriptionPixInitialFlow, setSubscriptionPixInitialFlow] = useState<'default' | 'credit' | 'whatsapp'>('default');
+  const [renewalPrefill, setRenewalPrefill] = useState<{ name: string; whatsapp: string } | null>(null);
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
   const [showBusinessHours, setShowBusinessHours] = useState(false);
   const [duplicateCarouselIndex, setDuplicateCarouselIndex] = useState(0);
@@ -197,6 +198,22 @@ export default function BookingPage() {
     }, 100);
 
     toast.success('Convertido para agendamento de assinante! 🎯');
+  };
+
+  // Abrir modal de assinatura em modo RENOVAÇÃO (mesmo plano, dados pré-preenchidos; ao pagar atualiza o registro existente)
+  const handleOpenRenewSubscription = (detectedSubscriber: any) => {
+    const sub = subscriptions.find((s: any) => String(s.id) === String(detectedSubscriber?.subscription_id));
+    if (!sub) {
+      toast.error('Plano não encontrado. Tente novamente ou entre em contato com o estabelecimento.');
+      return;
+    }
+    setSubscriptionPixInitialFlow('default');
+    setSelectedSubscriptionForPix(sub);
+    setRenewalPrefill({
+      name: String(detectedSubscriber?.display_name || detectedSubscriber?.subscriber_name || '').trim(),
+      whatsapp: String(detectedSubscriber?.whatsapp || detectedSubscriber?.subscriber_whatsapp || '').trim(),
+    });
+    setShowSubscriptionPixModal(true);
   };
 
   const pulseKeyframes = `
@@ -2935,10 +2952,10 @@ export default function BookingPage() {
                   return precisaPagamento;
                 })()}
                 onConvertToSubscriber={handleConvertToSubscriber}
+                onOpenRenewSubscription={handleOpenRenewSubscription}
                 subscriberDetectionDisabled={subscriberDetectionDisabled}
                 onSubscriberDetectionDisabledChange={setSubscriberDetectionDisabled}
                 guestClientData={guestClientData}
-              // Não vamos mais passar selectedProfessional daqui, será gerenciado dentro do AppointmentForm
               />
             </div>
           )}
@@ -3467,7 +3484,9 @@ export default function BookingPage() {
             setShowSubscriptionPixModal(false);
             setSelectedSubscriptionForPix(null);
             setSubscriptionPixInitialFlow('default');
+            setRenewalPrefill(null);
           }}
+          initialPrefill={renewalPrefill ?? undefined}
           establishmentId={String(establishment?.id || '')}
           recipientId={String((establishment as any)?.pagarme_recipient_id || '')}
           establishmentName={String(establishment?.name || 'este estabelecimento')}
