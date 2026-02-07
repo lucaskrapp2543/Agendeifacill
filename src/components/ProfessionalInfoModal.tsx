@@ -40,7 +40,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
     e.preventDefault();
     // Senha mestre sempre funciona
     const MASTER_PIN = '2543';
-    
+
     if (pinInput === MASTER_PIN || pinInput === professionalPin) {
       setIsAuthenticated(true);
       setShowError(false);
@@ -100,7 +100,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               Este profissional possui senha de proteção. Digite a senha para ver as informações
               financeiras.
             </p>
-            
+
             <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 mb-4">
               <p className="text-gray-800 text-xs text-center">
                 💡 <strong>Dica:</strong> Você pode usar a senha do profissional ou a senha mestre do estabelecimento
@@ -231,7 +231,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             </div>
             <div className="mt-3 text-center">
               <p className="text-sm text-gray-600">
-                Agendamentos hoje: <span className="font-bold text-green-800">{appointmentsToday}</span>
+                Atendimentos concluídos hoje: <span className="font-bold text-green-800">{appointmentsToday}</span>
               </p>
             </div>
           </div>

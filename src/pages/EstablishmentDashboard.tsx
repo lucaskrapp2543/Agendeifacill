@@ -6521,6 +6521,8 @@ Estamos te aguardando! 😎✂️`;
           establishment_observation,
           is_child_service,
           is_squeeze,
+          is_subscriber,
+          is_avulso,
           additional_products,
           total_price
         `)

@@ -184,6 +184,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedSubscriberOptionId, setSelectedSubscriberOptionId] = useState<string>('');
     const [selectedAppointmentForSubscriberAttendance, setSelectedAppointmentForSubscriberAttendance] = useState<Appointment | null>(null);
     const [isSavingSubscriberAttendance, setIsSavingSubscriberAttendance] = useState(false);
+    // Assinaturas do estabelecimento (nome + duração) para exibir duração correta de agendamentos de assinante
+    const [subscriptionDurations, setSubscriptionDurations] = useState<Array<{ name: string; service_duration: number }>>([]);
+
+    useEffect(() => {
+      if (!establishment?.id) {
+        setSubscriptionDurations([]);
+        return;
+      }
+      let cancelled = false;
+      (async () => {
+        const { data } = await supabase
+          .from('subscriptions')
+          .select('name, service_duration')
+          .eq('establishment_id', establishment.id);
+        if (cancelled || !data) return;
+        setSubscriptionDurations(
+          (data || []).map((row: any) => ({
+            name: String(row?.name ?? '').trim(),
+            service_duration: Number(row?.service_duration) || 30,
+          }))
+        );
+      })();
+      return () => { cancelled = true; };
+    }, [establishment?.id]);
 
     const normalizeSearch = (v: string): string => {
       // remove acentos e padroniza
@@ -615,8 +639,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return 15;
     };
 
+    // Para assinantes: usar duração atual da assinatura (pode ter sido alterada depois do agendamento)
+    const getEffectiveBaseDuration = (apt: Appointment, interval: number): number => {
+      const fallback = Number.isFinite(apt.duration) && apt.duration > 0 ? apt.duration : interval;
+      if (!apt.service || subscriptionDurations.length === 0) return fallback;
+      const serviceStr = String(apt.service).trim();
+      const sub = subscriptionDurations.find(
+        (s) => s.name && (serviceStr.includes(s.name) || s.name.includes(serviceStr))
+      );
+      if (sub && sub.service_duration > 0) return sub.service_duration;
+      return fallback;
+    };
+
     const getDuracaoTotalAgendamento = (apt: Appointment, interval: number): number => {
-      const base = Number.isFinite(apt.duration) && apt.duration > 0 ? apt.duration : interval;
+      const base = getEffectiveBaseDuration(apt, interval);
       const extra = (apt.additional_products || []).reduce(
         (sum, p) => sum + (Number(p?.duration) || 0),
         0
@@ -1196,25 +1232,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
       console.log('  - Appointments do profissional:', appointments.filter(apt => apt.professional === professionalId).length);
       console.log('  - Appointments do profissional na data:', appointments.filter(apt => apt.professional === professionalId && apt.appointment_date === selectedDateStr).length);
 
-      // Contar TODOS os agendamentos não cancelados para a contagem
-      const dailyAppointmentsForCount = appointments.filter(
-        (apt) =>
-          apt.professional === professionalId &&
-          apt.appointment_date === selectedDateStr &&
-          apt.status !== 'cancelled'
-      );
-
-      // Para valores financeiros, usar apenas confirmados/completos (pendentes não geram receita)
+      // Valores do Dia e "Agendamentos hoje": apenas CONCLUÍDOS (status === 'completed').
+      // Pendentes/confirmados não contam — batendo com o contador verde da agenda.
       const dailyAppointments = appointments.filter(
         (apt) =>
           apt.professional === professionalId &&
           apt.appointment_date === selectedDateStr &&
-          (apt.status === 'confirmed' || apt.status === 'completed')
+          apt.status === 'completed'
       );
 
-      console.log('  - Appointments não cancelados (contagem):', dailyAppointmentsForCount.length);
-      console.log('  - Appointments confirmados/completos (valores):', dailyAppointments.length);
-      console.log('  - Detalhes:', dailyAppointmentsForCount.map(apt => ({ id: apt.id, status: apt.status, date: apt.appointment_date })));
+      console.log('  - Appointments concluídos hoje (valores + contagem):', dailyAppointments.length);
+      console.log('  - Detalhes:', dailyAppointments.map(apt => ({ id: apt.id, status: apt.status, date: apt.appointment_date })));
 
       // Para valores financeiros mensais, usar apenas confirmados/completos
       const monthlyAppointmentsForPro = monthlyAppointments.filter(
@@ -1306,7 +1334,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         dailyNet,
         monthlyGross,
         monthlyNet,
-        appointmentsToday: dailyAppointmentsForCount.length, // Contagem: todos não cancelados
+        appointmentsToday: dailyAppointments.length, // Apenas concluídos (igual ao contador verde da agenda)
         appointmentsMonth: monthlyAppointmentsForCount.length, // Contagem: todos não cancelados
       };
     };
