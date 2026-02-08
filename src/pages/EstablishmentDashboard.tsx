@@ -346,6 +346,10 @@ const EstablishmentDashboard = () => {
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
   const [highlightedProfessionalId, setHighlightedProfessionalId] = useState<string | null>(null);
   const [highlightReserveButton, setHighlightReserveButton] = useState(false);
+  const [secondUnitName, setSecondUnitName] = useState<string | null>(null);
+  const [secondUnitQuickEmail, setSecondUnitQuickEmail] = useState('');
+  const [secondUnitQuickPassword, setSecondUnitQuickPassword] = useState('');
+  const [showSecondUnitQuickPassword, setShowSecondUnitQuickPassword] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const previousAppointmentsRef = useRef<Appointment[]>([]);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
@@ -1075,6 +1079,56 @@ const EstablishmentDashboard = () => {
     if (!establishment?.id) return;
     fetchFilaEntries();
   }, [establishment?.id, fetchFilaEntries]);
+
+  // Buscar nome da outra unidade (pelo código) para exibir "Nome" + "Descrição" no botão/link
+  useEffect(() => {
+    const code = String((establishment as any)?.second_unit_booking_code || '').trim();
+    if (!code) {
+      setSecondUnitName(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('establishments').select('name').eq('code', code).maybeSingle();
+      if (!cancelled && data?.name) setSecondUnitName(data.name);
+      else if (!cancelled) setSecondUnitName(null);
+    })();
+    return () => { cancelled = true; };
+  }, [(establishment as any)?.second_unit_booking_code]);
+
+  const secondUnitQuickAccessLoadedRef = React.useRef(false);
+
+  // Carregar email/senha de acesso rápido da outra unidade (localStorage)
+  useEffect(() => {
+    if (!establishment?.id || !(establishment as any)?.second_unit_booking_code) return;
+    secondUnitQuickAccessLoadedRef.current = false;
+    try {
+      const raw = localStorage.getItem(`second_unit_quick_${establishment.id}`);
+      if (raw) {
+        const data = JSON.parse(raw) as { email?: string; password?: string };
+        if (data?.email) setSecondUnitQuickEmail(data.email);
+        if (data?.password) setSecondUnitQuickPassword(data.password);
+      }
+    } catch {
+      // ignore
+    }
+    secondUnitQuickAccessLoadedRef.current = true;
+  }, [establishment?.id, (establishment as any)?.second_unit_booking_code]);
+
+  // Persistir email/senha de acesso rápido sempre que o usuário alterar (salvar no localStorage)
+  useEffect(() => {
+    if (!establishment?.id || !(establishment as any)?.second_unit_booking_code) return;
+    // Não sobrescrever com vazio antes do carregamento inicial
+    if (secondUnitQuickEmail === '' && secondUnitQuickPassword === '' && !secondUnitQuickAccessLoadedRef.current) return;
+    try {
+      localStorage.setItem(`second_unit_quick_${establishment.id}`, JSON.stringify({
+        email: secondUnitQuickEmail,
+        password: secondUnitQuickPassword
+      }));
+    } catch {
+      // ignore
+    }
+  }, [establishment?.id, (establishment as any)?.second_unit_booking_code, secondUnitQuickEmail, secondUnitQuickPassword]);
 
   // Carregar histórico financeiro da fila quando mudar profissional/filtro
   useEffect(() => {
@@ -16961,6 +17015,100 @@ Estamos te aguardando! 😎✂️`;
                             rows={4}
                           />
                         </div>
+
+                        {/* Segunda Unidade */}
+                        <div className="rounded-lg border border-gray-600 bg-[#1e1f20] p-4">
+                          <h3 className="text-sm font-semibold text-white mb-1">Segunda Unidade</h3>
+                          <p className="text-xs text-gray-400 mb-3">
+                            Aqui você coloca o código da sua segunda unidade. No booking e no painel aparecerá um botão para o cliente acessar a outra unidade.
+                          </p>
+                          <div className="flex flex-wrap items-end gap-2 mb-2">
+                            <span className="text-sm text-gray-400 shrink-0">agendeifacil.com/booking/</span>
+                            <input
+                              type="text"
+                              value={(establishment as any)?.second_unit_booking_code || ''}
+                              onChange={(e) => handleInputChange('second_unit_booking_code', (e.target.value || '').trim())}
+                              placeholder="código"
+                              className="w-28 px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                            />
+                          </div>
+                          {(establishment as any)?.second_unit_booking_code && (
+                            <div className="mt-3 space-y-2">
+                              {secondUnitName && (
+                                <p className="text-sm text-white font-medium">Nome da outra unidade: <span className="text-amber-300">{secondUnitName}</span></p>
+                              )}
+                              <div>
+                                <label className="block text-xs font-medium text-gray-400 mb-1">Descrição (ex.: endereço ou bairro – aparece abaixo do nome)</label>
+                                <input
+                                  type="text"
+                                  value={(establishment as any)?.second_unit_label || ''}
+                                  onChange={(e) => handleInputChange('second_unit_label', (e.target.value || '').trim())}
+                                  placeholder="Unidade 2 bairro Carandai"
+                                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                                />
+                              </div>
+
+                              {/* Acesso rápido: email/senha da outra unidade para logar direto daqui */}
+                              <div className="mt-4 pt-4 border-t border-gray-600">
+                                <h4 className="text-sm font-semibold text-white mb-1">Acesso rápido</h4>
+                                <p className="text-xs text-gray-400 mb-3">
+                                  Coloque seu e-mail e senha da outra unidade para acessar ela mais rápido, direto daqui.
+                                </p>
+                                <div className="space-y-2">
+                                  <input
+                                    type="email"
+                                    value={secondUnitQuickEmail}
+                                    onChange={(e) => setSecondUnitQuickEmail(e.target.value)}
+                                    placeholder="E-mail da outra unidade"
+                                    className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                                  />
+                                  <div className="relative">
+                                    <input
+                                      type={showSecondUnitQuickPassword ? 'text' : 'password'}
+                                      value={secondUnitQuickPassword}
+                                      onChange={(e) => setSecondUnitQuickPassword(e.target.value)}
+                                      placeholder="Senha da outra unidade"
+                                      className="w-full px-3 py-2 pr-10 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowSecondUnitQuickPassword((v) => !v)}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-gray-400 hover:text-white"
+                                      title={showSecondUnitQuickPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                                    >
+                                      {showSecondUnitQuickPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                    </button>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const email = secondUnitQuickEmail.trim();
+                                      const password = secondUnitQuickPassword;
+                                      if (!email || !password) {
+                                        toast.error('Preencha e-mail e senha da outra unidade.');
+                                        return;
+                                      }
+                                      if (establishment?.id) {
+                                        try {
+                                          localStorage.setItem(`second_unit_quick_${establishment.id}`, JSON.stringify({ email, password }));
+                                        } catch { /* ignore */ }
+                                      }
+                                      sessionStorage.setItem('other_unit_login_email', email);
+                                      sessionStorage.setItem('other_unit_login_password', password);
+                                      sessionStorage.setItem('other_unit_login_flag', 'true');
+                                      signOut();
+                                      navigate('/login');
+                                    }}
+                                    className="w-full py-2 px-3 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 font-semibold hover:bg-amber-500/30 transition-colors"
+                                  >
+                                    Logar outra unidade
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
                         <div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
                             <label className="block text-sm font-extrabold text-white">🔐 Senha de 4 dígitos (segurança do sistema)</label>
@@ -20735,6 +20883,20 @@ Estamos te aguardando! 😎✂️`;
                       <User className="h-4 w-4" />
                       {highlightReserveButton ? '👉 Reservar Cliente 👈' : 'Reservar Cliente'}
                     </button>
+                    {(establishment as any)?.second_unit_booking_code && (
+                      <a
+                        href={`https://agendeifacil.com/booking/${String((establishment as any).second_unit_booking_code).trim()}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl border-2 border-amber-500/60 bg-amber-500/10 hover:bg-amber-500/20 transition-all text-center shadow-md hover:shadow-amber-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                      >
+                        <span className="text-[10px] uppercase tracking-widest font-bold text-amber-400">Agendar outra unidade</span>
+                        <span className="font-bold text-white leading-tight">{secondUnitName || 'Segunda Unidade'}</span>
+                        {(establishment as any)?.second_unit_label && (
+                          <span className="text-xs text-amber-200/90">{(establishment as any).second_unit_label}</span>
+                        )}
+                      </a>
+                    )}
                     <button
                       onClick={() => handleTabChange('clients')}
                       className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"

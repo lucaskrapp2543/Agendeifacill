@@ -43,7 +43,7 @@ export default function BookingPage() {
   const [showInstallGuide, setShowInstallGuide] = useState(false);
   const [installGuideTitle, setInstallGuideTitle] = useState('Instalar o app');
   const [installGuideSteps, setInstallGuideSteps] = useState<string[]>([]);
-
+  const [secondUnitName, setSecondUnitName] = useState<string | null>(null);
 
   // Funções para o carrossel duplicado - Filtrar apenas fotos selecionadas
   const duplicatePhotos = [
@@ -410,6 +410,22 @@ export default function BookingPage() {
       setShowSubscriptionsDropdown(false);
     }
   }, [establishment?.id, (establishment as any)?.show_subscriptions_fullpage]);
+
+  // Buscar nome da outra unidade (pelo código) para exibir "Nome" + "Descrição" no link
+  useEffect(() => {
+    const code = String((establishment as any)?.second_unit_booking_code || '').trim();
+    if (!code) {
+      setSecondUnitName(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('establishments').select('name').eq('code', code).maybeSingle();
+      if (!cancelled && data?.name) setSecondUnitName(data.name);
+      else if (!cancelled) setSecondUnitName(null);
+    })();
+    return () => { cancelled = true; };
+  }, [(establishment as any)?.second_unit_booking_code]);
 
   const fetchEstablishment = async () => {
     if (!id) {
@@ -2090,6 +2106,24 @@ export default function BookingPage() {
                           >
                             {filaEsperaFechada ? 'FILA FECHADA' : 'FILA DE ESPERA'}
                           </button>
+                        </div>
+                      )}
+
+                      {/* ✅ Link Segunda Unidade: destaque "Agendar outra unidade" + nome + descrição */}
+                      {(establishment as any)?.second_unit_booking_code && (
+                        <div className="flex justify-center mt-4">
+                          <a
+                            href={`https://agendeifacil.com/booking/${String((establishment as any).second_unit_booking_code).trim()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full max-w-[340px] rounded-2xl border-2 border-[#E6C78B]/50 bg-gradient-to-b from-[#E6C78B]/15 to-[#d9c08c]/10 py-3 px-4 text-center flex flex-col gap-1 shadow-lg hover:from-[#E6C78B]/25 hover:to-[#d9c08c]/20 hover:border-[#E6C78B]/70 transition-all duration-200 hover:scale-[1.02] active:scale-[0.99]"
+                          >
+                            <span className="text-[11px] uppercase tracking-[0.2em] font-bold text-[#E6C78B]">Agendar outra unidade</span>
+                            <span className="font-bold text-white text-base leading-tight">{secondUnitName || 'Segunda Unidade'}</span>
+                            {(establishment as any)?.second_unit_label && (
+                              <span className="text-xs font-medium text-white/80">{(establishment as any).second_unit_label}</span>
+                            )}
+                          </a>
                         </div>
                       )}
                     </div>

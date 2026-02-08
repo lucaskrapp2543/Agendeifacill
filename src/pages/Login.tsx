@@ -98,13 +98,28 @@ const Login = () => {
       setEmail(adminLoginEmail);
       setPassword(adminLoginPassword);
       setSaveCredentials(false); // Não salvar credenciais do admin permanentemente
-      
+
       // Limpar sessionStorage após usar
       sessionStorage.removeItem('admin_login_email');
       sessionStorage.removeItem('admin_login_password');
       sessionStorage.removeItem('admin_login_flag');
-      
+
       return; // Não carregar do localStorage se veio do admin
+    }
+
+    // ✅ Acesso rápido: veio de "Logar outra unidade" (Config > Segunda Unidade)
+    const otherUnitEmail = sessionStorage.getItem('other_unit_login_email');
+    const otherUnitPassword = sessionStorage.getItem('other_unit_login_password');
+    const otherUnitFlag = sessionStorage.getItem('other_unit_login_flag') === 'true';
+
+    if (otherUnitEmail && otherUnitPassword && otherUnitFlag) {
+      setEmail(otherUnitEmail);
+      setPassword(otherUnitPassword);
+      setSaveCredentials(false);
+      sessionStorage.removeItem('other_unit_login_email');
+      sessionStorage.removeItem('other_unit_login_password');
+      sessionStorage.removeItem('other_unit_login_flag');
+      return;
     }
 
     // Fallback: Carregar credenciais salvas do localStorage
