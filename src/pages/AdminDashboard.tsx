@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   DollarSign,
@@ -16,6 +17,7 @@ import {
   Search,
   Trash2,
   Unlock,
+  Users,
   X,
   XCircle
 } from 'lucide-react';
@@ -93,6 +95,18 @@ const AdminDashboard = () => {
   const [selectedMonthForAppointments, setSelectedMonthForAppointments] = useState<Record<string, Date>>({});
   const [appointmentCounts, setAppointmentCounts] = useState<Record<string, { day: number; month: number }>>({});
   const [isLoadingAppointmentCounts, setIsLoadingAppointmentCounts] = useState<Record<string, boolean>>({});
+
+  // Suporte por nome: Lucas, Erlon, Kinkas, usuario 1, usuario 2 (Lucas e Erlon = acesso total; outros = só visualização)
+  const SUPPORT_NAMES = ['Lucas', 'Erlon', 'Kinkas', 'usuario 1', 'usuario 2'] as const;
+  const SUPPORT_FULL_ACCESS_NAMES = ['Lucas', 'Erlon'];
+  const SUPPORT_SESSION_NAME_KEY = 'admin_support_session_name';
+  const [supportSessions, setSupportSessions] = useState<Array<{ id: string; name: string; email: string; created_at: string; last_heartbeat_at: string }>>([]);
+  const [showSupportSessionsDropdown, setShowSupportSessionsDropdown] = useState(false);
+  const [showSupportNamePicker, setShowSupportNamePicker] = useState(false);
+  const [supportNameForPin, setSupportNameForPin] = useState<string | null>(null);
+  const [supportPinInput, setSupportPinInput] = useState('');
+  const supportSessionErrorShownRef = useRef(false);
+  const supportSessionAvailableRef = useRef(true);
 
   // (removido) custo por estabelecimento (storage + banco)
 
@@ -702,6 +716,118 @@ const AdminDashboard = () => {
       toast.error('Erro ao fazer logout');
     }
   };
+
+  // ---------- Suporte por nome: Lucas, Erlon, Kinkas, usuario 1, usuario 2 ----------
+  const getSupportSessionName = (): string | null =>
+    sessionStorage.getItem(SUPPORT_SESSION_NAME_KEY);
+  const canEditEverything = (): boolean =>
+    isSupportAccount && SUPPORT_FULL_ACCESS_NAMES.includes(getSupportSessionName() || '');
+
+  const fetchSupportSessions = async () => {
+    if (!isSupportAccount || !supportSessionAvailableRef.current) return;
+    const { data, error } = await supabase
+      .from('support_sessions')
+      .select('id, name, email, created_at, last_heartbeat_at')
+      .order('name', { ascending: true });
+    if (!error) setSupportSessions(data || []);
+  };
+
+  const checkSupportSessionStillValid = async (): Promise<boolean> => {
+    if (!supportSessionAvailableRef.current) return false;
+    const name = getSupportSessionName();
+    if (!name) return false;
+    const { data, error } = await supabase.from('support_sessions').select('id').eq('name', name).maybeSingle();
+    if (error) return true;
+    if (data === null) {
+      toast.error('Você foi desconectado pelo painel.');
+      await signOut();
+      navigate('/login');
+      return false;
+    }
+    return true;
+  };
+
+  const disconnectSupportSession = async (sessionName: string) => {
+    const { error } = await supabase.from('support_sessions').delete().eq('name', sessionName);
+    if (error) {
+      toast.error('Erro ao desconectar.');
+      return;
+    }
+    toast.success(`${sessionName} será deslogado em até 10 segundos.`);
+    setSupportSessions(prev => prev.filter(s => s.name !== sessionName));
+  };
+
+  const registerSupportByName = async (name: string, pin?: string): Promise<boolean> => {
+    const { data, error } = await supabase.rpc('register_support_session_by_name', {
+      p_name: name,
+      p_pin: pin != null ? String(pin).trim() : null
+    });
+    if (error) {
+      supportSessionAvailableRef.current = false;
+      if (!supportSessionErrorShownRef.current) {
+        supportSessionErrorShownRef.current = true;
+        toast.error('Rode o SQL de suporte por nome no Supabase (COLE_SUPABASE_support_por_nome.sql).');
+      }
+      return false;
+    }
+    supportSessionErrorShownRef.current = false;
+    const res = data as { ok?: boolean; error?: string } | null;
+    if (res?.ok === false && res?.error === 'name_in_use') {
+      toast.error(`${name} já está logado. Escolha outro nome.`);
+      return false;
+    }
+    if (res?.ok === false && res?.error === 'invalid_pin') {
+      toast.error('Senha de 4 dígitos incorreta.');
+      return false;
+    }
+    if (res?.ok === false) return false;
+    return true;
+  };
+
+  // Ao abrir o painel: se não tem nome escolhido, mostra seletor; senão registra e lista
+  useEffect(() => {
+    if (!isSupportAccount || !user) return;
+    const name = getSupportSessionName();
+    if (!name) {
+      setShowSupportNamePicker(true);
+      return;
+    }
+    (async () => {
+      const ok = await registerSupportByName(name);
+      if (ok) fetchSupportSessions();
+    })();
+  }, [isSupportAccount, user]);
+
+  // Heartbeat a cada 8s; ao voltar na aba verifica na hora
+  useEffect(() => {
+    if (!isSupportAccount || !supportSessionAvailableRef.current) return;
+    const name = getSupportSessionName();
+    if (!name) return;
+    const interval = setInterval(async () => {
+      if (!supportSessionAvailableRef.current) return;
+      const n = getSupportSessionName();
+      if (!n) return;
+      const stillValid = await checkSupportSessionStillValid();
+      if (!stillValid) return;
+      await supabase.rpc('register_support_session_by_name', { p_name: n });
+    }, 8000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkSupportSessionStillValid();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [isSupportAccount]);
+
+  // Atualizar lista de sessões a cada 15s
+  useEffect(() => {
+    if (!isSupportAccount) return;
+    fetchSupportSessions();
+    const interval = setInterval(fetchSupportSessions, 15000);
+    return () => clearInterval(interval);
+  }, [isSupportAccount]);
 
   useEffect(() => {
     // Verificar autenticação a cada renderização
@@ -1997,60 +2123,60 @@ const AdminDashboard = () => {
   };
 
   const baseFilteredEstablishments = establishments.filter(establishment => {
-      const rawTokens = String(searchTerm || '')
-        .split(/\s+/)
-        .map(t => t.trim())
-        .filter(Boolean);
+    const rawTokens = String(searchTerm || '')
+      .split(/\s+/)
+      .map(t => t.trim())
+      .filter(Boolean);
 
-      const isPrataAtivo = Boolean(establishment.plan_prata_active);
-      const profitValue = Number((establishment as any)?.admin_profit_value ?? 0);
-      const profitValueInt = Number.isFinite(profitValue) ? Math.round(profitValue) : 0;
-      const planKey = getPlanKey(establishment);
-      const planLabel = planKey === 'outros' ? '' : planKey;
+    const isPrataAtivo = Boolean(establishment.plan_prata_active);
+    const profitValue = Number((establishment as any)?.admin_profit_value ?? 0);
+    const profitValueInt = Number.isFinite(profitValue) ? Math.round(profitValue) : 0;
+    const planKey = getPlanKey(establishment);
+    const planLabel = planKey === 'outros' ? '' : planKey;
 
-      const statusLabel = establishment.is_blocked
-        ? 'bloqueado'
-        : establishment.payment_status === 'paid'
-          ? 'pago'
-          : establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)
-            ? 'vencido'
-            : 'pendente';
+    const statusLabel = establishment.is_blocked
+      ? 'bloqueado'
+      : establishment.payment_status === 'paid'
+        ? 'pago'
+        : establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)
+          ? 'vencido'
+          : 'pendente';
 
-      const haystack = [
-        establishment.name,
-        establishment.code,
-        establishment.owner_email || '',
-        String((establishment as any)?.whatsapp || ''),
-        establishment.plan_type || '',
-        statusLabel,
-        planLabel,
-        // permitir buscar pelo valor manual (admin) digitando "27" / "47" / "51" etc.
-        profitValueInt ? String(profitValueInt) : '',
-      ].map(normalizarTexto);
+    const haystack = [
+      establishment.name,
+      establishment.code,
+      establishment.owner_email || '',
+      String((establishment as any)?.whatsapp || ''),
+      establishment.plan_type || '',
+      statusLabel,
+      planLabel,
+      // permitir buscar pelo valor manual (admin) digitando "27" / "47" / "51" etc.
+      profitValueInt ? String(profitValueInt) : '',
+    ].map(normalizarTexto);
 
-      const matchesSearch =
-        rawTokens.length === 0 ||
-        rawTokens.every(tok => {
-          const cents = parseValorCents(tok);
-          if (cents != null) {
-            // manter compatível com buscas antigas por centavos (27,90 etc)
-            const profitCents = valorCents((establishment as any)?.admin_profit_value);
-            if (profitCents != null && profitCents === cents) return true;
-            return false;
-          }
-          // Busca numérica simples (ex: "27", "47", "51") por valor arredondado
-          const numeric = Number(String(tok).replace(',', '.'));
-          if (Number.isFinite(numeric) && profitValueInt && Math.round(numeric) === profitValueInt) {
-            return true;
-          }
-          const t = normalizarTexto(tok);
-          if (!t) return true;
-          return haystack.some(h => h.includes(t));
-        });
+    const matchesSearch =
+      rawTokens.length === 0 ||
+      rawTokens.every(tok => {
+        const cents = parseValorCents(tok);
+        if (cents != null) {
+          // manter compatível com buscas antigas por centavos (27,90 etc)
+          const profitCents = valorCents((establishment as any)?.admin_profit_value);
+          if (profitCents != null && profitCents === cents) return true;
+          return false;
+        }
+        // Busca numérica simples (ex: "27", "47", "51") por valor arredondado
+        const numeric = Number(String(tok).replace(',', '.'));
+        if (Number.isFinite(numeric) && profitValueInt && Math.round(numeric) === profitValueInt) {
+          return true;
+        }
+        const t = normalizarTexto(tok);
+        if (!t) return true;
+        return haystack.some(h => h.includes(t));
+      });
 
-      const matchesStatus = filterStatus === 'all' || establishment.payment_status === filterStatus;
-      return matchesSearch && matchesStatus;
-    });
+    const matchesStatus = filterStatus === 'all' || establishment.payment_status === filterStatus;
+    return matchesSearch && matchesStatus;
+  });
 
   const planCounts = baseFilteredEstablishments.reduce(
     (acc, est) => {
@@ -2213,6 +2339,77 @@ const AdminDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Modal: Quem está logado? + senha de 4 dígitos */}
+      {showSupportNamePicker && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">
+              {supportNameForPin ? `Senha para ${supportNameForPin}` : 'Quem está logado?'}
+            </h3>
+            {!supportNameForPin ? (
+              <>
+                <p className="text-sm text-gray-600 mb-4">Escolha seu nome. Depois digite a senha de 4 dígitos.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {SUPPORT_NAMES.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => setSupportNameForPin(name)}
+                      className="py-3 px-4 rounded-lg border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 font-medium text-gray-800 transition-colors"
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600 mb-3">Digite a senha de 4 dígitos para este usuário.</p>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={supportPinInput}
+                  onChange={(e) => setSupportPinInput(e.target.value.replace(/\D/g, ''))}
+                  placeholder="****"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-300 text-center text-lg tracking-widest mb-4"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setSupportNameForPin(null); setSupportPinInput(''); }}
+                    className="flex-1 py-2 rounded-lg border border-gray-300 text-gray-700"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (supportPinInput.length !== 4) {
+                        toast.error('Senha deve ter 4 dígitos.');
+                        return;
+                      }
+                      sessionStorage.setItem(SUPPORT_SESSION_NAME_KEY, supportNameForPin);
+                      const ok = await registerSupportByName(supportNameForPin, supportPinInput);
+                      if (ok) {
+                        setSupportNameForPin(null);
+                        setSupportPinInput('');
+                        setShowSupportNamePicker(false);
+                        fetchSupportSessions();
+                      }
+                    }}
+                    className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-medium"
+                  >
+                    Entrar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -2250,7 +2447,63 @@ const AdminDashboard = () => {
                 <Eye className="h-4 w-4" />
                 <span>Ver Senha de Acesso</span>
               </button>
-              <span className="text-sm text-gray-600">Suporte</span>
+
+              {/* Contas suporte ativas (máx. 5) – listar e desconectar */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSupportSessionsDropdown(v => !v)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 text-sm"
+                  title="Ver quantas contas suporte estão abertas e desconectar"
+                >
+                  <Users className="h-4 w-4" />
+                  <span>Suporte</span>
+                  <span className="font-semibold text-blue-600">{supportSessions.length}</span>
+                  <span className="text-gray-500">/5</span>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showSupportSessionsDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                {showSupportSessionsDropdown && (
+                  <>
+                    <div className="fixed inset-0 z-10" aria-hidden onClick={() => setShowSupportSessionsDropdown(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-gray-200 bg-white shadow-lg py-2">
+                      <div className="px-3 py-1.5 border-b border-gray-100">
+                        <p className="text-xs font-medium text-gray-500">Quem está logado (por nome)</p>
+                      </div>
+                      <ul className="max-h-60 overflow-y-auto">
+                        {supportSessions.length === 0 ? (
+                          <li className="px-3 py-2 text-sm text-gray-500">Ninguém ativo</li>
+                        ) : (
+                          supportSessions.map((s) => {
+                            const isCurrentSession = s.name === getSupportSessionName();
+                            return (
+                              <li key={s.id} className="flex items-center justify-between gap-2 px-3 py-2 hover:bg-gray-50">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-800">
+                                    {s.name}
+                                    {isCurrentSession && <span className="ml-1 text-xs text-blue-600">(você)</span>}
+                                  </p>
+                                  <p className="text-xs text-gray-400">
+                                    {format(new Date(s.last_heartbeat_at), "dd/MM HH:mm", { locale: ptBR })}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => !isCurrentSession && disconnectSupportSession(s.name)}
+                                  disabled={isCurrentSession}
+                                  className="shrink-0 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  Desconectar
+                                </button>
+                              </li>
+                            );
+                          })
+                        )}
+                      </ul>
+                    </div>
+                  </>
+                )}
+              </div>
+
               <button
                 onClick={handleSignOut}
                 className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
@@ -2263,7 +2516,16 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      <div className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6">
+      {isSupportAccount && !canEditEverything() && (
+        <div className="bg-amber-100 border-b border-amber-300 px-4 py-2 text-center text-sm font-medium text-amber-900">
+          Somente visualização — você pode ver financeiro e clientes. Apenas Lucas e Erlon podem editar dados, datas, pagamentos e ações.
+        </div>
+      )}
+
+      <div
+        className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6"
+        style={isSupportAccount && !canEditEverything() ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
+      >
         {/* Lucro PIX por mês: vendas (serviços + assinaturas) e lucro R$ 0,50, com seletor de mês */}
         <div className="mb-6">
           <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl shadow-md p-6 max-w-lg">
@@ -2567,11 +2829,10 @@ const AdminDashboard = () => {
             <button
               type="button"
               onClick={() => setFilterActivity((prev) => (prev === 'active' ? 'all' : 'active'))}
-              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${
-                filterActivity === 'active'
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${filterActivity === 'active'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
               title="Ativos = último acesso nos últimos 5 dias (Nunca acessou = inativo)"
             >
               <strong>Ativos:</strong> {activeCount}
@@ -2580,11 +2841,10 @@ const AdminDashboard = () => {
             <button
               type="button"
               onClick={() => setFilterActivity((prev) => (prev === 'inactive' ? 'all' : 'inactive'))}
-              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${
-                filterActivity === 'inactive'
-                  ? 'bg-gray-900 border-gray-900 text-white'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${filterActivity === 'inactive'
+                ? 'bg-gray-900 border-gray-900 text-white'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
               title="Inativos = nunca acessou ou ficou mais de 5 dias sem acesso"
             >
               <strong>Inativos:</strong> {inactiveCount}
