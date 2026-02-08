@@ -784,18 +784,13 @@ const AdminDashboard = () => {
     return true;
   };
 
-  // Ao abrir o painel: se não tem nome escolhido, mostra seletor; senão registra e lista
+  // Toda vez que abre/atualiza o admin: pedir nome + senha de novo (não guardar entre reloads)
   useEffect(() => {
     if (!isSupportAccount || !user) return;
-    const name = getSupportSessionName();
-    if (!name) {
-      setShowSupportNamePicker(true);
-      return;
-    }
-    (async () => {
-      const ok = await registerSupportByName(name);
-      if (ok) fetchSupportSessions();
-    })();
+    sessionStorage.removeItem(SUPPORT_SESSION_NAME_KEY);
+    setSupportNameForPin(null);
+    setSupportPinInput('');
+    setShowSupportNamePicker(true);
   }, [isSupportAccount, user]);
 
   // Heartbeat a cada 8s; ao voltar na aba verifica na hora
