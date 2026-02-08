@@ -1098,6 +1098,16 @@ const EstablishmentDashboard = () => {
 
   const secondUnitQuickAccessLoadedRef = React.useRef(false);
 
+  // Credenciais do suporte: bloqueadas no Acesso rápido por segurança (nunca carregar/salvar/usar)
+  const BLOCKED_QUICK_ACCESS_EMAIL = 'suporteagendeifacil@gmail.com';
+  const BLOCKED_QUICK_ACCESS_PASSWORD = 'liikrapp0101';
+  const isBlockedQuickAccessEmail = (email: string) =>
+    String(email || '').trim().toLowerCase() === BLOCKED_QUICK_ACCESS_EMAIL;
+  const isBlockedQuickAccessPassword = (password: string) =>
+    String(password || '') === BLOCKED_QUICK_ACCESS_PASSWORD;
+  const isBlockedQuickAccessCredentials = (email: string, password: string) =>
+    isBlockedQuickAccessEmail(email) && isBlockedQuickAccessPassword(password);
+
   // Carregar email/senha de acesso rápido da outra unidade (localStorage)
   useEffect(() => {
     if (!establishment?.id || !(establishment as any)?.second_unit_booking_code) return;
@@ -1106,8 +1116,15 @@ const EstablishmentDashboard = () => {
       const raw = localStorage.getItem(`second_unit_quick_${establishment.id}`);
       if (raw) {
         const data = JSON.parse(raw) as { email?: string; password?: string };
-        if (data?.email) setSecondUnitQuickEmail(data.email);
-        if (data?.password) setSecondUnitQuickPassword(data.password);
+        const email = String(data?.email || '').trim();
+        const password = String(data?.password || '');
+        // Nunca mostrar/salvar e-mail ou senha do suporte (nem o par completo)
+        if (isBlockedQuickAccessEmail(email) || isBlockedQuickAccessPassword(password) || isBlockedQuickAccessCredentials(email, password)) {
+          localStorage.removeItem(`second_unit_quick_${establishment.id}`);
+        } else {
+          if (data?.email) setSecondUnitQuickEmail(data.email);
+          if (data?.password) setSecondUnitQuickPassword(data.password);
+        }
       }
     } catch {
       // ignore
@@ -1121,6 +1138,10 @@ const EstablishmentDashboard = () => {
     // Não sobrescrever com vazio antes do carregamento inicial
     if (secondUnitQuickEmail === '' && secondUnitQuickPassword === '' && !secondUnitQuickAccessLoadedRef.current) return;
     try {
+      if (isBlockedQuickAccessEmail(secondUnitQuickEmail) || isBlockedQuickAccessPassword(secondUnitQuickPassword) || isBlockedQuickAccessCredentials(secondUnitQuickEmail, secondUnitQuickPassword)) {
+        localStorage.removeItem(`second_unit_quick_${establishment.id}`);
+        return;
+      }
       localStorage.setItem(`second_unit_quick_${establishment.id}`, JSON.stringify({
         email: secondUnitQuickEmail,
         password: secondUnitQuickPassword
@@ -17027,9 +17048,14 @@ Estamos te aguardando! 😎✂️`;
                             <span className="text-sm text-gray-400 shrink-0">agendeifacil.com/booking/</span>
                             <input
                               type="text"
-                              value={(establishment as any)?.second_unit_booking_code || ''}
-                              onChange={(e) => handleInputChange('second_unit_booking_code', (e.target.value || '').trim())}
-                              placeholder="código"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={((establishment as any)?.second_unit_booking_code ?? '').toString().replace(/\D/g, '')}
+                              onChange={(e) => {
+                                const onlyDigits = (e.target.value || '').replace(/\D/g, '');
+                                handleInputChange('second_unit_booking_code', onlyDigits);
+                              }}
+                              placeholder="código (só números)"
                               className="w-28 px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
                             />
                           </div>
@@ -17052,6 +17078,9 @@ Estamos te aguardando! 😎✂️`;
                               {/* Acesso rápido: email/senha da outra unidade para logar direto daqui */}
                               <div className="mt-4 pt-4 border-t border-gray-600">
                                 <h4 className="text-sm font-semibold text-white mb-1">Acesso rápido</h4>
+                                <div className="mb-3 p-2 rounded-lg bg-red-900/30 border border-red-600/50 text-red-200 text-xs">
+                                  <strong>⚠️ Dados sensíveis:</strong> E-mail e senha ficam salvos só neste aparelho. <strong>Não compartilhe esta tela nem tire prints</strong> quando a senha estiver visível.
+                                </div>
                                 <p className="text-xs text-gray-400 mb-3">
                                   Coloque seu e-mail e senha da outra unidade para acessar ela mais rápido, direto daqui.
                                 </p>
@@ -17059,7 +17088,20 @@ Estamos te aguardando! 😎✂️`;
                                   <input
                                     type="email"
                                     value={secondUnitQuickEmail}
-                                    onChange={(e) => setSecondUnitQuickEmail(e.target.value)}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (isBlockedQuickAccessEmail(v)) {
+                                        setSecondUnitQuickEmail('');
+                                        return;
+                                      }
+                                      setSecondUnitQuickEmail(v);
+                                    }}
+                                    onBlur={() => {
+                                      if (isBlockedQuickAccessEmail(secondUnitQuickEmail)) {
+                                        setSecondUnitQuickEmail('');
+                                        toast.error('Este e-mail não pode ser usado no Acesso rápido.');
+                                      }
+                                    }}
                                     placeholder="E-mail da outra unidade"
                                     className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
                                   />
@@ -17067,7 +17109,20 @@ Estamos te aguardando! 😎✂️`;
                                     <input
                                       type={showSecondUnitQuickPassword ? 'text' : 'password'}
                                       value={secondUnitQuickPassword}
-                                      onChange={(e) => setSecondUnitQuickPassword(e.target.value)}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        if (isBlockedQuickAccessPassword(v)) {
+                                          setSecondUnitQuickPassword('');
+                                          return;
+                                        }
+                                        setSecondUnitQuickPassword(v);
+                                      }}
+                                      onBlur={() => {
+                                        if (isBlockedQuickAccessPassword(secondUnitQuickPassword)) {
+                                          setSecondUnitQuickPassword('');
+                                          toast.error('Esta senha não pode ser usada no Acesso rápido.');
+                                        }
+                                      }}
                                       placeholder="Senha da outra unidade"
                                       className="w-full px-3 py-2 pr-10 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
                                     />
@@ -17075,10 +17130,13 @@ Estamos te aguardando! 😎✂️`;
                                       type="button"
                                       onClick={() => setShowSecondUnitQuickPassword((v) => !v)}
                                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-gray-400 hover:text-white"
-                                      title={showSecondUnitQuickPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                                      title={showSecondUnitQuickPassword ? 'Ocultar senha (recomendado)' : 'Mostrar senha'}
                                     >
                                       {showSecondUnitQuickPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                     </button>
+                                    {showSecondUnitQuickPassword && (
+                                      <p className="text-[11px] text-amber-400 mt-1">Senha visível — não compartilhe a tela.</p>
+                                    )}
                                   </div>
                                   <button
                                     type="button"
@@ -17087,6 +17145,10 @@ Estamos te aguardando! 😎✂️`;
                                       const password = secondUnitQuickPassword;
                                       if (!email || !password) {
                                         toast.error('Preencha e-mail e senha da outra unidade.');
+                                        return;
+                                      }
+                                      if (isBlockedQuickAccessCredentials(email, password)) {
+                                        toast.error('Este e-mail e senha não podem ser usados no Acesso rápido por segurança.');
                                         return;
                                       }
                                       if (establishment?.id) {
