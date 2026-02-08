@@ -3128,7 +3128,8 @@ const EstablishmentDashboard = () => {
   const [newSubcategory, setNewSubcategory] = useState({
     name: '',
     price: '',
-    duration: '30'
+    duration: '30',
+    customDuration: ''
   });
 
   // Estados para controlar visibilidade dos tutoriais
@@ -4275,10 +4276,13 @@ const EstablishmentDashboard = () => {
     if (!selectedCategoryForSubcategory) return;
 
     const price = parseFloat(newSubcategory.price);
-    const duration = parseInt(newSubcategory.duration);
+    const duration =
+      newSubcategory.duration === DURATION_CUSTOM
+        ? parseInt(newSubcategory.customDuration, 10)
+        : parseInt(newSubcategory.duration, 10);
 
-    if (!newSubcategory.name.trim() || isNaN(price) || isNaN(duration)) {
-      toast('Por favor, preencha todos os campos corretamente', 'error');
+    if (!newSubcategory.name.trim() || isNaN(price) || isNaN(duration) || duration < 0) {
+      toast('Por favor, preencha todos os campos corretamente (duração em minutos).', 'error');
       return;
     }
 
@@ -4401,7 +4405,7 @@ const EstablishmentDashboard = () => {
         }
       }
 
-      setNewSubcategory({ name: '', price: '', duration: '30' });
+      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '' });
       setShowAddSubcategoryModal(false);
       setSelectedCategoryForSubcategory(null);
 
@@ -4658,6 +4662,8 @@ const EstablishmentDashboard = () => {
     { value: 90, label: '90 minutos' },
     { value: 120, label: '120 minutos' }
   ];
+  const DURATION_CUSTOM = 'custom';
+  const durationPresetValues = durationOptions.map((o) => o.value);
 
   const formatDuration = (minutes: number): string => {
     if (minutes === null || minutes === undefined) return '';
@@ -25313,6 +25319,7 @@ Estamos te aguardando! 😎✂️`;
                 <h3 className="text-lg font-semibold text-gray-900">Adicionar Serviço</h3>
                 <button
                   onClick={() => {
+                    setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '' });
                     setShowAddSubcategoryModal(false);
                     setSelectedCategoryForSubcategory(null);
                   }}
@@ -25366,13 +25373,26 @@ Estamos te aguardando! 😎✂️`;
                         {option.label}
                       </option>
                     ))}
+                    <option disabled>────────────────────</option>
+                    <option value={DURATION_CUSTOM}>◆ Outro horário (digite abaixo)</option>
                   </select>
+                  {newSubcategory.duration === DURATION_CUSTOM && (
+                    <input
+                      type="number"
+                      min={0}
+                      value={newSubcategory.customDuration}
+                      onChange={(e) => setNewSubcategory({ ...newSubcategory, customDuration: e.target.value.replace(/\D/g, '') })}
+                      placeholder="Ex: 25, 35, 50..."
+                      className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    />
+                  )}
                 </div>
 
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
+                      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '' });
                       setShowAddSubcategoryModal(false);
                       setSelectedCategoryForSubcategory(null);
                     }}
@@ -25615,8 +25635,12 @@ Estamos te aguardando! 😎✂️`;
                     Duração (minutos)
                   </label>
                   <select
-                    value={editingSubcategory.duration}
-                    onChange={(e) => setEditingSubcategory({ ...editingSubcategory, duration: parseInt(e.target.value) || 30 })}
+                    value={durationPresetValues.includes(editingSubcategory.duration) ? String(editingSubcategory.duration) : DURATION_CUSTOM}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === DURATION_CUSTOM) return;
+                      setEditingSubcategory({ ...editingSubcategory, duration: parseInt(v, 10) || 30 });
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
                     required
                   >
@@ -25625,7 +25649,19 @@ Estamos te aguardando! 😎✂️`;
                         {option.label}
                       </option>
                     ))}
+                    <option disabled>────────────────────</option>
+                    <option value={DURATION_CUSTOM}>◆ Outro horário (digite abaixo)</option>
                   </select>
+                  {!durationPresetValues.includes(editingSubcategory.duration) && (
+                    <input
+                      type="number"
+                      min={0}
+                      value={editingSubcategory.duration}
+                      onChange={(e) => setEditingSubcategory({ ...editingSubcategory, duration: parseInt(e.target.value, 10) || 0 })}
+                      placeholder="Minutos"
+                      className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
+                    />
+                  )}
                 </div>
 
                 <div className="flex gap-3 pt-4">
