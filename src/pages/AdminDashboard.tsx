@@ -2422,11 +2422,12 @@ const AdminDashboard = () => {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              {/* Botão Novas Inscrições */}
+              {/* Botão Novas Inscrições (só Lucas e Erlon) */}
               <button
-                onClick={() => setShowNewRegistrations(true)}
-                className="relative flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                title={isAutoRefreshing ? "Atualizando automaticamente..." : "Atualiza a cada 5 segundos"}
+                onClick={() => canEditEverything() && setShowNewRegistrations(true)}
+                disabled={!canEditEverything()}
+                className="relative flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-600"
+                title={!canEditEverything() ? 'Apenas Lucas e Erlon podem acessar' : (isAutoRefreshing ? "Atualizando automaticamente..." : "Atualiza a cada 5 segundos")}
               >
                 <FileText className={`h-4 w-4 ${isAutoRefreshing ? 'animate-pulse' : ''}`} />
                 <span>Novas Inscrições</span>
@@ -2486,14 +2487,18 @@ const AdminDashboard = () => {
                                     {format(new Date(s.last_heartbeat_at), "dd/MM HH:mm", { locale: ptBR })}
                                   </p>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => !isCurrentSession && disconnectSupportSession(s.name)}
-                                  disabled={isCurrentSession}
-                                  className="shrink-0 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  Desconectar
-                                </button>
+                                {canEditEverything() ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => !isCurrentSession && disconnectSupportSession(s.name)}
+                                    disabled={isCurrentSession}
+                                    className="shrink-0 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    Desconectar
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-gray-400">—</span>
+                                )}
                               </li>
                             );
                           })
