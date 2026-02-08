@@ -12610,10 +12610,11 @@ Estamos te aguardando! 😎✂️`;
 
     const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
     const shouldApplyDefaultsForProfessionals = onboardingStep < 4;
-    const baseWorkHours: Record<string, any> = shouldApplyDefaultsForProfessionals
+    // Quando Config está com "Não tira intervalo", usar o mesmo padrão em Profissionais (igualar ao estabelecimento)
+    const establishmentNoInterval = isNoIntervalModeEnabled(businessHours);
+    const baseWorkHours: Record<string, any> = shouldApplyDefaultsForProfessionals || establishmentNoInterval
       ? buildDefaultProfessionalWorkHoursFromEstablishment()
       : {
-        // ✅ Comportamento antigo (não herda Configurações em contas já concluídas)
         monday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
         tuesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
         wednesday: { enabled: undefined, entry_time: '08:00', break_start: '12:00', break_end: '13:00', exit_time: '17:00' },
@@ -21842,8 +21843,12 @@ Estamos te aguardando! 😎✂️`;
                     <p className="text-yellow-400 text-sm mb-4 font-semibold bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3">
                       Coloque horário de trabalho de cada profissional <span className="text-red-400">* Obrigatório</span>
                     </p>
-                    {onboardingStep < 4 && (
-                      <div className="rounded-lg border border-yellow-500/30 bg-yellow-900/10 p-3">
+                    {/* Opção "Não tenho intervalo" igual à de Config > Horários e dias de funcionamento — sempre visível */}
+                    <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <p className="text-sm text-yellow-200">
+                          <span className="font-semibold">⚠️ Não tira intervalo?</span> Ative a opção para remover o 2º período (Reabertura/Fechamento).
+                        </p>
                         <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                           <input
                             type="checkbox"
@@ -21855,11 +21860,14 @@ Estamos te aguardando! 😎✂️`;
                             Não tenho horário de intervalo
                           </span>
                         </label>
-                        <div className="mt-1 text-xs text-yellow-100/90">
-                          Ative apenas se o profissional <strong>trabalha direto</strong> (sem pausa). Isso esconde o intervalo e mantém só Entrada e Saída.
-                        </div>
                       </div>
-                    )}
+                      <div className="mt-2 text-xs text-yellow-100/90">
+                        Quando ativado, use apenas <strong>Entrada</strong> e <strong>Saída</strong>.
+                        <span className="block mt-1">
+                          Ative esta opção <strong>apenas</strong> se o profissional <strong>não tira intervalo</strong> e trabalha direto.
+                        </span>
+                      </div>
+                    </div>
 
                     <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4">
                       <p className="text-blue-200 text-sm font-medium mb-2">Igualar ao horário de outro profissional</p>
@@ -21967,7 +21975,7 @@ Estamos te aguardando! 😎✂️`;
                         )}
 
                         {workHoursData[day]?.enabled === true && (
-                          <div className={`grid grid-cols-2 gap-4 ${onboardingStep < 4 && isNoIntervalModeEnabledForWorkHours(workHoursData) ? '' : 'md:grid-cols-4'}`}>
+                          <div className={`grid grid-cols-2 gap-4 ${isNoIntervalModeEnabledForWorkHours(workHoursData) ? '' : 'md:grid-cols-4'}`}>
                             <div>
                               <label className="block text-sm text-gray-300 mb-2">Entrada</label>
                               <TimeSelector
@@ -21979,7 +21987,7 @@ Estamos te aguardando! 😎✂️`;
                               />
                             </div>
 
-                            {!(onboardingStep < 4 && isNoIntervalModeEnabledForWorkHours(workHoursData)) && (
+                            {!isNoIntervalModeEnabledForWorkHours(workHoursData) && (
                               <div>
                                 <label className="block text-sm text-gray-300 mb-2">Início Intervalo</label>
                                 <TimeSelector
@@ -21992,7 +22000,7 @@ Estamos te aguardando! 😎✂️`;
                               </div>
                             )}
 
-                            {!(onboardingStep < 4 && isNoIntervalModeEnabledForWorkHours(workHoursData)) && (
+                            {!isNoIntervalModeEnabledForWorkHours(workHoursData) && (
                               <div>
                                 <label className="block text-sm text-gray-300 mb-2">Fim Intervalo</label>
                                 <TimeSelector
