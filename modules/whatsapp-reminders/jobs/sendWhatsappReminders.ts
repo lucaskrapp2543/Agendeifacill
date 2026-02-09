@@ -40,6 +40,35 @@ function defaultTemplate() {
   );
 }
 
+function formatReminderDateLabel(appointmentDate: string, timezone: string): string {
+  const raw = String(appointmentDate || '').trim();
+  if (!raw) return 'Hoje';
+
+  try {
+    const parts = raw.split('-');
+    if (parts.length !== 3) return raw;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return raw;
+
+    const now = new Date();
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const todayInTz = fmt.format(now); // yyyy-mm-dd
+    const target = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+    if (target === todayInTz) return 'Hoje';
+    return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${String(y).padStart(4, '0')}`;
+  } catch {
+    return raw;
+  }
+}
+
 function normalizePhoneCandidates(raw: string): string[] {
   const digits = String(raw || '').replace(/\D/g, '');
   if (!digits) return [];
@@ -109,7 +138,7 @@ export async function runSendWhatsappRemindersOnce() {
         establishment_name: r.establishment_name || 'a barbearia',
         service_name: r.service_name || 'serviço',
         professional_name: r.professional_name || 'profissional',
-        appointment_date: r.appointment_date,
+        appointment_date: formatReminderDateLabel(r.appointment_date, tz),
         appointment_time: r.appointment_time?.slice(0, 5) || r.appointment_time,
       });
 
