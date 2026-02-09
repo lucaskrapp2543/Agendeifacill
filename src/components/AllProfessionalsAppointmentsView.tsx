@@ -109,6 +109,10 @@ interface AllProfessionalsAppointmentsViewProps {
   onCancelAppointment?: (appointmentId: string) => void;
   onClientNoShow?: (appointment: Appointment) => void;
   useLightLayout?: boolean;
+  canViewBarbershopCash?: boolean;
+  pendingOpenBarbershopCash?: boolean;
+  onConsumePendingOpenBarbershopCash?: () => void;
+  onRequestBarbershopCashAccess?: () => void;
 }
 
 export const AllProfessionalsAppointmentsView: React.FC<
@@ -137,6 +141,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onCancelAppointment,
   onClientNoShow,
   useLightLayout = false,
+  canViewBarbershopCash = false,
+  pendingOpenBarbershopCash = false,
+  onConsumePendingOpenBarbershopCash,
+  onRequestBarbershopCashAccess,
 }) => {
     console.log('📋 AllProfessionalsAppointmentsView - Total de appointments recebidos:', appointments.length);
     console.log('📅 Data selecionada:', selectedDate.toISOString());
@@ -186,8 +194,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedSubscriberOptionId, setSelectedSubscriberOptionId] = useState<string>('');
     const [selectedAppointmentForSubscriberAttendance, setSelectedAppointmentForSubscriberAttendance] = useState<Appointment | null>(null);
     const [isSavingSubscriberAttendance, setIsSavingSubscriberAttendance] = useState(false);
+    const [showBarbershopCashModal, setShowBarbershopCashModal] = useState(false);
+    const [barbershopCashOpeningInput, setBarbershopCashOpeningInput] = useState('');
+    const [barbershopCashOpeningValue, setBarbershopCashOpeningValue] = useState(0);
+    const [isLoadingBarbershopCashOpening, setIsLoadingBarbershopCashOpening] = useState(false);
+    const [isSavingBarbershopCashOpening, setIsSavingBarbershopCashOpening] = useState(false);
+    const [barbershopCashFeatureUnavailable, setBarbershopCashFeatureUnavailable] = useState(false);
     // Assinaturas do estabelecimento (nome + duração) para exibir duração correta de agendamentos de assinante
     const [subscriptionDurations, setSubscriptionDurations] = useState<Array<{ name: string; service_duration: number }>>([]);
+    const selectedDateIso = format(selectedDate, 'yyyy-MM-dd');
 
     useEffect(() => {
       if (!establishment?.id) {
@@ -210,6 +225,61 @@ export const AllProfessionalsAppointmentsView: React.FC<
       })();
       return () => { cancelled = true; };
     }, [establishment?.id]);
+
+    const getSupabaseErrorMessage = (error: any, fallback: string): string => {
+      if (!error) return fallback;
+      const message = String(error?.message || '').trim();
+      const code = String(error?.code || '').trim();
+      const details = String(error?.details || '').trim();
+      const hint = String(error?.hint || '').trim();
+      return [message || fallback, code ? `code: ${code}` : '', details ? `details: ${details}` : '', hint ? `hint: ${hint}` : '']
+        .filter(Boolean)
+        .join(' | ');
+    };
+
+    const loadBarbershopCashOpening = async () => {
+      if (!establishment?.id || !canViewBarbershopCash || barbershopCashFeatureUnavailable) return;
+
+      setIsLoadingBarbershopCashOpening(true);
+      try {
+        const { data, error } = await supabase
+          .from('barbershop_daily_cash')
+          .select('opening_amount')
+          .eq('establishment_id', establishment.id)
+          .eq('cash_date', selectedDateIso)
+          .maybeSingle();
+        if (error) throw error;
+        const opening = Number((data as any)?.opening_amount || 0);
+        setBarbershopCashOpeningValue(opening > 0 ? opening : 0);
+        setBarbershopCashOpeningInput(opening > 0 ? String(opening) : '');
+      } catch (error: any) {
+        console.error('Erro ao carregar caixa da barbearia:', error);
+        if (String(error?.code || '') === '42P01') {
+          setBarbershopCashFeatureUnavailable(true);
+          return;
+        }
+        toast.error(getSupabaseErrorMessage(error, 'Nao foi possivel carregar o caixa da barbearia.'));
+      } finally {
+        setIsLoadingBarbershopCashOpening(false);
+      }
+    };
+
+    useEffect(() => {
+      if (!canViewBarbershopCash) {
+        setShowBarbershopCashModal(false);
+        return;
+      }
+      void loadBarbershopCashOpening();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canViewBarbershopCash, establishment?.id, selectedDateIso]);
+
+    useEffect(() => {
+      if (!pendingOpenBarbershopCash) return;
+      if (canViewBarbershopCash) {
+        setShowBarbershopCashModal(true);
+      }
+      onConsumePendingOpenBarbershopCash?.();
+    }, [pendingOpenBarbershopCash, canViewBarbershopCash, onConsumePendingOpenBarbershopCash]);
 
     const normalizeSearch = (v: string): string => {
       // remove acentos e padroniza
@@ -631,6 +701,64 @@ export const AllProfessionalsAppointmentsView: React.FC<
         total += apt.sold_products.reduce((sum, p) => sum + p.total, 0);
       }
       return total;
+    };
+
+    const dailyCashSalesTotal = appointments
+      .filter((apt) =>
+        apt.appointment_date === selectedDateIso &&
+        apt.status !== 'cancelled' &&
+        String(apt.payment_method || '').trim() === 'dinheiro'
+      )
+      .reduce((sum, apt) => sum + calculateTotalPrice(apt), 0);
+
+    const barbershopCashTotal = barbershopCashOpeningValue + dailyCashSalesTotal;
+
+    const handleOpenBarbershopCash = () => {
+      if (barbershopCashFeatureUnavailable) {
+        toast.error('Estrutura do caixa da barbearia ainda nao existe no banco. Rode a migration SQL dessa feature.');
+        return;
+      }
+      if (!canViewBarbershopCash) {
+        onRequestBarbershopCashAccess?.();
+        return;
+      }
+      setShowBarbershopCashModal(true);
+    };
+
+    const handleSaveBarbershopCashOpening = async () => {
+      if (!establishment?.id) return;
+      const openingAmount = Number(String(barbershopCashOpeningInput || '').replace(',', '.').trim());
+      if (!Number.isFinite(openingAmount) || openingAmount < 0) {
+        toast.error('Informe um valor valido para o caixa inicial do dia.');
+        return;
+      }
+
+      setIsSavingBarbershopCashOpening(true);
+      try {
+        const { error } = await supabase.from('barbershop_daily_cash').upsert(
+          {
+            establishment_id: establishment.id,
+            cash_date: selectedDateIso,
+            opening_amount: openingAmount,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'establishment_id,cash_date' }
+        );
+        if (error) throw error;
+
+        setBarbershopCashOpeningValue(openingAmount);
+        setBarbershopCashOpeningInput(String(openingAmount));
+        setShowBarbershopCashModal(false);
+        toast.success('Caixa da barbearia atualizado com sucesso.');
+      } catch (error: any) {
+        console.error('Erro ao salvar caixa da barbearia:', error);
+        if (String(error?.code || '') === '42P01') {
+          setBarbershopCashFeatureUnavailable(true);
+        }
+        toast.error(getSupabaseErrorMessage(error, 'Nao foi possivel salvar o caixa da barbearia.'));
+      } finally {
+        setIsSavingBarbershopCashOpening(false);
+      }
     };
 
     const calculateServiceTotal = (apt: Appointment) => {
@@ -1584,7 +1712,83 @@ export const AllProfessionalsAppointmentsView: React.FC<
           <p className="text-xs sm:text-sm text-gray-600 mt-1 sm:mt-2 text-center">
             👈 Arraste para o lado para ver mais profissionais 👉
           </p>
+          <div className="mt-3 flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenBarbershopCash}
+              className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold transition-colors disabled:opacity-60"
+              disabled={isLoadingBarbershopCashOpening}
+            >
+              {`CAIXA DA BARBEARIA (${format(selectedDate, 'dd/MM/yyyy')})`}
+            </button>
+            {canViewBarbershopCash ? (
+              <p className="text-xs text-emerald-700 font-medium text-center">
+                Total em caixa hoje: {formatCurrency(barbershopCashTotal)} (abertura {formatCurrency(barbershopCashOpeningValue)} + dinheiro {formatCurrency(dailyCashSalesTotal)})
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500 text-center">
+                Valor protegido por senha de 4 digitos.
+              </p>
+            )}
+          </div>
         </div>
+
+        {showBarbershopCashModal && canViewBarbershopCash && (
+          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-emerald-500/30 bg-gradient-to-b from-[#0b0b0c] to-black">
+              <div className="p-4 border-b border-white/10">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-white font-extrabold text-lg">Caixa da barbearia</div>
+                    <div className="text-xs text-white/70 mt-1">{format(selectedDate, 'dd/MM/yyyy')}</div>
+                    <p className="text-sm text-white/80 mt-2">Informe o valor em especie inicial do dia.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBarbershopCashModal(false)}
+                    className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/15 text-white flex items-center justify-center"
+                    title="Fechar"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 space-y-3">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Ex: 150,00"
+                  value={barbershopCashOpeningInput}
+                  onChange={(e) => setBarbershopCashOpeningInput(e.target.value.replace(',', '.'))}
+                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white text-lg font-medium placeholder:text-white/50 focus:outline-none focus:border-emerald-400"
+                />
+                <div className="text-xs text-white/70 space-y-1">
+                  <p>Abertura registrada: <span className="font-semibold text-white">{formatCurrency(barbershopCashOpeningValue)}</span></p>
+                  <p>Vendas em dinheiro no dia: <span className="font-semibold text-white">{formatCurrency(dailyCashSalesTotal)}</span></p>
+                  <p>Total em caixa no dia: <span className="font-semibold text-emerald-300">{formatCurrency(barbershopCashTotal)}</span></p>
+                </div>
+              </div>
+              <div className="p-4 border-t border-white/10 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBarbershopCashModal(false)}
+                  className="flex-1 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium py-3 transition-colors"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingBarbershopCashOpening}
+                  onClick={handleSaveBarbershopCashOpening}
+                  className="flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:pointer-events-none text-black font-bold py-3 transition-colors"
+                >
+                  {isSavingBarbershopCashOpening ? 'Salvando...' : 'Salvar abertura'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
 
         {/* Modal de Informações sobre Lembretes */}

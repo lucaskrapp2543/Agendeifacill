@@ -44,6 +44,7 @@ type TabType =
   | 'draw'
   | 'passo-a-passo'
   | 'fila-espera'
+  | 'placa-barbearia'
   | 'client-page'
   | 'indication'
   | 'whatsapp-reminders'
@@ -548,6 +549,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     expenses: 'Registre despesas para saber seu lucro real.',
     taxes: 'Configure taxas e veja relatórios por bandeira.',
     'client-page': 'Veja o link da sua página e revise as configurações antes de divulgar.',
+    'placa-barbearia': 'Divulgue seus links em um QR Code bonito para expor no balcão.',
     support: 'Fale com o suporte para ajuda rápida.',
     config: 'Configurações do sistema e do seu estabelecimento.',
     logout: 'Sair da sua conta neste dispositivo.',
@@ -561,6 +563,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (id === 'indication') return 'brandGreen';
     if (id === 'receber-adiantado') return 'brandBlue';
     if (id === 'fila-espera') return 'brandPurple';
+    if (id === 'placa-barbearia') return 'brandBlue';
     return 'neutral';
   };
 
@@ -742,7 +745,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                 const sections: Array<{ title: string; ids: string[] }> = [
                   { title: 'Atalhos', ids: ['notifications', 'appointments', 'client-page'] },
-                  { title: 'Destaques', ids: ['whatsapp-reminders', 'indication', 'receber-adiantado', 'fila-espera'] },
+                  { title: 'Destaques', ids: ['whatsapp-reminders', 'indication', 'receber-adiantado', 'fila-espera', 'placa-barbearia'] },
                   { title: 'Gestão', ids: ['clients', 'subscribers', 'service-categories', 'products', 'professionals'] },
                   { title: 'Financeiro', ids: ['dashboard', 'expenses', 'taxes'] },
                   { title: 'Configurações', ids: ['support', 'config', 'logout'] },
@@ -876,6 +879,22 @@ const Sidebar: React.FC<SidebarProps> = ({
                   lockedByPlan: isPlanLockedItem('fila-espera'),
                 };
 
+                const placaBarbeariaItem = {
+                  id: 'placa-barbearia',
+                  label: 'Placa Barbearia',
+                  icon: CreditCard,
+                  onClick: () => {
+                    if (isItemLockedByOnboarding('placa-barbearia')) {
+                      onBlockedItemClick?.();
+                      return;
+                    }
+                    handleItemClick(() => onTabChange('placa-barbearia'));
+                  },
+                  isActive: activeTab === 'placa-barbearia',
+                  disabled: false,
+                  tooltip: 'Tenha uma placa com QR Code para links da sua barbearia.',
+                };
+
                 return (
                   <div className="space-y-6">
                     {sections.map((section) => (
@@ -890,6 +909,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                             }
                             if (id === 'fila-espera') {
                               return renderCard(filaEsperaItem as any);
+                            }
+                            if (id === 'placa-barbearia') {
+                              return renderCard(placaBarbeariaItem as any);
                             }
 
                             const item = mapById.get(id);
@@ -1441,6 +1463,54 @@ const Sidebar: React.FC<SidebarProps> = ({
                       {!isExpanded && (
                         <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
                           Fila de espera
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ✅ Botão "PLACA BARBEARIA" abaixo de "FILA DE ESPERA" */}
+                    <div className="relative mt-2">
+                      <button
+                        onClick={() => {
+                          if (isItemLocked('placa-barbearia')) {
+                            onBlockedItemClick?.();
+                            return;
+                          }
+                          handleItemClick(() => onTabChange('placa-barbearia'));
+                        }}
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'placa-barbearia'
+                          ? 'bg-white text-black shadow-md'
+                          : isItemLocked('placa-barbearia')
+                            ? 'bg-white/5 text-gray-400 opacity-60 cursor-not-allowed'
+                            : 'bg-gradient-to-r from-cyan-500 to-blue-700 text-white hover:from-cyan-600 hover:to-blue-800 shadow-md'
+                          }`}
+                        title={isExpanded ? '' : 'Placa Barbearia'}
+                        aria-label="Placa Barbearia"
+                      >
+                        <CreditCard
+                          className={`h-5 w-5 flex-shrink-0 ${activeTab === 'placa-barbearia'
+                            ? 'text-black'
+                            : isItemLocked('placa-barbearia')
+                              ? 'text-gray-500'
+                              : 'text-white'
+                            }`}
+                        />
+                        {isExpanded && (
+                          <>
+                            <span
+                              className={`text-sm font-extrabold whitespace-nowrap ${activeTab === 'placa-barbearia' ? 'text-black' : 'text-white'}`}
+                            >
+                              PLACA BARBEARIA
+                            </span>
+                            <ChevronRight
+                              className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${activeTab === 'placa-barbearia' ? 'text-black' : 'text-white'}`}
+                            />
+                          </>
+                        )}
+                      </button>
+
+                      {!isExpanded && (
+                        <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
+                          Placa Barbearia
                         </div>
                       )}
                     </div>

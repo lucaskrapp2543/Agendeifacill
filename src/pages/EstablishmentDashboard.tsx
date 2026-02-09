@@ -162,6 +162,7 @@ type TabType =
   | 'draw'
   | 'passo-a-passo'
   | 'fila-espera'
+  | 'placa-barbearia'
   | 'client-page'
   | 'indication'
   | 'whatsapp-reminders'
@@ -2830,10 +2831,11 @@ const EstablishmentDashboard = () => {
   const [showConfigPasswordModal, setShowConfigPasswordModal] = useState(false);
   const [configPasswordVerified, setConfigPasswordVerified] = useState(false);
   const [pendingAction, setPendingAction] = useState<{
-    type: 'percentage' | 'password' | 'goal';
+    type: 'percentage' | 'password' | 'goal' | 'barbershop_cash';
     professionalId: string;
     data?: any;
   } | null>(null);
+  const [pendingOpenBarbershopCashAfterPin, setPendingOpenBarbershopCashAfterPin] = useState(false);
 
   // Estados para controlar visibilidade de senhas dos profissionais
   const [professionalPasswordVisible, setProfessionalPasswordVisible] = useState<Record<string, boolean>>({});
@@ -9619,7 +9621,7 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
-  const handleProtectedAction = (type: 'percentage' | 'password' | 'goal', professionalId: string, data?: any) => {
+  const handleProtectedAction = (type: 'percentage' | 'password' | 'goal' | 'barbershop_cash', professionalId: string, data?: any) => {
     // Verificar se há senha configurada
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
 
@@ -9647,7 +9649,7 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
-  const executeProtectedAction = (type: 'percentage' | 'password' | 'goal', professionalId: string, data?: any) => {
+  const executeProtectedAction = (type: 'percentage' | 'password' | 'goal' | 'barbershop_cash', professionalId: string, data?: any) => {
     switch (type) {
       case 'percentage':
         if (data?.percentage !== undefined) {
@@ -9663,6 +9665,9 @@ Estamos te aguardando! 😎✂️`;
         if (data?.goalAmount !== undefined) {
           handleSaveGoalDirect(data.goalAmount, data.selectedServices || []);
         }
+        break;
+      case 'barbershop_cash':
+        setPendingOpenBarbershopCashAfterPin(true);
         break;
     }
   };
@@ -9685,6 +9690,8 @@ Estamos te aguardando! 😎✂️`;
           ...prev,
           [pendingAction.professionalId]: true
         }));
+      } else if (pendingAction.type === 'barbershop_cash') {
+        setPendingOpenBarbershopCashAfterPin(true);
       } else {
         // Para meta, executar ação diretamente
         console.log('🔍 DEBUG - Executando ação protegida:', pendingAction.type);
@@ -9750,6 +9757,22 @@ Estamos te aguardando! 😎✂️`;
       setPendingAction({ type: 'percentage', professionalId });
       setShowConfigPasswordModal(true);
     }
+  };
+
+  const handleRequestBarbershopCashAccess = () => {
+    const hasPassword = Boolean(
+      establishment?.pin_password &&
+      String(establishment.pin_password || '').trim().length > 0 &&
+      String(establishment.pin_password || '').trim() !== '0000'
+    );
+
+    if (!hasPassword || configPasswordVerified) {
+      setPendingOpenBarbershopCashAfterPin(true);
+      return;
+    }
+
+    setPendingAction({ type: 'barbershop_cash', professionalId: 'barbershop_cash' });
+    setShowConfigPasswordModal(true);
   };
 
   // Função para alterar percentual com proteção
@@ -14579,6 +14602,10 @@ Estamos te aguardando! 😎✂️`;
                       onCancelAppointment={handleCancelClick}
                       onClientNoShow={handleClientNoShowFromAppointment}
                       useLightLayout={useLightLayout}
+                      canViewBarbershopCash={configPasswordVerified}
+                      pendingOpenBarbershopCash={pendingOpenBarbershopCashAfterPin}
+                      onConsumePendingOpenBarbershopCash={() => setPendingOpenBarbershopCashAfterPin(false)}
+                      onRequestBarbershopCashAccess={handleRequestBarbershopCashAccess}
                     />
                   </div>
 
@@ -16434,6 +16461,63 @@ Estamos te aguardando! 😎✂️`;
                         <MessageSquare className="w-6 h-6" />
                         Conversar com Suporte
                       </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'placa-barbearia' && (
+                <div className="space-y-6 w-full">
+                  <div className="bg-gradient-to-br from-cyan-50 via-blue-50 to-indigo-100 rounded-2xl shadow-xl max-w-4xl w-full p-5 sm:p-8 border border-blue-200">
+                    <div className="flex flex-col gap-6">
+                      <div className="text-center sm:text-left">
+                        <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-900">
+                          PLACA BARBEARIA
+                        </h2>
+                        <p className="text-gray-700 text-sm sm:text-base mt-3 leading-relaxed">
+                          Agora voce pode ter sua placa na sua barbearia, com todos seus links em um so QR Code:
+                          avaliacao Google, wifi, pix, link de agendamento e muito mais.
+                        </p>
+                        <p className="text-gray-700 text-sm sm:text-base mt-2 leading-relaxed">
+                          Olha so como ficaria sua barbearia com a sua placa:
+                        </p>
+                      </div>
+
+                      <div className="bg-white/90 rounded-2xl border border-blue-200 p-3 sm:p-4 shadow-inner">
+                        <img
+                          src="/placaag.png"
+                          alt="Preview da placa da barbearia"
+                          className="w-full h-auto rounded-xl border border-gray-200"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            const current = img.getAttribute('src') || '';
+                            if (current.endsWith('/placaag.png')) {
+                              img.setAttribute('src', '/placaag.jpg');
+                              return;
+                            }
+                            if (current.endsWith('/placaag.jpg')) {
+                              img.setAttribute('src', '/placaag.jpeg');
+                              return;
+                            }
+                            img.style.display = 'none';
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex justify-center sm:justify-start">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const whatsappNumber = '5548991265320';
+                            const establishmentCode = String(establishment?.code || '').trim();
+                            const message = encodeURIComponent(`quero placa e qrcod pro meu estabelecimento codigo (${establishmentCode})`);
+                            window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                          }}
+                          className="px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-700 text-white font-extrabold text-lg hover:from-cyan-600 hover:via-blue-700 hover:to-indigo-800 transition-all shadow-lg"
+                        >
+                          Pedir Placa
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -20952,20 +21036,23 @@ Estamos te aguardando! 😎✂️`;
                       <User className="h-4 w-4" />
                       {highlightReserveButton ? '👉 Reservar Cliente 👈' : 'Reservar Cliente'}
                     </button>
-                    {(establishment as any)?.second_unit_booking_code && (
-                      <a
-                        href={`https://agendeifacil.com/booking/${String((establishment as any).second_unit_booking_code).trim()}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl border-2 border-amber-500/60 bg-amber-500/10 hover:bg-amber-500/20 transition-all text-center shadow-md hover:shadow-amber-500/20 hover:scale-[1.02] active:scale-[0.98]"
-                      >
-                        <span className="text-[10px] uppercase tracking-widest font-bold text-amber-400">Agendar outra unidade</span>
-                        <span className="font-bold text-white leading-tight">{secondUnitName || 'Segunda Unidade'}</span>
-                        {(establishment as any)?.second_unit_label && (
-                          <span className="text-xs text-amber-200/90">{(establishment as any).second_unit_label}</span>
-                        )}
-                      </a>
-                    )}
+                    {(() => {
+                      const code = String((establishment as any)?.second_unit_booking_code ?? '').trim();
+                      return code.length > 0;
+                    })() && (
+                        <a
+                          href={`https://agendeifacil.com/booking/${String((establishment as any).second_unit_booking_code).trim()}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl border-2 border-amber-500/60 bg-amber-500/10 hover:bg-amber-500/20 transition-all text-center shadow-md hover:shadow-amber-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                          <span className="text-[10px] uppercase tracking-widest font-bold text-amber-400">Agendar outra unidade</span>
+                          <span className="font-bold text-white leading-tight">{secondUnitName || 'Segunda Unidade'}</span>
+                          {(establishment as any)?.second_unit_label && (
+                            <span className="text-xs text-amber-200/90">{(establishment as any).second_unit_label}</span>
+                          )}
+                        </a>
+                      )}
                     <button
                       onClick={() => handleTabChange('clients')}
                       className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
@@ -25958,6 +26045,8 @@ Estamos te aguardando! 😎✂️`;
             ? "Digite a senha de 4 dígitos para visualizar a senha do profissional"
             : pendingAction?.type === 'percentage'
               ? "Digite a senha de 4 dígitos para alterar o percentual do profissional"
+              : pendingAction?.type === 'barbershop_cash'
+                ? "Digite a senha de 4 dígitos para acessar o caixa da barbearia"
               : "Digite a senha de 4 dígitos para alterar configurações sensíveis"
         }
       />
