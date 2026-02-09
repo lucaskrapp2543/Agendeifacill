@@ -158,7 +158,7 @@ export function AppointmentForm({
   const [clientProfileData, setClientProfileData] = useState<any>(null);
   const [isNewClientUser, setIsNewClientUser] = useState(false);
   const [profileDataLoaded, setProfileDataLoaded] = useState(false);
-  
+
   // ✅ Ref para rastrear o último userId que foi processado (evita loops e garante execução correta)
   const lastProcessedUserIdRef = useRef<string | undefined>(undefined);
 
@@ -242,12 +242,12 @@ export function AppointmentForm({
   useEffect(() => {
     const loadClientProfile = async () => {
       const currentUserId = user?.id;
-      console.log('🔍 DEBUG - loadClientProfile iniciado:', { 
-        user: !!user, 
-        profileDataLoaded, 
-        userId: currentUserId, 
+      console.log('🔍 DEBUG - loadClientProfile iniciado:', {
+        user: !!user,
+        profileDataLoaded,
+        userId: currentUserId,
         lastProcessed: lastProcessedUserIdRef.current,
-        guestClientData 
+        guestClientData
       });
 
       // ✅ CRÍTICO: Evitar loop infinito - não executar se já carregou para este usuário
@@ -255,7 +255,7 @@ export function AppointmentForm({
         console.log('🔍 DEBUG - Dados já carregados para este usuário, pulando execução');
         return;
       }
-      
+
       // ✅ Se o usuário mudou, precisamos processar novamente
       if (currentUserId && currentUserId !== lastProcessedUserIdRef.current) {
         console.log('🔍 DEBUG - Novo usuário detectado, resetando profileDataLoaded');
@@ -2498,339 +2498,339 @@ export function AppointmentForm({
                     </div>
                   </div>
                 ) : (
-                serviceCategories.length === 0 ? (
-                  <div className="space-y-4" data-services-section>
-                    <div
-                      className="p-3 rounded-2xl"
-                      style={{
-                        background: '#151515',
-                        border: '1px solid rgba(255,255,255,0.06)'
-                      }}
-                    >
-                      <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
-                        📋 Selecione um ou mais serviços
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      {(establishment?.services_with_prices || [])
-                        .filter((s: any) => s && s.id && s.name)
-                        .map((raw: any) => {
-                          const svc = {
-                            id: `legacy-${raw.id}`,
-                            name: raw.name,
-                            price: Number(raw.price) || 0,
-                            duration: Number(raw.duration) || 0,
-                          };
-
-                          const isSelected = selectedCategoryServices.some((x: any) => x.id === svc.id);
-                          const totalSelected = (selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0);
-                          const isDisabled = !isSelected && totalSelected >= 4;
-
-                          return (
-                            <div
-                              key={svc.id}
-                              className={`w-full p-4 rounded-2xl transition-colors ${isDisabled ? 'opacity-60' : ''}`}
-                              style={{
-                                background: isSelected ? 'rgba(230,199,139,0.10)' : '#151515',
-                                border: `1px solid ${isSelected ? 'rgba(230,199,139,0.45)' : 'rgba(255,255,255,0.06)'}`,
-                                boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
-                              }}
-                            >
-                              <div className="flex justify-between items-center mb-3">
-                                <div>
-                                  <h4 className="font-extrabold text-white">{svc.name}</h4>
-                                  <p className="text-sm" style={{ color: '#A1A1A1' }}>
-                                    {svc.duration}min • R$ {Number(svc.price || 0).toFixed(2)}
-                                  </p>
-                                </div>
-                                <div className={`w-6 h-6 border-2 rounded-full flex items-center justify-center ${isSelected ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 text-gray-400'}`}>
-                                  {isSelected ? '✓' : '+'}
-                                </div>
-                              </div>
-
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    // garantir que modo antigo não conflite
-                                    setSelectedSubcategory(null);
-                                    if (isSelected) {
-                                      setSelectedCategoryServices(prev => prev.filter((x: any) => x.id !== svc.id));
-                                    } else if (!isDisabled) {
-                                      setSelectedCategoryServices(prev => [...prev, svc]);
-                                    }
-                                  }}
-                                  disabled={isDisabled}
-                                  className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${isSelected
-                                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                    } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                  {isSelected ? '✓ Selecionado' : 'Selecionar Serviço'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedSubcategory(null);
-                                    if (!isSelected && !isDisabled) {
-                                      setSelectedCategoryServices(prev => [...prev, svc]);
-                                    }
-                                    setTimeout(() => {
-                                      setCurrentStep(3);
-                                      setTimeout(() => {
-                                        window.scrollBy({
-                                          top: 300,
-                                          behavior: 'smooth'
-                                        });
-                                      }, 100);
-                                    }, 300);
-                                  }}
-                                  disabled={isDisabled}
-                                  className={`flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                  Agendar
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-
-                      {((selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0)) >= 4 && (
-                        <p className="text-xs" style={{ color: '#A1A1A1' }}>
-                          Limite máximo de 4 serviços atingido. Remova algum para selecionar outro.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {/* Seletor de Categoria - CATEGORIAS VISÍVEIS */}
-                    <div>
+                  serviceCategories.length === 0 ? (
+                    <div className="space-y-4" data-services-section>
                       <div
-                        className="p-3 rounded-2xl mb-3"
+                        className="p-3 rounded-2xl"
                         style={{
                           background: '#151515',
                           border: '1px solid rgba(255,255,255,0.06)'
                         }}
                       >
                         <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
-                          📋 Selecione uma categoria
+                          📋 Selecione um ou mais serviços
                         </div>
                       </div>
-                      {/* Lista de categorias como botões visíveis */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {serviceCategories.map((category) => (
-                          <button
-                            key={category.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedCategory(category.id);
-                              setSelectedSubcategory(null);
-                              // ✅ NÃO LIMPAR selectedCategoryServices - permite selecionar serviços de diferentes categorias
-                              // Scroll automático para mostrar os serviços da categoria - DESCE, NÃO SOBE
-                              setTimeout(() => {
-                                const servicesSection = document.querySelector('[data-services-section]');
-                                if (servicesSection) {
-                                  const rect = servicesSection.getBoundingClientRect();
-                                  const scrollPosition = window.scrollY + rect.top - 100; // 100px de margem do topo
-                                  window.scrollTo({
-                                    top: scrollPosition,
-                                    behavior: 'smooth'
-                                  });
-                                } else {
-                                  // Scroll genérico para BAIXO
-                                  window.scrollBy({
-                                    top: 400,
-                                    behavior: 'smooth'
-                                  });
-                                }
-                              }, 200);
-                            }}
-                            className="p-4 rounded-2xl transition-all text-left"
-                            style={{
-                              background: selectedCategory === category.id ? '#E6C78B' : '#151515',
-                              color: selectedCategory === category.id ? '#0B0B0B' : '#FFFFFF',
-                              border: '1px solid rgba(255,255,255,0.06)',
-                              boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
-                              transform: selectedCategory === category.id ? 'scale(1.02)' : undefined
-                            }}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-base">{category.name}</span>
-                              {selectedCategory === category.id && (
-                                <span className="text-black text-xl">✓</span>
-                              )}
-                            </div>
-                            {category.description && (
-                              <p
-                                className="text-sm mt-1"
-                                style={{ color: selectedCategory === category.id ? 'rgba(11,11,11,0.7)' : '#A1A1A1' }}
+
+                      <div className="space-y-3">
+                        {(establishment?.services_with_prices || [])
+                          .filter((s: any) => s && s.id && s.name)
+                          .map((raw: any) => {
+                            const svc = {
+                              id: `legacy-${raw.id}`,
+                              name: raw.name,
+                              price: Number(raw.price) || 0,
+                              duration: Number(raw.duration) || 0,
+                            };
+
+                            const isSelected = selectedCategoryServices.some((x: any) => x.id === svc.id);
+                            const totalSelected = (selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0);
+                            const isDisabled = !isSelected && totalSelected >= 4;
+
+                            return (
+                              <div
+                                key={svc.id}
+                                className={`w-full p-4 rounded-2xl transition-colors ${isDisabled ? 'opacity-60' : ''}`}
+                                style={{
+                                  background: isSelected ? 'rgba(230,199,139,0.10)' : '#151515',
+                                  border: `1px solid ${isSelected ? 'rgba(230,199,139,0.45)' : 'rgba(255,255,255,0.06)'}`,
+                                  boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                                }}
                               >
-                                {category.description}
-                              </p>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Seletor de Subcategoria */}
-                    {selectedCategory && (() => {
-                      const selectedCategoryData = serviceCategories.find(cat => cat.id === selectedCategory);
-                      const hasSubcategories = selectedCategoryData?.subcategories && selectedCategoryData.subcategories.length > 0;
-                      
-                      if (!hasSubcategories) {
-                        return null; // Não mostrar nada se não houver subcategorias
-                      }
-                      
-                      return (
-                        <div data-services-section>
-                          <div
-                            className="p-3 rounded-2xl mb-3"
-                            style={{
-                              background: '#151515',
-                              border: '1px solid rgba(255,255,255,0.06)'
-                            }}
-                          >
-                            <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
-                              📋 Selecione um ou mais serviços
-                            </div>
-                          </div>
-
-                        {/* ✅ Sempre usar cards (remove o dropdown antigo) */}
-                        <div className="space-y-3">
-                          {serviceCategories
-                            .find(cat => cat.id === selectedCategory)
-                            ?.subcategories.map((subcategory: any) => {
-                              const isSelected = selectedCategoryServices.some(service => service.id === subcategory.id);
-                              const totalSelected = (selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0);
-                              const isDisabled = !isSelected && totalSelected >= 4;
-
-                              return (
-                                <div
-                                  key={subcategory.id}
-                                  className={`w-full p-4 rounded-2xl transition-colors ${isDisabled ? 'opacity-60' : ''}`}
-                                  style={{
-                                    background: isSelected ? 'rgba(230,199,139,0.10)' : '#151515',
-                                    border: `1px solid ${isSelected ? 'rgba(230,199,139,0.45)' : 'rgba(255,255,255,0.06)'}`,
-                                    boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
-                                  }}
-                                >
-                                  <div className="flex justify-between items-center mb-3">
-                                    <div>
-                                      <h4 className="font-extrabold text-white">{subcategory.name}</h4>
-                                      <p className="text-sm" style={{ color: '#A1A1A1' }}>
-                                        {subcategory.duration}min • R$ {subcategory.price.toFixed(2)}
-                                      </p>
-                                    </div>
-                                    <div className={`w-6 h-6 border-2 rounded-full flex items-center justify-center ${isSelected ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 text-gray-400'}`}>
-                                      {isSelected ? '✓' : '+'}
-                                    </div>
+                                <div className="flex justify-between items-center mb-3">
+                                  <div>
+                                    <h4 className="font-extrabold text-white">{svc.name}</h4>
+                                    <p className="text-sm" style={{ color: '#A1A1A1' }}>
+                                      {svc.duration}min • R$ {Number(svc.price || 0).toFixed(2)}
+                                    </p>
                                   </div>
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        // Se tiver vindo do modo antigo (selectedSubcategory), limpar pra não conflitar
-                                        setSelectedSubcategory(null);
-                                        if (isSelected) {
-                                          setSelectedCategoryServices(prev => prev.filter(service => service.id !== subcategory.id));
-                                        } else if (!isDisabled) {
-                                          setSelectedCategoryServices(prev => [...prev, subcategory]);
-                                        }
-                                      }}
-                                      disabled={isDisabled}
-                                      className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${isSelected
-                                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                        } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                    >
-                                      {isSelected ? '✓ Selecionado' : 'Selecionar Serviço'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedSubcategory(null);
-                                        if (!isSelected && !isDisabled) {
-                                          setSelectedCategoryServices(prev =>
-                                            (prev || []).some((s: any) => s.id === subcategory.id) ? prev : [...prev, subcategory]
-                                          );
-                                        }
-                                        setTimeout(() => {
-                                          setCurrentStep(3);
-                                          setTimeout(() => {
-                                            window.scrollBy({
-                                              top: 300,
-                                              behavior: 'smooth'
-                                            });
-                                          }, 100);
-                                        }, 300);
-                                      }}
-                                      disabled={isDisabled}
-                                      className={`flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                    >
-                                      Agendar
-                                    </button>
+                                  <div className={`w-6 h-6 border-2 rounded-full flex items-center justify-center ${isSelected ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 text-gray-400'}`}>
+                                    {isSelected ? '✓' : '+'}
                                   </div>
                                 </div>
-                              );
-                            })}
 
-                          {((selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0)) >= 4 && (
-                            <p className="text-xs text-green-700">
-                              Limite máximo de 4 serviços atingido. Remova algum para selecionar outro.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      );
-                    })()}
-
-                    {/* ✅ RESUMO DO SERVIÇO SELECIONADO - UM OU MÚLTIPLOS */}
-                    {/* ✅ LISTA DE SERVIÇOS SELECIONADOS - MÚLTIPLOS (sempre) */}
-                    {selectedCategoryServices.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="font-semibold text-gray-900">Serviços Selecionados:</h4>
-                        {selectedCategoryServices.map((service, index) => (
-                          <div key={`${service.id}-${index}`} className="p-3 bg-green-50 border border-green-200 rounded-lg flex justify-between items-center">
-                            <div>
-                              <span className="font-medium text-green-900">{service.name}</span>
-                              <div className="text-sm text-green-700">
-                                R$ {service.price.toFixed(2)} • {service.duration}min
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // garantir que modo antigo não conflite
+                                      setSelectedSubcategory(null);
+                                      if (isSelected) {
+                                        setSelectedCategoryServices(prev => prev.filter((x: any) => x.id !== svc.id));
+                                      } else if (!isDisabled) {
+                                        setSelectedCategoryServices(prev => [...prev, svc]);
+                                      }
+                                    }}
+                                    disabled={isDisabled}
+                                    className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${isSelected
+                                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                      } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                  >
+                                    {isSelected ? '✓ Selecionado' : 'Selecionar Serviço'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedSubcategory(null);
+                                      if (!isSelected && !isDisabled) {
+                                        setSelectedCategoryServices(prev => [...prev, svc]);
+                                      }
+                                      setTimeout(() => {
+                                        setCurrentStep(3);
+                                        setTimeout(() => {
+                                          window.scrollBy({
+                                            top: 300,
+                                            behavior: 'smooth'
+                                          });
+                                        }, 100);
+                                      }, 300);
+                                    }}
+                                    disabled={isDisabled}
+                                    className={`flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                  >
+                                    Agendar
+                                  </button>
+                                </div>
                               </div>
-                            </div>
+                            );
+                          })}
+
+                        {((selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0)) >= 4 && (
+                          <p className="text-xs" style={{ color: '#A1A1A1' }}>
+                            Limite máximo de 4 serviços atingido. Remova algum para selecionar outro.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Seletor de Categoria - CATEGORIAS VISÍVEIS */}
+                      <div>
+                        <div
+                          className="p-3 rounded-2xl mb-3"
+                          style={{
+                            background: '#151515',
+                            border: '1px solid rgba(255,255,255,0.06)'
+                          }}
+                        >
+                          <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
+                            📋 Selecione uma categoria
+                          </div>
+                        </div>
+                        {/* Lista de categorias como botões visíveis */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {serviceCategories.map((category) => (
                             <button
+                              key={category.id}
                               type="button"
                               onClick={() => {
-                                setSelectedCategoryServices(prev => prev.filter((_, i) => i !== index));
+                                setSelectedCategory(category.id);
+                                setSelectedSubcategory(null);
+                                // ✅ NÃO LIMPAR selectedCategoryServices - permite selecionar serviços de diferentes categorias
+                                // Scroll automático para mostrar os serviços da categoria - DESCE, NÃO SOBE
+                                setTimeout(() => {
+                                  const servicesSection = document.querySelector('[data-services-section]');
+                                  if (servicesSection) {
+                                    const rect = servicesSection.getBoundingClientRect();
+                                    const scrollPosition = window.scrollY + rect.top - 100; // 100px de margem do topo
+                                    window.scrollTo({
+                                      top: scrollPosition,
+                                      behavior: 'smooth'
+                                    });
+                                  } else {
+                                    // Scroll genérico para BAIXO
+                                    window.scrollBy({
+                                      top: 400,
+                                      behavior: 'smooth'
+                                    });
+                                  }
+                                }, 200);
                               }}
-                              className="text-red-600 hover:text-red-800 text-sm font-medium"
+                              className="p-4 rounded-2xl transition-all text-left"
+                              style={{
+                                background: selectedCategory === category.id ? '#E6C78B' : '#151515',
+                                color: selectedCategory === category.id ? '#0B0B0B' : '#FFFFFF',
+                                border: '1px solid rgba(255,255,255,0.06)',
+                                boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+                                transform: selectedCategory === category.id ? 'scale(1.02)' : undefined
+                              }}
                             >
-                              Remover
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold text-base">{category.name}</span>
+                                {selectedCategory === category.id && (
+                                  <span className="text-black text-xl">✓</span>
+                                )}
+                              </div>
+                              {category.description && (
+                                <p
+                                  className="text-sm mt-1"
+                                  style={{ color: selectedCategory === category.id ? 'rgba(11,11,11,0.7)' : '#A1A1A1' }}
+                                >
+                                  {category.description}
+                                </p>
+                              )}
                             </button>
-                          </div>
-                        ))}
-
-                        {/* ✅ RESUMO TOTAL */}
-                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                          <h4 className="font-semibold text-blue-900">Resumo Total:</h4>
-                          <div className="flex justify-between mt-2">
-                            <span className="text-blue-700">
-                              Preço: R$ {[...(selectedProfessionalSpecificServices || []), ...(selectedCategoryServices || [])]
-                                .reduce((sum: number, service: any) => sum + (Number(service?.price) || 0), 0)
-                                .toFixed(2)}
-                            </span>
-                            <span className="text-blue-700">
-                              Duração: {[...(selectedProfessionalSpecificServices || []), ...(selectedCategoryServices || [])]
-                                .reduce((sum: number, service: any) => sum + (Number(service?.duration) || 0), 0)}min
-                            </span>
-                          </div>
+                          ))}
                         </div>
                       </div>
-                    )}
-                  </div>
-                )
+
+                      {/* Seletor de Subcategoria */}
+                      {selectedCategory && (() => {
+                        const selectedCategoryData = serviceCategories.find(cat => cat.id === selectedCategory);
+                        const hasSubcategories = selectedCategoryData?.subcategories && selectedCategoryData.subcategories.length > 0;
+
+                        if (!hasSubcategories) {
+                          return null; // Não mostrar nada se não houver subcategorias
+                        }
+
+                        return (
+                          <div data-services-section>
+                            <div
+                              className="p-3 rounded-2xl mb-3"
+                              style={{
+                                background: '#151515',
+                                border: '1px solid rgba(255,255,255,0.06)'
+                              }}
+                            >
+                              <div className="text-center text-base font-extrabold" style={{ color: '#E6C78B' }}>
+                                📋 Selecione um ou mais serviços
+                              </div>
+                            </div>
+
+                            {/* ✅ Sempre usar cards (remove o dropdown antigo) */}
+                            <div className="space-y-3">
+                              {serviceCategories
+                                .find(cat => cat.id === selectedCategory)
+                                ?.subcategories.map((subcategory: any) => {
+                                  const isSelected = selectedCategoryServices.some(service => service.id === subcategory.id);
+                                  const totalSelected = (selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0);
+                                  const isDisabled = !isSelected && totalSelected >= 4;
+
+                                  return (
+                                    <div
+                                      key={subcategory.id}
+                                      className={`w-full p-4 rounded-2xl transition-colors ${isDisabled ? 'opacity-60' : ''}`}
+                                      style={{
+                                        background: isSelected ? 'rgba(230,199,139,0.10)' : '#151515',
+                                        border: `1px solid ${isSelected ? 'rgba(230,199,139,0.45)' : 'rgba(255,255,255,0.06)'}`,
+                                        boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                                      }}
+                                    >
+                                      <div className="flex justify-between items-center mb-3">
+                                        <div>
+                                          <h4 className="font-extrabold text-white">{subcategory.name}</h4>
+                                          <p className="text-sm" style={{ color: '#A1A1A1' }}>
+                                            {subcategory.duration}min • R$ {subcategory.price.toFixed(2)}
+                                          </p>
+                                        </div>
+                                        <div className={`w-6 h-6 border-2 rounded-full flex items-center justify-center ${isSelected ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 text-gray-400'}`}>
+                                          {isSelected ? '✓' : '+'}
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            // Se tiver vindo do modo antigo (selectedSubcategory), limpar pra não conflitar
+                                            setSelectedSubcategory(null);
+                                            if (isSelected) {
+                                              setSelectedCategoryServices(prev => prev.filter(service => service.id !== subcategory.id));
+                                            } else if (!isDisabled) {
+                                              setSelectedCategoryServices(prev => [...prev, subcategory]);
+                                            }
+                                          }}
+                                          disabled={isDisabled}
+                                          className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${isSelected
+                                            ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                            } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                          {isSelected ? '✓ Selecionado' : 'Selecionar Serviço'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedSubcategory(null);
+                                            if (!isSelected && !isDisabled) {
+                                              setSelectedCategoryServices(prev =>
+                                                (prev || []).some((s: any) => s.id === subcategory.id) ? prev : [...prev, subcategory]
+                                              );
+                                            }
+                                            setTimeout(() => {
+                                              setCurrentStep(3);
+                                              setTimeout(() => {
+                                                window.scrollBy({
+                                                  top: 300,
+                                                  behavior: 'smooth'
+                                                });
+                                              }, 100);
+                                            }, 300);
+                                          }}
+                                          disabled={isDisabled}
+                                          className={`flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                          Agendar
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+
+                              {((selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0)) >= 4 && (
+                                <p className="text-xs text-green-700">
+                                  Limite máximo de 4 serviços atingido. Remova algum para selecionar outro.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ✅ RESUMO DO SERVIÇO SELECIONADO - UM OU MÚLTIPLOS */}
+                      {/* ✅ LISTA DE SERVIÇOS SELECIONADOS - MÚLTIPLOS (sempre) */}
+                      {selectedCategoryServices.length > 0 && (
+                        <div className="space-y-2">
+                          <h4 className="font-semibold text-gray-900">Serviços Selecionados:</h4>
+                          {selectedCategoryServices.map((service, index) => (
+                            <div key={`${service.id}-${index}`} className="p-3 bg-green-50 border border-green-200 rounded-lg flex justify-between items-center">
+                              <div>
+                                <span className="font-medium text-green-900">{service.name}</span>
+                                <div className="text-sm text-green-700">
+                                  R$ {service.price.toFixed(2)} • {service.duration}min
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedCategoryServices(prev => prev.filter((_, i) => i !== index));
+                                }}
+                                className="text-red-600 hover:text-red-800 text-sm font-medium"
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          ))}
+
+                          {/* ✅ RESUMO TOTAL */}
+                          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                            <h4 className="font-semibold text-blue-900">Resumo Total:</h4>
+                            <div className="flex justify-between mt-2">
+                              <span className="text-blue-700">
+                                Preço: R$ {[...(selectedProfessionalSpecificServices || []), ...(selectedCategoryServices || [])]
+                                  .reduce((sum: number, service: any) => sum + (Number(service?.price) || 0), 0)
+                                  .toFixed(2)}
+                              </span>
+                              <span className="text-blue-700">
+                                Duração: {[...(selectedProfessionalSpecificServices || []), ...(selectedCategoryServices || [])]
+                                  .reduce((sum: number, service: any) => sum + (Number(service?.duration) || 0), 0)}min
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
                 )}
               </div>
             ) : (
@@ -3185,7 +3185,7 @@ export function AppointmentForm({
                     const hasPM = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
                     const exigirMP = Boolean((establishment as any)?.exigir_pagamento_antecipado_mercadopago === true);
                     const exigirPM = Boolean((establishment as any)?.exigir_pagamento_antecipado === true);
-                    
+
                     // Prioridade: Mercado Pago se marcado
                     if (hasMP && exigirMP) {
                       return '(Mercado Pago)';
@@ -3224,16 +3224,19 @@ export function AppointmentForm({
                       }
                     }, 200);
                   }}
-                  showPixOptions={!!establishment.pix_key}
+                  showPixOptions={!!establishment.pix_key && !(!!String((establishment as any)?.mercadopago_access_token || '').trim())}
                   pixPaymentMethod={pixPaymentMethod}
                   onPixMethodSelect={handlePixMethodSelect}
                   enabledMethods={establishment.payment_methods_enabled}
                 />
+                <p className="mt-2 text-xs" style={{ color: '#A1A1A1' }}>
+                  Qual forma de pagamento você irá usar no estabelecimento? Crédito e débito são pagos no local.
+                </p>
               </>
             )}
 
-            {/* Formulário PIX quando selecionado */}
-            {!requireAdvancePayment && selectedPaymentMethod === 'pix' && establishment.pix_key && (
+            {/* Formulário PIX manual (só sem Mercado Pago; com MP conectado, PIX é via Mercado Pago na finalização) */}
+            {!requireAdvancePayment && selectedPaymentMethod === 'pix' && establishment.pix_key && !(!!String((establishment as any)?.mercadopago_access_token || '').trim()) && (
               <div className="mt-4">
                 <PixPaymentForm
                   establishment={establishment}
@@ -3447,7 +3450,7 @@ export function AppointmentForm({
                             const names = all.map((s: any) => s?.name).filter(Boolean).join(' + ');
                             return `${names} - R$ ${Number(total || 0).toFixed(2).replace('.', ',')}`;
                           })()
-                            : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
+                          : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
                     }</div>
                     <div><strong className="text-white">Profissional:</strong> {selectedProfessional?.name || ''}</div>
                     <div><strong className="text-white">Pagamento:</strong> {requireAdvancePayment
@@ -3471,7 +3474,7 @@ export function AppointmentForm({
                             const total = all.reduce((sum: number, s: any) => sum + (Number(s?.duration) || 0), 0);
                             return `${total || 30} minutos`;
                           })()
-                            : `${selectedService?.duration || 30} minutos`
+                          : `${selectedService?.duration || 30} minutos`
                     }</div>
                     {observation && (
                       <div><strong className="text-white">Observação:</strong> <em>"{observation}"</em></div>
@@ -3631,7 +3634,7 @@ export function AppointmentForm({
                               const names = all.map((s: any) => s?.name).filter(Boolean).join(' + ');
                               return `${names} - R$ ${Number(total || 0).toFixed(2).replace('.', ',')}`;
                             })()
-                              : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
+                            : `${selectedService?.name || ''} - R$ ${selectedService?.price.toFixed(2).replace('.', ',') || '0,00'}`
                     }</div>
                     <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
                     <div><strong>Pagamento:</strong> {
@@ -3658,7 +3661,7 @@ export function AppointmentForm({
                               const total = all.reduce((sum: number, s: any) => sum + (Number(s?.duration) || 0), 0);
                               return `${total || 30} minutos`;
                             })()
-                              : `${selectedService?.duration || 30} minutos`
+                            : `${selectedService?.duration || 30} minutos`
                     }</div>
                     {observation && (
                       <div><strong>Observação:</strong> <em>"{observation}"</em></div>
