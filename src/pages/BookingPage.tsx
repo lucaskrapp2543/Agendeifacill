@@ -1064,7 +1064,7 @@ export default function BookingPage() {
         setPendingCustomerData({
           name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
           phone: appointmentData?.client_whatsapp || guestClientData?.phone,
-          email: currentUser?.email || undefined,
+          email: isEstablishmentOwner ? undefined : (currentUser?.email || undefined),
           document: appointmentData?.client_cpf || undefined,
         });
         setPaymentIsOptional(false);
@@ -1202,7 +1202,7 @@ export default function BookingPage() {
           setPendingCustomerData({
             name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
             phone: appointmentData?.client_whatsapp || guestClientData?.phone,
-            email: currentUser?.email || undefined,
+            email: isEstablishmentOwner ? undefined : (currentUser?.email || undefined),
             document: appointmentData?.client_cpf || undefined,
           });
           setPaymentIsOptional(true);
