@@ -4646,6 +4646,37 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleMoveCategory = async (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= serviceCategories.length) return;
+
+    const currentCategory = serviceCategories[index];
+    const targetCategory = serviceCategories[targetIndex];
+    if (!currentCategory?.id || !targetCategory?.id) return;
+
+    const currentOrder = Number(currentCategory.display_order ?? index);
+    const targetOrder = Number(targetCategory.display_order ?? targetIndex);
+
+    try {
+      await Promise.all([
+        supabase
+          .from('service_categories')
+          .update({ display_order: targetOrder })
+          .eq('id', currentCategory.id),
+        supabase
+          .from('service_categories')
+          .update({ display_order: currentOrder })
+          .eq('id', targetCategory.id),
+      ]);
+
+      await fetchServiceCategories();
+      toast('Ordem das categorias atualizada!', 'success');
+    } catch (error) {
+      console.error('Erro ao reordenar categorias:', error);
+      toast('Erro ao reordenar categoria', 'error');
+    }
+  };
+
   // Limpa o estado dos PINs quando o estabelecimento é atualizado
   useEffect(() => {
     setProfessionalPins({});
@@ -23476,7 +23507,7 @@ Estamos te aguardando! 😎✂️`;
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {serviceCategories.map((category) => {
+                  {serviceCategories.map((category, categoryIndex) => {
                     const categorySubcategories = serviceSubcategories.filter(sub => sub.category_id === category.id);
                     const isHighlighted = highlightedCategoryId === category.id;
                     const isHiddenFromBooking = isOcultoNoBooking(category as any);
@@ -23493,6 +23524,36 @@ Estamos te aguardando! 😎✂️`;
                         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3 md:gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             <h3 className="text-xl font-semibold text-gray-900 truncate">{category.name}</h3>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleMoveCategory(categoryIndex, 'up')}
+                                disabled={categoryIndex === 0}
+                                className={`p-2 rounded transition-colors ${categoryIndex === 0
+                                  ? 'text-gray-400 cursor-not-allowed'
+                                  : 'text-gray-700 hover:bg-gray-200'
+                                  }`}
+                                title="Mover categoria para cima"
+                              >
+                                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMoveCategory(categoryIndex, 'down')}
+                                disabled={categoryIndex === serviceCategories.length - 1}
+                                className={`p-2 rounded transition-colors ${categoryIndex === serviceCategories.length - 1
+                                  ? 'text-gray-400 cursor-not-allowed'
+                                  : 'text-green-600 hover:bg-green-100'
+                                  }`}
+                                title="Mover categoria para baixo"
+                              >
+                                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </button>
+                            </div>
                             {isHiddenFromBooking && (
                               <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-amber-300 bg-amber-50 text-amber-900">
                                 👁️ Oculta no Booking
