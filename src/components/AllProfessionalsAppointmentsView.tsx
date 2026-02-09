@@ -200,6 +200,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [isLoadingBarbershopCashOpening, setIsLoadingBarbershopCashOpening] = useState(false);
     const [isSavingBarbershopCashOpening, setIsSavingBarbershopCashOpening] = useState(false);
     const [barbershopCashFeatureUnavailable, setBarbershopCashFeatureUnavailable] = useState(false);
+    const [barbershopCashHistoryLoading, setBarbershopCashHistoryLoading] = useState(false);
+    const [barbershopCashHistory, setBarbershopCashHistory] = useState<Array<{
+      cash_date: string;
+      opening_amount: number;
+      updated_at?: string;
+    }>>([]);
     // Assinaturas do estabelecimento (nome + duração) para exibir duração correta de agendamentos de assinante
     const [subscriptionDurations, setSubscriptionDurations] = useState<Array<{ name: string; service_duration: number }>>([]);
     const selectedDateIso = format(selectedDate, 'yyyy-MM-dd');
@@ -264,12 +270,45 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
+    const loadBarbershopCashHistory = async () => {
+      if (!establishment?.id || !canViewBarbershopCash || barbershopCashFeatureUnavailable) return;
+
+      setBarbershopCashHistoryLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('barbershop_daily_cash')
+          .select('cash_date, opening_amount, updated_at')
+          .eq('establishment_id', establishment.id)
+          .order('cash_date', { ascending: false })
+          .limit(20);
+        if (error) throw error;
+
+        setBarbershopCashHistory(
+          ((data || []) as any[]).map((row) => ({
+            cash_date: String(row?.cash_date || ''),
+            opening_amount: Number(row?.opening_amount || 0),
+            updated_at: row?.updated_at ? String(row.updated_at) : undefined,
+          }))
+        );
+      } catch (error: any) {
+        console.error('Erro ao carregar historico de caixa da barbearia:', error);
+        if (String(error?.code || '') === '42P01') {
+          setBarbershopCashFeatureUnavailable(true);
+          return;
+        }
+        toast.error(getSupabaseErrorMessage(error, 'Nao foi possivel carregar o historico de aberturas.'));
+      } finally {
+        setBarbershopCashHistoryLoading(false);
+      }
+    };
+
     useEffect(() => {
       if (!canViewBarbershopCash) {
         setShowBarbershopCashModal(false);
         return;
       }
       void loadBarbershopCashOpening();
+      void loadBarbershopCashHistory();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canViewBarbershopCash, establishment?.id, selectedDateIso]);
 
@@ -748,7 +787,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         setBarbershopCashOpeningValue(openingAmount);
         setBarbershopCashOpeningInput(String(openingAmount));
-        setShowBarbershopCashModal(false);
+        await Promise.all([
+          loadBarbershopCashOpening(),
+          loadBarbershopCashHistory(),
+        ]);
         toast.success('Caixa da barbearia atualizado com sucesso.');
       } catch (error: any) {
         console.error('Erro ao salvar caixa da barbearia:', error);
@@ -1767,6 +1809,40 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   <p>Abertura registrada: <span className="font-semibold text-white">{formatCurrency(barbershopCashOpeningValue)}</span></p>
                   <p>Vendas em dinheiro no dia: <span className="font-semibold text-white">{formatCurrency(dailyCashSalesTotal)}</span></p>
                   <p>Total em caixa no dia: <span className="font-semibold text-emerald-300">{formatCurrency(barbershopCashTotal)}</span></p>
+                </div>
+                <div className="mt-2 border border-white/10 rounded-xl p-3 bg-white/[0.03]">
+                  <p className="text-xs font-semibold text-white/80 mb-2">Historico de abertura (diario)</p>
+                  {barbershopCashHistoryLoading ? (
+                    <p className="text-xs text-white/60">Carregando historico...</p>
+                  ) : barbershopCashHistory.length === 0 ? (
+                    <p className="text-xs text-white/60">Nenhuma abertura registrada ainda.</p>
+                  ) : (
+                    <div className="max-h-36 overflow-y-auto space-y-1">
+                      {barbershopCashHistory.map((item) => {
+                        const isSelectedDate = String(item.cash_date) === selectedDateIso;
+                        return (
+                          <button
+                            key={`${item.cash_date}-${item.updated_at || ''}`}
+                            type="button"
+                            onClick={() => {
+                              setBarbershopCashOpeningInput(String(item.opening_amount || 0));
+                              if (isSelectedDate) {
+                                setBarbershopCashOpeningValue(Number(item.opening_amount || 0));
+                              }
+                            }}
+                            className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${isSelectedDate
+                              ? 'bg-emerald-500/20 border border-emerald-400/40 text-emerald-200'
+                              : 'bg-white/5 hover:bg-white/10 text-white/80'
+                              }`}
+                            title="Clique para reutilizar esse valor no campo"
+                          >
+                            <span className="font-semibold">{format(parseISO(`${item.cash_date}T00:00:00`), 'dd/MM/yyyy')}</span>
+                            <span className="ml-2">{formatCurrency(Number(item.opening_amount || 0))}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="p-4 border-t border-white/10 flex gap-2">

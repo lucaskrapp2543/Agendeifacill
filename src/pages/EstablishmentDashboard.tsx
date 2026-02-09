@@ -14633,7 +14633,13 @@ Estamos te aguardando! 😎✂️`;
                       onCancelAppointment={handleCancelClick}
                       onClientNoShow={handleClientNoShowFromAppointment}
                       useLightLayout={useLightLayout}
-                      canViewBarbershopCash={configPasswordVerified}
+                      canViewBarbershopCash={
+                        !(
+                          establishment?.pin_password &&
+                          String(establishment.pin_password || '').trim().length > 0 &&
+                          String(establishment.pin_password || '').trim() !== '0000'
+                        ) || configPasswordVerified
+                      }
                       pendingOpenBarbershopCash={pendingOpenBarbershopCashAfterPin}
                       onConsumePendingOpenBarbershopCash={() => setPendingOpenBarbershopCashAfterPin(false)}
                       onRequestBarbershopCashAccess={handleRequestBarbershopCashAccess}
