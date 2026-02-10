@@ -251,18 +251,6 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const externalLink = String(externalPaymentLink || '').trim();
   const canPix =
     hasMercadoPago || (paymentProvider !== 'mercadopago' && Boolean(String(recipientId || '').trim()));
-  const isAndroidDevice = (() => {
-    if (typeof navigator === 'undefined') return false;
-    const ua = String(navigator.userAgent || '');
-    return /Android/i.test(ua);
-  })();
-  const isIOSDevice = (() => {
-    if (typeof navigator === 'undefined') return false;
-    const ua = String(navigator.userAgent || '');
-    const platform = String((navigator as any).platform || '');
-    const maxTouchPoints = Number((navigator as any).maxTouchPoints || 0);
-    return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1);
-  })();
 
   // Quando abrir a área do crédito, descer automaticamente
   useEffect(() => {
@@ -827,90 +815,6 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     };
   };
 
-  // Prioriza abrir no navegador (evita deep link direto no app do gateway em Android).
-  // Mantém fallback para o comportamento antigo caso o navegador bloqueie.
-  const openLinkPreferringBrowser = (rawLink: string) => {
-    const link = String(rawLink || '').trim();
-    if (!link) return;
-
-    const fallbackOpen = () => {
-      window.open(link, '_blank', 'noopener,noreferrer');
-    };
-
-    try {
-      const userAgent = String(navigator.userAgent || '');
-      const isAndroid = /Android/i.test(userAgent);
-      const parsed = new URL(link);
-
-      if (isAndroid) {
-        const scheme = parsed.protocol.replace(':', '') || 'https';
-        const intentPath = `${parsed.hostname}${parsed.pathname}${parsed.search}${parsed.hash}`;
-        const fallbackUrl = encodeURIComponent(parsed.toString());
-        const intentUrl = `intent://${intentPath}#Intent;scheme=${scheme};package=com.android.chrome;S.browser_fallback_url=${fallbackUrl};end`;
-
-        window.location.assign(intentUrl);
-        window.setTimeout(() => {
-          fallbackOpen();
-        }, 900);
-        return;
-      }
-
-      if (isIOSDevice) {
-        toast(
-          'No iPhone, se abrir o app automaticamente, volte aqui, copie o link e cole no Safari para concluir no navegador.'
-        );
-      }
-
-      fallbackOpen();
-    } catch {
-      fallbackOpen();
-    }
-  };
-
-  const isLikelyGatewayUniversalLink = (rawLink: string) => {
-    try {
-      const host = new URL(String(rawLink || '').trim()).hostname.toLowerCase();
-      return host.includes('mercadopago') || host.includes('mpago.la');
-    } catch {
-      return false;
-    }
-  };
-
-  const copyLinkToClipboard = async (rawLink: string) => {
-    const link = String(rawLink || '').trim();
-    if (!link) {
-      toast.error('Link de pagamento não disponível para copiar.');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(link);
-      toast.success('Link copiado! Cole no Safari para abrir no navegador.');
-    } catch {
-      toast.error('Não foi possível copiar automaticamente. Copie e cole manualmente no Safari.');
-    }
-  };
-
-  const openLinkInNewTab = (rawLink: string) => {
-    const link = String(rawLink || '').trim();
-    if (!link) return;
-    try {
-      const a = document.createElement('a');
-      a.href = link;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.click();
-    } catch {
-      window.open(link, '_blank', 'noopener,noreferrer');
-    }
-  };
-
-  const buildBrowserBridgeUrl = (rawLink: string) => {
-    const link = String(rawLink || '').trim();
-    if (!link) return '';
-    const encoded = encodeURIComponent(link);
-    return `/payment-redirect.html?target=${encoded}`;
-  };
-
   const handleOpenCreditPaymentLink = () => {
     const customer = getCustomerForManualCredit();
     if (!customer) return;
@@ -924,20 +828,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
 
     setHasOpenedCreditLink(true);
-    if ((isAndroidDevice || isIOSDevice) && isLikelyGatewayUniversalLink(link)) {
-      void copyLinkToClipboard(link);
-      const bridgeUrl = buildBrowserBridgeUrl(link);
-      if (bridgeUrl) {
-        openLinkInNewTab(bridgeUrl);
-      }
-      toast(
-        isIOSDevice
-          ? 'iPhone: abrindo no navegador com redirecionamento seguro. Se ainda abrir app, use o link copiado no Safari.'
-          : 'Android: abrindo no navegador com redirecionamento seguro. Se ainda abrir app, use o link copiado no Chrome.'
-      );
-      return;
-    }
-    openLinkPreferringBrowser(link);
+    window.open(link, '_blank', 'noopener,noreferrer');
   };
 
   const handleCreditNotSucceeded = () => {
@@ -1005,20 +896,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       return;
     }
     setHasOpenedExternalLink(true);
-    if ((isAndroidDevice || isIOSDevice) && isLikelyGatewayUniversalLink(externalLink)) {
-      void copyLinkToClipboard(externalLink);
-      const bridgeUrl = buildBrowserBridgeUrl(externalLink);
-      if (bridgeUrl) {
-        openLinkInNewTab(bridgeUrl);
-      }
-      toast(
-        isIOSDevice
-          ? 'iPhone: abrindo no navegador com redirecionamento seguro. Se ainda abrir app, use o link copiado no Safari.'
-          : 'Android: abrindo no navegador com redirecionamento seguro. Se ainda abrir app, use o link copiado no Chrome.'
-      );
-      return;
-    }
-    openLinkPreferringBrowser(externalLink);
+    window.open(externalLink, '_blank', 'noopener,noreferrer');
   };
 
   const handleExternalNotSucceeded = () => {
@@ -1381,55 +1259,23 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   </button>
 
                   {hasOpenedExternalLink && (
-                    <div ref={externalActionsRef} className="space-y-2">
-                      {(isIOSDevice || isAndroidDevice) ? (
-                        <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
-                          <p className="text-xs text-blue-200">
-                            {isIOSDevice
-                              ? 'iPhone: se o iOS abrir o app em vez do navegador, toque em copiar e cole o link no Safari.'
-                              : 'Android: para evitar abrir o app, copie e cole o link na barra do Chrome.'}
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                            <button
-                              type="button"
-                              onClick={() => copyLinkToClipboard(externalLink)}
-                              className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
-                            >
-                              {isIOSDevice ? 'Copiar link para Safari' : 'Copiar link para Chrome'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const target = isLikelyGatewayUniversalLink(externalLink)
-                                  ? buildBrowserBridgeUrl(externalLink) || externalLink
-                                  : externalLink;
-                                openLinkInNewTab(target);
-                              }}
-                              className="w-full px-3 py-2 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-semibold transition-colors border border-gray-700"
-                            >
-                              Abrir no navegador
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={handleExternalPaid}
-                          disabled={isProcessing}
-                          className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          Paguei
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleExternalNotSucceeded}
-                          disabled={isProcessing}
-                          className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
-                        >
-                          Não consegui
-                        </button>
-                      </div>
+                    <div ref={externalActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleExternalPaid}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Paguei
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleExternalNotSucceeded}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                      >
+                        Não consegui
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1456,55 +1302,23 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   </button>
 
                   {hasOpenedCreditLink && (
-                    <div ref={creditActionsRef} className="space-y-2">
-                      {(isIOSDevice || isAndroidDevice) ? (
-                        <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
-                          <p className="text-xs text-blue-200">
-                            {isIOSDevice
-                              ? 'iPhone: se abrir o app automaticamente, copie o link e cole no Safari para pagar no navegador.'
-                              : 'Android: para evitar abrir o app, copie o link e cole na barra do Chrome para pagar no navegador.'}
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                            <button
-                              type="button"
-                              onClick={() => copyLinkToClipboard(creditCardLink)}
-                              className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
-                            >
-                              {isIOSDevice ? 'Copiar link para Safari' : 'Copiar link para Chrome'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const target = isLikelyGatewayUniversalLink(creditCardLink)
-                                  ? buildBrowserBridgeUrl(creditCardLink) || creditCardLink
-                                  : creditCardLink;
-                                openLinkInNewTab(target);
-                              }}
-                              className="w-full px-3 py-2 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-semibold transition-colors border border-gray-700"
-                            >
-                              Abrir no navegador
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={handleCreditPaid}
-                          disabled={isProcessing}
-                          className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          Paguei
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCreditNotSucceeded}
-                          disabled={isProcessing}
-                          className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
-                        >
-                          Não consegui
-                        </button>
-                      </div>
+                    <div ref={creditActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCreditPaid}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Paguei
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreditNotSucceeded}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                      >
+                        Não consegui
+                      </button>
                     </div>
                   )}
                 </div>
