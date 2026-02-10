@@ -2515,6 +2515,19 @@ const EstablishmentDashboard = () => {
   // Estado para mostrar imagem "Melhor do Brasil"
   const [showBestOfBrazilImage, setShowBestOfBrazilImage] = useState(true);
 
+  // Normaliza percentual com fallback de compatibilidade para dados legados em escala x10.
+  const normalizeProfessionalPercentage = (raw: unknown): number => {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return 100;
+    if (parsed < 0) return 0;
+    if (parsed > 100) {
+      const legacyScaled = parsed / 10;
+      if (legacyScaled <= 100) return legacyScaled;
+      return 100;
+    }
+    return parsed;
+  };
+
   // Estado para mostrar/ocultar valores financeiros
   const [showFinancialValues, setShowFinancialValues] = useState(true);
 
@@ -5261,9 +5274,13 @@ const EstablishmentDashboard = () => {
 
   const handleProfessionalChange = (id: string, field: keyof Professional, value: string | string[] | number) => {
     console.log('Atualizando profissional:', { id, field, value });
+    const normalizedValue =
+      field === 'percentage'
+        ? normalizeProfessionalPercentage(value)
+        : value;
     setProfessionals(prev => {
       const updated = prev.map(p =>
-        p.id === id ? { ...p, [field]: value } : p
+        p.id === id ? { ...p, [field]: normalizedValue } : p
       );
       console.log('🔄 Profissionais após atualização:', updated);
       return updated;
@@ -5481,7 +5498,7 @@ const EstablishmentDashboard = () => {
           id: localProfessional.id,
           name: localProfessional.name.trim(),
           specialties: localProfessional.specialties || [],
-          percentage: localProfessional.percentage || 100,
+          percentage: normalizeProfessionalPercentage(localProfessional.percentage ?? dbProfessional.percentage),
           photo_url: (localProfessional as any).photo_url || dbProfessional.photo_url || null,
           whatsapp: localProfessional.whatsapp || dbProfessional.whatsapp || null,
           hidden_from_booking: (localProfessional as any).hidden_from_booking !== undefined
@@ -5740,7 +5757,7 @@ const EstablishmentDashboard = () => {
           id: p.id,
           name: p.name.trim(),
           specialties: p.specialties.filter(s => s.trim()),
-          percentage: p.percentage || 100, // Manter o percentual
+          percentage: normalizeProfessionalPercentage(p.percentage), // Manter o percentual normalizado
           absences: (p as any).absences || [] // 🚨 PRESERVAR AUSÊNCIAS DOS PROFISSIONAIS!
         })).filter(p => p.name),
         services_with_prices: servicesWithPrices.map(s => ({
@@ -5835,7 +5852,7 @@ const EstablishmentDashboard = () => {
           id: p.id,
           name: p.name.trim(),
           specialties: p.specialties || [], // PRESERVAR especialidades
-          percentage: p.percentage || 100, // Manter o percentual
+          percentage: normalizeProfessionalPercentage(p.percentage), // Manter o percentual normalizado
           photo_url: (p as any).photo_url, // Preservar a foto do profissional
           whatsapp: p.whatsapp || null, // ✅ PRESERVAR WHATSAPP!
           specific_services: Array.isArray((p as any).specific_services) ? (p as any).specific_services : [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
@@ -7095,7 +7112,7 @@ Estamos te aguardando! 😎✂️`;
         // ✅ CORRIGIDO: Carrega os profissionais preservando TODOS os campos existentes
         const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: any) => ({
           ...prof, // ✅ Preserva TODOS os campos existentes (incluindo specific_services, whatsapp, etc.)
-          percentage: prof.percentage !== undefined ? prof.percentage : 100, // Só usar 100 se realmente não existir
+          percentage: normalizeProfessionalPercentage(prof.percentage), // Compat: corrige legado em escala x10 (1000->100)
           // ✅ IMPORTANTE: Garantir que specific_services seja sempre um array (mesmo que vazio)
           specific_services: Array.isArray(prof.specific_services) ? prof.specific_services : []
         }));
@@ -8185,7 +8202,7 @@ Estamos te aguardando! 😎✂️`;
       professional = professionals.find(p => p.id === professionalName);
     }
 
-    const percentage = professional?.percentage ?? 100;
+    const percentage = normalizeProfessionalPercentage(professional?.percentage);
 
     console.log('🚨 TESTE - Buscando percentual:', {
       professionalName,
