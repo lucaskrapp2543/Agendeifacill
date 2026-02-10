@@ -1158,6 +1158,78 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
+  const handleRestoreCancelledAppointment = async (appointment: Appointment) => {
+    try {
+      // Primeiro tenta restaurar normalmente.
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: 'confirmed' })
+        .eq('id', appointment.id);
+
+      if (!error) {
+        toast('Agendamento restabelecido com sucesso');
+        onAppointmentUpdate?.();
+        return;
+      }
+
+      const errorMessage = String(error?.message || '').toLowerCase();
+      const isConflictError = errorMessage.includes('já está reservado') || errorMessage.includes('horário');
+      if (!isConflictError) {
+        throw error;
+      }
+
+      // Conflito de horário: permitir forçar restabelecimento
+      // cancelando os agendamentos ativos que colidem com este horário.
+      const toMinutes = (hhmm: string): number => {
+        const [h, m] = String(hhmm || '00:00').split(':').map(Number);
+        return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+      };
+      const overlaps = (startA: number, durA: number, startB: number, durB: number): boolean => {
+        const endA = startA + durA;
+        const endB = startB + durB;
+        return startA < endB && startB < endA;
+      };
+
+      const targetStart = toMinutes(appointment.appointment_time);
+      const targetDur = Number(appointment.duration || 30);
+      const conflictingAppointments = appointments.filter((apt) =>
+        apt.id !== appointment.id &&
+        apt.professional === appointment.professional &&
+        apt.appointment_date === appointment.appointment_date &&
+        apt.status !== 'cancelled' &&
+        overlaps(targetStart, targetDur, toMinutes(apt.appointment_time), Number(apt.duration || 30))
+      );
+
+      if (conflictingAppointments.length === 0) {
+        throw error;
+      }
+
+      const shouldForce = window.confirm(
+        `Esse horário está ocupado por ${conflictingAppointments.length} agendamento(s) ativo(s). Deseja cancelar o(s) conflito(s) e restabelecer este agendamento?`
+      );
+      if (!shouldForce) return;
+
+      const conflictingIds = conflictingAppointments.map((apt) => apt.id);
+      const { error: cancelConflictsError } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelled' })
+        .in('id', conflictingIds);
+      if (cancelConflictsError) throw cancelConflictsError;
+
+      const { error: restoreError } = await supabase
+        .from('appointments')
+        .update({ status: 'confirmed' })
+        .eq('id', appointment.id);
+      if (restoreError) throw restoreError;
+
+      toast('Agendamento restabelecido com sucesso');
+      onAppointmentUpdate?.();
+    } catch (restoreError: any) {
+      console.error('Erro ao restabelecer agendamento:', restoreError);
+      toast(restoreError?.message || 'Erro ao restabelecer agendamento');
+    }
+  };
+
     const handleEditAppointmentValue = (appointmentId: string, currentValue: number) => {
       setEditingAppointmentValue(appointmentId);
       setEditingValue(currentValue.toFixed(2).replace('.', ','));
@@ -2949,6 +3021,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <div className="text-center text-white/70 text-xs py-2">
                                             ❌ CANCELADO
                                           </div>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRestoreCancelledAppointment(apt);
+                                            }}
+                                            className="w-full px-2 py-1.5 text-xs bg-emerald-700 text-white rounded hover:bg-emerald-800 flex items-center justify-center gap-1"
+                                          >
+                                            ↩️ Restabelecer agendamento
+                                          </button>
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
