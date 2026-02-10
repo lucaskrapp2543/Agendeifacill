@@ -216,6 +216,11 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
     return out;
   };
 
+  const mesesAteFimDoAno = (baseYyyyMmDd: string): number => {
+    const base = parseYyyyMmDdToDateNoon(baseYyyyMmDd);
+    return Math.max(0, 11 - base.getMonth());
+  };
+
   // Função para carregar clientes do estabelecimento
   const loadClients = async () => {
     if (!establishmentId) return;
@@ -2021,7 +2026,7 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   type="button"
                   onClick={() => {
                     const base = parseYyyyMmDdToDateNoon(selectedDate);
-                    const max = new Date(addMonths(new Date(base.getFullYear(), base.getMonth(), 1, 12, 0, 0), 2).getFullYear(), addMonths(new Date(base.getFullYear(), base.getMonth(), 1, 12, 0, 0), 2).getMonth(), 1, 12, 0, 0);
+                    const max = new Date(base.getFullYear(), 11, 1, 12, 0, 0); // até dezembro do ano da data base
                     const current = new Date(mesCalendario.year, mesCalendario.month, 1, 12, 0, 0);
                     const next = addMonths(current, 1);
                     if (next > max) return;
@@ -2085,6 +2090,13 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
                   className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 hover:bg-gray-50"
                 >
                   Selecionar todas as {getWeekdayLabelPtBr(parseYyyyMmDdToDateNoon(selectedDate).getDay())} (mês atual + próximo)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDatasSelecionadasMensal(sugerirDatasPorDiaSemana(selectedDate, mesesAteFimDoAno(selectedDate)))}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 hover:bg-gray-50"
+                >
+                  Selecionar todas as {getWeekdayLabelPtBr(parseYyyyMmDdToDateNoon(selectedDate).getDay())} (até dezembro)
                 </button>
                 <button
                   type="button"

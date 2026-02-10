@@ -3140,6 +3140,7 @@ const EstablishmentDashboard = () => {
   const [newCategory, setNewCategory] = useState({ name: '' });
   const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
   const [editingSubcategory, setEditingSubcategory] = useState<ServiceSubcategory | null>(null);
+  const [isEditingSubcategoryCustomDuration, setIsEditingSubcategoryCustomDuration] = useState(false);
   const [newSubcategory, setNewSubcategory] = useState({
     name: '',
     price: '',
@@ -4652,6 +4653,7 @@ const EstablishmentDashboard = () => {
 
       setShowEditSubcategoryModal(false);
       setEditingSubcategory(null);
+      setIsEditingSubcategoryCustomDuration(false);
       toast('Serviço editado com sucesso!', 'success');
     } catch (error: any) {
       console.error('Erro ao editar subcategoria:', error);
@@ -23773,6 +23775,7 @@ Estamos te aguardando! 😎✂️`;
                                     <button
                                       onClick={() => {
                                         setEditingSubcategory(subcategory);
+                                        setIsEditingSubcategoryCustomDuration(!durationPresetValues.includes(Number(subcategory.duration)));
                                         setShowEditSubcategoryModal(true);
                                       }}
                                       className="p-1 text-gray-700 hover:bg-gray-200 rounded transition-colors"
@@ -25769,6 +25772,7 @@ Estamos te aguardando! 😎✂️`;
                   onClick={() => {
                     setShowEditSubcategoryModal(false);
                     setEditingSubcategory(null);
+                    setIsEditingSubcategoryCustomDuration(false);
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -25812,10 +25816,14 @@ Estamos te aguardando! 😎✂️`;
                     Duração (minutos)
                   </label>
                   <select
-                    value={durationPresetValues.includes(editingSubcategory.duration) ? String(editingSubcategory.duration) : DURATION_CUSTOM}
+                    value={isEditingSubcategoryCustomDuration || !durationPresetValues.includes(editingSubcategory.duration) ? DURATION_CUSTOM : String(editingSubcategory.duration)}
                     onChange={(e) => {
                       const v = e.target.value;
-                      if (v === DURATION_CUSTOM) return;
+                      if (v === DURATION_CUSTOM) {
+                        setIsEditingSubcategoryCustomDuration(true);
+                        return;
+                      }
+                      setIsEditingSubcategoryCustomDuration(false);
                       setEditingSubcategory({ ...editingSubcategory, duration: parseInt(v, 10) || 30 });
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
@@ -25829,7 +25837,7 @@ Estamos te aguardando! 😎✂️`;
                     <option disabled>────────────────────</option>
                     <option value={DURATION_CUSTOM}>◆ Outro horário (digite abaixo)</option>
                   </select>
-                  {!durationPresetValues.includes(editingSubcategory.duration) && (
+                  {(isEditingSubcategoryCustomDuration || !durationPresetValues.includes(editingSubcategory.duration)) && (
                     <input
                       type="number"
                       min={0}
@@ -25847,6 +25855,7 @@ Estamos te aguardando! 😎✂️`;
                     onClick={() => {
                       setShowEditSubcategoryModal(false);
                       setEditingSubcategory(null);
+                      setIsEditingSubcategoryCustomDuration(false);
                     }}
                     className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                   >
