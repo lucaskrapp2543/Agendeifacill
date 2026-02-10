@@ -1531,11 +1531,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     // Função para buscar serviços do estabelecimento
-    const fetchEstablishmentServices = async () => {
+    const fetchEstablishmentServices = async (professionalId?: string) => {
       if (!establishment?.id) return [];
 
       try {
-        const allServices: any[] = [];
+        const categoryServices: any[] = [];
+        const legacyServices: any[] = [];
 
         // Buscar serviços de service_subcategories (sistema de categorias)
         const { data: subcategoriesData } = await supabase
@@ -1551,7 +1552,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         if (subcategoriesData) {
           subcategoriesData.forEach((sub: any) => {
-            allServices.push({
+            categoryServices.push({
               id: sub.id,
               name: sub.name,
               price: Number(sub.price),
@@ -1569,7 +1570,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         if (establishmentData?.services_with_prices) {
           establishmentData.services_with_prices.forEach((service: any) => {
-            allServices.push({
+            legacyServices.push({
               id: service.id,
               name: service.name,
               price: Number(service.price),
@@ -1578,8 +1579,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
           });
         }
 
+        // Serviços específicos do profissional selecionado (fallback quando não há "Meus Serviços")
+        const selectedProfessional = professionals.find((p) => p.id === professionalId);
+        const specificServicesRaw = Array.isArray((selectedProfessional as any)?.specific_services)
+          ? (selectedProfessional as any).specific_services
+          : [];
+        const specificServices = specificServicesRaw
+          .map((service: any, index: number) => ({
+            id: service?.id || `specific_${professionalId || 'professional'}_${index}`,
+            name: String(service?.name || '').trim(),
+            price: Number(service?.price || 0),
+            duration: Number(service?.duration || 30),
+          }))
+          .filter((service: any) => service.name.length > 0);
+
+        // ✅ Compatibilidade:
+        // 1) Se houver serviços de categorias (Meus Serviços), mantém o fluxo antigo (categorias + legado)
+        // 2) Se NÃO houver categorias e existir serviço específico do profissional, prioriza os específicos
+        const generalServices = [...categoryServices, ...legacyServices];
+        const selectedSource = categoryServices.length === 0 && specificServices.length > 0
+          ? specificServices
+          : generalServices;
+
         // Remover duplicatas por ID
-        const uniqueServices = allServices.reduce((acc: any[], service: any) => {
+        const uniqueServices = selectedSource.reduce((acc: any[], service: any) => {
           if (!acc.find(s => s.id === service.id)) {
             acc.push(service);
           }
@@ -3323,6 +3346,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
               <div className="max-h-96 overflow-y-auto">
                 <SqueezeServiceList
                   establishment={establishment}
+                  selectedProfessionalId={selectedProfessionalForSqueeze}
                   onSelectService={async (service) => {
                     setSelectedSqueezeService(service);
                     setShowSqueezeServiceModal(false);
@@ -3495,22 +3519,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
 // Componente para lista de serviços no modal de encaixe
 const SqueezeServiceList: React.FC<{
   establishment: any;
+  selectedProfessionalId?: string | null;
   onSelectService: (service: any) => void;
   onClose: () => void;
-  fetchServices: () => Promise<any[]>;
-}> = ({ onSelectService, onClose, fetchServices }) => {
+  fetchServices: (professionalId?: string) => Promise<any[]>;
+}> = ({ onSelectService, onClose, fetchServices, selectedProfessionalId }) => {
   const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadServices = async () => {
       setLoading(true);
-      const fetchedServices = await fetchServices();
+      const fetchedServices = await fetchServices(selectedProfessionalId || undefined);
       setServices(fetchedServices);
       setLoading(false);
     };
     loadServices();
-  }, [fetchServices]);
+  }, [fetchServices, selectedProfessionalId]);
 
   if (loading) {
     return <div className="text-center py-4 text-gray-400">Carregando serviços...</div>;
