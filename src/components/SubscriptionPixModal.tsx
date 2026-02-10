@@ -251,6 +251,13 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const externalLink = String(externalPaymentLink || '').trim();
   const canPix =
     hasMercadoPago || (paymentProvider !== 'mercadopago' && Boolean(String(recipientId || '').trim()));
+  const isIOSDevice = (() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = String(navigator.userAgent || '');
+    const platform = String((navigator as any).platform || '');
+    const maxTouchPoints = Number((navigator as any).maxTouchPoints || 0);
+    return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1);
+  })();
 
   // Quando abrir a área do crédito, descer automaticamente
   useEffect(() => {
@@ -815,6 +822,60 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     };
   };
 
+  // Prioriza abrir no navegador (evita deep link direto no app do gateway em Android).
+  // Mantém fallback para o comportamento antigo caso o navegador bloqueie.
+  const openLinkPreferringBrowser = (rawLink: string) => {
+    const link = String(rawLink || '').trim();
+    if (!link) return;
+
+    const fallbackOpen = () => {
+      window.open(link, '_blank', 'noopener,noreferrer');
+    };
+
+    try {
+      const userAgent = String(navigator.userAgent || '');
+      const isAndroid = /Android/i.test(userAgent);
+      const parsed = new URL(link);
+
+      if (isAndroid) {
+        const scheme = parsed.protocol.replace(':', '') || 'https';
+        const intentPath = `${parsed.hostname}${parsed.pathname}${parsed.search}${parsed.hash}`;
+        const fallbackUrl = encodeURIComponent(parsed.toString());
+        const intentUrl = `intent://${intentPath}#Intent;scheme=${scheme};package=com.android.chrome;S.browser_fallback_url=${fallbackUrl};end`;
+
+        window.location.assign(intentUrl);
+        window.setTimeout(() => {
+          fallbackOpen();
+        }, 900);
+        return;
+      }
+
+      if (isIOSDevice) {
+        toast(
+          'No iPhone, se abrir o app automaticamente, volte aqui, copie o link e cole no Safari para concluir no navegador.'
+        );
+      }
+
+      fallbackOpen();
+    } catch {
+      fallbackOpen();
+    }
+  };
+
+  const copyLinkToClipboard = async (rawLink: string) => {
+    const link = String(rawLink || '').trim();
+    if (!link) {
+      toast.error('Link de pagamento não disponível para copiar.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Link copiado! Cole no Safari para abrir no navegador.');
+    } catch {
+      toast.error('Não foi possível copiar automaticamente. Copie e cole manualmente no Safari.');
+    }
+  };
+
   const handleOpenCreditPaymentLink = () => {
     const customer = getCustomerForManualCredit();
     if (!customer) return;
@@ -828,7 +889,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
 
     setHasOpenedCreditLink(true);
-    window.open(link, '_blank', 'noopener,noreferrer');
+    openLinkPreferringBrowser(link);
   };
 
   const handleCreditNotSucceeded = () => {
@@ -896,7 +957,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       return;
     }
     setHasOpenedExternalLink(true);
-    window.open(externalLink, '_blank', 'noopener,noreferrer');
+    openLinkPreferringBrowser(externalLink);
   };
 
   const handleExternalNotSucceeded = () => {
@@ -1259,23 +1320,39 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   </button>
 
                   {hasOpenedExternalLink && (
-                    <div ref={externalActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={handleExternalPaid}
-                        disabled={isProcessing}
-                        className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        Paguei
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleExternalNotSucceeded}
-                        disabled={isProcessing}
-                        className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
-                      >
-                        Não consegui
-                      </button>
+                    <div ref={externalActionsRef} className="space-y-2">
+                      {isIOSDevice ? (
+                        <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
+                          <p className="text-xs text-blue-200">
+                            iPhone: se o iOS abrir o app em vez do navegador, toque em copiar e cole o link no Safari.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => copyLinkToClipboard(externalLink)}
+                            className="w-full mt-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+                          >
+                            Copiar link para abrir no Safari
+                          </button>
+                        </div>
+                      ) : null}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={handleExternalPaid}
+                          disabled={isProcessing}
+                          className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          Paguei
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleExternalNotSucceeded}
+                          disabled={isProcessing}
+                          className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                        >
+                          Não consegui
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1302,23 +1379,39 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   </button>
 
                   {hasOpenedCreditLink && (
-                    <div ref={creditActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={handleCreditPaid}
-                        disabled={isProcessing}
-                        className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        Paguei
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleCreditNotSucceeded}
-                        disabled={isProcessing}
-                        className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
-                      >
-                        Não consegui
-                      </button>
+                    <div ref={creditActionsRef} className="space-y-2">
+                      {isIOSDevice ? (
+                        <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
+                          <p className="text-xs text-blue-200">
+                            iPhone: se abrir o app automaticamente, copie o link e cole no Safari para pagar no navegador.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => copyLinkToClipboard(creditCardLink)}
+                            className="w-full mt-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+                          >
+                            Copiar link para abrir no Safari
+                          </button>
+                        </div>
+                      ) : null}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCreditPaid}
+                          disabled={isProcessing}
+                          className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          Paguei
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCreditNotSucceeded}
+                          disabled={isProcessing}
+                          className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                        >
+                          Não consegui
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
