@@ -108,6 +108,9 @@ interface AllProfessionalsAppointmentsViewProps {
   onGoToClients?: () => void;
   onCancelAppointment?: (appointmentId: string) => void;
   onClientNoShow?: (appointment: Appointment) => void;
+  use15MinuteInterval?: boolean;
+  use20MinuteSchedule?: boolean;
+  use60MinuteSchedule?: boolean;
   useLightLayout?: boolean;
   canViewBarbershopCash?: boolean;
   pendingOpenBarbershopCash?: boolean;
@@ -140,6 +143,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onGoToClients,
   onCancelAppointment,
   onClientNoShow,
+  use15MinuteInterval,
+  use20MinuteSchedule,
+  use60MinuteSchedule,
   useLightLayout = false,
   canViewBarbershopCash = false,
   pendingOpenBarbershopCash = false,
@@ -814,8 +820,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const getIntervaloAgendaMinutos = (): number => {
       // Mesma regra usada no backend do estabelecimento / configs
-      if (establishment?.use_15_minute_interval) return 30;
-      if (establishment?.use_20_minute_schedule) return 20;
+      const use15 = use15MinuteInterval ?? Boolean(establishment?.use_15_minute_interval);
+      const use20 = use20MinuteSchedule ?? Boolean(establishment?.use_20_minute_schedule);
+      const use60 = use60MinuteSchedule ?? Boolean((establishment as any)?.use_60_minute_schedule);
+      if (use60) return 60;
+      if (use20) return 20;
+      if (use15) return 30;
       return 15;
     };
 
@@ -889,8 +899,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const interval = intervaloAgendaMinutos;
 
       console.log('🔥 AllProfessionalsAppointmentsView - Intervalo calculado:', interval, 'min', {
-        use_15_minute_interval: establishment?.use_15_minute_interval,
-        use_20_minute_schedule: establishment?.use_20_minute_schedule
+        use_15_minute_interval: use15MinuteInterval ?? establishment?.use_15_minute_interval,
+        use_20_minute_schedule: use20MinuteSchedule ?? establishment?.use_20_minute_schedule,
+        use_60_minute_schedule: use60MinuteSchedule ?? (establishment as any)?.use_60_minute_schedule
       });
 
       let current = start;

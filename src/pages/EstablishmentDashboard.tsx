@@ -8297,8 +8297,11 @@ Estamos te aguardando! 😎✂️`;
     const slots: any[] = [];
 
     // Determinar o intervalo baseado na configuração
+    // Ordem de prioridade preserva compatibilidade: 60 > 20 > 30 > 15
     let intervalMinutes = 30; // Padrão: 30 em 30 minutos
-    if (use20MinuteSchedule) {
+    if (use60MinuteSchedule) {
+      intervalMinutes = 60; // Horários de 1 em 1 hora
+    } else if (use20MinuteSchedule) {
       intervalMinutes = 20; // Horários de 20 em 20 minutos
     } else if (!use15MinuteInterval) {
       intervalMinutes = 15; // Horários de 15 em 15 minutos (quando DESMARCADO)
@@ -8408,7 +8411,7 @@ Estamos te aguardando! 😎✂️`;
     console.log('🕐 Slots:', slots);
 
     return slots;
-  }, [filteredAppointments, selectedProfessional, selectedDate, businessHours, use15MinuteInterval, use20MinuteSchedule, showTimeSlotsWithGaps]);
+  }, [filteredAppointments, selectedProfessional, selectedDate, businessHours, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, showTimeSlotsWithGaps]);
 
   // Função para verificar se é aniversário no mês atual
   const isBirthdayThisMonth = (birthday: string | null) => {
@@ -14608,6 +14611,9 @@ Estamos te aguardando! 😎✂️`;
                       professionalPins={establishment?.professionals_pins || []}
                       businessHours={establishment?.business_hours || {}}
                       establishment={establishment}
+                      use15MinuteInterval={use15MinuteInterval}
+                      use20MinuteSchedule={use20MinuteSchedule}
+                      use60MinuteSchedule={use60MinuteSchedule}
                       onDateChange={(newDate) => setSelectedDate(newDate)}
                       onAppointmentUpdate={() => {
                         fetchAppointments();
