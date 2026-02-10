@@ -26114,7 +26114,7 @@ Estamos te aguardando! 😎✂️`;
               ? "Digite a senha de 4 dígitos para alterar o percentual do profissional"
               : pendingAction?.type === 'barbershop_cash'
                 ? "Digite a senha de 4 dígitos para acessar o caixa da barbearia"
-              : "Digite a senha de 4 dígitos para alterar configurações sensíveis"
+                : "Digite a senha de 4 dígitos para alterar configurações sensíveis"
         }
       />
 

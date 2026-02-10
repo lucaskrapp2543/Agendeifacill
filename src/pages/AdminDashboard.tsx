@@ -100,6 +100,8 @@ const AdminDashboard = () => {
   const SUPPORT_NAMES = ['Lucas', 'Erlon', 'Kinkas', 'usuario 1', 'usuario 2'] as const;
   const SUPPORT_FULL_ACCESS_NAMES = ['Lucas', 'Erlon'];
   const SUPPORT_SESSION_NAME_KEY = 'admin_support_session_name';
+  const SUPPORT_REMEMBER_KEY = 'admin_support_remember_v1';
+  const SUPPORT_REMEMBER_TTL_MS = 1000 * 60 * 60 * 12; // 12h
   const [supportSessions, setSupportSessions] = useState<Array<{ id: string; name: string; email: string; created_at: string; last_heartbeat_at: string }>>([]);
   const [showSupportSessionsDropdown, setShowSupportSessionsDropdown] = useState(false);
   const [showSupportNamePicker, setShowSupportNamePicker] = useState(false);
@@ -708,6 +710,8 @@ const AdminDashboard = () => {
   // Função de logout personalizada que redireciona
   const handleSignOut = async () => {
     try {
+      clearRememberedSupport();
+      sessionStorage.removeItem(SUPPORT_SESSION_NAME_KEY);
       await signOut();
       toast.success('Logout realizado com sucesso!');
       navigate('/'); // Redireciona para a página inicial
@@ -720,6 +724,45 @@ const AdminDashboard = () => {
   // ---------- Suporte por nome: Lucas, Erlon, Kinkas, usuario 1, usuario 2 ----------
   const getSupportSessionName = (): string | null =>
     sessionStorage.getItem(SUPPORT_SESSION_NAME_KEY);
+  const getRememberedSupport = (): { name: string; pin: string; expiresAt: number } | null => {
+    try {
+      const raw = localStorage.getItem(SUPPORT_REMEMBER_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { name?: string; pin?: string; expiresAt?: number };
+      const name = String(parsed?.name || '').trim();
+      const pin = String(parsed?.pin || '').trim();
+      const expiresAt = Number(parsed?.expiresAt || 0);
+      if (!name || pin.length !== 4 || !Number.isFinite(expiresAt)) return null;
+      if (Date.now() > expiresAt) {
+        localStorage.removeItem(SUPPORT_REMEMBER_KEY);
+        return null;
+      }
+      return { name, pin, expiresAt };
+    } catch {
+      return null;
+    }
+  };
+  const rememberSupport = (name: string, pin: string) => {
+    try {
+      localStorage.setItem(
+        SUPPORT_REMEMBER_KEY,
+        JSON.stringify({
+          name: String(name || '').trim(),
+          pin: String(pin || '').trim(),
+          expiresAt: Date.now() + SUPPORT_REMEMBER_TTL_MS,
+        })
+      );
+    } catch {
+      // ignore
+    }
+  };
+  const clearRememberedSupport = () => {
+    try {
+      localStorage.removeItem(SUPPORT_REMEMBER_KEY);
+    } catch {
+      // ignore
+    }
+  };
   const canEditEverything = (): boolean =>
     isSupportAccount && SUPPORT_FULL_ACCESS_NAMES.includes(getSupportSessionName() || '');
 
@@ -739,9 +782,20 @@ const AdminDashboard = () => {
     const { data, error } = await supabase.from('support_sessions').select('id').eq('name', name).maybeSingle();
     if (error) return true;
     if (data === null) {
-      toast.error('Você foi desconectado pelo painel.');
-      await signOut();
-      navigate('/login');
+      const remembered = getRememberedSupport();
+      if (remembered && remembered.name === name) {
+        const restored = await registerSupportByName(remembered.name, remembered.pin);
+        if (restored) {
+          sessionStorage.setItem(SUPPORT_SESSION_NAME_KEY, remembered.name);
+          toast.success('Sessão de suporte restaurada neste dispositivo.');
+          return true;
+        }
+      }
+      sessionStorage.removeItem(SUPPORT_SESSION_NAME_KEY);
+      setSupportNameForPin(null);
+      setSupportPinInput('');
+      setShowSupportNamePicker(true);
+      toast.error('Sessão de suporte expirada. Digite a senha novamente.');
       return false;
     }
     return true;
@@ -784,10 +838,28 @@ const AdminDashboard = () => {
     return true;
   };
 
-  // Toda vez que abre/atualiza o admin: pedir nome + senha de novo (não guardar entre reloads)
+  // Ao abrir o admin: tenta restaurar suporte salvo no dispositivo
   useEffect(() => {
     if (!isSupportAccount || !user) return;
-    sessionStorage.removeItem(SUPPORT_SESSION_NAME_KEY);
+    const remembered = getRememberedSupport();
+    if (remembered) {
+      sessionStorage.setItem(SUPPORT_SESSION_NAME_KEY, remembered.name);
+      setSupportNameForPin(null);
+      setSupportPinInput('');
+      setShowSupportNamePicker(false);
+      (async () => {
+        const ok = await registerSupportByName(remembered.name, remembered.pin);
+        if (!ok) {
+          clearRememberedSupport();
+          sessionStorage.removeItem(SUPPORT_SESSION_NAME_KEY);
+          setShowSupportNamePicker(true);
+          toast.error('Não foi possível restaurar sua sessão salva. Digite a senha novamente.');
+          return;
+        }
+        fetchSupportSessions();
+      })();
+      return;
+    }
     setSupportNameForPin(null);
     setSupportPinInput('');
     setShowSupportNamePicker(true);
@@ -2385,12 +2457,14 @@ const AdminDashboard = () => {
                         toast.error('Senha deve ter 4 dígitos.');
                         return;
                       }
-                      sessionStorage.setItem(SUPPORT_SESSION_NAME_KEY, supportNameForPin);
                       const ok = await registerSupportByName(supportNameForPin, supportPinInput);
                       if (ok) {
+                        sessionStorage.setItem(SUPPORT_SESSION_NAME_KEY, supportNameForPin);
+                        rememberSupport(supportNameForPin, supportPinInput);
                         setSupportNameForPin(null);
                         setSupportPinInput('');
                         setShowSupportNamePicker(false);
+                        toast.success('Login realizado com sucesso!');
                         fetchSupportSessions();
                       }
                     }}
