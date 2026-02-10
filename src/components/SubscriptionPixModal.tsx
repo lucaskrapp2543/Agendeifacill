@@ -251,6 +251,11 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const externalLink = String(externalPaymentLink || '').trim();
   const canPix =
     hasMercadoPago || (paymentProvider !== 'mercadopago' && Boolean(String(recipientId || '').trim()));
+  const isAndroidDevice = (() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = String(navigator.userAgent || '');
+    return /Android/i.test(ua);
+  })();
   const isIOSDevice = (() => {
     if (typeof navigator === 'undefined') return false;
     const ua = String(navigator.userAgent || '');
@@ -862,6 +867,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   };
 
+  const isLikelyGatewayUniversalLink = (rawLink: string) => {
+    try {
+      const host = new URL(String(rawLink || '').trim()).hostname.toLowerCase();
+      return host.includes('mercadopago') || host.includes('mpago.la');
+    } catch {
+      return false;
+    }
+  };
+
   const copyLinkToClipboard = async (rawLink: string) => {
     const link = String(rawLink || '').trim();
     if (!link) {
@@ -874,6 +888,27 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     } catch {
       toast.error('Não foi possível copiar automaticamente. Copie e cole manualmente no Safari.');
     }
+  };
+
+  const openLinkInNewTab = (rawLink: string) => {
+    const link = String(rawLink || '').trim();
+    if (!link) return;
+    try {
+      const a = document.createElement('a');
+      a.href = link;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.click();
+    } catch {
+      window.open(link, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const buildBrowserBridgeUrl = (rawLink: string) => {
+    const link = String(rawLink || '').trim();
+    if (!link) return '';
+    const encoded = encodeURIComponent(link);
+    return `/payment-redirect.html?target=${encoded}`;
   };
 
   const handleOpenCreditPaymentLink = () => {
@@ -889,6 +924,19 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
 
     setHasOpenedCreditLink(true);
+    if ((isAndroidDevice || isIOSDevice) && isLikelyGatewayUniversalLink(link)) {
+      void copyLinkToClipboard(link);
+      const bridgeUrl = buildBrowserBridgeUrl(link);
+      if (bridgeUrl) {
+        openLinkInNewTab(bridgeUrl);
+      }
+      toast(
+        isIOSDevice
+          ? 'iPhone: abrindo no navegador com redirecionamento seguro. Se ainda abrir app, use o link copiado no Safari.'
+          : 'Android: abrindo no navegador com redirecionamento seguro. Se ainda abrir app, use o link copiado no Chrome.'
+      );
+      return;
+    }
     openLinkPreferringBrowser(link);
   };
 
@@ -957,6 +1005,19 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       return;
     }
     setHasOpenedExternalLink(true);
+    if ((isAndroidDevice || isIOSDevice) && isLikelyGatewayUniversalLink(externalLink)) {
+      void copyLinkToClipboard(externalLink);
+      const bridgeUrl = buildBrowserBridgeUrl(externalLink);
+      if (bridgeUrl) {
+        openLinkInNewTab(bridgeUrl);
+      }
+      toast(
+        isIOSDevice
+          ? 'iPhone: abrindo no navegador com redirecionamento seguro. Se ainda abrir app, use o link copiado no Safari.'
+          : 'Android: abrindo no navegador com redirecionamento seguro. Se ainda abrir app, use o link copiado no Chrome.'
+      );
+      return;
+    }
     openLinkPreferringBrowser(externalLink);
   };
 
@@ -1321,18 +1382,34 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
                   {hasOpenedExternalLink && (
                     <div ref={externalActionsRef} className="space-y-2">
-                      {isIOSDevice ? (
+                      {(isIOSDevice || isAndroidDevice) ? (
                         <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
                           <p className="text-xs text-blue-200">
-                            iPhone: se o iOS abrir o app em vez do navegador, toque em copiar e cole o link no Safari.
+                            {isIOSDevice
+                              ? 'iPhone: se o iOS abrir o app em vez do navegador, toque em copiar e cole o link no Safari.'
+                              : 'Android: para evitar abrir o app, copie e cole o link na barra do Chrome.'}
                           </p>
-                          <button
-                            type="button"
-                            onClick={() => copyLinkToClipboard(externalLink)}
-                            className="w-full mt-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
-                          >
-                            Copiar link para abrir no Safari
-                          </button>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => copyLinkToClipboard(externalLink)}
+                              className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+                            >
+                              {isIOSDevice ? 'Copiar link para Safari' : 'Copiar link para Chrome'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const target = isLikelyGatewayUniversalLink(externalLink)
+                                  ? buildBrowserBridgeUrl(externalLink) || externalLink
+                                  : externalLink;
+                                openLinkInNewTab(target);
+                              }}
+                              className="w-full px-3 py-2 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-semibold transition-colors border border-gray-700"
+                            >
+                              Abrir no navegador
+                            </button>
+                          </div>
                         </div>
                       ) : null}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1380,18 +1457,34 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
                   {hasOpenedCreditLink && (
                     <div ref={creditActionsRef} className="space-y-2">
-                      {isIOSDevice ? (
+                      {(isIOSDevice || isAndroidDevice) ? (
                         <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
                           <p className="text-xs text-blue-200">
-                            iPhone: se abrir o app automaticamente, copie o link e cole no Safari para pagar no navegador.
+                            {isIOSDevice
+                              ? 'iPhone: se abrir o app automaticamente, copie o link e cole no Safari para pagar no navegador.'
+                              : 'Android: para evitar abrir o app, copie o link e cole na barra do Chrome para pagar no navegador.'}
                           </p>
-                          <button
-                            type="button"
-                            onClick={() => copyLinkToClipboard(creditCardLink)}
-                            className="w-full mt-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
-                          >
-                            Copiar link para abrir no Safari
-                          </button>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => copyLinkToClipboard(creditCardLink)}
+                              className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+                            >
+                              {isIOSDevice ? 'Copiar link para Safari' : 'Copiar link para Chrome'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const target = isLikelyGatewayUniversalLink(creditCardLink)
+                                  ? buildBrowserBridgeUrl(creditCardLink) || creditCardLink
+                                  : creditCardLink;
+                                openLinkInNewTab(target);
+                              }}
+                              className="w-full px-3 py-2 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-semibold transition-colors border border-gray-700"
+                            >
+                              Abrir no navegador
+                            </button>
+                          </div>
                         </div>
                       ) : null}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

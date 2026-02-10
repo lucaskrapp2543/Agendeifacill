@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Abrindo pagamento...</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #0f1011;
+        color: #ffffff;
+      }
+      .wrap {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 420px;
+        background: #17181a;
+        border: 1px solid #2b2d31;
+        border-radius: 12px;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 20px;
+      }
+      p {
+        margin: 0 0 10px;
+        line-height: 1.4;
+        color: #cfd3da;
+        font-size: 14px;
+      }
+      .host {
+        display: inline-block;
+        margin-top: 4px;
+        color: #7ab7ff;
+        word-break: break-all;
+      }
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-top: 14px;
+      }
+      button {
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        padding: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .primary {
+        background: #2563eb;
+        color: #fff;
+      }
+      .ghost {
+        background: #2a2b2d;
+        color: #fff;
+        border: 1px solid #3b3d41;
+      }
+      .small {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #9ba3af;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Abrindo pagamento...</h1>
+        <p>Estamos abrindo o pagamento no navegador.</p>
+        <p>
+          Destino:
+          <span id="host" class="host">carregando...</span>
+        </p>
+        <div class="actions">
+          <button id="openBtn" class="primary" type="button">Abrir pagamento no navegador</button>
+          <button id="copyBtn" class="ghost" type="button">Copiar link</button>
+        </div>
+        <p class="small">Se o app abrir automaticamente, volte e toque em copiar para colar no navegador.</p>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var target = params.get('target') || '';
+        var hostEl = document.getElementById('host');
+        var openBtn = document.getElementById('openBtn');
+        var copyBtn = document.getElementById('copyBtn');
+
+        function safeTarget(url) {
+          try {
+            var parsed = new URL(url);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+              return parsed.toString();
+            }
+            return '';
+          } catch (e) {
+            return '';
+          }
+        }
+
+        function openNow() {
+          if (!target) return;
+          window.location.assign(target);
+        }
+
+        target = safeTarget(target);
+        if (!target) {
+          hostEl.textContent = 'link inválido';
+          openBtn.disabled = true;
+          copyBtn.disabled = true;
+          return;
+        }
+
+        hostEl.textContent = new URL(target).hostname;
+
+        openBtn.addEventListener('click', function () {
+          openNow();
+        });
+
+        copyBtn.addEventListener('click', async function () {
+          try {
+            await navigator.clipboard.writeText(target);
+            copyBtn.textContent = 'Link copiado!';
+            setTimeout(function () {
+              copyBtn.textContent = 'Copiar link';
+            }, 1300);
+          } catch (e) {
+            copyBtn.textContent = 'Falha ao copiar';
+            setTimeout(function () {
+              copyBtn.textContent = 'Copiar link';
+            }, 1300);
+          }
+        });
+
+        // Pequeno atraso para abrir após a página carregar (reduz alguns handoffs agressivos)
+        setTimeout(openNow, 220);
+      })();
+    </script>
+  </body>
+</html>
