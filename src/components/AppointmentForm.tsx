@@ -67,6 +67,7 @@ interface Establishment {
   payment_methods_enabled?: string[]; // Formas de pagamento habilitadas
   require_cpf?: boolean; // Solicitar CPF no agendamento
   whatsapp?: string; // WhatsApp do estabelecimento
+  booking_min_advance_hours?: number; // Antecedência mínima (em horas) para agendamento no booking público
 }
 
 interface AppointmentFormProps {
@@ -421,6 +422,31 @@ export function AppointmentForm({
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
   const [observation, setObservation] = useState<string>('');
   const [isChildService, setIsChildService] = useState<boolean | null>(null);
+
+  const getMinimumAdvanceHours = () => {
+    const raw = Number((establishment as any)?.booking_min_advance_hours ?? 0);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.max(0, Math.floor(raw));
+  };
+
+  const isTimeInsideAdvanceWindow = (time: string) => {
+    const minHours = getMinimumAdvanceHours();
+    if (!time || minHours <= 0) return false;
+
+    const [hourStr, minuteStr] = String(time).split(':');
+    const hour = Number(hourStr);
+    const minute = Number(minuteStr);
+
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
+
+    const slotDateTime = new Date(selectedDate);
+    slotDateTime.setHours(hour, minute, 0, 0);
+
+    const minAllowedDateTime = new Date();
+    minAllowedDateTime.setMinutes(minAllowedDateTime.getMinutes() + minHours * 60);
+
+    return slotDateTime < minAllowedDateTime;
+  };
 
   // ✅ Cupom de desconto (booking)
   const [cupomInput, setCupomInput] = useState<string>('');
@@ -1273,6 +1299,13 @@ export function AppointmentForm({
 
     if (!selectedTime) {
       missingFields.push('horário');
+    }
+
+    if (selectedTime && isTimeInsideAdvanceWindow(selectedTime)) {
+      const minHours = getMinimumAdvanceHours();
+      const hourLabel = minHours === 1 ? '1 hora' : `${minHours} horas`;
+      toast.error(`Voce esta em cima da hora para agendar. Tente um horario mais a frente (minimo de ${hourLabel} de antecedencia).`);
+      return;
     }
 
     // Validação obrigatória do serviço infantil (só se profissional oferece)
@@ -3083,6 +3116,12 @@ export function AppointmentForm({
                 existingAppointments={filteredExistingAppointments} // Passar agendamentos filtrados
                 selectedTime={selectedTime}
                 onTimeSelect={(time) => {
+                  if (isTimeInsideAdvanceWindow(time)) {
+                    const minHours = getMinimumAdvanceHours();
+                    const hourLabel = minHours === 1 ? '1 hora' : `${minHours} horas`;
+                    toast.error(`Voce esta em cima da hora para agendar. Tente um horario mais a frente (minimo de ${hourLabel} de antecedencia).`);
+                    return;
+                  }
                   setSelectedTime(time);
                   // ✅ Avançar automaticamente para a próxima etapa após selecionar horário
                   if (time) {

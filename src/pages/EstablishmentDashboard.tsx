@@ -140,6 +140,7 @@ interface Establishment {
   use_15_minute_interval?: boolean;
   use_20_minute_schedule?: boolean;
   use_60_minute_schedule?: boolean;
+  booking_min_advance_hours?: number;
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
@@ -2511,6 +2512,14 @@ const EstablishmentDashboard = () => {
 
   // Estado para horários de 1 em 1 hora
   const [use60MinuteSchedule, setUse60MinuteSchedule] = useState(false);
+
+  // Prazo mínimo (em horas) para clientes agendarem no booking público
+  const [bookingMinAdvanceHours, setBookingMinAdvanceHours] = useState<number>(0);
+
+  // Lembrete para descer e salvar configuracoes manuais da pagina
+  const [showSettingsSaveReminder, setShowSettingsSaveReminder] = useState(false);
+  const settingsSaveReminderLastToastAtRef = useRef<number>(0);
+  const settingsSaveButtonRef = useRef<HTMLDivElement | null>(null);
 
   // Estado para mostrar imagem "Melhor do Brasil"
   const [showBestOfBrazilImage, setShowBestOfBrazilImage] = useState(true);
@@ -5927,6 +5936,7 @@ const EstablishmentDashboard = () => {
       }
 
       setEstablishment(data?.[0]);
+      setShowSettingsSaveReminder(false);
 
       // Toast diferente se for onboarding
       if (onboardingStep < 4) {
@@ -7055,6 +7065,9 @@ Estamos te aguardando! 😎✂️`;
         // Carrega a configuração de horários de 1 em 1 hora
         setUse60MinuteSchedule((establishmentData as any).use_60_minute_schedule ?? false);
 
+        // Carrega prazo mínimo de antecedência para agendamento no booking público
+        setBookingMinAdvanceHours(Number((establishmentData as any).booking_min_advance_hours ?? 0));
+
         // Carrega a configuração da imagem "Melhor do Brasil"
         setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
 
@@ -7481,6 +7494,8 @@ Estamos te aguardando! 😎✂️`;
       await autoSaveScheduleConfig({
         use15MinuteInterval: use15MinuteInterval,
         use20MinuteSchedule: use20MinuteSchedule,
+        use60MinuteSchedule: use60MinuteSchedule,
+        bookingMinAdvanceHours: bookingMinAdvanceHours,
         showBestOfBrazilImage: showBestOfBrazilImage
       });
       await autoSaveLinks();
@@ -12086,26 +12101,43 @@ Estamos te aguardando! 😎✂️`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; showBestOfBrazilImage?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceHours?: number; showBestOfBrazilImage?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
       use15MinuteInterval: config?.use15MinuteInterval ?? use15MinuteInterval,
       use20MinuteSchedule: config?.use20MinuteSchedule ?? use20MinuteSchedule,
       use60MinuteSchedule: config?.use60MinuteSchedule ?? use60MinuteSchedule,
+      bookingMinAdvanceHours: config?.bookingMinAdvanceHours ?? bookingMinAdvanceHours,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage
     };
 
     try {
-      const { error } = await supabase
+      let { error } = await supabase
         .from('establishments')
         .update({
           use_15_minute_interval: configToSave.use15MinuteInterval,
           use_20_minute_schedule: configToSave.use20MinuteSchedule,
           use_60_minute_schedule: configToSave.use60MinuteSchedule,
+          booking_min_advance_hours: configToSave.bookingMinAdvanceHours,
           show_best_of_brazil_image: configToSave.showBestOfBrazilImage
         })
         .eq('id', establishment.id);
+
+      // Compatibilidade: se a coluna nova ainda nao existir, salva o restante sem quebrar fluxo antigo
+      if (error && (error.code === '42703' || String(error.message || '').includes('booking_min_advance_hours'))) {
+        console.warn('⚠️ Coluna booking_min_advance_hours nao encontrada. Salvando sem essa coluna.');
+        const fallback = await supabase
+          .from('establishments')
+          .update({
+            use_15_minute_interval: configToSave.use15MinuteInterval,
+            use_20_minute_schedule: configToSave.use20MinuteSchedule,
+            use_60_minute_schedule: configToSave.use60MinuteSchedule,
+            show_best_of_brazil_image: configToSave.showBestOfBrazilImage
+          })
+          .eq('id', establishment.id);
+        error = fallback.error;
+      }
 
       if (error) {
         console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
@@ -12119,12 +12151,31 @@ Estamos te aguardando! 😎✂️`;
         use_15_minute_interval: configToSave.use15MinuteInterval,
         use_20_minute_schedule: configToSave.use20MinuteSchedule,
         use_60_minute_schedule: configToSave.use60MinuteSchedule,
+        booking_min_advance_hours: configToSave.bookingMinAdvanceHours,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage
       });
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, showBestOfBrazilImage]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceHours, showBestOfBrazilImage]);
+
+  const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
+    setShowSettingsSaveReminder(true);
+
+    if (!showToastMessage) return;
+
+    const now = Date.now();
+    if (now - settingsSaveReminderLastToastAtRef.current < 8000) return;
+    settingsSaveReminderLastToastAtRef.current = now;
+
+    toast('⚠️ Não esqueça de descer e clicar em "Salvar e abrir profissionais".', 'warning');
+  }, [toast]);
+
+  const scrollToSettingsSaveButton = useCallback(() => {
+    const element = settingsSaveButtonRef.current;
+    if (!element) return;
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
 
   // ✅ Auto-save para Horário de Funcionamento
   const autoSaveBusinessHours = useCallback(async (hours: Record<string, BusinessHours>): Promise<void> => {
@@ -16771,7 +16822,27 @@ Estamos te aguardando! 😎✂️`;
               )}
 
               {activeTab === 'settings' && (
-                <div className="space-y-6 w-full">
+                <div
+                  className="space-y-6 w-full"
+                  onChangeCapture={() => notifySettingsNeedManualSave(true)}
+                >
+                  {showSettingsSaveReminder && (
+                    <div className="sticky top-2 z-30 bg-amber-500/15 border border-amber-400/40 rounded-lg p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="text-sm text-amber-100 font-semibold">
+                          ⚠️ Você alterou configurações nesta página. Role até o final e clique em <strong>Salvar e abrir profissionais</strong>.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={scrollToSettingsSaveButton}
+                          className="px-3 py-2 rounded-md bg-amber-400 text-black text-xs font-extrabold hover:bg-amber-300 transition-colors"
+                        >
+                          Descer para salvar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Quiz Passo-a-Passo para Novos Usuários (só aparece se não foi completado) */}
                   {isNewUser && !quizCompleted && (
                     <div className="bg-gradient-to-r from-gray-800 to-black rounded-lg p-4 mb-6 text-white">
@@ -18621,6 +18692,46 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                         </div>
 
+                        <div className="p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <label className="block text-white font-medium mb-2">
+                            Prazo para clientes agendarem
+                          </label>
+                          <p className="text-sm text-gray-400 leading-relaxed mb-3">
+                            Define quantas horas mínimas de antecedência o cliente precisa ter para agendar no booking público.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                            {[1, 2, 3].map((hours) => (
+                              <button
+                                key={hours}
+                                type="button"
+                                onClick={() => {
+                                  setBookingMinAdvanceHours(hours);
+                                  notifySettingsNeedManualSave(true);
+                                  if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                    clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                                  }
+                                  scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                    autoSaveScheduleConfig({
+                                      bookingMinAdvanceHours: hours
+                                    });
+                                  }, 1000);
+                                }}
+                                className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${
+                                  bookingMinAdvanceHours === hours
+                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                    : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'
+                                }`}
+                                aria-pressed={bookingMinAdvanceHours === hours}
+                              >
+                                {hours} h
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-3">
+                            Exemplo: se for 11:00 e estiver em 1 h, o cliente s&oacute; consegue agendar a partir de 12:00.
+                          </p>
+                        </div>
+
                         <div className="flex items-center space-x-3">
                           <input
                             type="checkbox"
@@ -20089,7 +20200,7 @@ Estamos te aguardando! 😎✂️`;
                   )}
 
                   {/* Botão de Salvar */}
-                  <div className="flex justify-end">
+                  <div ref={settingsSaveButtonRef} className="flex justify-end">
                     <button
                       onClick={async () => {
                         // Executar a mesma ação do botão verde (salvar todas as configurações do quiz)
