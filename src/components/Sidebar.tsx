@@ -68,6 +68,7 @@ interface SidebarProps {
   onToggleLayoutTheme?: () => void; // alterna layout claro/escuro
   onReceberAdiantadoClick?: () => void; // Atalho para Mercado Pago
   isReceberAdiantadoOpen?: boolean; // destaca o botão quando modal estiver aberto
+  isAppointmentsTutorialRunning?: boolean; // controla destaques e evita auto-open no PWA durante tutorial
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -87,7 +88,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   useLightLayout = false,
   onToggleLayoutTheme,
   onReceberAdiantadoClick,
-  isReceberAdiantadoOpen = false
+  isReceberAdiantadoOpen = false,
+  isAppointmentsTutorialRunning = false
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
@@ -255,8 +257,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     if (!isMobile) return;
     if (!isStandalonePWA) return;
+    if (isAppointmentsTutorialRunning) return;
     setIsMobileMenuOpen(true);
-  }, [isMobile, isStandalonePWA]);
+  }, [isAppointmentsTutorialRunning, isMobile, isStandalonePWA]);
 
   // Em mobile: evitar scroll do fundo quando o menu em tela cheia estiver aberto
   useEffect(() => {
@@ -1210,6 +1213,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             const isLastItem = index === menuItems.length - 1;
             const isPlanLocked = Boolean((item as any).lockedByPlan);
             const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
+            const shouldHighlightAppointmentsShortcut =
+              isAppointmentsTutorialRunning && item.id === 'appointments' && activeTab !== 'appointments';
 
             return (
               <React.Fragment key={item.id}>
@@ -1252,6 +1257,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                               : isLight
                                 ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
                                 : 'bg-transparent text-white'
+                      } ${shouldHighlightAppointmentsShortcut
+                        ? 'ring-2 ring-yellow-300 shadow-[0_0_0_2px_rgba(253,224,71,0.35)] animate-pulse'
+                        : ''
                       }`}
                     title={item.tooltip || (isExpanded ? '' : item.label)}
                   >
@@ -1290,6 +1298,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                           {item.badgeCount}
                         </span>
                       )}
+                      {shouldHighlightAppointmentsShortcut && !isExpanded && (
+                        <span className="absolute -bottom-2 -right-2 bg-yellow-300 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          aqui
+                        </span>
+                      )}
                     </div>
 
                     {isExpanded && (
@@ -1320,6 +1333,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                         >
                           {isOnboardingLocked ? `🔒 ${item.label}` : item.label}
                         </span>
+                        {shouldHighlightAppointmentsShortcut && (
+                          <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-yellow-300 text-black ml-2">
+                            👉 Clique aqui
+                          </span>
+                        )}
                         {item.id !== 'config' && (
                           <ChevronRight
                             className={`h-4 w-4 flex-shrink-0 opacity-50 ml-auto ${isIndicationItem

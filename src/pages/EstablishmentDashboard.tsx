@@ -15117,6 +15117,7 @@ Estamos te aguardando! 😎✂️`;
           onToggleLayoutTheme={toggleLayoutTheme}
           onReceberAdiantadoClick={() => setShowMercadoPagoModal(true)}
           isReceberAdiantadoOpen={showMercadoPagoModal}
+          isAppointmentsTutorialRunning={showAppointmentsTutorial}
         />
 
         {/* Conteúdo principal */}
