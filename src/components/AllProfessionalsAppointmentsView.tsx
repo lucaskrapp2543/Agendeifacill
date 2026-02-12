@@ -185,6 +185,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [editingAvulsoNameId, setEditingAvulsoNameId] = useState<string | null>(null);
     const [editingAvulsoNameValue, setEditingAvulsoNameValue] = useState<string>('');
     const [localClientNameOverrides, setLocalClientNameOverrides] = useState<Record<string, string>>({});
+    const [squeezeNameDrafts, setSqueezeNameDrafts] = useState<Record<string, string>>({});
     const [showRescheduleModal, setShowRescheduleModal] = useState(false);
     const [selectedAppointmentForReschedule, setSelectedAppointmentForReschedule] = useState<Appointment | null>(null);
     const [showChangeServiceModal, setShowChangeServiceModal] = useState(false);
@@ -704,6 +705,49 @@ export const AllProfessionalsAppointmentsView: React.FC<
         if (onAppointmentUpdate) onAppointmentUpdate();
       } catch (error) {
         console.error('Erro ao atualizar nome (avulso):', error);
+        toast.error('Erro ao atualizar nome');
+      }
+    };
+
+    const getSqueezeInputValue = (apt: Appointment): string => {
+      if (Object.prototype.hasOwnProperty.call(squeezeNameDrafts, apt.id)) {
+        return squeezeNameDrafts[apt.id];
+      }
+      const persisted = String(localClientNameOverrides[apt.id] ?? apt.client_name ?? '');
+      return persisted === 'ENCAIXE' ? '' : persisted;
+    };
+
+    const saveSqueezeName = async (apt: Appointment, rawValue: string) => {
+      const trimmed = String(rawValue || '').trim();
+      const finalName = trimmed.length > 0 ? trimmed : 'ENCAIXE';
+      const currentPersisted = String(localClientNameOverrides[apt.id] ?? apt.client_name ?? 'ENCAIXE').trim() || 'ENCAIXE';
+
+      // Evita update desnecessário quando não houve mudança.
+      if (finalName === currentPersisted) {
+        setSqueezeNameDrafts((prev) => {
+          const next = { ...prev };
+          delete next[apt.id];
+          return next;
+        });
+        return;
+      }
+
+      try {
+        const { error } = await supabase
+          .from('appointments')
+          .update({ client_name: finalName })
+          .eq('id', apt.id);
+        if (error) throw error;
+
+        setLocalClientNameOverrides((prev) => ({ ...prev, [apt.id]: finalName }));
+        setSqueezeNameDrafts((prev) => {
+          const next = { ...prev };
+          delete next[apt.id];
+          return next;
+        });
+        if (onAppointmentUpdate) onAppointmentUpdate();
+      } catch (error) {
+        console.error('Erro ao atualizar nome do encaixe:', error);
         toast.error('Erro ao atualizar nome');
       }
     };
@@ -2642,19 +2686,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <div className="mb-2">
                                             <input
                                               type="text"
-                                              value={apt.client_name === 'ENCAIXE' ? '' : apt.client_name}
-                                              onChange={async (e) => {
-                                                const newName = e.target.value || 'ENCAIXE';
-                                                try {
-                                                  const { error } = await supabase
-                                                    .from('appointments')
-                                                    .update({ client_name: newName })
-                                                    .eq('id', apt.id);
-                                                  if (error) throw error;
-                                                  if (onAppointmentUpdate) onAppointmentUpdate();
-                                                } catch (error) {
-                                                  console.error('Erro ao atualizar nome:', error);
-                                                  toast.error('Erro ao atualizar nome');
+                                              value={getSqueezeInputValue(apt)}
+                                              onChange={(e) => {
+                                                const nextValue = e.target.value;
+                                                setSqueezeNameDrafts((prev) => ({ ...prev, [apt.id]: nextValue }));
+                                              }}
+                                              onBlur={(e) => {
+                                                void saveSqueezeName(apt, e.target.value);
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  e.preventDefault();
+                                                  void saveSqueezeName(apt, (e.target as HTMLInputElement).value);
+                                                }
+                                                if (e.key === 'Escape') {
+                                                  setSqueezeNameDrafts((prev) => {
+                                                    const next = { ...prev };
+                                                    delete next[apt.id];
+                                                    return next;
+                                                  });
                                                 }
                                               }}
                                               placeholder="Nome do cliente (opcional)"
