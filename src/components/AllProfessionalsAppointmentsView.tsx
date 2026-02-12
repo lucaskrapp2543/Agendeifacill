@@ -998,6 +998,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
           allSlots.push(endTimeStr);
         }
       });
+
+      // ✅ Encaixes fora da grade: incluir horários reais na grade para ficarem visíveis.
+      // Ex.: abre 09:00, mas encaixe 08:20-08:55 deve aparecer na grade.
+      squeezeAppointments.forEach((squeeze) => {
+        const squeezeStartTotal = timeToMinutes(squeeze.appointment_time);
+        const squeezeDuration = getDuracaoTotalAgendamento(squeeze, interval);
+        const squeezeEndTotal = squeezeStartTotal + squeezeDuration;
+
+        for (let currentTotal = squeezeStartTotal; currentTotal < squeezeEndTotal; currentTotal += interval) {
+          const slotTime = minutesToHHmm(currentTotal);
+          if (!allSlots.includes(slotTime)) {
+            allSlots.push(slotTime);
+          }
+        }
+      });
+
       allSlots.sort((a, b) => {
         const [ah, am] = a.split(':').map(Number);
         const [bh, bm] = b.split(':').map(Number);
@@ -1775,6 +1791,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return nearest;
     };
 
+    const minutesToHHmm = (minutes: number): string => {
+      const safeMinutes = Math.max(0, Math.floor(minutes));
+      const hours = Math.floor(safeMinutes / 60);
+      const mins = safeMinutes % 60;
+      return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    };
+
+    const timeToMinutes = (hhmm: string): number => {
+      const [h, m] = String(hhmm || '').split(':').map(Number);
+      if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
+      return h * 60 + m;
+    };
+
+    const hasTimeOverlap = (startA: number, endA: number, startB: number, endB: number): boolean => {
+      return startA < endB && startB < endA;
+    };
+
     // Função para criar encaixe
     const handleCreateSqueeze = async () => {
       if (!selectedSqueezeService || !squeezeStartTime || !squeezeEndTime || !selectedProfessionalForSqueeze || !establishment) {
@@ -1791,6 +1824,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       try {
         const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+        const newStart = timeToMinutes(squeezeStartTime);
+        const newEnd = timeToMinutes(squeezeEndTime);
+
+        // Diagnóstico local antes do insert para explicar conflitos "invisíveis".
+        const conflictingLocal = appointments.find((apt) => {
+          if (apt.professional !== selectedProfessionalForSqueeze) return false;
+          if (apt.appointment_date !== selectedDateStr) return false;
+          if (apt.status === 'cancelled') return false;
+          const aptStart = timeToMinutes(apt.appointment_time);
+          const aptEnd = aptStart + Number(apt.duration || 30);
+          return hasTimeOverlap(newStart, newEnd, aptStart, aptEnd);
+        });
+
+        if (conflictingLocal) {
+          const conflictClient = String(conflictingLocal.client_name || 'Cliente').trim() || 'Cliente';
+          const conflictStart = String(conflictingLocal.appointment_time || '').trim() || 'sem horário';
+          const conflictDuration = Number(conflictingLocal.duration || 30);
+          const conflictEndMins = timeToMinutes(conflictStart) + conflictDuration;
+          const conflictEnd = `${String(Math.floor(conflictEndMins / 60)).padStart(2, '0')}:${String(conflictEndMins % 60).padStart(2, '0')}`;
+          toast.error(
+            `Conflito: ${conflictClient} já ocupa ${conflictStart} até ${conflictEnd}. Verifique também "Agendamentos ocultos".`
+          );
+          return;
+        }
 
         // Buscar user_id do estabelecimento para usar como client_id
         const { data: establishmentData } = await supabase
@@ -2174,7 +2231,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     apt.professional === professional.id &&
                     apt.appointment_date === selectedDateStr &&
                     apt.status !== 'cancelled' &&
-                    !apt.is_squeeze &&
                     !slotTimeSet.has(String(apt.appointment_time || '').trim())
                   )
                   .sort((a, b) =>

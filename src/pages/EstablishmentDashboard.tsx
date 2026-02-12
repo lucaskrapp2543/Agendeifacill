@@ -2527,6 +2527,11 @@ const EstablishmentDashboard = () => {
 
   // Estado para mostrar imagem "Melhor do Brasil"
   const [showBestOfBrazilImage, setShowBestOfBrazilImage] = useState(true);
+  // Controle de rotação de tela (exclusivo para estabelecimento 6378)
+  const [allowScreenRotation, setAllowScreenRotation] = useState(true);
+  const isRotationControlEnabledForEstablishment =
+    String(establishment?.code || '').trim() === '6378' ||
+    String(establishment?.id || '').trim() === '6378';
 
   // Normaliza percentual com fallback de compatibilidade para dados legados em escala x10.
   const normalizeProfessionalPercentage = (raw: unknown): number => {
@@ -2804,6 +2809,38 @@ const EstablishmentDashboard = () => {
     const dismissed = localStorage.getItem(storageKey) === 'true';
     setShowAppointmentsIntroButtons(!dismissed);
   }, [activeTab, getAppointmentsIntroDismissKey, showAppointmentsTutorial]);
+
+  useEffect(() => {
+    if (!isRotationControlEnabledForEstablishment) return;
+    const storageKey = `allow_screen_rotation_${String(establishment?.id || establishment?.code || '6378')}`;
+    const storedValue = localStorage.getItem(storageKey);
+    if (storedValue === null) {
+      setAllowScreenRotation(true);
+      return;
+    }
+    setAllowScreenRotation(storedValue === 'true');
+  }, [establishment?.code, establishment?.id, isRotationControlEnabledForEstablishment]);
+
+  useEffect(() => {
+    if (!isRotationControlEnabledForEstablishment) return;
+    const orientationApi = (window.screen as any)?.orientation;
+    const applyOrientationPreference = async () => {
+      try {
+        if (allowScreenRotation) {
+          if (typeof orientationApi?.unlock === 'function') {
+            orientationApi.unlock();
+          }
+          return;
+        }
+        if (typeof orientationApi?.lock === 'function') {
+          await orientationApi.lock('portrait-primary');
+        }
+      } catch {
+        // Alguns navegadores/ambientes não permitem lock de orientação.
+      }
+    };
+    void applyOrientationPreference();
+  }, [allowScreenRotation, isRotationControlEnabledForEstablishment]);
 
   const goBackAppointmentsTutorial = useCallback(() => {
     if (!showAppointmentsTutorial) return;
@@ -19534,6 +19571,31 @@ Estamos te aguardando! 😎✂️`;
                             Exemplo: se for 11:00 e estiver em 1 h, o cliente s&oacute; consegue agendar a partir de 12:00.
                           </p>
                         </div>
+
+                        {isRotationControlEnabledForEstablishment && (
+                          <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                            <input
+                              type="checkbox"
+                              id="allowScreenRotation"
+                              checked={allowScreenRotation}
+                              onChange={(e) => {
+                                const enabled = e.target.checked;
+                                setAllowScreenRotation(enabled);
+                                const storageKey = `allow_screen_rotation_${String(establishment?.id || establishment?.code || '6378')}`;
+                                localStorage.setItem(storageKey, String(enabled));
+                              }}
+                              className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                            />
+                            <div className="flex-1">
+                              <label htmlFor="allowScreenRotation" className="block text-white font-medium mb-2">
+                                Rotacao da tela (exclusivo 6378)
+                              </label>
+                              <p className="text-sm text-gray-400 leading-relaxed">
+                                Ativado: o sistema pode girar com o tablet. Desativado: tenta manter em pe (retrato), evitando horizontal.
+                              </p>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="flex items-center space-x-3">
                           <input
