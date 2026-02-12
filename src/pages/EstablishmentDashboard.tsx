@@ -2920,20 +2920,25 @@ const EstablishmentDashboard = () => {
       }
 
       if (appointmentsTutorialClientsPreview) {
+        // Ao clicar em "Próximo", sempre volta para Meus Agendamentos primeiro.
+        // Isso evita ficar preso na tela de clientes em PWA/mobile.
+        setShowReservarClienteModal(false);
+        setActiveTab('appointments');
+
         const currentAvulsoCount = await countTodayAvulsoAppointments();
         if (currentAvulsoCount === null) return;
 
         const baselineCount = Number(appointmentsTutorialAvulsoBaselineCount || 0);
         if (currentAvulsoCount <= baselineCount) {
           toast.error('Para continuar, crie 1 agendamento avulso de teste.');
+          setAppointmentsTutorialClientsPreview(false);
+          setAppointmentsTutorialClientsCompleted(false);
           return;
         }
 
         setAppointmentsTutorialClientsPreview(false);
         setAppointmentsTutorialClientsCompleted(true);
         setAppointmentsTutorialAvulsoBaselineCount(null);
-        setShowReservarClienteModal(false);
-        setActiveTab('appointments');
         return;
       }
 
