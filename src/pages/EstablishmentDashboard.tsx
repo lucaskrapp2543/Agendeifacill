@@ -27200,6 +27200,21 @@ Estamos te aguardando! 😎✂️`;
             establishmentId={establishment.id}
             use15MinuteInterval={use15MinuteInterval}
             use20MinuteScheduleProp={use20MinuteSchedule}
+            onAppointmentCreated={({ isAvulso }) => {
+              if (!showAppointmentsTutorial || appointmentsTutorialStep !== 5 || !appointmentsTutorialClientsPreview) {
+                return;
+              }
+
+              if (!isAvulso) {
+                toast.error('Para continuar o passo a passo, crie 1 agendamento avulso de teste.');
+                return;
+              }
+
+              setAppointmentsTutorialClientsPreview(false);
+              setAppointmentsTutorialClientsCompleted(true);
+              setAppointmentsTutorialAvulsoBaselineCount(null);
+              setActiveTab('appointments');
+            }}
             onClose={() => {
               console.log('🔍 Fechando modal ReservarCliente');
               setShowReservarClienteModal(false);

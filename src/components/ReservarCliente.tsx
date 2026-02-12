@@ -65,9 +65,16 @@ interface ReservarClienteProps {
   use15MinuteInterval?: boolean;
   use20MinuteScheduleProp?: boolean;
   onClose: () => void;
+  onAppointmentCreated?: (payload: { isAvulso: boolean; createdCount: number }) => void;
 }
 
-export default function ReservarCliente({ establishmentId, use15MinuteInterval = false, use20MinuteScheduleProp = false, onClose }: ReservarClienteProps) {
+export default function ReservarCliente({
+  establishmentId,
+  use15MinuteInterval = false,
+  use20MinuteScheduleProp = false,
+  onClose,
+  onAppointmentCreated,
+}: ReservarClienteProps) {
   const { user } = useAuth();
   const [step, setStep] = useState<'initial' | 'client' | 'professional' | 'service' | 'time' | 'confirm'>('initial');
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -1331,6 +1338,10 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
 
       const createdCount = Array.isArray(inserted) ? inserted.length : 1;
       const skippedCount = datasMensais.length - datasSemConflito.length;
+      onAppointmentCreated?.({
+        isAvulso: Boolean(isAvulso),
+        createdCount,
+      });
       const msg = reservarMensal
         ? `Reservas criadas: ${createdCount}.\n${skippedCount > 0 ? `Ignoradas por conflito: ${skippedCount}.` : ''}`
         : 'Reserva criada com sucesso!';
