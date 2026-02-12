@@ -3078,7 +3078,10 @@ const EstablishmentDashboard = () => {
     const updateHighlight = () => {
       const isStandalonePwa =
         window.matchMedia('(display-mode: standalone)').matches ||
-        Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
+        window.matchMedia('(display-mode: fullscreen)').matches ||
+        window.matchMedia('(display-mode: minimal-ui)').matches ||
+        Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone) ||
+        document.referrer.startsWith('android-app://');
 
       const targets = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
       const target =
