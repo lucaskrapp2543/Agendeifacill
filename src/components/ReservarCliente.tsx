@@ -1,7 +1,7 @@
 import { CheckCircle, Clock, Scissors, Search, User } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
 import { PaymentModal } from './PaymentModal';
 
 interface Professional {
@@ -101,6 +101,7 @@ export default function ReservarCliente({
   // Estados para assinantes
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+  const [selectedClientActiveSubscriptionId, setSelectedClientActiveSubscriptionId] = useState<string | null>(null);
 
   // Estados para seleção de cliente conhecido
   const [clients, setClients] = useState<Client[]>([]);
@@ -968,6 +969,8 @@ export default function ReservarCliente({
 
   const handleClientSelect = (client: Client) => {
     setSelectedClient(client);
+    // Ao trocar cliente, limpamos seleção de assinatura anterior para evitar cruzamento de planos.
+    setSelectedSubscription(null);
     setStep('professional');
   };
 
@@ -988,6 +991,9 @@ export default function ReservarCliente({
   });
   const hasKnownClients = clients.length > 0;
   const disableKnownClientOption = loadingClients || !hasKnownClients;
+  const filteredSubscriptions = selectedClient && selectedClientActiveSubscriptionId
+    ? subscriptions.filter((sub) => String(sub.id) === String(selectedClientActiveSubscriptionId))
+    : subscriptions;
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
@@ -1141,6 +1147,22 @@ export default function ReservarCliente({
       // Verificar se é um agendamento de assinante ou cliente conhecido
       const isSubscriber = selectedSubscription !== null; // serviço/condição de assinante (não substitui o cliente)
       const isKnownClient = selectedClient !== null;
+
+      // Trava de segurança: cliente conhecido só pode usar o plano ativo dele.
+      if (isKnownClient && isSubscriber) {
+        const activeSubId = selectedClientActiveSubscriptionId ? String(selectedClientActiveSubscriptionId) : '';
+        const chosenSubId = selectedSubscription ? String(selectedSubscription.id) : '';
+        if (!activeSubId) {
+          alert('Este cliente não possui assinatura ativa no momento. Selecione um serviço comum.');
+          setLoading(false);
+          return;
+        }
+        if (activeSubId !== chosenSubId) {
+          alert('Plano inválido para este cliente. Use apenas o plano ativo do assinante.');
+          setLoading(false);
+          return;
+        }
+      }
 
       // Função para gerar UUID consistente a partir de uma string (para clientes manuais)
       const generateUUIDFromString = (str: string): string => {
@@ -1385,6 +1407,50 @@ export default function ReservarCliente({
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSelectedClientActiveSubscription = async () => {
+      if (!selectedClient || !establishmentId) {
+        setSelectedClientActiveSubscriptionId(null);
+        return;
+      }
+
+      try {
+        const { data: subscriberData, error } = await checkWhatsAppSubscriber(selectedClient.whatsapp, establishmentId);
+        if (cancelled || error || !subscriberData) {
+          setSelectedClientActiveSubscriptionId(null);
+          return;
+        }
+
+        const paymentStatus = String((subscriberData as any)?.payment_status || '').toLowerCase().trim();
+        const isExpired = Boolean((subscriberData as any)?.is_expired) ||
+          (String((subscriberData as any)?.end_date || '').trim() !== '' &&
+            new Date((subscriberData as any).end_date) < new Date());
+
+        if (paymentStatus !== 'paid' || isExpired) {
+          setSelectedClientActiveSubscriptionId(null);
+          return;
+        }
+
+        const activeSubscriptionId = String(
+          (subscriberData as any)?.subscription_id ||
+          (subscriberData as any)?.subscriptions?.id ||
+          ''
+        ).trim();
+
+        setSelectedClientActiveSubscriptionId(activeSubscriptionId || null);
+      } catch {
+        if (!cancelled) setSelectedClientActiveSubscriptionId(null);
+      }
+    };
+
+    loadSelectedClientActiveSubscription();
+    return () => {
+      cancelled = true;
+    };
+  }, [establishmentId, selectedClient]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1764,11 +1830,11 @@ export default function ReservarCliente({
               </div>
 
               {/* Clubes de Assinatura */}
-              {subscriptions.length > 0 ? (
+              {filteredSubscriptions.length > 0 ? (
                 <div className="space-y-4 mt-6">
                   <h4 className="text-md font-medium text-gray-700">Assinantes</h4>
                   <div className="grid grid-cols-1 gap-4">
-                    {subscriptions.map((subscription) => (
+                    {filteredSubscriptions.map((subscription) => (
                       <button
                         key={subscription.id}
                         onClick={() => handleSubscriptionSelect(subscription)}
@@ -1790,10 +1856,12 @@ export default function ReservarCliente({
               ) : (
                 <div className="mt-6 p-4 bg-gray-100 border border-gray-300 rounded-lg">
                   <p className="text-sm text-gray-700">
-                    ℹ️ <strong>Nenhum clube de assinatura encontrado.</strong>
+                    ℹ️ <strong>{selectedClient ? 'Este cliente não tem assinatura ativa.' : 'Nenhum clube de assinatura encontrado.'}</strong>
                   </p>
                   <p className="text-xs text-gray-600 mt-1">
-                    Cadastre clubes de assinatura na aba "Assinantes" do dashboard para que eles apareçam aqui.
+                    {selectedClient
+                      ? 'Para este cliente, use serviço comum ou regularize/ative a assinatura correta.'
+                      : 'Cadastre clubes de assinatura na aba "Assinantes" do dashboard para que eles apareçam aqui.'}
                   </p>
                 </div>
               )}

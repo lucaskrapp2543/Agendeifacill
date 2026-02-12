@@ -119,6 +119,12 @@ export default function BookingPage() {
   const bookingFormRef = useRef<HTMLDivElement>(null);
   const retryFetchEstablishmentRef = useRef(0);
   const isReloadingRef = useRef(false); // ✅ Proteção contra reload loops
+  const activeSubscriberPlanId = String(
+    convertedSubscriberData?.subscription_id || convertedSubscriberData?.subscriptions?.id || ''
+  ).trim();
+  const subscriberServicesForBooking = activeSubscriberPlanId
+    ? subscriptions.filter((subscription: any) => String(subscription?.id || '').trim() === activeSubscriberPlanId)
+    : subscriptions;
 
   // Persistência leve do fluxo "QUERO AGENDAR" (evita voltar pro início se houver remount/reload no mobile)
   const QUICK_BOOKING_FLOW_KEY = 'agf_quick_booking_flow'; // 'modal' | 'form'
@@ -776,6 +782,14 @@ export default function BookingPage() {
     };
   }, [showPaymentModal, pendingAppointmentId, paymentIsOptional]);
 
+  useEffect(() => {
+    if (!showSubscriberBooking) return;
+    if (!activeSubscriberPlanId) return;
+    if (!selectedSubscriberService) return;
+    if (String(selectedSubscriberService?.id || '').trim() === activeSubscriberPlanId) return;
+    setSelectedSubscriberService(null);
+  }, [activeSubscriberPlanId, selectedSubscriberService, showSubscriberBooking]);
+
   const fetchSubscriptions = async () => {
     if (!establishment) {
       console.log('❌ Establishment não encontrado para buscar assinaturas');
@@ -972,6 +986,20 @@ export default function BookingPage() {
     try {
       // Lógica para agendamentos reais
       const isEstablishmentOwner = currentUser?.id === establishment.owner_id;
+      const isSubscriberAppointment = appointmentData?.is_subscriber === true;
+
+      // Trava de segurança: assinante só agenda com o plano ativo detectado.
+      if (isSubscriberAppointment) {
+        const selectedPlanId = String(selectedSubscriberService?.id || appointmentData?.subscription_id || '').trim();
+        if (activeSubscriberPlanId && selectedPlanId && activeSubscriberPlanId !== selectedPlanId) {
+          toast.error('Você só pode agendar usando o seu plano mensal ativo.');
+          return;
+        }
+        if (activeSubscriberPlanId && !selectedPlanId) {
+          toast.error('Plano de assinante não identificado. Reabra o agendamento de assinante e tente novamente.');
+          return;
+        }
+      }
 
       // ✅ PAGAMENTO ANTECIPADO (Pagar.me ou Mercado Pago) - Booking público
       // Regra: se exigir pagamento antecipado, o agendamento só confirma após pagar.
@@ -2448,7 +2476,7 @@ export default function BookingPage() {
                     <div>
                       <p className="text-lg text-white/75 mb-6">Selecione qual é o seu:</p>
                       <div className="space-y-4">
-                        {subscriptions.map((subscription) => (
+                        {subscriberServicesForBooking.map((subscription) => (
                           <div key={subscription.id} className="border border-white/10 rounded-2xl p-4 bg-black/30 hover:bg-white/5 transition-colors">
                             <div className="flex items-center justify-between">
                               <div>
@@ -2482,6 +2510,11 @@ export default function BookingPage() {
                             </div>
                           </div>
                         ))}
+                        {subscriberServicesForBooking.length === 0 && (
+                          <div className="border border-yellow-300/40 rounded-2xl p-4 bg-yellow-500/10 text-yellow-100">
+                            Não encontramos o plano ativo deste assinante para agendamento. Peça ao estabelecimento para verificar o cadastro.
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -3017,7 +3050,7 @@ export default function BookingPage() {
                 <div>
                   <p className="text-lg text-gray-700 mb-6">Selecione qual é o seu:</p>
                   <div className="space-y-4">
-                    {subscriptions.map((subscription) => (
+                    {subscriberServicesForBooking.map((subscription) => (
                       <div key={subscription.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
                         <div className="flex items-center justify-between">
                           <div>
@@ -3051,6 +3084,11 @@ export default function BookingPage() {
                         </div>
                       </div>
                     ))}
+                    {subscriberServicesForBooking.length === 0 && (
+                      <div className="border border-yellow-300 rounded-lg p-4 bg-yellow-50 text-yellow-800">
+                        Não encontramos o plano ativo deste assinante para agendamento. Peça ao estabelecimento para verificar o cadastro.
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

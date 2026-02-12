@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { getSubscriptions, supabase } from '../lib/supabase';
 import { useToast } from './ui/Toaster';
 
 type EstablishmentService = {
@@ -8,6 +8,7 @@ type EstablishmentService = {
   name: string;
   price: number;
   duration: number;
+  source?: 'service' | 'subscription';
 };
 
 type AppointmentForServiceChange = {
@@ -151,14 +152,35 @@ export function ChangeAppointmentServiceModal({
               name: String(service?.name || '').trim(),
               price: Number(service?.price || 0),
               duration: Number(service?.duration || 30),
+              source: 'service',
             });
           });
+        }
+
+        // 3) Assinaturas (planos) para permitir troca também entre planos
+        const { data: subscriptionsData, error: subsErr } = await getSubscriptions(establishmentId);
+
+        if (!subsErr && Array.isArray(subscriptionsData)) {
+          subscriptionsData
+            .filter((sub: any) => !Boolean(sub?.is_hidden))
+            .forEach((sub: any) => {
+              const subName = String(sub?.name || '').trim();
+              if (!subName) return;
+              all.push({
+                id: `subscription:${String(sub?.id || '').trim()}`,
+                name: subName,
+                price: 0, // Atendimento por assinatura não cobra serviço avulso
+                duration: Number(sub?.service_duration || 30),
+                source: 'subscription',
+              });
+            });
         }
 
         // Deduplicar por id e filtrar válidos
         const byId = new Map<string, EstablishmentService>();
         for (const s of all) {
-          if (!s.id || !s.name || !(Number(s.price) > 0)) continue;
+          if (!s.id || !s.name) continue;
+          if (s.source !== 'subscription' && !(Number(s.price) > 0)) continue;
           if (!byId.has(s.id)) byId.set(s.id, s);
         }
         const unique = Array.from(byId.values());
@@ -272,6 +294,11 @@ export function ChangeAppointmentServiceModal({
                           <div className="text-xs text-gray-600 mt-0.5">
                             {s.duration}min • {fmtBRL(s.price)}
                           </div>
+                          {s.source === 'subscription' && (
+                            <div className="text-[11px] font-bold text-purple-700 mt-0.5">
+                              Plano de assinatura
+                            </div>
+                          )}
                         </div>
                         <div className="shrink-0">
                           <span
