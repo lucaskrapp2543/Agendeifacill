@@ -2486,6 +2486,10 @@ const EstablishmentDashboard = () => {
   const [isNewUser, setIsNewUser] = useState<boolean>(false);
   const [quizCompleted, setQuizCompleted] = useState<boolean>(false); // Quiz foi completado
   const [quizAlertMessage, setQuizAlertMessage] = useState<string>(''); // Mensagem de alerta quando requisito não atendido
+  const QUIZ_TOTAL_STEPS = 13;
+  const [wizardProfessionalCount, setWizardProfessionalCount] = useState<'one' | 'multiple' | null>(null);
+  const [wizardOtherAmenity, setWizardOtherAmenity] = useState(false);
+  const wizardLogoInputRef = useRef<HTMLInputElement | null>(null);
   const [showQuizAmenitiesModal, setShowQuizAmenitiesModal] = useState(false); // Popup bonito quando faltar comodidade no passo 1
   const [showQuizPixModal, setShowQuizPixModal] = useState(false); // Popup bonito quando faltar PIX no passo 5
   const [showQuizLinksModal, setShowQuizLinksModal] = useState(false); // Popup bonito quando faltar links no passo 6
@@ -2558,6 +2562,627 @@ const EstablishmentDashboard = () => {
   const [infoModalContent, setInfoModalContent] = useState<{ title: string; content: string } | null>(null); // Conteúdo do modal
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false); // Modal upgrade (Plano Prata)
   const [showMercadoPagoModal, setShowMercadoPagoModal] = useState(false); // Modal do card Mercado Pago (atalho no menu)
+  const isServiceWizardOnboarding = onboardingStep === 3;
+  const [showAppointmentsIntroButtons, setShowAppointmentsIntroButtons] = useState(true);
+  const [showAppointmentsIntroConfirmModal, setShowAppointmentsIntroConfirmModal] = useState(false);
+  const [showAppointmentsTutorial, setShowAppointmentsTutorial] = useState(false);
+  const [appointmentsTutorialStep, setAppointmentsTutorialStep] = useState(0);
+  const [appointmentsTutorialFinancePreview, setAppointmentsTutorialFinancePreview] = useState(false);
+  const [appointmentsTutorialBlockPreview, setAppointmentsTutorialBlockPreview] = useState(false);
+  const [appointmentsTutorialAbsencePreview, setAppointmentsTutorialAbsencePreview] = useState(false);
+  const [appointmentsTutorialClientsPreview, setAppointmentsTutorialClientsPreview] = useState(false);
+  const [appointmentsTutorialClientsCompleted, setAppointmentsTutorialClientsCompleted] = useState(false);
+  const [appointmentsTutorialDetailsOpened, setAppointmentsTutorialDetailsOpened] = useState(false);
+  const [appointmentsTutorialAvulsoBaselineCount, setAppointmentsTutorialAvulsoBaselineCount] = useState<number | null>(null);
+  const [appointmentsTutorialHighlightRect, setAppointmentsTutorialHighlightRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  const getAppointmentsIntroDismissKey = useCallback(() => {
+    const establishmentId = String(establishment?.id || '').trim();
+    if (!establishmentId) return null;
+    const userId = String(user?.id || 'anon').trim() || 'anon';
+    return `appointments_intro_dismissed_${userId}_${establishmentId}`;
+  }, [establishment?.id, user?.id]);
+
+  const dismissAppointmentsIntroPermanently = useCallback(() => {
+    const storageKey = getAppointmentsIntroDismissKey();
+    if (storageKey) {
+      localStorage.setItem(storageKey, 'true');
+    }
+    setShowAppointmentsIntroButtons(false);
+    setShowAppointmentsIntroConfirmModal(false);
+  }, [getAppointmentsIntroDismissKey]);
+
+  const handleDismissAppointmentsIntroWithConfirm = useCallback(() => {
+    setShowAppointmentsIntroConfirmModal(true);
+  }, []);
+
+  const appointmentsTutorialSteps = [
+    {
+      id: 'menu-appointments',
+      title: '1. Meus Agendamentos',
+      selector: '[data-tutorial-id="menu-appointments"]',
+      text: 'Aqui você verá todos os seus profissionais, os agendamentos feitos no dia, caixa, financeiro e mais opções.',
+    },
+    {
+      id: 'professional-area',
+      title: '2. Área do profissional',
+      selector: '[data-tutorial-id="appointments-professional-area"]',
+      text: 'Aqui você verá os horários disponíveis e os agendamentos do dia de cada profissional.',
+    },
+    {
+      id: 'financeiro',
+      title: '3. Financeiro',
+      selector: '[data-tutorial-id="appointments-financeiro"]',
+      text: 'Aqui você abre o financeiro do profissional selecionado para ver faturamento do dia e do mês, bruto e líquido.',
+    },
+    {
+      id: 'bloquear-horarios',
+      title: '4. Bloquear Horários',
+      selector: '[data-tutorial-id="appointments-bloquear-horarios"]',
+      text: 'Aqui você pode bloquear horários específicos para que ninguém agende nesse período. É possível bloquear por horas, dias ou meses.',
+    },
+    {
+      id: 'ausencia',
+      title: '5. Ausência',
+      selector: '[data-tutorial-id="appointments-ausencia"]',
+      text: 'Aqui você pode deixar ausência em algum dia que desejar para que ninguém agende nesse dia.',
+    },
+    {
+      id: 'criar-reserva',
+      title: '6. Criar Reserva',
+      selector: '[data-tutorial-id="appointments-criar-reserva"]',
+      text: 'Aqui você pode criar um agendamento manual para clientes já cadastrados ou clientes avulsos.',
+    },
+    {
+      id: 'detalhes-agendamento',
+      title: '7. Detalhes do Agendamento',
+      selector: '[data-tutorial-id="appointments-detalhes-agendamento"]',
+      text: 'Clique no agendamento criado para abrir os detalhes.',
+    },
+    {
+      id: 'detalhes-produto',
+      title: '7.1 Produto',
+      selector: '[data-tutorial-id="appointments-detalhes-produto"]',
+      text: 'Aqui você pode adicionar produtos cadastrados.',
+    },
+    {
+      id: 'detalhes-servico-extra',
+      title: '7.2 Serviços extras',
+      selector: '[data-tutorial-id="appointments-detalhes-servico-extra"]',
+      text: 'Aqui você pode adicionar serviços adicionais ao atendimento.',
+    },
+    {
+      id: 'detalhes-transferir',
+      title: '7.3 Transferir',
+      selector: '[data-tutorial-id="appointments-detalhes-transferir"]',
+      text: 'Aqui você pode transferir para outro profissional.',
+    },
+    {
+      id: 'detalhes-terminei-antes',
+      title: '7.4 Terminei antes',
+      selector: '[data-tutorial-id="appointments-detalhes-terminei-antes"]',
+      text: 'Aqui você libera o horário caso finalize antes.',
+    },
+    {
+      id: 'detalhes-cancelar',
+      title: '7.5 Cancelar',
+      selector: '[data-tutorial-id="appointments-detalhes-cancelar"]',
+      text: 'Aqui você cancela o agendamento e libera o horário.',
+    },
+    {
+      id: 'detalhes-imprevisto',
+      title: '7.6 Imprevisto',
+      selector: '[data-tutorial-id="appointments-detalhes-imprevisto"]',
+      text: 'Aqui você envia uma mensagem ao cliente informando impossibilidade de atendimento.',
+    },
+    {
+      id: 'detalhes-assinatura',
+      title: '7.7 Atendimento por assinatura',
+      selector: '[data-tutorial-id="appointments-detalhes-assinatura"]',
+      text: 'Aqui você sincroniza o atendimento com clientes assinantes.',
+    },
+    {
+      id: 'detalhes-trocar-horario',
+      title: '7.8 Trocar horário',
+      selector: '[data-tutorial-id="appointments-detalhes-trocar-horario"]',
+      text: 'Aqui você altera para outro horário ou dia.',
+    },
+    {
+      id: 'detalhes-trocar-servico',
+      title: '7.9 Trocar serviço',
+      selector: '[data-tutorial-id="appointments-detalhes-trocar-servico"]',
+      text: 'Aqui você modifica o serviço escolhido pelo cliente.',
+    },
+    {
+      id: 'detalhes-observacoes',
+      title: '7.10 Observações',
+      selector: '[data-tutorial-id="appointments-detalhes-observacoes"]',
+      text: 'Aqui você adiciona anotações, por exemplo: cliente não pagou.',
+    },
+    {
+      id: 'criar-encaixe',
+      title: '8. Criar Encaixe',
+      selector: '[data-tutorial-id="appointments-criar-encaixe"]',
+      text: 'Permite criar atendimentos fora do horário padrão ou serviços rápidos entre intervalos.',
+    },
+    {
+      id: 'config',
+      title: '9. Configurações do Profissional',
+      selector: '[data-tutorial-id="appointments-config"]',
+      text: 'Aqui você pode configurar nome e foto, porcentagem do profissional e senha de 4 dígitos para proteger o financeiro.',
+    },
+    {
+      id: 'caixa',
+      title: '10. Caixa da Barbearia',
+      selector: '[data-tutorial-id="appointments-caixa"]',
+      text: 'Aqui você informa o valor inicial em dinheiro disponível no caixa no início do dia.',
+    },
+    {
+      id: 'finalizacao',
+      title: 'Finalização do Tutorial',
+      selector: '',
+      text: 'Parabéns! Agora você já sabe usar o sistema. Quer saber como enviar o link para seus clientes agendarem ou simular um agendamento? Acesse Menu -> Página de Agendamentos.',
+    },
+  ] as const;
+  const appointmentsTutorialCurrent = appointmentsTutorialSteps[Math.min(appointmentsTutorialStep, appointmentsTutorialSteps.length - 1)];
+  const isAppointmentsTutorialLastStep = appointmentsTutorialStep >= appointmentsTutorialSteps.length - 1;
+  const isAppointmentsTutorialPreviewStep =
+    (appointmentsTutorialStep === 2 && appointmentsTutorialFinancePreview) ||
+    (appointmentsTutorialStep === 3 && appointmentsTutorialBlockPreview) ||
+    (appointmentsTutorialStep === 4 && appointmentsTutorialAbsencePreview) ||
+    (appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview);
+
+  const countTodayAvulsoAppointments = useCallback(async (): Promise<number | null> => {
+    if (!establishment?.id) return 0;
+    const { count, error } = await supabase
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('establishment_id', establishment.id)
+      .eq('is_avulso', true);
+
+    if (error) {
+      toast.error(error.message || 'Erro ao validar agendamento avulso de teste no tutorial.');
+      return null;
+    }
+
+    return Number(count || 0);
+  }, [establishment?.id, toast]);
+
+  const closeAppointmentsTutorial = useCallback(() => {
+    const financeCloseButton = document.querySelector('[data-tutorial-id="professional-info-close"]') as HTMLButtonElement | null;
+    financeCloseButton?.click();
+    const blockCloseButton = document.querySelector('[data-tutorial-id="block-time-close"]') as HTMLButtonElement | null;
+    blockCloseButton?.click();
+    const absenceCloseButton = document.querySelector('[data-tutorial-id="absence-close"]') as HTMLButtonElement | null;
+    absenceCloseButton?.click();
+    setShowAppointmentsTutorial(false);
+    setAppointmentsTutorialStep(0);
+    setAppointmentsTutorialFinancePreview(false);
+    setAppointmentsTutorialBlockPreview(false);
+    setAppointmentsTutorialAbsencePreview(false);
+    setAppointmentsTutorialClientsPreview(false);
+    setAppointmentsTutorialClientsCompleted(false);
+    setAppointmentsTutorialDetailsOpened(false);
+    setAppointmentsTutorialAvulsoBaselineCount(null);
+    setShowReservarClienteModal(false);
+    setActiveTab('appointments');
+    setAppointmentsTutorialHighlightRect(null);
+  }, [setActiveTab, setShowReservarClienteModal]);
+
+  const startAppointmentsTutorial = useCallback(() => {
+    setShowAppointmentsIntroButtons(false);
+    setShowAppointmentsTutorial(true);
+    setAppointmentsTutorialStep(0);
+    setAppointmentsTutorialFinancePreview(false);
+    setAppointmentsTutorialBlockPreview(false);
+    setAppointmentsTutorialAbsencePreview(false);
+    setAppointmentsTutorialClientsPreview(false);
+    setAppointmentsTutorialClientsCompleted(false);
+    setAppointmentsTutorialDetailsOpened(false);
+    setAppointmentsTutorialAvulsoBaselineCount(null);
+    setActiveTab('appointments');
+  }, [setActiveTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'appointments') return;
+    if (showAppointmentsTutorial) {
+      // Durante o tutorial, nunca mostrar o popup "Como voce quer continuar?"
+      setShowAppointmentsIntroButtons(false);
+      setShowAppointmentsIntroConfirmModal(false);
+      return;
+    }
+    const storageKey = getAppointmentsIntroDismissKey();
+    if (!storageKey) {
+      setShowAppointmentsIntroButtons(true);
+      return;
+    }
+    const dismissed = localStorage.getItem(storageKey) === 'true';
+    setShowAppointmentsIntroButtons(!dismissed);
+  }, [activeTab, getAppointmentsIntroDismissKey, showAppointmentsTutorial]);
+
+  const goBackAppointmentsTutorial = useCallback(() => {
+    if (!showAppointmentsTutorial) return;
+
+    if (appointmentsTutorialStep === 2 && appointmentsTutorialFinancePreview) {
+      const financeCloseButton = document.querySelector('[data-tutorial-id="professional-info-close"]') as HTMLButtonElement | null;
+      financeCloseButton?.click();
+      setAppointmentsTutorialFinancePreview(false);
+      return;
+    }
+
+    if (appointmentsTutorialStep === 3 && appointmentsTutorialBlockPreview) {
+      const blockCloseButton = document.querySelector('[data-tutorial-id="block-time-close"]') as HTMLButtonElement | null;
+      blockCloseButton?.click();
+      setAppointmentsTutorialBlockPreview(false);
+      return;
+    }
+
+    if (appointmentsTutorialStep === 4 && appointmentsTutorialAbsencePreview) {
+      const absenceCloseButton = document.querySelector('[data-tutorial-id="absence-close"]') as HTMLButtonElement | null;
+      absenceCloseButton?.click();
+      setAppointmentsTutorialAbsencePreview(false);
+      return;
+    }
+
+    if (appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview) {
+      setAppointmentsTutorialClientsPreview(false);
+      setAppointmentsTutorialClientsCompleted(false);
+      setAppointmentsTutorialDetailsOpened(false);
+      setShowReservarClienteModal(false);
+      setActiveTab('appointments');
+      setAppointmentsTutorialAvulsoBaselineCount(null);
+      return;
+    }
+
+    if (appointmentsTutorialStep > 0) {
+      setAppointmentsTutorialStep((prev) => prev - 1);
+    }
+  }, [
+    appointmentsTutorialClientsPreview,
+    appointmentsTutorialStep,
+    showAppointmentsTutorial,
+    setActiveTab,
+  ]);
+
+  const goNextAppointmentsTutorial = useCallback(async () => {
+    if (!showAppointmentsTutorial) return;
+
+    // Etapa 1: Menu > Meus Agendamentos
+    if (appointmentsTutorialStep === 0) {
+      setAppointmentsTutorialStep(1);
+      return;
+    }
+
+    // Etapa 2: Área do profissional (segue para o próximo passo normalmente)
+    if (appointmentsTutorialStep === 1) {
+      setAppointmentsTutorialStep(2);
+      return;
+    }
+
+    if (appointmentsTutorialStep === 2) {
+      if (!appointmentsTutorialFinancePreview) {
+        setAppointmentsTutorialFinancePreview(true);
+        const trigger = document.querySelector('[data-tutorial-id="appointments-financeiro"]') as HTMLButtonElement | null;
+        trigger?.click();
+        return;
+      }
+      const financeCloseButton = document.querySelector('[data-tutorial-id="professional-info-close"]') as HTMLButtonElement | null;
+      financeCloseButton?.click();
+      setAppointmentsTutorialFinancePreview(false);
+      setAppointmentsTutorialStep(3);
+      return;
+    }
+
+    // Etapa 4: Bloquear Horários (abre botão correspondente)
+    if (appointmentsTutorialStep === 3) {
+      if (!appointmentsTutorialBlockPreview) {
+        setAppointmentsTutorialBlockPreview(true);
+        const trigger = document.querySelector('[data-tutorial-id="appointments-bloquear-horarios"]') as HTMLButtonElement | null;
+        trigger?.click();
+        return;
+      }
+      const blockCloseButton = document.querySelector('[data-tutorial-id="block-time-close"]') as HTMLButtonElement | null;
+      blockCloseButton?.click();
+      setAppointmentsTutorialBlockPreview(false);
+      setAppointmentsTutorialStep(4);
+      return;
+    }
+
+    // Etapa 5: Ausência (abre modal e no próximo fecha e avança)
+    if (appointmentsTutorialStep === 4) {
+      if (!appointmentsTutorialAbsencePreview) {
+        setAppointmentsTutorialAbsencePreview(true);
+        const trigger = document.querySelector('[data-tutorial-id="appointments-ausencia"]') as HTMLButtonElement | null;
+        trigger?.click();
+        return;
+      }
+      const absenceCloseButton = document.querySelector('[data-tutorial-id="absence-close"]') as HTMLButtonElement | null;
+      absenceCloseButton?.click();
+      setAppointmentsTutorialAbsencePreview(false);
+      setAppointmentsTutorialStep(5);
+      return;
+    }
+
+    // Etapa 6: Criar Reserva (abre Meus Clientes e modal, próximo clique volta)
+    if (appointmentsTutorialStep === 5) {
+      if (!appointmentsTutorialClientsPreview && !appointmentsTutorialClientsCompleted) {
+        setAppointmentsTutorialClientsPreview(true);
+        setActiveTab('clients');
+        setShowReservarClienteModal(true);
+        const baselineCount = await countTodayAvulsoAppointments();
+        setAppointmentsTutorialAvulsoBaselineCount(baselineCount);
+        return;
+      }
+
+      if (appointmentsTutorialClientsPreview) {
+        const currentAvulsoCount = await countTodayAvulsoAppointments();
+        if (currentAvulsoCount === null) return;
+
+        const baselineCount = Number(appointmentsTutorialAvulsoBaselineCount || 0);
+        if (currentAvulsoCount <= baselineCount) {
+          toast.error('Para continuar, crie 1 agendamento avulso de teste.');
+          return;
+        }
+
+        setAppointmentsTutorialClientsPreview(false);
+        setAppointmentsTutorialClientsCompleted(true);
+        setAppointmentsTutorialAvulsoBaselineCount(null);
+        setShowReservarClienteModal(false);
+        setActiveTab('appointments');
+        return;
+      }
+
+      setAppointmentsTutorialClientsCompleted(false);
+      setAppointmentsTutorialDetailsOpened(false);
+      setAppointmentsTutorialStep(6);
+      return;
+    }
+
+    if (appointmentsTutorialStep === 6) {
+      if (!appointmentsTutorialDetailsOpened) {
+        toast.error('Clique no agendamento criado para abrir os detalhes e continuar.');
+        return;
+      }
+      setAppointmentsTutorialDetailsOpened(false);
+      setAppointmentsTutorialStep(7);
+      return;
+    }
+
+    if (isAppointmentsTutorialLastStep) {
+      closeAppointmentsTutorial();
+      return;
+    }
+
+    setAppointmentsTutorialStep((prev) => prev + 1);
+  }, [
+    appointmentsTutorialAvulsoBaselineCount,
+    appointmentsTutorialAbsencePreview,
+    appointmentsTutorialBlockPreview,
+    appointmentsTutorialClientsCompleted,
+    appointmentsTutorialClientsPreview,
+    appointmentsTutorialDetailsOpened,
+    appointmentsTutorialFinancePreview,
+    appointmentsTutorialStep,
+    countTodayAvulsoAppointments,
+    closeAppointmentsTutorial,
+    isAppointmentsTutorialLastStep,
+    setShowReservarClienteModal,
+    toast,
+    showAppointmentsTutorial,
+  ]);
+
+  useEffect(() => {
+    if (
+      !showAppointmentsTutorial ||
+      appointmentsTutorialStep !== 5 ||
+      !appointmentsTutorialClientsPreview ||
+      appointmentsTutorialAvulsoBaselineCount === null
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const intervalId = window.setInterval(async () => {
+      const currentAvulsoCount = await countTodayAvulsoAppointments();
+      if (cancelled || currentAvulsoCount === null) return;
+
+      if (currentAvulsoCount > appointmentsTutorialAvulsoBaselineCount) {
+        setAppointmentsTutorialClientsPreview(false);
+        setAppointmentsTutorialClientsCompleted(true);
+        setAppointmentsTutorialAvulsoBaselineCount(null);
+        setShowReservarClienteModal(false);
+        setActiveTab('appointments');
+      }
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    appointmentsTutorialAvulsoBaselineCount,
+    appointmentsTutorialClientsPreview,
+    appointmentsTutorialStep,
+    countTodayAvulsoAppointments,
+    setActiveTab,
+    setShowReservarClienteModal,
+    showAppointmentsTutorial,
+  ]);
+
+  useEffect(() => {
+    if (!showAppointmentsTutorial) return;
+
+    const handleTutorialAppointmentCreated = (event: Event) => {
+      if (appointmentsTutorialStep !== 5 || !appointmentsTutorialClientsPreview) return;
+
+      const customEvent = event as CustomEvent<{ isAvulso?: boolean }>;
+      const hasAvulsoFlag = typeof customEvent?.detail?.isAvulso === 'boolean';
+      if (!hasAvulsoFlag) return;
+
+      const isAvulso = Boolean(customEvent.detail?.isAvulso);
+      if (!isAvulso) {
+        toast.error('Para continuar o passo a passo, crie 1 agendamento avulso de teste.');
+        return;
+      }
+
+      // Avança imediatamente o fluxo após confirmar a reserva avulsa.
+      setAppointmentsTutorialClientsPreview(false);
+      setAppointmentsTutorialClientsCompleted(true);
+      setAppointmentsTutorialAvulsoBaselineCount(null);
+      setShowReservarClienteModal(false);
+      setActiveTab('appointments');
+    };
+
+    window.addEventListener('clientAppointmentCreated', handleTutorialAppointmentCreated as EventListener);
+    return () => {
+      window.removeEventListener('clientAppointmentCreated', handleTutorialAppointmentCreated as EventListener);
+    };
+  }, [
+    appointmentsTutorialClientsPreview,
+    appointmentsTutorialStep,
+    setActiveTab,
+    setShowReservarClienteModal,
+    showAppointmentsTutorial,
+    toast,
+  ]);
+
+  useEffect(() => {
+    if (!showAppointmentsTutorial) {
+      setAppointmentsTutorialHighlightRect(null);
+      return;
+    }
+
+    if (isAppointmentsTutorialPreviewStep) {
+      setAppointmentsTutorialHighlightRect(null);
+      return;
+    }
+
+    const selector = appointmentsTutorialCurrent?.selector || '';
+    if (!selector) {
+      setAppointmentsTutorialHighlightRect(null);
+      return;
+    }
+
+    let rafId = 0;
+    let triedOpenMenuOnMobile = false;
+    const updateHighlight = () => {
+      const targets = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
+      const target =
+        targets.find((el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        }) || null;
+
+      if (!target) {
+        // No passo "Meus Agendamentos", em mobile o menu pode estar fechado.
+        // Tentamos abrir automaticamente para destacar o item correto.
+        if (
+          !triedOpenMenuOnMobile &&
+          appointmentsTutorialCurrent?.id === 'menu-appointments' &&
+          window.innerWidth < 1024
+        ) {
+          triedOpenMenuOnMobile = true;
+          const sidebarToggle = document.querySelector('[data-sidebar-toggle]') as HTMLButtonElement | null;
+          sidebarToggle?.click();
+          window.setTimeout(() => {
+            scheduleUpdate();
+          }, 220);
+          return;
+        }
+        setAppointmentsTutorialHighlightRect(null);
+        return;
+      }
+
+      const isProfessionalAreaStep = appointmentsTutorialCurrent?.id === 'professional-area';
+      if (isProfessionalAreaStep) {
+        // Ancora no botão "Financeiro" visível para evitar recorte errado no mobile.
+        const financeButtons = Array.from(
+          document.querySelectorAll('[data-tutorial-id="appointments-financeiro"]')
+        ) as HTMLElement[];
+        const visibleFinanceButton =
+          financeButtons.find((el) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }) || null;
+
+        const professionalAreaTarget =
+          (visibleFinanceButton?.closest('[data-tutorial-id="appointments-professional-area"]') as HTMLElement | null) ||
+          target;
+
+        const caixaButtons = Array.from(
+          document.querySelectorAll('[data-tutorial-id="appointments-caixa"]')
+        ) as HTMLElement[];
+        const visibleCaixaButton =
+          caixaButtons.find((el) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }) || null;
+
+        (visibleCaixaButton || professionalAreaTarget).scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+          inline: 'center',
+        });
+
+        const areaRect = professionalAreaTarget.getBoundingClientRect();
+        const caixaRect = visibleCaixaButton?.getBoundingClientRect();
+        const desiredHeight = Math.min(Math.max(areaRect.height, 460), 620);
+        const topNudge = window.innerWidth < 1024 ? 8 : 8;
+        const topBase = caixaRect ? Math.min(caixaRect.top, areaRect.top) : areaRect.top;
+        const adjustedTop = Math.max(topBase - topNudge, 0);
+        const adjustedHeight = Math.max(420, areaRect.top + desiredHeight - adjustedTop);
+        setAppointmentsTutorialHighlightRect({
+          top: adjustedTop,
+          left: areaRect.left,
+          width: areaRect.width,
+          height: adjustedHeight,
+        });
+        return;
+      }
+
+      target.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'center',
+      });
+
+      const rect = target.getBoundingClientRect();
+      setAppointmentsTutorialHighlightRect({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(updateHighlight);
+    };
+
+    const timer = window.setTimeout(scheduleUpdate, 120);
+    window.addEventListener('resize', scheduleUpdate);
+    window.addEventListener('scroll', scheduleUpdate, true);
+
+    return () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', scheduleUpdate);
+      window.removeEventListener('scroll', scheduleUpdate, true);
+    };
+  }, [
+    activeTab,
+    appointmentsTutorialCurrent?.id,
+    appointmentsTutorialCurrent?.selector,
+    appointmentsTutorialStep,
+    isAppointmentsTutorialPreviewStep,
+    showAppointmentsTutorial,
+  ]);
 
   // Estados premium
   const [premiumSubscribers, setPremiumSubscribers] = useState<PremiumSubscriber[]>([]);
@@ -4140,10 +4765,12 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleAddCategory = async () => {
+  const handleAddCategory = async (forcedCategoryName?: string) => {
     if (!establishment) return;
 
-    if (!newCategory.name.trim()) {
+    const categoryName = (forcedCategoryName ?? newCategory.name ?? '').trim();
+
+    if (!categoryName) {
       toast('Por favor, digite o nome da categoria', 'error');
       return;
     }
@@ -4181,7 +4808,7 @@ const EstablishmentDashboard = () => {
         .from('service_categories')
         .insert({
           establishment_id: establishment.id,
-          name: newCategory.name.trim().toUpperCase(),
+          name: categoryName.toUpperCase(),
           is_active: true,
           display_order: 0
         })
@@ -4217,7 +4844,7 @@ const EstablishmentDashboard = () => {
               .from('service_categories')
               .insert({
                 establishment_id: establishment.id,
-                name: newCategory.name.trim().toUpperCase(),
+                name: categoryName.toUpperCase(),
                 is_active: true,
                 display_order: 0
               })
@@ -4254,7 +4881,7 @@ const EstablishmentDashboard = () => {
         setHighlightedCategoryId(String(insertedCategory.id));
       }
       fetchServiceCategories();
-      toast(`Categoria "${newCategory.name.toUpperCase()}" adicionada com sucesso!`, 'success');
+      toast(`Categoria "${categoryName.toUpperCase()}" adicionada com sucesso!`, 'success');
     } catch (error: any) {
       console.error('❌ Erro ao adicionar categoria (catch):', error);
 
@@ -5397,7 +6024,26 @@ const EstablishmentDashboard = () => {
 
   // Função para salvar profissionais no banco de dados
   const saveProfessionalsToDatabase = async () => {
-    if (!establishment || professionals.length === 0) return;
+    if (!establishment) return;
+
+    if (professionals.length === 0) {
+      toast.error('Adicione pelo menos 1 profissional antes de salvar.');
+      return;
+    }
+
+    // Regra obrigatória: não permite salvar com profissional sem nome
+    const professionalsWithoutName = professionals.filter((p) => !String(p.name || '').trim());
+    if (professionalsWithoutName.length > 0) {
+      toast.error('Preencha o nome do profissional antes de salvar.');
+      setTimeout(() => {
+        const firstNameInput = document.querySelector('input[placeholder="Nome do profissional"]') as HTMLInputElement | null;
+        if (firstNameInput) {
+          firstNameInput.focus();
+          firstNameInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 50);
+      return;
+    }
 
     // ✅ VALIDAÇÃO OBRIGATÓRIA SEMPRE: Verificar se TODOS os profissionais com nome têm horário configurado
     // Isso vale para novos estabelecimentos (isNewUser) ou quem está no onboarding
@@ -7087,7 +7733,14 @@ Estamos te aguardando! 😎✂️`;
           const savedProgress = localStorage.getItem(`quiz_progress_${establishmentData.id}`);
           if (savedProgress) {
             const progress = parseInt(savedProgress, 10);
-            setQuizStep(progress);
+            const safeProgress = Number.isFinite(progress)
+              ? Math.min(QUIZ_TOTAL_STEPS, Math.max(1, progress))
+              : 1;
+            setQuizStep(safeProgress);
+          }
+          const savedProfessionalCount = localStorage.getItem(`quiz_prof_count_${establishmentData.id}`);
+          if (savedProfessionalCount === 'one' || savedProfessionalCount === 'multiple') {
+            setWizardProfessionalCount(savedProfessionalCount);
           }
         }
 
@@ -7283,26 +7936,49 @@ Estamos te aguardando! 😎✂️`;
   // Funções de validação para cada etapa do quiz
   const validateQuizStep = (step: number): { isValid: boolean; message: string } => {
     switch (step) {
-      case 1: // Comodidades - pelo menos 1 opção
+      case 1: // Nome do estabelecimento
+        return {
+          isValid: Boolean((establishment?.name || '').trim()),
+          message: 'Informe o nome do estabelecimento para continuar.'
+        };
+
+      case 2: // Foto do estabelecimento
+        return {
+          isValid: Boolean((establishment as any)?.logo_url),
+          message: 'Adicione a foto do estabelecimento para continuar.'
+        };
+
+      case 3: // Senha condicional por quantidade de profissionais
+        if (!wizardProfessionalCount) {
+          return { isValid: false, message: 'Escolha quantos profissionais trabalham no estabelecimento.' };
+        }
+        if (wizardProfessionalCount === 'one') {
+          return { isValid: true, message: '' };
+        }
+        return {
+          isValid: Boolean((establishment?.pin_password && establishment.pin_password !== '0000') || pinPassword.length === 4),
+          message: 'Crie e salve uma senha de 4 dígitos para continuar.'
+        };
+
+      case 4: // Comodidades
         {
-          const hasAnyAmenity = hasWifi || hasParking || hasAccessibility || hasAirConditioning;
+          const hasAnyAmenity = hasWifi || hasParking || hasAccessibility || hasAirConditioning || wizardOtherAmenity;
           return {
             isValid: hasAnyAmenity,
-            message: hasAnyAmenity ? '' : 'Selecione ao menos 1 comodidade para continuar'
+            message: 'Selecione ao menos 1 comodidade para continuar.'
           };
         }
 
-      case 2: // Configuração de horários - sempre válido
+      case 5: // Configuração de horários
         return { isValid: true, message: '' };
 
-      case 3: // Horário de Funcionamento - sempre válido (pode modificar algo)
+      case 6: // Horários e dias de funcionamento
         return { isValid: true, message: '' };
 
-      case 4: // Fotos - sempre válido
+      case 7: // Fotos do estabelecimento
         return { isValid: true, message: '' };
 
-      case 5: // PIX - verificar se preencheu (pode ser opcional, mas vamos exigir para o quiz)
-        // Verificar se tem PIX configurado OU se digitou "naotenhopix"
+      case 8: // PIX
         {
           const PIX_PLACEHOLDER = '123456789@';
           const hasPix: boolean = !!(
@@ -7315,11 +7991,11 @@ Estamos te aguardando! 😎✂️`;
             isValid: hasPix,
             message: hasPix
               ? ''
-              : 'Para continuar, preencha seu PIX e clique em SALVAR. Caso não queira cadastrar agora, digite "123456789@" e clique em SALVAR.'
+              : 'Para continuar, preencha seu PIX e clique em SALVAR.'
           };
         }
 
-      case 6: // Links Personalizados - pelo menos 1 link
+      case 9: // Links personalizados
         {
           const hasAnyLink: boolean = !!(
             (reviewLink && reviewLink.trim() !== '') ||
@@ -7331,27 +8007,26 @@ Estamos te aguardando! 😎✂️`;
             isValid: hasAnyLink,
             message: hasAnyLink
               ? ''
-              : 'Para continuar, preencha ao menos 1 link (ex: Instagram ou Local). O sistema salva automaticamente — aguarde 1 segundo após digitar.'
+              : 'Para continuar, preencha ao menos 1 link (ex: Instagram ou Local).'
           };
         }
 
-      case 7: // WhatsApp - confirmar
+      case 10: // WhatsApp
         return { isValid: true, message: '' };
 
-      case 8: // Configurações de Pagamento - sempre válido
+      case 11: // Taxas da maquininha
         return { isValid: true, message: '' };
 
-      case 9: // Formas de Pagamento - selecionar ou desmarcar ao menos 1
-        // Verificar se há alguma forma de pagamento selecionada
+      case 12: // Formas de pagamento
         {
           const hasPaymentMethods = paymentMethodsEnabled && paymentMethodsEnabled.length > 0;
           return {
             isValid: hasPaymentMethods,
-            message: hasPaymentMethods ? '' : 'Selecione ao menos 1 forma de pagamento para continuar'
+            message: hasPaymentMethods ? '' : 'Selecione ao menos 1 forma de pagamento para continuar.'
           };
         }
 
-      case 10: // Confirmação final
+      case 13: // Finalização
         return { isValid: true, message: '' };
 
       default:
@@ -7360,54 +8035,59 @@ Estamos te aguardando! 😎✂️`;
   };
 
   // Função para avançar no quiz
-  const handleQuizNext = () => {
+  const handleQuizNext = async () => {
     const validation = validateQuizStep(quizStep);
     if (!validation.isValid) {
       setQuizAlertMessage(validation.message);
-      if (quizStep === 1) {
-        setShowQuizAmenitiesModal(true);
-        // garantir que a seção está na tela (ajuda no mobile)
+      const sectionIds: Record<number, string> = {
+        1: 'quiz-step-info-basica',
+        2: 'quiz-step-foto',
+        3: 'quiz-step-senha',
+        4: 'quiz-section-comodidades',
+        5: 'quiz-section-horarios',
+        6: 'quiz-section-funcionamento',
+        7: 'quiz-section-fotos',
+        8: 'quiz-section-pix',
+        9: 'quiz-section-links',
+        10: 'quiz-section-whatsapp',
+        11: 'quiz-section-pagamento',
+        12: 'quiz-section-formas-pagamento',
+        13: 'quiz-section-confirmacao'
+      };
+      const target = sectionIds[quizStep];
+      if (target) {
         setTimeout(() => {
-          const el = document.getElementById('quiz-section-comodidades');
-          if (el) {
-            const offset = 100;
-            const elementPosition = el.getBoundingClientRect().top;
-            const offsetPosition = elementPosition + window.pageYOffset - offset;
-            window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
-          }
-        }, 100);
-      }
-      if (quizStep === 5) {
-        setShowQuizPixModal(true);
-        // garantir que a seção está na tela (ajuda no mobile)
-        setTimeout(() => {
-          const el = document.getElementById('quiz-section-pix');
-          if (el) {
-            const offset = 100;
-            const elementPosition = el.getBoundingClientRect().top;
-            const offsetPosition = elementPosition + window.pageYOffset - offset;
-            window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
-          }
-        }, 100);
-      }
-      if (quizStep === 6) {
-        setShowQuizLinksModal(true);
-        // garantir que a seção está na tela (ajuda no mobile)
-        setTimeout(() => {
-          const el = document.getElementById('quiz-section-links');
-          if (el) {
-            const offset = 100;
-            const elementPosition = el.getBoundingClientRect().top;
-            const offsetPosition = elementPosition + window.pageYOffset - offset;
-            window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
-          }
+          const el = document.getElementById(target);
+          if (!el) return;
+          const offset = 100;
+          const elementPosition = el.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - offset;
+          window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
         }, 100);
       }
       return;
     }
 
     setQuizAlertMessage('');
-    const nextStep = quizStep + 1;
+
+    // Auto-save por etapa do assistente simplificado
+    if (quizStep === 1 && establishment?.id) {
+      try {
+        const { error } = await supabase
+          .from('establishments')
+          .update({
+            name: (establishment?.name || '').trim()
+          })
+          .eq('id', establishment.id);
+        if (error) {
+          console.error('❌ Erro ao salvar nome no passo 1:', error);
+        }
+      } catch (e) {
+        console.error('❌ Erro inesperado ao salvar nome no passo 1:', e);
+      }
+    }
+
+    const nextStep = Math.min(QUIZ_TOTAL_STEPS, quizStep + 1);
     setQuizStep(nextStep);
 
     // Salvar progresso no localStorage
@@ -7415,20 +8095,27 @@ Estamos te aguardando! 😎✂️`;
       localStorage.setItem(`quiz_progress_${establishment.id}`, nextStep.toString());
     }
 
+    if (establishment?.id && wizardProfessionalCount) {
+      localStorage.setItem(`quiz_prof_count_${establishment.id}`, wizardProfessionalCount);
+    }
+
     // Scroll para o início da próxima seção do quiz (não para o topo)
     setTimeout(() => {
       // IDs das seções de cada etapa
       const sectionIds: Record<number, string> = {
-        1: 'quiz-section-comodidades',
-        2: 'quiz-section-horarios',
-        3: 'quiz-section-funcionamento',
-        4: 'quiz-section-fotos',
-        5: 'quiz-section-pix',
-        6: 'quiz-section-links',
-        7: 'quiz-section-whatsapp',
-        8: 'quiz-section-pagamento',
-        9: 'quiz-section-formas-pagamento',
-        10: 'quiz-section-confirmacao'
+        1: 'quiz-step-info-basica',
+        2: 'quiz-step-foto',
+        3: 'quiz-step-senha',
+        4: 'quiz-section-comodidades',
+        5: 'quiz-section-horarios',
+        6: 'quiz-section-funcionamento',
+        7: 'quiz-section-fotos',
+        8: 'quiz-section-pix',
+        9: 'quiz-section-links',
+        10: 'quiz-section-whatsapp',
+        11: 'quiz-section-pagamento',
+        12: 'quiz-section-formas-pagamento',
+        13: 'quiz-section-confirmacao'
       };
 
       const sectionId = sectionIds[nextStep];
@@ -7460,16 +8147,19 @@ Estamos te aguardando! 😎✂️`;
       setTimeout(() => {
         // IDs das seções de cada etapa
         const sectionIds: Record<number, string> = {
-          1: 'quiz-section-comodidades',
-          2: 'quiz-section-horarios',
-          3: 'quiz-section-funcionamento',
-          4: 'quiz-section-fotos',
-          5: 'quiz-section-pix',
-          6: 'quiz-section-links',
-          7: 'quiz-section-whatsapp',
-          8: 'quiz-section-pagamento',
-          9: 'quiz-section-formas-pagamento',
-          10: 'quiz-section-confirmacao'
+          1: 'quiz-step-info-basica',
+          2: 'quiz-step-foto',
+          3: 'quiz-step-senha',
+          4: 'quiz-section-comodidades',
+          5: 'quiz-section-horarios',
+          6: 'quiz-section-funcionamento',
+          7: 'quiz-section-fotos',
+          8: 'quiz-section-pix',
+          9: 'quiz-section-links',
+          10: 'quiz-section-whatsapp',
+          11: 'quiz-section-pagamento',
+          12: 'quiz-section-formas-pagamento',
+          13: 'quiz-section-confirmacao'
         };
 
         const sectionId = sectionIds[previousStep];
@@ -13697,7 +14387,6 @@ Estamos te aguardando! 😎✂️`;
 
     // Mapear tabs para chaves de tutorial
     const tutorialKeyMap: { [key: string]: string } = {
-      'appointments': 'appointments',
       'service-categories': 'services',
       'products': 'products',
       'professionals': 'professionals',
@@ -14671,6 +15360,73 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
+                  {showAppointmentsIntroButtons && (
+                    <div className="fixed inset-0 z-[10000] bg-black/55 flex items-center justify-center p-4">
+                      <div className="relative w-full max-w-2xl rounded-2xl border border-gray-300 bg-white shadow-2xl p-5 sm:p-6">
+                        <button
+                          type="button"
+                          onClick={() => setShowAppointmentsIntroButtons(false)}
+                          className="absolute top-3 right-3 h-8 w-8 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800 transition-colors flex items-center justify-center"
+                          aria-label="Fechar"
+                          title="Fechar"
+                        >
+                          ✕
+                        </button>
+                        <h3 className="text-lg sm:text-xl font-extrabold text-gray-900 text-center mb-4">
+                          Como você quer continuar?
+                        </h3>
+                        <p className="text-sm text-gray-600 text-center mb-5">
+                          Escolha uma opção para entrar em Meus Agendamentos.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick={startAppointmentsTutorial}
+                            className="w-full px-4 py-4 rounded-xl bg-black text-white font-semibold hover:bg-gray-800 transition-colors text-sm sm:text-base"
+                          >
+                            Sou novo aqui, quero saber como funciona
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDismissAppointmentsIntroWithConfirm}
+                            className="w-full px-4 py-4 rounded-xl bg-gray-100 text-gray-900 border border-gray-300 font-semibold hover:bg-gray-200 transition-colors text-sm sm:text-base"
+                          >
+                            Já conheço o sistema, não quero mais ver isso
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {showAppointmentsIntroConfirmModal && (
+                    <div className="fixed inset-0 z-[10030] bg-black/60 flex items-center justify-center p-4">
+                      <div className="w-full max-w-md rounded-2xl border border-gray-300 bg-white shadow-2xl p-5 sm:p-6">
+                        <h3 className="text-lg sm:text-xl font-extrabold text-gray-900 mb-2">
+                          Tem certeza que você conhece o sistema?
+                        </h3>
+                        <p className="text-sm text-gray-700 mb-5">
+                          Se confirmar, não vamos mais mostrar este aviso para este estabelecimento.
+                        </p>
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setShowAppointmentsIntroConfirmModal(false)}
+                            className="flex-1 px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 font-semibold hover:bg-gray-50 transition-colors"
+                          >
+                            Voltar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={dismissAppointmentsIntroPermanently}
+                            className="flex-1 px-4 py-2 rounded-lg bg-black text-white font-semibold hover:bg-gray-800 transition-colors"
+                          >
+                            Tenho certeza
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* ===== NOVA VISUALIZAÇÃO - TODOS OS PROFISSIONAIS ===== */}
                   <div className="mb-6">
                     <AllProfessionalsAppointmentsView
@@ -14708,6 +15464,11 @@ Estamos te aguardando! 😎✂️`;
                       onGoToClients={handleGoToClients}
                       onCancelAppointment={handleCancelClick}
                       onClientNoShow={handleClientNoShowFromAppointment}
+                      onAppointmentDetailsOpen={() => {
+                        if (showAppointmentsTutorial && appointmentsTutorialStep === 6) {
+                          setAppointmentsTutorialDetailsOpened(true);
+                        }
+                      }}
                       useLightLayout={useLightLayout}
                       canViewBarbershopCash={
                         !(
@@ -14722,51 +15483,7 @@ Estamos te aguardando! 😎✂️`;
                     />
                   </div>
 
-                  {/* Vídeo Tutorial de Agendamentos */}
-                  {showTutorials.appointments && (
-                    <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center animate-spin">
-                            <span className="text-gray-700 text-xl">⏳</span>
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Agendamentos</h3>
-                            <p className="text-sm text-gray-600">Vídeo novo em breve...</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => toggleTutorial('appointments')}
-                          className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
-                        >
-                          Ocultar
-                        </button>
-                      </div>
-
-                      <div className="relative w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-12 text-center">
-                        <div className="flex flex-col items-center justify-center space-y-4">
-                          <div className="w-20 h-20 bg-gray-300 rounded-full flex items-center justify-center animate-pulse">
-                            <span className="text-4xl">🎬</span>
-                          </div>
-                          <h4 className="text-xl font-bold text-gray-800">Vídeo Novo em Breve</h4>
-                          <p className="text-gray-600">Estamos preparando um tutorial atualizado para você!</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Botão para mostrar tutorial se estiver oculto */}
-                  {!showTutorials.appointments && (
-                    <div className="mb-6 text-center">
-                      <button
-                        onClick={() => toggleTutorial('appointments')}
-                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
-                      >
-                        <span>📺</span>
-                        <span>Mostrar Tutorial</span>
-                      </button>
-                    </div>
-                  )}
+                  {/* Tutorial de agendamentos removido a pedido do usuário */}
 
                   {/* Logo do Sistema - Apenas Desktop */}
                   <div className="hidden md:flex justify-center mb-6">
@@ -16849,13 +17566,13 @@ Estamos te aguardando! 😎✂️`;
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-xl font-bold">Configuração Passo-a-Passo</h2>
                         <div className="text-sm">
-                          Etapa {quizStep} de 10
+                          Etapa {quizStep} de {QUIZ_TOTAL_STEPS}
                         </div>
                       </div>
                       <div className="w-full bg-white/20 rounded-full h-2 mb-4">
                         <div
                           className="bg-white rounded-full h-2 transition-all duration-300"
-                          style={{ width: `${(quizStep / 10) * 100}%` }}
+                          style={{ width: `${(quizStep / QUIZ_TOTAL_STEPS) * 100}%` }}
                         ></div>
                       </div>
                       {quizAlertMessage && (
@@ -16863,6 +17580,9 @@ Estamos te aguardando! 😎✂️`;
                           ⚠️ {quizAlertMessage}
                         </div>
                       )}
+                      <div className="text-xs text-white/80 bg-white/10 border border-white/15 rounded-lg px-3 py-2">
+                        Siga etapa por etapa. No fim, todas as configuracoes ficam liberadas.
+                      </div>
                     </div>
                   )}
 
@@ -17085,84 +17805,8 @@ Estamos te aguardando! 😎✂️`;
                     <ValidityDisplay establishmentId={establishment.id} />
                   )}
 
-                  {/* ✅ Alerta chamativo (substitui vídeo) — organizado para PC e celular */}
-                  <div className="rounded-xl border border-[#009EE3]/35 bg-gradient-to-br from-[#009EE3]/15 via-[#1a1b1c] to-black/40 p-4 sm:p-6 mb-6">
-                    <div className="flex justify-center -mt-2 mb-3">
-                      <div className="animate-pulse px-3 py-1 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-200 text-[11px] font-extrabold tracking-widest">
-                        LEIA COM ATENÇÃO
-                      </div>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                      <div className="w-11 h-11 rounded-xl bg-[#009EE3]/20 border border-[#009EE3]/30 flex items-center justify-center flex-shrink-0">
-                        <span className="text-[#009EE3] text-xl">🧭</span>
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                          <h3 className="text-base sm:text-lg font-extrabold text-white">
-                            Configure seu estabelecimento passo a passo
-                          </h3>
-                          <div className="text-[11px] text-white/60">
-                            Dica: leia com atenção e marque apenas o que seu estabelecimento oferece.
-                          </div>
-                        </div>
-
-                        <div className="mt-3 space-y-2 text-sm text-white/85 leading-relaxed">
-                          <p>
-                            Aqui você ajusta sua página, horários, regras e integrações. Uma configuração bem feita evita
-                            problemas no agendamento e deixa a experiência do cliente muito mais profissional.
-                          </p>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div className="rounded-lg bg-black/25 border border-white/10 p-3">
-                              <div className="text-xs font-bold text-white/80 mb-1">✅ O que revisar</div>
-                              <ul className="text-xs text-white/70 space-y-1">
-                                <li>- Horários de funcionamento e pausas</li>
-                                <li>- Profissionais e serviços</li>
-                                <li>- Links (localização, redes sociais, avaliações)</li>
-                                <li>- Regras (cancelamento, CPF, etc.)</li>
-                              </ul>
-                            </div>
-
-                            <div className="rounded-lg bg-black/25 border border-white/10 p-3">
-                              <div className="text-xs font-bold text-white/80 mb-1">💳 Mercado Pago (opcional)</div>
-                              <ul className="text-xs text-white/70 space-y-1">
-                                <li>- Conecte sua conta para liberar pagamento antecipado</li>
-                                <li>- Você escolhe: <strong className="text-white/85">obrigatório</strong> ou <strong className="text-white/85">opcional</strong></li>
-                                <li>- O valor cai na hora na sua conta do Mercado Pago</li>
-                              </ul>
-                            </div>
-                          </div>
-
-                          <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3">
-                            <div className="text-xs font-extrabold text-amber-200">Antes de continuar</div>
-                            <div className="text-xs text-amber-100/90 mt-1">
-                              Se você ainda não tem conta no Mercado Pago, crie uma conta primeiro. Depois volte aqui e
-                              clique em <strong>Conectar conta Mercado Pago</strong> para habilitar a opção de pagamento
-                              antecipado.
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Imagem (Página AG) - SOMENTE no PC, dentro do card */}
-                      {(!isNewUser || (isNewUser && quizStep === 1)) && (
-                        <div className="hidden lg:block w-[360px] xl:w-[420px] flex-shrink-0">
-                          <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-                            <img
-                              src="/pagina%20ag.png"
-                              alt="Página AG"
-                              className="w-full h-auto rounded-lg object-contain max-h-[320px] mx-auto"
-                              loading="lazy"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
                   {/* Imagem (Página AG) - acima de Informações Básicas */}
-                  {(!isNewUser || (isNewUser && quizStep === 1)) && (
+                  {(!isNewUser || (isNewUser && quizStep <= 3)) && (
                     <div className="mb-6 lg:hidden">
                       <div
                         className="bg-[#1a1b1c] rounded-lg p-3 sm:p-4 border border-gray-800"
@@ -17178,24 +17822,59 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Informações Básicas - Apenas para usuários antigos OU etapa 1 do quiz */}
-                  {(!isNewUser || (isNewUser && quizStep === 1)) && (
+                  {/* Informações Básicas - Assistente inicial simplificado */}
+                  {(!isNewUser || (isNewUser && quizStep <= 3)) && (
                     <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 mb-6">
                       <h2 className="text-xl font-semibold mb-4">Informações Básicas</h2>
                       <div className="space-y-4">
-                        <div>
+                        {(!isNewUser || quizStep === 1) && (
+                        <div id="quiz-step-info-basica">
                           <label className="block text-sm font-medium mb-1">Nome do Estabelecimento</label>
+                          {isNewUser && (
+                            <p className="text-sm text-gray-300 mb-2">
+                              Este e o nome do seu estabelecimento?
+                            </p>
+                          )}
                           <input
+                            id="wizard-establishment-name"
                             type="text"
                             value={establishment?.name || ''}
                             onChange={(e) => handleInputChange('name', e.target.value)}
                             className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
                           />
+                          {isNewUser && quizStep === 1 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={handleQuizNext}
+                                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                              >
+                                Sim, continuar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const el = document.getElementById('wizard-establishment-name');
+                                  if (el instanceof HTMLInputElement) el.focus();
+                                }}
+                                className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
+                              >
+                                Editar nome
+                              </button>
+                            </div>
+                          )}
                         </div>
+                        )}
 
                         {/* Logo do Estabelecimento */}
-                        <div>
+                        {(!isNewUser || quizStep === 2) && (
+                        <div id="quiz-step-foto">
                           <label className="block text-sm font-medium mb-1">Logo do Estabelecimento</label>
+                          {isNewUser && (
+                            <p className="text-sm text-gray-300 mb-2">
+                              Esta e a foto do seu estabelecimento?
+                            </p>
+                          )}
                           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                             <div className="relative w-24 h-24 flex-shrink-0">
                               <div className="w-24 h-24 rounded-full overflow-hidden bg-[#242628] border-2 border-dashed border-gray-700">
@@ -17224,6 +17903,7 @@ Estamos te aguardando! 😎✂️`;
                               <label className="absolute bottom-0 right-0 p-1 bg-primary rounded-full cursor-pointer hover:bg-primary/80 transition-colors">
                                 <Plus className="h-4 w-4 text-white" />
                                 <input
+                                  ref={wizardLogoInputRef}
                                   type="file"
                                   accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
                                   onChange={handleLogoChange}
@@ -17249,8 +17929,28 @@ Estamos te aguardando! 😎✂️`;
                               </button>
                             </div>
                           </div>
+                          {isNewUser && quizStep === 2 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={handleQuizNext}
+                                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                              >
+                                Sim, continuar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => wizardLogoInputRef.current?.click()}
+                                className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
+                              >
+                                Adicionar foto
+                              </button>
+                            </div>
+                          )}
                         </div>
+                        )}
 
+                        {!isNewUser && (
                         <div>
                           <label className="block text-sm font-medium mb-1">Descrição</label>
                           <textarea
@@ -17260,8 +17960,10 @@ Estamos te aguardando! 😎✂️`;
                             rows={4}
                           />
                         </div>
+                        )}
 
                         {/* Segunda Unidade */}
+                        {(!isNewUser || quizCompleted) && (
                         <div className="rounded-lg border border-gray-600 bg-[#1e1f20] p-4">
                           <h3 className="text-sm font-semibold text-white mb-1">Segunda Unidade</h3>
                           <p className="text-xs text-gray-400 mb-3">
@@ -17394,8 +18096,10 @@ Estamos te aguardando! 😎✂️`;
                             </div>
                           )}
                         </div>
+                        )}
 
-                        <div>
+                        {(!isNewUser || quizStep === 3) && (
+                        <div id="quiz-step-senha">
                           <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
                             <label className="block text-sm font-extrabold text-white">🔐 Senha de 4 dígitos (segurança do sistema)</label>
                             <button
@@ -17424,20 +18128,59 @@ Estamos te aguardando! 😎✂️`;
                                 <div className="text-sm font-extrabold text-amber-100">
                                   Importante: isso deixa seu sistema mais restritivo (recomendado)
                                 </div>
-                                <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
-                                  A senha salva aqui pode ser usada para <strong>bloquear/autorizar ações sensíveis</strong>, como:
-                                  <span className="block mt-1">
-                                    • Entrar em <strong>Configurações / Página</strong><br />
-                                    • Entrar em <strong>Meus serviços</strong> (criar/editar/excluir serviços)<br />
-                                    • Entrar em <strong>Meus assinantes</strong><br />
-                                    • Entrar no <strong>Financeiro</strong> e ver/alterar dados (inclusive de outros profissionais)<br />
-                                    • Alterar dados dos profissionais (ex: <strong>% comissão</strong> e senha)<br />
-                                    • Cancelar agendamentos quando o sistema exigir senha
-                                  </span>
-                                </div>
+                                {isNewUser ? (
+                                  <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
+                                    Quantos profissionais trabalham no seu estabelecimento?
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
+                                    A senha salva aqui pode ser usada para <strong>bloquear/autorizar ações sensíveis</strong>, como:
+                                    <span className="block mt-1">
+                                      • Entrar em <strong>Configurações / Página</strong><br />
+                                      • Entrar em <strong>Meus serviços</strong> (criar/editar/excluir serviços)<br />
+                                      • Entrar em <strong>Meus assinantes</strong><br />
+                                      • Entrar no <strong>Financeiro</strong> e ver/alterar dados (inclusive de outros profissionais)<br />
+                                      • Alterar dados dos profissionais (ex: <strong>% comissão</strong> e senha)<br />
+                                      • Cancelar agendamentos quando o sistema exigir senha
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
+                          {isNewUser && (
+                            <div className="mb-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWizardProfessionalCount('one');
+                                  if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'one');
+                                }}
+                                className={`px-3 py-2 rounded-lg border text-sm font-semibold ${
+                                  wizardProfessionalCount === 'one'
+                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                    : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
+                                }`}
+                              >
+                                Apenas 1
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWizardProfessionalCount('multiple');
+                                  if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'multiple');
+                                }}
+                                className={`px-3 py-2 rounded-lg border text-sm font-semibold ${
+                                  wizardProfessionalCount === 'multiple'
+                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                    : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
+                                }`}
+                              >
+                                Mais de 1
+                              </button>
+                            </div>
+                          )}
+                          {(!isNewUser || wizardProfessionalCount === 'multiple') && (
                           <div className="flex gap-2">
                             <input
                               type="password"
@@ -17454,24 +18197,52 @@ Estamos te aguardando! 😎✂️`;
                               ✅ Salvar Senha
                             </button>
                           </div>
+                          )}
                           <p className="text-sm text-gray-400 mt-1">
                             {establishment?.pin_password && establishment.pin_password !== '0000' ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
                           </p>
+                          {isNewUser && quizStep === 3 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={handleQuizNext}
+                                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                              >
+                                Confirmar e continuar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setQuizAlertMessage('Você pode ajustar essa etapa antes de continuar.')}
+                                className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
+                              >
+                                Editar
+                              </button>
+                            </div>
+                          )}
                         </div>
+                        )}
                       </div>
                     </div>
                   )}
 
-                  {/* Seção de Comodidades - Etapa 1 do Quiz */}
-                  {(!isNewUser || quizStep === 1) && (
+                  {/* Seção de Comodidades - Etapa 4 do Quiz */}
+                  {(!isNewUser || quizStep === 4) && (
                     <div id="quiz-section-comodidades" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                       <h3 className="text-lg font-medium text-white mb-4">
-                        {isNewUser && quizStep === 1 ? '1. Comodidades' : 'Comodidades/Oque seu estabelecimento oferece'}
+                        {isNewUser && quizStep === 4 ? '4. O que seu estabelecimento oferece e o que voce pede?' : 'O que seu estabelecimento oferece e o que voce pede?'}
                       </h3>
                       <p className="text-sm text-gray-400 mb-4">
-                        Selecione as comodidades disponíveis no seu estabelecimento:
+                        Marque o que seu cliente encontra no local e as regras que voce quer no agendamento.
                       </p>
+                      <div className="mb-4 rounded-lg border border-blue-500/25 bg-blue-500/10 p-3">
+                        <p className="text-xs text-blue-100">
+                          Dica rapida: quanto mais claro isso ficar, menos duvida e menos problema no atendimento.
+                        </p>
+                      </div>
                       <div className="space-y-4">
+                        <div className="ml-1 mb-1">
+                          <span className="text-primary font-semibold text-sm">No seu local, o cliente encontra:</span>
+                        </div>
                         {/* Wi-fi + Senha + Nome da Rede */}
                         <div className="space-y-2">
                           <label className="inline-flex items-center space-x-2">
@@ -17575,11 +18346,22 @@ Estamos te aguardando! 😎✂️`;
                             }}
                             className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                           />
-                          <span className="text-white">Local Climatizado</span>
+                          <span className="text-white">Ar-condicionado (local climatizado)</span>
                         </label>
+                        {isNewUser && (
+                          <label className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={wizardOtherAmenity}
+                              onChange={(e) => setWizardOtherAmenity(e.target.checked)}
+                              className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                            />
+                            <span className="text-white">Outros</span>
+                          </label>
+                        )}
 
-                        <div className="ml-7 mt-2 mb-2">
-                          <span className="text-primary font-semibold text-sm">agendamentos dos clientes</span>
+                        <div className="ml-1 mt-3 mb-2">
+                          <span className="text-primary font-semibold text-sm">No agendamento, voce quer pedir:</span>
                         </div>
 
                         <label className="flex items-center space-x-2">
@@ -17598,7 +18380,7 @@ Estamos te aguardando! 😎✂️`;
                             className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                           />
                           <div className="flex flex-col flex-1">
-                            <span className="text-white text-sm sm:text-base">Cancelamento</span>
+                            <span className="text-white text-sm sm:text-base">Cancelar pelo WhatsApp (pedido de cancelamento)</span>
                             <span className="hidden sm:inline text-xs text-gray-400 mt-1">
                               Ao ativar essa opção seus clientes não podem agendar e depois cancelar, mas sim terá um botão que o cliente clica e envia uma mensagem no seu WhatsApp com a mensagem "Olá, queria cancelar agendamento... motivo é"
                             </span>
@@ -17631,7 +18413,7 @@ Estamos te aguardando! 😎✂️`;
                             className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                           />
                           <div className="flex flex-col flex-1">
-                            <span className="text-white text-sm sm:text-base">Clientes assinantes não podem desmarcar e remarcar no mesmo dia</span>
+                            <span className="text-white text-sm sm:text-base">Assinante nao pode cancelar e remarcar no mesmo dia</span>
                             <span className="hidden sm:inline text-xs text-gray-400 mt-1">
                               Se ativada, quando um assinante cancelar um agendamento, não poderá remarcar para o mesmo dia. Exemplo: Se hoje é terça-feira e o assinante desmarcou, não poderá remarcar na terça-feira.
                             </span>
@@ -17664,7 +18446,7 @@ Estamos te aguardando! 😎✂️`;
                             className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
                           />
                           <div className="flex flex-col flex-1">
-                            <span className="text-white text-sm sm:text-base">Pedir CPF antes do agendamento</span>
+                            <span className="text-white text-sm sm:text-base">Pedir CPF antes de confirmar o agendamento</span>
                             <span className="hidden sm:inline text-xs text-gray-400 mt-1">
                               Se ativada, os clientes serão obrigados a informar o CPF durante o agendamento. Útil para estabelecimentos que emitem nota fiscal.
                             </span>
@@ -18549,24 +19331,31 @@ Estamos te aguardando! 😎✂️`;
                         </label>
                       </div>
                       {/* Botão Próximo - Etapa 1 */}
-                      {isNewUser && quizStep === 1 && (
+                      {isNewUser && quizStep === 4 && (
                         <div className="mt-6 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setQuizAlertMessage('Você pode editar as comodidades e depois confirmar.')}
+                            className="mr-2 px-6 py-3 bg-[#2a2b2c] border border-gray-600 text-white rounded-lg hover:border-gray-500 transition-colors font-semibold"
+                          >
+                            Editar
+                          </button>
                           <button
                             onClick={handleQuizNext}
                             className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                           >
-                            Próximo →
+                            Confirmar e continuar
                           </button>
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* Configuração de Intervalo - Etapa 2 do Quiz */}
-                  {(!isNewUser || quizStep === 2) && (
+                  {/* Configuração de Intervalo - Etapa 5 do Quiz */}
+                  {(!isNewUser || quizStep === 5) && (
                     <div id="quiz-section-horarios" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
                       <h3 className="text-lg font-medium text-white mb-4">
-                        {isNewUser && quizStep === 2 ? '2. Configuração de Horários' : 'Configuração de Horários'}
+                        {isNewUser && quizStep === 5 ? '5. Configuração de Horários' : 'Configuração de Horários'}
                       </h3>
                       <div className="space-y-4">
                         <div className="flex items-start space-x-3">
@@ -18759,8 +19548,8 @@ Estamos te aguardando! 😎✂️`;
                           </label>
                         </div>
                       </div>
-                      {/* Botões de Navegação - Etapa 2 */}
-                      {isNewUser && quizStep === 2 && (
+                      {/* Botões de Navegação - Etapa 5 */}
+                      {isNewUser && quizStep === 5 && (
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={handleQuizPrevious}
@@ -18779,12 +19568,12 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Horário de Funcionamento - Etapa 3 do Quiz */}
-                  {(!isNewUser || quizStep === 3) && (
+                  {/* Horário de Funcionamento - Etapa 6 do Quiz */}
+                  {(!isNewUser || quizStep === 6) && (
                     <div id="quiz-section-funcionamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                       <div className="mb-4">
                         <h3 className="text-lg font-extrabold text-white">
-                          {isNewUser && quizStep === 3 ? '3. Horários e dias de funcionamento' : 'Horários e dias de funcionamento'}
+                          {isNewUser && quizStep === 6 ? '6. Horários e dias de funcionamento' : 'Horários e dias de funcionamento'}
                         </h3>
                         <div className="mt-2 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
                           <span className="font-extrabold">Preencha quais dias e horários seu estabelecimento abre.</span> Marque os dias que abre e ajuste os horários.
@@ -18854,7 +19643,7 @@ Estamos te aguardando! 😎✂️`;
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div className="space-y-2">
                                       <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                        {isNewUser && quizStep === 3 ? 'Qual horário você abre?' : 'Abertura'}
+                                        {isNewUser && quizStep === 6 ? 'Qual horário você abre?' : 'Abertura'}
                                       </label>
                                       <TimeSelector
                                         value={hours.open1}
@@ -18867,8 +19656,8 @@ Estamos te aguardando! 😎✂️`;
                                     <div className="space-y-2">
                                       <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
                                         {isNoIntervalModeEnabled(businessHours)
-                                          ? (isNewUser && quizStep === 3 ? 'Fechamento do estabelecimento' : 'Fechamento do estabelecimento')
-                                          : (isNewUser && quizStep === 3 ? 'Qual seu fechamento para intervalo?' : 'Fecha p/ Intervalo')}
+                                          ? (isNewUser && quizStep === 6 ? 'Fechamento do estabelecimento' : 'Fechamento do estabelecimento')
+                                          : (isNewUser && quizStep === 6 ? 'Qual seu fechamento para intervalo?' : 'Fecha p/ Intervalo')}
                                       </label>
                                       <TimeSelector
                                         value={hours.close1}
@@ -18920,8 +19709,8 @@ Estamos te aguardando! 😎✂️`;
                           );
                         })}
                       </div>
-                      {/* Botões de Navegação - Etapa 3 */}
-                      {isNewUser && quizStep === 3 && (
+                      {/* Botões de Navegação - Etapa 6 */}
+                      {isNewUser && quizStep === 6 && (
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={handleQuizPrevious}
@@ -18940,11 +19729,11 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Fotos Personalizadas - Etapa 4 do Quiz */}
-                  {(!isNewUser || quizStep === 4) && (
+                  {/* Fotos Personalizadas - Etapa 7 do Quiz */}
+                  {(!isNewUser || quizStep === 7) && (
                     <div id="quiz-section-fotos" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                       <h3 className="text-lg font-medium text-white mb-4">
-                        {isNewUser && quizStep === 4 ? '4. Fotos do Estabelecimento' : 'Fotos do Estabelecimento'}
+                        {isNewUser && quizStep === 7 ? '7. Fotos do Estabelecimento' : 'Fotos do Estabelecimento'}
                       </h3>
                       <p className="text-sm text-gray-400 mb-2">
                         Adicione até 7 fotos do seu estabelecimento que serão exibidas para os clientes
@@ -19339,7 +20128,7 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                       </div>
                       {/* Botões de Navegação - Etapa 4 */}
-                      {isNewUser && quizStep === 4 && (
+                      {isNewUser && quizStep === 7 && (
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={handleQuizPrevious}
@@ -19358,15 +20147,15 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Configurações do PIX - Etapa 5 do Quiz */}
-                  {(!isNewUser || quizStep === 5) && (
+                  {/* Configurações do PIX - Etapa 8 do Quiz */}
+                  {(!isNewUser || quizStep === 8) && (
                     <div id="quiz-section-pix">
                       <EstablishmentPixSettings
                         establishment={establishment}
                         onSave={handleSavePixSettings}
                       />
-                      {/* Botões de Navegação - Etapa 5 */}
-                      {isNewUser && quizStep === 5 && (
+                      {/* Botões de Navegação - Etapa 8 */}
+                      {isNewUser && quizStep === 8 && (
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={handleQuizPrevious}
@@ -19387,11 +20176,11 @@ Estamos te aguardando! 😎✂️`;
 
 
 
-                  {/* Links Personalizados - Etapa 6 do Quiz */}
-                  {(!isNewUser || quizStep === 6) && (
+                  {/* Links Personalizados - Etapa 9 do Quiz */}
+                  {(!isNewUser || quizStep === 9) && (
                     <div id="quiz-section-links" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                       <h3 className="text-lg font-medium text-white mb-4">
-                        {isNewUser && quizStep === 6 ? '6. Links Personalizados' : 'Links Personalizados'}
+                        {isNewUser && quizStep === 9 ? '9. Links Personalizados' : 'Links Personalizados'}
                       </h3>
                       <div className="space-y-4">
                         <div>
@@ -19471,8 +20260,8 @@ Estamos te aguardando! 😎✂️`;
                           />
                         </div>
                       </div>
-                      {/* Botões de Navegação - Etapa 6 */}
-                      {isNewUser && quizStep === 6 && (
+                      {/* Botões de Navegação - Etapa 12 */}
+                      {isNewUser && quizStep === 9 && (
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={handleQuizPrevious}
@@ -19512,12 +20301,12 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Configurações de WhatsApp - Etapa 7 do Quiz */}
-                  {(!isNewUser || quizStep === 7) && (
+                  {/* Configurações de WhatsApp - Etapa 10 do Quiz */}
+                  {(!isNewUser || quizStep === 10) && (
                     <div id="quiz-section-whatsapp" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
                       <div className="mb-4">
                         <h3 className="text-lg font-extrabold text-white">
-                          {isNewUser && quizStep === 7 ? '7. WhatsApp do estabelecimento' : 'WhatsApp do estabelecimento'}
+                          {isNewUser && quizStep === 10 ? '10. WhatsApp do estabelecimento' : 'WhatsApp do estabelecimento'}
                         </h3>
                         <div className="mt-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
                           <span className="font-extrabold">Esse é o WhatsApp do seu estabelecimento?</span> É para este número que seus clientes vão chamar, cancelar e receber lembretes.
@@ -19550,7 +20339,7 @@ Estamos te aguardando! 😎✂️`;
                             Digite apenas números, incluindo código do país (55) e DDD.
                           </p>
 
-                          {isNewUser && quizStep === 7 && (
+                          {isNewUser && quizStep === 10 && (
                             <div className="mt-3">
                               <button
                                 type="button"
@@ -19564,8 +20353,8 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                       </div>
 
-                      {/* Botões de Navegação - Etapa 7 */}
-                      {isNewUser && quizStep === 7 && (
+                      {/* Botões de Navegação - Etapa 10 */}
+                      {isNewUser && quizStep === 10 && (
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={handleQuizPrevious}
@@ -19584,12 +20373,12 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Configurações de Pagamento - Etapa 8 do Quiz */}
-                  {(!isNewUser || quizStep === 8) && (
+                  {/* Configurações de Pagamento - Etapa 11 do Quiz */}
+                  {(!isNewUser || quizStep === 11) && (
                     <div id="quiz-section-pagamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
                       <div className="mb-4">
                         <h3 className="text-lg font-extrabold text-white">
-                          {isNewUser && quizStep === 8 ? '8. Taxas da maquininha (controle)' : 'Taxas da maquininha (controle)'}
+                          {isNewUser && quizStep === 11 ? '11. Taxas da maquininha (controle)' : 'Taxas da maquininha (controle)'}
                         </h3>
                         <div className="mt-2 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
                           <span className="font-extrabold">Essas são as taxas da maquininha do seu estabelecimento.</span>{' '}
@@ -19775,8 +20564,8 @@ Estamos te aguardando! 😎✂️`;
                           Salvar Taxas
                         </button>
                       </div>
-                      {/* Botões de Navegação - Etapa 8 */}
-                      {isNewUser && quizStep === 8 && (
+                      {/* Botões de Navegação - Etapa 11 */}
+                      {isNewUser && quizStep === 11 && (
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={handleQuizPrevious}
@@ -19795,12 +20584,12 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Formas de Pagamento Disponíveis - Etapa 9 do Quiz */}
-                  {(!isNewUser || quizStep === 9) && (
+                  {/* Formas de Pagamento Disponíveis - Etapa 12 do Quiz */}
+                  {(!isNewUser || quizStep === 12) && (
                     <div id="quiz-section-formas-pagamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
                       <div className="mb-4">
                         <h3 className="text-lg font-extrabold text-white">
-                          {isNewUser && quizStep === 9 ? '9. Formas de pagamento (controle)' : 'Formas de pagamento (controle)'}
+                          {isNewUser && quizStep === 12 ? '12. Formas de pagamento (controle)' : 'Formas de pagamento (controle)'}
                         </h3>
                         <div className="mt-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
                           <span className="font-extrabold">Atenção:</span> essas formas de pagamento são para <strong>seu controle</strong>.
@@ -19978,7 +20767,7 @@ Estamos te aguardando! 😎✂️`;
                         </p>
                       </div>
                       {/* Botões de Navegação - Etapa 9 */}
-                      {isNewUser && quizStep === 9 && (
+                      {isNewUser && quizStep === 12 && (
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={handleQuizPrevious}
@@ -19997,10 +20786,10 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Confirmação Final - Etapa 10 do Quiz */}
-                  {isNewUser && quizStep === 10 && (
+                  {/* Confirmação Final - Etapa 13 do Quiz */}
+                  {isNewUser && quizStep === 13 && (
                     <div id="quiz-section-confirmacao" className="bg-gradient-to-r from-gray-800 to-black rounded-lg p-6 border border-gray-600 mb-6">
-                      <h3 className="text-2xl font-bold text-white mb-4 text-center">10. Confirmação Final</h3>
+                      <h3 className="text-2xl font-bold text-white mb-4 text-center">13. Confirmação Final</h3>
                       <div className="bg-white/10 rounded-lg p-6 mb-6">
                         <p className="text-white text-lg mb-4 text-center">
                           Confirme que todas as informações estão corretas antes de finalizar:
@@ -20166,14 +20955,14 @@ Estamos te aguardando! 😎✂️`;
                   {/* Checkbox de Aceite de Termos */}
                   {/* Para novos usuários: só aparece na etapa 10 do quiz */}
                   {/* Para usuários antigos: aparece durante o onboarding normal */}
-                  {((isNewUser && quizStep === 10) || (!isNewUser && onboardingStep < 4)) && (
-                    <div className={`${(isNewUser && quizStep === 10) || (!isNewUser && onboardingStep === 1) ? 'bg-yellow-400 border-yellow-600' : 'bg-green-400 border-green-600'} border-4 rounded-lg p-5 shadow-lg`}>
+                  {((isNewUser && quizStep === 13) || (!isNewUser && onboardingStep < 4)) && (
+                    <div className={`${(isNewUser && quizStep === 13) || (!isNewUser && onboardingStep === 1) ? 'bg-yellow-400 border-yellow-600' : 'bg-green-400 border-green-600'} border-4 rounded-lg p-5 shadow-lg`}>
                       <label className="flex items-start gap-3 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={termsAccepted || (!isNewUser && onboardingStep > 1)}
                           onChange={(e) => {
-                            if (isNewUser && quizStep === 10) {
+                            if (isNewUser && quizStep === 13) {
                               setTermsAccepted(e.target.checked);
                             } else if (!isNewUser && onboardingStep === 1) {
                               setTermsAccepted(e.target.checked);
@@ -20186,7 +20975,7 @@ Estamos te aguardando! 😎✂️`;
                           ✅ Aceito os termos desses serviços e confirmo que todas as informações fornecidas estão corretas.
                         </span>
                       </label>
-                      {((isNewUser && quizStep === 10 && !termsAccepted) || (!isNewUser && onboardingStep === 1 && !termsAccepted)) && (
+                      {((isNewUser && quizStep === 13 && !termsAccepted) || (!isNewUser && onboardingStep === 1 && !termsAccepted)) && (
                         <p className="text-base text-red-700 font-bold mt-3 ml-10 bg-red-100 p-2 rounded border-2 border-red-500">
                           ⚠️ Você precisa aceitar os termos antes de prosseguir
                         </p>
@@ -21676,6 +22465,7 @@ Estamos te aguardando! 😎✂️`;
                     </h3>
                     <button
                       onClick={handleCloseAbsenceModal}
+                      data-tutorial-id="absence-close"
                       className="text-gray-400 hover:text-white transition-colors"
                     >
                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -21834,6 +22624,7 @@ Estamos te aguardando! 😎✂️`;
                     </h3>
                     <button
                       onClick={handleCloseBlockTimeModal}
+                      data-tutorial-id="block-time-close"
                       className="text-gray-400 hover:text-white transition-colors"
                     >
                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -23346,8 +24137,24 @@ Estamos te aguardando! 😎✂️`;
           {activeTab === 'service-categories' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Serviços com Dropdown</h2>
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {isServiceWizardOnboarding ? 'Meus Serviços' : 'Serviços com Dropdown'}
+                </h2>
               </div>
+
+              {isServiceWizardOnboarding && (
+                <div className="mb-6 rounded-lg border border-blue-300 bg-blue-50 p-4">
+                  <h3 className="text-base font-extrabold text-blue-900 mb-2">
+                    Passo a passo simples
+                  </h3>
+                  <div className="text-sm text-blue-900 space-y-1">
+                    <div>1) Clique em <strong>Adicionar primeira categoria</strong>.</div>
+                    <div>2) Entre na categoria e clique em <strong>Adicionar serviço</strong>.</div>
+                    <div>3) Preencha <strong>nome, valor e duração</strong> do serviço.</div>
+                    <div>4) Clique em <strong>Salvar serviços e liberar</strong>.</div>
+                  </div>
+                </div>
+              )}
 
               {/* Botão para completar onboarding e desbloquear tudo */}
               {onboardingStep === 3 && (
@@ -23355,10 +24162,10 @@ Estamos te aguardando! 😎✂️`;
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex-1">
                       <h3 className="text-xl font-bold text-white mb-2">
-                        🎉 Complete seu cadastro!
+                        Finalize seus serviços
                       </h3>
                       <p className="text-gray-200 text-sm">
-                        Clique no botão abaixo para salvar seus serviços e liberar todas as funcionalidades do sistema.
+                        Quando terminar de adicionar os serviços, clique no botão para liberar o sistema.
                       </p>
                     </div>
                     <button
@@ -23459,7 +24266,8 @@ Estamos te aguardando! 😎✂️`;
                           setServicesWithPrices(validServices);
 
                           toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
-                          // ✅ Permanecer na aba de serviços para continuar adicionando categorias/serviços (não redirecionar para o menu)
+                          setActiveTab('appointments');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
                         } catch (error) {
                           console.error('Erro ao completar onboarding:', error);
                           toast.error('Erro ao salvar. Tente novamente.');
@@ -23468,7 +24276,7 @@ Estamos te aguardando! 😎✂️`;
                       className="px-8 py-4 bg-white text-black font-bold text-lg rounded-lg hover:bg-gray-50 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 whitespace-nowrap"
                     >
                       <Check className="h-6 w-6" />
-                      Salvar Serviços e Abrir Todas as Funções
+                      Salvar serviços e liberar
                     </button>
                   </div>
                 </div>
@@ -23484,22 +24292,39 @@ Estamos te aguardando! 😎✂️`;
                     className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
                   >
                     <Plus className="h-4 w-4" />
-                    Adicionar Categoria
+                    {isServiceWizardOnboarding ? 'Adicionar primeira categoria' : 'Adicionar Categoria'}
                   </button>
-                  <button
-                    onClick={() => {
-                      if (!establishment?.id) return;
-                      setShowDiscountCouponsModal(true);
-                    }}
-                    className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Receipt className="h-4 w-4" />
-                    Cupom de desconto
-                  </button>
+                  {!isServiceWizardOnboarding && (
+                    <button
+                      onClick={() => {
+                        if (!establishment?.id) return;
+                        setShowDiscountCouponsModal(true);
+                      }}
+                      className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Receipt className="h-4 w-4" />
+                      Cupom de desconto
+                    </button>
+                  )}
                 </div>
+                {isServiceWizardOnboarding && serviceCategories.length === 0 && (
+                  <div className="mt-2 rounded-lg border border-gray-300 bg-gray-50 p-3 text-xs text-gray-800">
+                    Voce pode organizar de dois jeitos: por categoria (ex.: <strong>Cabelo</strong> e os servicos de cabelo dentro dela)
+                    ou em uma categoria unica (<strong>Meus servicos</strong>) com tudo dentro.
+                  </div>
+                )}
+                {isServiceWizardOnboarding && serviceCategories.length === 0 && (
+                  <button
+                    onClick={() => handleAddCategory('Meus serviços')}
+                    className="mt-2 w-full px-4 py-3 bg-emerald-600 text-white rounded-lg border border-emerald-500 hover:bg-emerald-700 transition-colors text-sm font-extrabold shadow-md"
+                  >
+                    Quero usar só 1 categoria ( meus serviços ) e colocar tudo que faço nela
+                  </button>
+                )}
               </div>
 
               {/* Lembrete/Explicação sobre como usar categorias */}
+              {!isServiceWizardOnboarding && (
               <div className="bg-gray-100 border-l-4 border-gray-400 rounded-lg p-4 mb-6">
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0">
@@ -23513,8 +24338,10 @@ Estamos te aguardando! 😎✂️`;
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Mensagem destacada sobre flexibilidade */}
+              {!isServiceWizardOnboarding && (
               <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0">
@@ -23536,8 +24363,10 @@ Estamos te aguardando! 😎✂️`;
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Botão para salvar serviços e abrir todas as funções */}
+              {!isServiceWizardOnboarding && (
               <div className="mb-6 text-center">
                 <button
                   onClick={async () => {
@@ -23623,7 +24452,8 @@ Estamos te aguardando! 😎✂️`;
                       setServicesWithPrices(validServices);
 
                       toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
-                      // ✅ Permanecer na aba de serviços para continuar adicionando categorias/serviços (não redirecionar para o menu)
+                      setActiveTab('appointments');
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
                     } catch (error) {
                       console.error('Erro ao completar onboarding:', error);
                       toast.error('Erro ao salvar. Tente novamente.');
@@ -23635,16 +24465,21 @@ Estamos te aguardando! 😎✂️`;
                   Salvar Serviços e Abrir Todas as Funções
                 </button>
               </div>
+              )}
 
               {serviceCategories.length === 0 ? (
                 <div className="text-center py-8">
                   <Layers className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                  <p className="text-black mb-4">Nenhuma categoria de serviço cadastrada ainda</p>
+                  <p className="text-black mb-4">
+                    {isServiceWizardOnboarding
+                      ? 'Voce ainda nao criou a primeira categoria.'
+                      : 'Nenhuma categoria de serviço cadastrada ainda'}
+                  </p>
                   <button
                     onClick={() => setShowAddCategoryModal(true)}
                     className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                   >
-                    Adicionar Primeira Categoria
+                    {isServiceWizardOnboarding ? 'Adicionar primeira categoria' : 'Adicionar Primeira Categoria'}
                   </button>
                 </div>
               ) : (
@@ -25589,7 +26424,7 @@ Estamos te aguardando! 😎✂️`;
                     Cancelar
                   </button>
                   <button
-                    onClick={handleAddCategory}
+                    onClick={() => handleAddCategory()}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     Adicionar
@@ -26240,6 +27075,98 @@ Estamos te aguardando! 😎✂️`;
         />
       )}
 
+      {showAppointmentsTutorial && (
+        <>
+          {!isAppointmentsTutorialPreviewStep && appointmentsTutorialHighlightRect && (
+            <div
+              className="fixed z-[10021] rounded-xl border-2 border-white/95 pointer-events-none"
+              style={{
+                top: Math.max(appointmentsTutorialHighlightRect.top - 6, 0),
+                left: Math.max(appointmentsTutorialHighlightRect.left - 6, 0),
+                width: appointmentsTutorialHighlightRect.width + 12,
+                height: appointmentsTutorialHighlightRect.height + 12,
+                boxShadow: '0 0 0 9999px rgba(0,0,0,0.28), 0 0 0 2px rgba(255,255,255,0.45), 0 0 24px rgba(255,255,255,0.35)',
+              }}
+            />
+          )}
+
+          {!isAppointmentsTutorialPreviewStep && !appointmentsTutorialHighlightRect && (
+            <div className="fixed inset-0 z-[10020] bg-black/25 pointer-events-none" />
+          )}
+
+          <div
+            className={`fixed inset-x-0 z-[10022] p-3 sm:p-4 pointer-events-none ${
+              appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
+                ? 'top-0'
+                : 'bottom-0'
+            }`}
+          >
+            <div className="mx-auto w-full max-w-3xl rounded-2xl border border-gray-300 bg-white shadow-2xl p-4 sm:p-5 pointer-events-auto">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Fluxo Tutorial - Primeiros Passos</p>
+                  <h3 className="text-base sm:text-lg font-extrabold text-gray-900">
+                    {appointmentsTutorialCurrent?.title}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeAppointmentsTutorial}
+                  className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-700 mt-2">
+                {appointmentsTutorialStep === 2 && appointmentsTutorialFinancePreview
+                  ? 'Tela de Financeiro aberta. Clique em Próximo para fechar e seguir.'
+                  : appointmentsTutorialStep === 3 && appointmentsTutorialBlockPreview
+                    ? 'Tela de Bloquear Horários aberta. Clique em Próximo para fechar e seguir.'
+                    : appointmentsTutorialStep === 4 && appointmentsTutorialAbsencePreview
+                      ? 'Tela de Ausência aberta. Aqui você pode deixar ausência em algum dia que desejar para que ninguém agende nesse dia. Clique em Próximo para fechar e seguir.'
+                    : appointmentsTutorialStep === 6 && !appointmentsTutorialDetailsOpened
+                      ? 'Agora clique no agendamento criado para abrir os detalhes. Só depois disso o Próximo será liberado.'
+                    : appointmentsTutorialStep === 5 && appointmentsTutorialClientsCompleted
+                      ? 'Reserva avulsa confirmada. Agora vamos ensinar você a ver como funciona a reserva e as opções dela. Clique em Próximo para continuar.'
+                  : appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
+                    ? 'Tela Meus Clientes aberta com Reservar Cliente. Faça a reserva avulsa e clique em Próximo para voltar para Meus Agendamentos.'
+                    : appointmentsTutorialCurrent?.text}
+              </p>
+
+              <div className="mt-4 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={goBackAppointmentsTutorial}
+                  disabled={appointmentsTutorialStep === 0}
+                  className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 font-semibold hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Voltar
+                </button>
+
+                {isAppointmentsTutorialLastStep ? (
+                  <button
+                    type="button"
+                    onClick={closeAppointmentsTutorial}
+                    className="px-4 py-2 rounded-lg bg-black text-white font-semibold hover:bg-gray-800 transition-colors"
+                  >
+                    Finalizar Tutorial
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={goNextAppointmentsTutorial}
+                    className="px-4 py-2 rounded-lg bg-black text-white font-semibold hover:bg-gray-800 transition-colors"
+                  >
+                    Proximo
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Modal de Verificação de Senha para Configurações */}
       <ConfigPasswordModal
         isOpen={showConfigPasswordModal}
@@ -26366,48 +27293,7 @@ Estamos te aguardando! 😎✂️`;
 
       {/* Modais de Tutorial Popup */}
 
-      {/* Modal Tutorial - Meus Agendamentos */}
-      {showTutorialModals.appointments && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
-            <div className="p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">📅 Meus Agendamentos</h2>
-              <p className="text-gray-700 mb-6 text-lg">
-                Estamos preparando um novo vídeo tutorial para você!
-              </p>
-
-              <div className="relative w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-16 text-center mb-4">
-                <div className="flex flex-col items-center justify-center space-y-4">
-                  <div className="w-24 h-24 bg-orange-200 rounded-full flex items-center justify-center animate-pulse">
-                    <span className="text-5xl">🎬</span>
-                  </div>
-                  <h3 className="text-2xl font-bold text-gray-800">Vídeo Novo em Breve</h3>
-                  <p className="text-gray-600 text-lg">Tutorial atualizado chegando em breve!</p>
-                  <div className="flex items-center gap-2 text-orange-600">
-                    <span className="animate-spin text-2xl">⏳</span>
-                    <span className="font-semibold">Aguarde...</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 mt-6">
-                <button
-                  onClick={() => dismissTutorialModal('appointments')}
-                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
-                >
-                  Não quero mais ver isso
-                </button>
-                <button
-                  onClick={() => closeTutorialModal('appointments')}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                >
-                  Fechar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal de tutorial de Meus Agendamentos removido */}
 
       {/* Modal Tutorial - Reservar Cliente */}
       {showTutorialModals.reserveClient && (

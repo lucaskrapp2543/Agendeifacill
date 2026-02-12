@@ -1216,6 +1216,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <div className="relative">
                   <button
                     onClick={item.onClick}
+                    data-tutorial-id={`menu-${item.id}`}
                     // ⚠️ Não desabilitar itens bloqueados pelo onboarding:
                     // queremos permitir o clique para mostrar a mensagem de "siga o passo a passo".
                     // Só desabilitamos itens realmente "Em breve" (sem ação).

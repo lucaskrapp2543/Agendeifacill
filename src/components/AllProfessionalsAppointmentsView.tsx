@@ -108,6 +108,7 @@ interface AllProfessionalsAppointmentsViewProps {
   onGoToClients?: () => void;
   onCancelAppointment?: (appointmentId: string) => void;
   onClientNoShow?: (appointment: Appointment) => void;
+  onAppointmentDetailsOpen?: () => void;
   use15MinuteInterval?: boolean;
   use20MinuteSchedule?: boolean;
   use60MinuteSchedule?: boolean;
@@ -143,6 +144,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onGoToClients,
   onCancelAppointment,
   onClientNoShow,
+  onAppointmentDetailsOpen,
   use15MinuteInterval,
   use20MinuteSchedule,
   use60MinuteSchedule,
@@ -1125,10 +1127,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const toggleAppointmentExpansion = (appointmentId: string) => {
-      setExpandedAppointments(prev => ({
-        ...prev,
-        [appointmentId]: !prev[appointmentId]
-      }));
+      setExpandedAppointments(prev => {
+        const nextIsExpanded = !prev[appointmentId];
+        if (nextIsExpanded) {
+          onAppointmentDetailsOpen?.();
+        }
+        return {
+          ...prev,
+          [appointmentId]: nextIsExpanded
+        };
+      });
     };
 
     const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed') => {
@@ -1864,6 +1872,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             <button
               type="button"
               onClick={handleOpenBarbershopCash}
+              data-tutorial-id="appointments-caixa"
               className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold transition-colors disabled:opacity-60"
               disabled={isLoadingBarbershopCashOpening}
             >
@@ -2169,6 +2178,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 return (
                   <div
                     key={professional.id}
+                    data-tutorial-id="appointments-professional-area"
                     className={`flex-shrink-0 ${index !== 0
                       ? useLightLayout
                         ? 'border-l border-black/20'
@@ -2222,6 +2232,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           <div className="flex gap-1">
                             <button
                               onClick={() => setSelectedProfessionalForInfo(professional.id)}
+                              data-tutorial-id="appointments-financeiro"
                               className={`flex-1 px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
                                 ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
                                 : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
@@ -2232,6 +2243,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             {onGoToProfessionalConfig && (
                               <button
                                 onClick={() => onGoToProfessionalConfig(professional.id)}
+                                data-tutorial-id="appointments-config"
                                 className={`flex-1 px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
                                   ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
                                   : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
@@ -2245,6 +2257,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           {onOpenBlockHoursModal && (
                             <button
                               onClick={() => onOpenBlockHoursModal(professional.id)}
+                              data-tutorial-id="appointments-bloquear-horarios"
                               className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
                                 ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
                                 : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
@@ -2257,6 +2270,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           {onOpenAbsenceModal && (
                             <button
                               onClick={() => onOpenAbsenceModal(professional.id)}
+                              data-tutorial-id="appointments-ausencia"
                               className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
                                 ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
                                 : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
@@ -2269,6 +2283,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           {onGoToClients && (
                             <button
                               onClick={onGoToClients}
+                              data-tutorial-id="appointments-criar-reserva"
                               className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
                                 ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
                                 : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
@@ -2283,6 +2298,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setSelectedProfessionalForSqueeze(professional.id);
                               setShowSqueezeServiceModal(true);
                             }}
+                            data-tutorial-id="appointments-criar-encaixe"
                             className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
                               ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
                               : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
@@ -2495,6 +2511,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   <div className="px-3 py-2">
                                     <div
                                       onClick={() => toggleAppointmentExpansion(apt.id)}
+                                      data-tutorial-id="appointments-detalhes-agendamento"
                                       className="cursor-pointer"
                                     >
                                       <div className="flex items-center justify-between mb-1">
@@ -2836,6 +2853,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 e.stopPropagation();
                                                 if (onOpenProductV2Modal) onOpenProductV2Modal(apt.id);
                                               }}
+                                              data-tutorial-id="appointments-detalhes-produto"
                                               className="px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
                                             >
                                               <Package className="w-3 h-3" />
@@ -2847,6 +2865,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 e.stopPropagation();
                                                 if (onOpenAdditionalProductModal) onOpenAdditionalProductModal(apt.id);
                                               }}
+                                              data-tutorial-id="appointments-detalhes-servico-extra"
                                               className="px-2 py-1.5 text-xs bg-white/20 text-white rounded hover:bg-white/30 flex items-center justify-center gap-1"
                                             >
                                               <Plus className="w-3 h-3" />
@@ -2886,6 +2905,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 e.stopPropagation();
                                                 if (onOpenTransferModal) onOpenTransferModal(apt);
                                               }}
+                                              data-tutorial-id="appointments-detalhes-transferir"
                                               className="px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800"
                                             >
                                               🔄 TRANSFERIR
@@ -2896,6 +2916,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 e.stopPropagation();
                                                 if (onOpenFinishEarlyModal) onOpenFinishEarlyModal(apt);
                                               }}
+                                              data-tutorial-id="appointments-detalhes-terminei-antes"
                                               className="px-2 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
                                               title="Terminei antes do tempo planejado"
                                             >
@@ -2913,6 +2934,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                   handleUpdateAppointmentStatus(apt.id, 'cancelled');
                                                 }
                                               }}
+                                              data-tutorial-id="appointments-detalhes-cancelar"
                                               className="px-2 py-1.5 text-xs bg-red-700 text-white rounded hover:bg-red-800"
                                             >
                                               ❌ CANCELAR
@@ -2942,6 +2964,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
                                                 window.open(whatsappUrl, '_blank');
                                               }}
+                                              data-tutorial-id="appointments-detalhes-imprevisto"
                                               className="px-2 py-1.5 text-xs bg-gray-800 text-white rounded hover:bg-gray-700"
                                               title="Enviar mensagem de imprevisto"
                                             >
@@ -2970,6 +2993,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               handleOpenSubscriberAttendanceModal(apt);
                                             }}
+                                            data-tutorial-id="appointments-detalhes-assinatura"
                                             className="w-full px-2 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 font-extrabold"
                                             title="Selecionar um assinante e registrar 1 atendimento concluído"
                                           >
@@ -2981,6 +3005,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               handleOpenRescheduleModal(apt);
                                             }}
+                                            data-tutorial-id="appointments-detalhes-trocar-horario"
                                             className="w-full px-2 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 font-extrabold"
                                             title="Trocar a data/horário deste agendamento"
                                           >
@@ -2992,6 +3017,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               handleOpenChangeServiceModal(apt);
                                             }}
+                                            data-tutorial-id="appointments-detalhes-trocar-servico"
                                             className="w-full px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 font-extrabold"
                                             title="Trocar o serviço (altera valor e duração)"
                                           >
@@ -3003,6 +3029,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               if (onOpenObservationModal) onOpenObservationModal(apt.id, apt.establishment_observation);
                                             }}
+                                            data-tutorial-id="appointments-detalhes-observacoes"
                                             className="w-full px-2 py-1.5 text-xs bg-gray-700 text-white rounded hover:bg-gray-600"
                                           >
                                             📝 Minhas Observações

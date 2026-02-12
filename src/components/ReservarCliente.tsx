@@ -371,6 +371,13 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
     }
   }, [step]);
 
+  // Pré-carregar clientes ao abrir o modal para decidir se "Reservar conhecido" fica habilitado
+  useEffect(() => {
+    if (clients.length === 0 && !loadingClients) {
+      loadClients();
+    }
+  }, [establishmentId]);
+
   // Carregar profissionais e configuração de horários
   useEffect(() => {
     const loadProfessionals = async () => {
@@ -972,6 +979,8 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
     const wpp = String(client?.whatsapp || '').replace(/\D/g, '');
     return (qName && name.includes(qName)) || (qDigits && wpp.includes(qDigits));
   });
+  const hasKnownClients = clients.length > 0;
+  const disableKnownClientOption = loadingClients || !hasKnownClients;
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
@@ -1393,16 +1402,29 @@ export default function ReservarCliente({ establishmentId, use15MinuteInterval =
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <button
-                  onClick={() => setStep('client')}
-                  className="p-6 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
+                  onClick={() => {
+                    if (!disableKnownClientOption) setStep('client');
+                  }}
+                  disabled={disableKnownClientOption}
+                  className={`p-6 border-2 rounded-lg transition-all text-left ${
+                    disableKnownClientOption
+                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'border-gray-300 hover:border-black hover:bg-gray-50'
+                  }`}
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                      <User className="h-6 w-6 text-gray-700" />
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${disableKnownClientOption ? 'bg-gray-200' : 'bg-gray-200'}`}>
+                      <User className={`h-6 w-6 ${disableKnownClientOption ? 'text-gray-400' : 'text-gray-700'}`} />
                     </div>
                     <div>
-                      <h4 className="font-semibold text-gray-800">Reservar conhecido</h4>
-                      <p className="text-sm text-gray-600">Selecione um cliente da sua lista</p>
+                      <h4 className={`font-semibold ${disableKnownClientOption ? 'text-gray-500' : 'text-gray-800'}`}>Reservar conhecido</h4>
+                      <p className={`text-sm ${disableKnownClientOption ? 'text-gray-500' : 'text-gray-600'}`}>
+                        {loadingClients
+                          ? 'Carregando clientes...'
+                          : hasKnownClients
+                            ? 'Selecione um cliente da sua lista'
+                            : 'Disponivel quando houver ao menos 1 cliente salvo'}
+                      </p>
                     </div>
                   </div>
                 </button>

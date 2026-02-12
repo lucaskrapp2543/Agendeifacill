@@ -72,6 +72,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             <h2 className="text-2xl font-bold">🔒 Acesso Protegido</h2>
             <button
               onClick={onClose}
+              data-tutorial-id="professional-info-close"
               className="p-2 hover:bg-white/20 rounded-full transition-colors"
             >
               <X className="w-6 h-6" />
@@ -160,6 +161,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            data-tutorial-id="professional-info-close"
             className="p-2 hover:bg-white/20 rounded-full transition-colors"
           >
             <X className="w-6 h-6" />
