@@ -3071,6 +3071,10 @@ const EstablishmentDashboard = () => {
     let rafId = 0;
     let triedOpenMenuOnMobile = false;
     const updateHighlight = () => {
+      const isStandalonePwa =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
+
       const targets = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
       const target =
         targets.find((el) => {
@@ -3084,7 +3088,8 @@ const EstablishmentDashboard = () => {
         if (
           !triedOpenMenuOnMobile &&
           appointmentsTutorialCurrent?.id === 'menu-appointments' &&
-          window.innerWidth < 1024
+          window.innerWidth < 1024 &&
+          !isStandalonePwa
         ) {
           triedOpenMenuOnMobile = true;
           const sidebarToggle = document.querySelector('[data-sidebar-toggle]') as HTMLButtonElement | null;
