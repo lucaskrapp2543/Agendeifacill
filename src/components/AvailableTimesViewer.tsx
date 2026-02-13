@@ -37,6 +37,8 @@ interface AvailableTimesViewerProps {
     professionals: Professional[];
     use_15_minute_interval?: boolean;
     use_20_minute_schedule?: boolean;
+    use_60_minute_schedule?: boolean;
+    closed_time_enabled?: boolean;
   };
   existingAppointments: Appointment[];
 }
@@ -161,6 +163,8 @@ export function AvailableTimesViewer({ establishment, existingAppointments }: Av
             professionalBlockedHours={(selectedProfessional as any).blocked_hours?.[format(selectedDate, 'yyyy-MM-dd')] || []}
             use15MinuteInterval={establishment.use_15_minute_interval ?? false}
             use20MinuteSchedule={establishment.use_20_minute_schedule ?? false}
+            use60MinuteSchedule={establishment.use_60_minute_schedule ?? false}
+            closedTimeEnabled={establishment.closed_time_enabled ?? false}
           />
         </div>
       )}

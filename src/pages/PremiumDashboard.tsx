@@ -1110,6 +1110,8 @@ const PremiumDashboard = () => {
                               }}
                               use15MinuteInterval={establishment.use_15_minute_interval ?? false}
                               use20MinuteSchedule={(establishment as any).use_20_minute_schedule ?? false}
+                              use60MinuteSchedule={(establishment as any).use_60_minute_schedule ?? false}
+                              closedTimeEnabled={(establishment as any).closed_time_enabled ?? false}
                               selectedProfessional={establishment.professionals.find(p => p.name === professional)?.id}
                               professionalAbsences={establishment.professionals.find(p => p.name === professional) ? (establishment.professionals.find(p => p.name === professional) as any).absences || [] : []}
                               professionalBlockedHours={establishment.professionals.find(p => p.name === professional) ? (establishment.professionals.find(p => p.name === professional) as any).blocked_hours?.[appointmentDate] || [] : []}

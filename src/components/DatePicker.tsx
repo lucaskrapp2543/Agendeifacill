@@ -142,19 +142,26 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
 
       {/* Calendário visual */}
       <div className="bg-[#0b0c0f] border border-white/12 rounded-xl sm:rounded-2xl p-2 sm:p-4 shadow-[0_20px_70px_rgba(0,0,0,0.55)]">
-        {/* Cabeçalho dos dias da semana (desktop) */}
-        <div className="hidden sm:grid grid-cols-7 gap-1 mb-2">
+        {/* Cabeçalho dos dias da semana (mobile + desktop) */}
+        <div
+          className="grid gap-1 mb-2"
+          style={{ gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}
+        >
           {weekDays.map((day) => (
-            <div key={day} className="text-center text-xs font-extrabold text-white/75 py-2 tracking-wide">
+            <div
+              key={day}
+              className="text-center text-[11px] sm:text-xs font-extrabold text-[#E6C78B] py-1 sm:py-1.5 tracking-wide bg-white/5 border border-white/10 rounded-lg"
+            >
               {day}
             </div>
           ))}
         </div>
 
-        {/* Grade do calendário:
-            - mobile: 5 colunas (botões maiores, sem arrastar pro lado)
-            - desktop: 7 colunas (padrão) */}
-        <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 sm:gap-1.5">
+        {/* Grade do calendário: sempre 7 colunas para manter semana correta */}
+        <div
+          className="grid gap-1 sm:gap-1.5"
+          style={{ gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}
+        >
           {allDays.map((date, index) => {
             const isCurrentMonth = isSameMonth(date, currentMonth);
             const isToday = isSameDay(date, today);
@@ -172,8 +179,8 @@ export function DatePicker({ selectedDate, onChange, businessHours, allowedWeekd
                 className={`
                   relative rounded-xl border transition-all duration-150
                   flex items-center justify-center
-                  h-12 px-3 py-2 sm:h-auto sm:aspect-square sm:p-2
-                  text-[13px] sm:text-sm font-extrabold
+                  h-10 sm:h-auto sm:aspect-square p-1 sm:p-2
+                  text-xs sm:text-sm font-extrabold
                   ${!isCurrentMonth ? 'bg-black/30 border-white/5 text-white/20' : 'bg-white/5 border-white/10 text-white'}
 
                   ${isEnabled && !isSelected ? 'hover:bg-white/10 hover:border-white/20 active:scale-[0.99] cursor-pointer' : 'cursor-not-allowed'}

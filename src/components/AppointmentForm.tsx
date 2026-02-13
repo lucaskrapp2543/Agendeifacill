@@ -68,6 +68,7 @@ interface Establishment {
   require_cpf?: boolean; // Solicitar CPF no agendamento
   whatsapp?: string; // WhatsApp do estabelecimento
   booking_min_advance_hours?: number; // Antecedência mínima (em horas) para agendamento no booking público
+  closed_time_enabled?: boolean; // Tempo fechado: grade fixa de horários
 }
 
 interface AppointmentFormProps {
@@ -3180,6 +3181,7 @@ export function AppointmentForm({
                 use15MinuteInterval={establishment.use_15_minute_interval ?? false}
                 use20MinuteSchedule={(establishment as any).use_20_minute_schedule ?? false}
                 use60MinuteSchedule={(establishment as any).use_60_minute_schedule ?? false}
+                closedTimeEnabled={(establishment as any).closed_time_enabled ?? false}
                 selectedProfessional={selectedProfessional?.id}
                 professionalAbsences={(() => {
                   const absences = selectedProfessional ? (selectedProfessional as any).absences || [] : [];

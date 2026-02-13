@@ -3456,6 +3456,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             use15MinuteInterval={Boolean((establishment as any)?.use_15_minute_interval)}
             use20MinuteSchedule={Boolean((establishment as any)?.use_20_minute_schedule)}
             use60MinuteSchedule={Boolean((establishment as any)?.use_60_minute_schedule)}
+            closedTimeEnabled={Boolean((establishment as any)?.closed_time_enabled)}
           />
         )}
 

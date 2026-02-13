@@ -49,6 +49,7 @@ interface RescheduleAppointmentModalProps {
   use15MinuteInterval?: boolean;
   use20MinuteSchedule?: boolean;
   use60MinuteSchedule?: boolean;
+  closedTimeEnabled?: boolean;
 }
 
 const parseYyyyMmDdToDateNoon = (yyyyMmDd: string): Date => {
@@ -65,6 +66,7 @@ export function RescheduleAppointmentModal({
   use15MinuteInterval = false,
   use20MinuteSchedule = false,
   use60MinuteSchedule = false,
+  closedTimeEnabled = false,
 }: RescheduleAppointmentModalProps) {
   const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -250,6 +252,7 @@ export function RescheduleAppointmentModal({
                   use15MinuteInterval={use15MinuteInterval}
                   use20MinuteSchedule={use20MinuteSchedule}
                   use60MinuteSchedule={use60MinuteSchedule}
+                  closedTimeEnabled={closedTimeEnabled}
                 />
               </div>
             </div>

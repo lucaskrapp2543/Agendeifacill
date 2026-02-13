@@ -142,6 +142,7 @@ interface Establishment {
   use_20_minute_schedule?: boolean;
   use_60_minute_schedule?: boolean;
   booking_min_advance_hours?: number;
+  closed_time_enabled?: boolean;
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
@@ -2520,6 +2521,8 @@ const EstablishmentDashboard = () => {
 
   // Prazo mínimo (em horas) para clientes agendarem no booking público
   const [bookingMinAdvanceHours, setBookingMinAdvanceHours] = useState<number>(0);
+  // Tempo fechado: mantém horários presos ao grid de exibição
+  const [closedTimeEnabled, setClosedTimeEnabled] = useState<boolean>(false);
 
   // Lembrete para descer e salvar configuracoes manuais da pagina
   const [showSettingsSaveReminder, setShowSettingsSaveReminder] = useState(false);
@@ -3617,6 +3620,26 @@ const EstablishmentDashboard = () => {
   const [selectedProductsMonth, setSelectedProductsMonth] = useState(new Date());
   // Estado para armazenar vendas de produtos por período
   const [productSalesByPeriod, setProductSalesByPeriod] = useState<Record<string, number>>({});
+  const [dashboardProductSalesByPeriod, setDashboardProductSalesByPeriod] = useState<Record<string, number>>({});
+  const [subscribersFinancialSummary, setSubscribersFinancialSummary] = useState<{
+    loading: boolean;
+    error: string | null;
+    totalArrecadado: number;
+    totalRepasses: number;
+    lucroLiquido: number;
+    totalAssinantes: number;
+    assinantesNaoPagos: number;
+    saldoAssinantes: number;
+  }>({
+    loading: false,
+    error: null,
+    totalArrecadado: 0,
+    totalRepasses: 0,
+    lucroLiquido: 0,
+    totalAssinantes: 0,
+    assinantesNaoPagos: 0,
+    saldoAssinantes: 0,
+  });
 
   // % por colaborador (comissão por produto)
   const [selectedProductForCommission, setSelectedProductForCommission] = useState<string | null>(null);
@@ -4060,7 +4083,10 @@ const EstablishmentDashboard = () => {
   };
 
   // Função para buscar vendas de produtos por período
-  const fetchProductSalesByPeriod = async (month: Date) => {
+  const fetchProductSalesByPeriod = async (
+    month: Date,
+    target: 'products' | 'dashboard' = 'products'
+  ) => {
     if (!establishment?.id) return;
 
     try {
@@ -4088,7 +4114,8 @@ const EstablishmentDashboard = () => {
       const appointmentIds = appointmentProducts?.map(p => p.appointment_id) || [];
 
       if (appointmentIds.length === 0) {
-        setProductSalesByPeriod({});
+        if (target === 'dashboard') setDashboardProductSalesByPeriod({});
+        else setProductSalesByPeriod({});
         return;
       }
 
@@ -4151,11 +4178,190 @@ const EstablishmentDashboard = () => {
         salesByProduct
       });
 
-      setProductSalesByPeriod(salesByProduct);
+      if (target === 'dashboard') setDashboardProductSalesByPeriod(salesByProduct);
+      else setProductSalesByPeriod(salesByProduct);
     } catch (error) {
       console.error('Erro ao buscar vendas por período:', error);
     }
   };
+
+  const fetchSubscribersFinancialSummaryByMonth = useCallback(async (referenceMonth: Date) => {
+    if (!establishment?.id) {
+      return {
+        totalArrecadado: 0,
+        totalRepasses: 0,
+        lucroLiquido: 0,
+        totalAssinantes: 0,
+        assinantesNaoPagos: 0,
+        saldoAssinantes: 0,
+      };
+    }
+
+    const now = new Date();
+    const start = startOfMonth(referenceMonth);
+    const end = endOfMonth(referenceMonth);
+    let hasSubscriptionValueColumn = true;
+
+    let { data: clientSubscriptions, error: subscriptionsError } = await supabase
+      .from('client_subscriptions')
+      .select(`
+        id,
+        start_date,
+        end_date,
+        payment_status,
+        last_payment_date,
+        subscription_payment_provider,
+        subscription_value,
+        subscriptions(value)
+      `)
+      .eq('establishment_id', establishment.id);
+
+    if (subscriptionsError && String(subscriptionsError.message || '').toLowerCase().includes('subscription_value')) {
+      hasSubscriptionValueColumn = false;
+      const retry = await supabase
+        .from('client_subscriptions')
+        .select(`
+          id,
+          start_date,
+          end_date,
+          payment_status,
+          last_payment_date,
+          subscription_payment_provider,
+          subscriptions(value)
+        `)
+        .eq('establishment_id', establishment.id);
+      clientSubscriptions = retry.data;
+      subscriptionsError = retry.error;
+    }
+
+    if (subscriptionsError) {
+      throw subscriptionsError;
+    }
+
+    const [attendancesResult, saleCommissionsResult] = await Promise.all([
+      supabase
+        .from('subscriber_attendances')
+        .select('repass_value')
+        .eq('establishment_id', establishment.id)
+        .gte('attendance_date', format(start, 'yyyy-MM-dd'))
+        .lte('attendance_date', format(end, 'yyyy-MM-dd')),
+      supabase
+        .from('subscription_sale_commissions')
+        .select('commission_amount')
+        .eq('establishment_id', establishment.id)
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString()),
+    ]);
+
+    const attendanceRows = attendancesResult.data || [];
+    const commissionRows = saleCommissionsResult.data || [];
+    const subscriptionsRows = clientSubscriptions || [];
+
+    const totalRepassesAtendimentos = attendanceRows.reduce(
+      (sum, row: any) => sum + (Number(row?.repass_value) || 0),
+      0
+    );
+    const totalRepassesComissaoVenda = commissionRows.reduce(
+      (sum, row: any) => sum + (Number(row?.commission_amount) || 0),
+      0
+    );
+    const totalRepasses = totalRepassesAtendimentos + totalRepassesComissaoVenda;
+
+    const currentMonthIsSelected = now >= start && now <= end;
+    const wasPaidInReferenceMonth = (cs: any) => {
+      const paymentStatus = String(cs?.payment_status || '').toLowerCase();
+      if (paymentStatus !== 'paid') return false;
+
+      const rawLastPaymentDate = String(cs?.last_payment_date || '').trim();
+      if (rawLastPaymentDate) {
+        const paymentDate = parseISO(rawLastPaymentDate);
+        if (!Number.isNaN(paymentDate.getTime())) {
+          return paymentDate >= start && paymentDate <= end;
+        }
+      }
+
+      if (!currentMonthIsSelected) return false;
+      const endDate = cs?.end_date ? parseISO(String(cs.end_date)) : null;
+      const expired = endDate ? endDate < now : false;
+      return !expired;
+    };
+
+    const totalArrecadado = subscriptionsRows.reduce((sum, cs: any) => {
+      if (!wasPaidInReferenceMonth(cs)) return sum;
+
+      const rawSubscription = cs?.subscriptions;
+      const subscriptionValueFromRelation = Array.isArray(rawSubscription)
+        ? Number(rawSubscription[0]?.value || 0)
+        : Number(rawSubscription?.value || 0);
+      const fallbackSubscriptionValue = hasSubscriptionValueColumn ? Number(cs?.subscription_value || 0) : 0;
+      const subscriptionValue =
+        Number.isFinite(subscriptionValueFromRelation) && subscriptionValueFromRelation > 0
+          ? subscriptionValueFromRelation
+          : fallbackSubscriptionValue;
+      return sum + (Number.isFinite(subscriptionValue) ? subscriptionValue : 0);
+    }, 0);
+
+    const totalAssinantes = subscriptionsRows.filter((cs: any) => {
+      const endDate = cs?.end_date ? parseISO(String(cs.end_date)) : null;
+      if (!endDate) return true;
+      return !(endDate < now);
+    }).length;
+
+    const assinantesNaoPagos = subscriptionsRows.filter((cs: any) => cs?.payment_status === 'unpaid').length;
+
+    const saldoAssinantes = subscriptionsRows.reduce((sum, cs: any) => {
+      if (!wasPaidInReferenceMonth(cs)) return sum;
+      const provider = String(cs?.subscription_payment_provider || '').toLowerCase();
+      if (provider !== 'pagarme_pix') return sum;
+
+      const rawSubscription = cs?.subscriptions;
+      const subscriptionValueFromRelation = Array.isArray(rawSubscription)
+        ? Number(rawSubscription[0]?.value || 0)
+        : Number(rawSubscription?.value || 0);
+      const fallbackSubscriptionValue = hasSubscriptionValueColumn ? Number(cs?.subscription_value || 0) : 0;
+      const bruto =
+        Number.isFinite(subscriptionValueFromRelation) && subscriptionValueFromRelation > 0
+          ? subscriptionValueFromRelation
+          : fallbackSubscriptionValue;
+      if (!Number.isFinite(bruto) || bruto <= 0) return sum;
+
+      const taxaPixPercent = 1.19;
+      const taxaPlataforma = 0.5;
+      const liquido = Math.max(0, Math.round((bruto - taxaPlataforma - (bruto * taxaPixPercent / 100)) * 100) / 100);
+      return sum + liquido;
+    }, 0);
+
+    return {
+      totalArrecadado,
+      totalRepasses,
+      lucroLiquido: totalArrecadado - totalRepasses,
+      totalAssinantes,
+      assinantesNaoPagos,
+      saldoAssinantes,
+    };
+  }, [establishment?.id]);
+
+  const loadSubscribersFinancialSummary = useCallback(async () => {
+    if (!establishment?.id) return;
+
+    setSubscribersFinancialSummary((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const data = await fetchSubscribersFinancialSummaryByMonth(selectedMonth);
+      setSubscribersFinancialSummary({
+        loading: false,
+        error: null,
+        ...data,
+      });
+    } catch (error: any) {
+      console.error('Erro geral ao carregar resumo financeiro de assinantes:', error);
+      setSubscribersFinancialSummary((prev) => ({
+        ...prev,
+        loading: false,
+        error: error?.message || 'Erro ao carregar assinantes',
+      }));
+    }
+  }, [establishment?.id, selectedMonth, fetchSubscribersFinancialSummaryByMonth]);
 
   // Função para buscar vendas de produtos por funcionário no período selecionado
   const fetchProductSalesByProfessional = async (productId: string) => {
@@ -7796,6 +8002,8 @@ Estamos te aguardando! 😎✂️`;
 
         // Carrega prazo mínimo de antecedência para agendamento no booking público
         setBookingMinAdvanceHours(Number((establishmentData as any).booking_min_advance_hours ?? 0));
+        // Carrega configuração de tempo fechado (fallback: desativado)
+        setClosedTimeEnabled(Boolean((establishmentData as any).closed_time_enabled ?? false));
 
         // Carrega a configuração da imagem "Melhor do Brasil"
         setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
@@ -8269,6 +8477,7 @@ Estamos te aguardando! 😎✂️`;
         use20MinuteSchedule: use20MinuteSchedule,
         use60MinuteSchedule: use60MinuteSchedule,
         bookingMinAdvanceHours: bookingMinAdvanceHours,
+        closedTimeEnabled: closedTimeEnabled,
         showBestOfBrazilImage: showBestOfBrazilImage
       });
       await autoSaveLinks();
@@ -8409,7 +8618,7 @@ Estamos te aguardando! 😎✂️`;
     if (establishment && activeTab === 'taxes') {
       calculateTaxesReport();
     }
-    if (establishment && activeTab === 'products') {
+    if (establishment && (activeTab === 'products' || activeTab === 'financial-dashboard')) {
       fetchProducts();
       fetchProductSalesByPeriod(selectedProductsMonth);
     }
@@ -8772,6 +8981,15 @@ Estamos te aguardando! 😎✂️`;
     }
   }, [establishment?.id, activeTab, establishment?.professionals, selectedMonth, loadExpenses, loadProfessionalPayments, loadInitialValuesForMonth, loadGrossValueHistory]);
 
+  // Sincronizar cards consolidados do topo sempre que o mês OU os agendamentos concluídos mudarem
+  // (evita ficar desatualizado após concluir serviço/produto sem trocar de aba).
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (activeTab !== 'financial-dashboard') return;
+    loadSubscribersFinancialSummary();
+    fetchProductSalesByPeriod(selectedMonth, 'dashboard');
+  }, [activeTab, establishment?.id, selectedMonth, monthlyAppointments, loadSubscribersFinancialSummary]);
+
   // Removido useEffect que causava loop infinito
 
 
@@ -8796,12 +9014,16 @@ Estamos te aguardando! 😎✂️`;
     }, 0);
   };
 
-  // Função que inclui valor bruto editado no cálculo bruto (por mês)
-  const calculateTotalGrossWithInitial = (appointments: Appointment[]): number => {
+  const calculateTotalGrossForMonth = (appointments: Appointment[], month: Date): number => {
     const monthlyGross = calculateMonthlyBalance(appointments);
-    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    const monthKey = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
     const editedGrossValue = monthlyGrossValues[monthKey] || 0;
     return monthlyGross + editedGrossValue;
+  };
+
+  // Função que inclui valor bruto editado no cálculo bruto (por mês)
+  const calculateTotalGrossWithInitial = (appointments: Appointment[]): number => {
+    return calculateTotalGrossForMonth(appointments, selectedMonth);
   };
 
   // Função para calcular total das taxas de cartão do mês (usa mesma base que receita: serviço + extras, cap total_price)
@@ -8818,17 +9040,15 @@ Estamos te aguardando! 😎✂️`;
     }, 0);
   };
 
+  const calculateTotalLiquidForMonth = (appointments: Appointment[], expenses: number, month: Date): number => {
+    const totalGross = calculateTotalGrossForMonth(appointments, month);
+    const totalCardTaxes = calculateTotalCardTaxes(appointments);
+    return totalGross - expenses - totalCardTaxes;
+  };
+
   // Função que inclui valor bruto editado no cálculo líquido (por mês)
   const calculateTotalLiquidWithInitial = (appointments: Appointment[], expenses: number): number => {
-    const monthlyGross = calculateMonthlyBalance(appointments);
-    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
-    const editedGrossValue = monthlyGrossValues[monthKey] || 0;
-    const totalGross = monthlyGross + editedGrossValue;
-
-    // Calcular total das taxas de cartão dos agendamentos do mês
-    const totalCardTaxes = calculateTotalCardTaxes(appointments);
-
-    return totalGross - expenses - totalCardTaxes;
+    return calculateTotalLiquidForMonth(appointments, expenses, selectedMonth);
   };
 
   // Total líquido que vai para TODOS os profissionais (mesma soma que aparece em "Receita por Profissional")
@@ -8846,41 +9066,31 @@ Estamos te aguardando! 😎✂️`;
       .reduce((sum, pro) => sum + calculateProfessionalNetValue(pro.name, appointments), 0);
   };
 
-  // Função que inclui valor bruto editado no cálculo líquido do estabelecimento (por mês)
   // O dono É o estabelecimento: só subtraímos o que vai para outros profissionais. O saldo do dono fica no Líquido Estabelecimento.
-  const calculateTotalEstablishmentLiquidWithInitial = (appointments: Appointment[], expenses: number): number => {
-    const monthlyGross = calculateMonthlyBalance(appointments);
-    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
-    const editedGrossValue = monthlyGrossValues[monthKey] || 0;
-    const totalGross = monthlyGross + editedGrossValue;
-
+  const calculateTotalEstablishmentLiquidForMonth = (appointments: Appointment[], expenses: number, month: Date): number => {
+    const totalGross = calculateTotalGrossForMonth(appointments, month);
     const totalCardTaxes = calculateTotalCardTaxes(appointments);
-    // Só subtrair o que vai para profissionais que NÃO são dono (100%). O dono não "se paga" — o líquido dele já é do estabelecimento.
     const totalToNonOwnerProfessionals = calculateTotalNonOwnerProfessionalsLiquid(appointments);
 
-    const monthKeyPayments = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    const monthKeyPayments = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
     const currentMonthPayments = allProfessionalPayments.filter((payment: any) => {
       if (payment.for_month != null && payment.for_month !== '') return payment.for_month === monthKeyPayments;
       const paymentDate = new Date(payment.payment_date);
-      return paymentDate.getFullYear() === selectedMonth.getFullYear() &&
-        paymentDate.getMonth() === selectedMonth.getMonth();
+      return paymentDate.getFullYear() === month.getFullYear() &&
+        paymentDate.getMonth() === month.getMonth();
     });
 
     const totalWithdrawals = currentMonthPayments
       .filter(payment => payment.amount < 0)
       .reduce((total, payment) => total + Math.abs(payment.amount), 0);
 
-    // Líquido estabelecimento = Bruto - Despesas - Taxas - (só o que paga para outros profissionais) + Retiradas. Inclui o saldo do dono.
     const result = totalGross - expenses - totalCardTaxes - totalToNonOwnerProfessionals + totalWithdrawals;
-    console.log('💰 Cálculo Líquido Estabelecimento:', {
-      totalGross,
-      expenses,
-      totalCardTaxes,
-      totalToNonOwnerProfessionals,
-      totalWithdrawals,
-      result
-    });
     return result;
+  };
+
+  // Função que inclui valor bruto editado no cálculo líquido do estabelecimento (por mês)
+  const calculateTotalEstablishmentLiquidWithInitial = (appointments: Appointment[], expenses: number): number => {
+    return calculateTotalEstablishmentLiquidForMonth(appointments, expenses, selectedMonth);
   };
 
   // Função para calcular valor bruto mensal do profissional selecionado
@@ -12874,7 +13084,7 @@ Estamos te aguardando! 😎✂️`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceHours?: number; showBestOfBrazilImage?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceHours?: number; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
@@ -12882,6 +13092,7 @@ Estamos te aguardando! 😎✂️`;
       use20MinuteSchedule: config?.use20MinuteSchedule ?? use20MinuteSchedule,
       use60MinuteSchedule: config?.use60MinuteSchedule ?? use60MinuteSchedule,
       bookingMinAdvanceHours: config?.bookingMinAdvanceHours ?? bookingMinAdvanceHours,
+      closedTimeEnabled: config?.closedTimeEnabled ?? closedTimeEnabled,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage
     };
 
@@ -12893,13 +13104,19 @@ Estamos te aguardando! 😎✂️`;
           use_20_minute_schedule: configToSave.use20MinuteSchedule,
           use_60_minute_schedule: configToSave.use60MinuteSchedule,
           booking_min_advance_hours: configToSave.bookingMinAdvanceHours,
+          closed_time_enabled: configToSave.closedTimeEnabled,
           show_best_of_brazil_image: configToSave.showBestOfBrazilImage
         })
         .eq('id', establishment.id);
 
       // Compatibilidade: se a coluna nova ainda nao existir, salva o restante sem quebrar fluxo antigo
-      if (error && (error.code === '42703' || String(error.message || '').includes('booking_min_advance_hours'))) {
-        console.warn('⚠️ Coluna booking_min_advance_hours nao encontrada. Salvando sem essa coluna.');
+      if (
+        error &&
+        (error.code === '42703' ||
+          String(error.message || '').includes('booking_min_advance_hours') ||
+          String(error.message || '').includes('closed_time_enabled'))
+      ) {
+        console.warn('⚠️ Coluna nova de configuração de horários não encontrada. Salvando sem colunas novas.');
         const fallback = await supabase
           .from('establishments')
           .update({
@@ -12925,12 +13142,13 @@ Estamos te aguardando! 😎✂️`;
         use_20_minute_schedule: configToSave.use20MinuteSchedule,
         use_60_minute_schedule: configToSave.use60MinuteSchedule,
         booking_min_advance_hours: configToSave.bookingMinAdvanceHours,
+        closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage
       });
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceHours, showBestOfBrazilImage]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceHours, closedTimeEnabled, showBestOfBrazilImage]);
 
   const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
     setShowSettingsSaveReminder(true);
@@ -19619,6 +19837,54 @@ Estamos te aguardando! 😎✂️`;
                           </p>
                         </div>
 
+                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <input
+                            type="checkbox"
+                            id="closedTimeEnabled"
+                            checked={closedTimeEnabled}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setClosedTimeEnabled(newValue);
+                              notifySettingsNeedManualSave(true);
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  closedTimeEnabled: newValue
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                          />
+                          <div className="flex-1">
+                            <label htmlFor="closedTimeEnabled" className="block text-white font-medium mb-2">
+                              Tempo fechado
+                            </label>
+                            <p className="text-sm text-gray-300 leading-relaxed">
+                              <strong>Tempo fechado:</strong> define como os horários ficam disponíveis para seus clientes.
+                            </p>
+                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
+                              Aqui acima, você escolhe de quanto em quanto tempo os horários aparecem (ex: de 1 em 1 hora, 30 em 30 minutos, 20 em 20 minutos).
+                            </p>
+                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
+                              <strong>Se o tempo fechado estiver marcado:</strong><br />
+                              O sistema bloqueia o horário inteiro.<br />
+                              Exemplo: agenda de 1 em 1 hora.<br />
+                              Cliente marca às 09:00 um serviço de 40 min → o próximo horário será 10:00.
+                            </p>
+                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
+                              <strong>Se o tempo fechado estiver desmarcado:</strong><br />
+                              O sistema libera o próximo horário assim que o serviço termina.<br />
+                              Exemplo: cliente marcou às 09:00 e o serviço dura 40 min → próximo horário será 09:40.
+                            </p>
+                            <p className="text-sm text-gray-300 leading-relaxed mt-2">
+                              <strong>Marcado</strong> = bloqueia o horário completo do card.<br />
+                              <strong>Desmarcado</strong> = libera horário logo após atendimento.
+                            </p>
+                          </div>
+                        </div>
+
                         {isRotationControlEnabledForEstablishment && (
                           <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
                             <input
@@ -21239,7 +21505,7 @@ Estamos te aguardando! 😎✂️`;
                   )}
 
                   {/* Dashboard Financeiro com Despesas */}
-                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  <div className="rounded-2xl shadow-lg border border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100 p-6">
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-2xl font-bold text-gray-900">Dashboard Financeiro</h2>
                       <div className="flex gap-2">
@@ -21254,7 +21520,7 @@ Estamos te aguardando! 😎✂️`;
                     </div>
 
                     {/* Seletor de Mês */}
-                    <div className="flex items-center justify-between mb-6 bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-6 bg-white/80 backdrop-blur rounded-xl p-4 border border-gray-200">
                       <button
                         onClick={() => handleMonthChange(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1))}
                         className="p-4 hover:bg-gray-200 rounded-lg transition-colors border border-gray-300 bg-white shadow-sm"
@@ -21272,12 +21538,152 @@ Estamos te aguardando! 😎✂️`;
                       </button>
                     </div>
 
+                    {/* Espelho financeiro de Assinantes e Produtos */}
+                    {(() => {
+                      const productsGrossRevenue = products.reduce((total, product) => {
+                        const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
+                        return total + (product.sale_price * periodQuantity);
+                      }, 0);
+                      const productsNetProfit = products.reduce((total, product) => {
+                        const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
+                        return total + ((product.sale_price - product.cost_price) * periodQuantity);
+                      }, 0);
+                      const productsTotalUnits = products.reduce((total, product) => {
+                        const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
+                        return total + periodQuantity;
+                      }, 0);
+                      const totalProductsWithSales = products.filter(product => (dashboardProductSalesByPeriod[product.id] || 0) > 0).length;
+                      const appointmentsGrossCurrent = calculateTotalGrossForMonth(monthlyAppointments, selectedMonth);
+                      const appointmentsLiquidCurrent = calculateTotalEstablishmentLiquidForMonth(monthlyAppointments, expensesTotal, selectedMonth);
+                      const totalBrutoMes = appointmentsGrossCurrent + subscribersFinancialSummary.totalArrecadado + productsGrossRevenue;
+                      const totalLiquidoMes = appointmentsLiquidCurrent + subscribersFinancialSummary.lucroLiquido + productsNetProfit;
+                      const totalDescontosMes = totalBrutoMes - totalLiquidoMes;
+
+                      return (
+                        <div className="space-y-4 mb-6">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="rounded-xl border border-emerald-400 bg-gradient-to-br from-emerald-300 via-emerald-200 to-emerald-400 p-4">
+                              <p className="text-xs text-emerald-700">Bruto total do mês (tudo que entrou)</p>
+                              <p className="text-2xl font-extrabold text-gray-900 mt-1">{formatCurrency(totalBrutoMes)}</p>
+                              <p className="text-[11px] text-gray-600 mt-2">
+                                Agendamentos/serviços {formatCurrency(appointmentsGrossCurrent)} + Assinaturas {formatCurrency(subscribersFinancialSummary.totalArrecadado)} + Produtos {formatCurrency(productsGrossRevenue)}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-sky-400 bg-gradient-to-br from-sky-300 via-sky-200 to-sky-400 p-4">
+                              <p className="text-xs text-sky-700">Líquido total do mês (no bolso)</p>
+                              <p className="text-2xl font-extrabold text-gray-900 mt-1">{formatCurrency(totalLiquidoMes)}</p>
+                              <p className="text-[11px] text-gray-600 mt-2">
+                                Líquido estabelecimento {formatCurrency(appointmentsLiquidCurrent)} + Líquido assinaturas {formatCurrency(subscribersFinancialSummary.lucroLiquido)} + Lucro produtos {formatCurrency(productsNetProfit)}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-violet-400 bg-gradient-to-br from-violet-300 via-violet-200 to-violet-400 p-4">
+                              <p className="text-xs text-violet-700">Descontos totais do mês</p>
+                              <p className="text-2xl font-extrabold text-gray-900 mt-1">{formatCurrency(totalDescontosMes)}</p>
+                              <p className="text-[11px] text-gray-600 mt-2">
+                                Diferença entre bruto total e líquido total consolidado.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 p-5">
+                              <div className="flex items-start justify-between gap-3 mb-3">
+                                <div>
+                                  <h3 className="text-lg font-semibold text-gray-800">Financeiro de Meus Assinantes</h3>
+                                  <p className="text-xs text-gray-600">
+                                    Espelhado da aba "Meus Assinantes" (repasses do mês selecionado no dashboard)
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 mt-1">
+                                    Lucro bruto/líquido considera pagamentos com data no mês selecionado.
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => handleTabChange('subscribers')}
+                                  className="px-3 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 transition-colors"
+                                >
+                                  Abrir Meus Assinantes
+                                </button>
+                              </div>
+
+                              {subscribersFinancialSummary.loading ? (
+                                <p className="text-sm text-gray-600">Carregando resumo de assinantes...</p>
+                              ) : (
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                    <p className="text-xs text-gray-600">Lucro Bruto</p>
+                                    <p className="text-lg font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.totalArrecadado)}</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                    <p className="text-xs text-gray-600">Lucro Líquido</p>
+                                    <p className="text-lg font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.lucroLiquido)}</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                    <p className="text-xs text-gray-600">Total de Assinantes</p>
+                                    <p className="text-lg font-bold text-gray-900">{subscribersFinancialSummary.totalAssinantes}</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                    <p className="text-xs text-gray-600">Não Pagos</p>
+                                    <p className="text-lg font-bold text-gray-900">{subscribersFinancialSummary.assinantesNaoPagos}</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-200 rounded-lg p-3 col-span-2">
+                                    <p className="text-xs text-gray-600">Saldo (assinantes PIX Pagar.me)</p>
+                                    <p className="text-xl font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.saldoAssinantes)}</p>
+                                  </div>
+                                </div>
+                              )}
+                              {subscribersFinancialSummary.error && (
+                                <p className="text-xs text-red-600 mt-2">
+                                  {subscribersFinancialSummary.error}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 p-5">
+                              <div className="flex items-start justify-between gap-3 mb-3">
+                                <div>
+                                  <h3 className="text-lg font-semibold text-gray-800">Financeiro de Meus Produtos</h3>
+                                  <p className="text-xs text-gray-600">
+                                    Espelhado da aba "Meus Produtos" ({selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => handleTabChange('products')}
+                                  className="px-3 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 transition-colors"
+                                >
+                                  Abrir Meus Produtos
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                  <p className="text-xs text-gray-600">Faturamento Bruto</p>
+                                  <p className="text-lg font-bold text-gray-900">{formatCurrency(productsGrossRevenue)}</p>
+                                </div>
+                                <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                  <p className="text-xs text-gray-600">Lucro Líquido</p>
+                                  <p className="text-lg font-bold text-gray-900">{formatCurrency(productsNetProfit)}</p>
+                                </div>
+                                <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                  <p className="text-xs text-gray-600">Total Vendido</p>
+                                  <p className="text-lg font-bold text-gray-900">{productsTotalUnits} un.</p>
+                                </div>
+                                <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                  <p className="text-xs text-gray-600">Produtos com Venda</p>
+                                  <p className="text-lg font-bold text-gray-900">{totalProductsWithSales}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {/* Resumo Bruto, Líquido e Líquido Estabelecimento */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                       {/* Resumo Bruto */}
-                      <div className="bg-gray-50 border border-gray-300 rounded-lg p-6">
+                      <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-emerald-100 p-6 shadow-sm">
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-lg font-semibold text-gray-800">Resumo Bruto</h3>
+                          <h3 className="text-lg font-semibold text-gray-800">Bruto atendimentos e serviços extras</h3>
                           <div className="flex items-center gap-2">
                             {!isEditingGrossValue && (
                               <button
@@ -21358,7 +21764,7 @@ Estamos te aguardando! 😎✂️`;
                       </div>
 
                       {/* Resumo Líquido */}
-                      <div className="bg-gray-50 border border-gray-300 rounded-lg p-6">
+                      <div className="rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-sky-100 p-6 shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                           <h3 className="text-lg font-semibold text-gray-800">Resumo Líquido</h3>
                           <DollarSign className="h-5 w-5 text-gray-700" />
@@ -21372,7 +21778,7 @@ Estamos te aguardando! 😎✂️`;
                       </div>
 
                       {/* Resumo Líquido Estabelecimento */}
-                      <div className="bg-gray-50 border border-gray-300 rounded-lg p-6">
+                      <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-violet-100 p-6 shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                           <h3 className="text-lg font-semibold text-gray-800">Líquido Estabelecimento</h3>
                           <Building2 className="h-5 w-5 text-gray-700" />
@@ -21394,7 +21800,7 @@ Estamos te aguardando! 😎✂️`;
                     </p>
 
                     {/* Taxas de Cartão */}
-                    <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 mb-4">
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
                       <div className="flex items-center gap-2">
                         <CreditCard className="h-5 w-5 text-gray-700" />
                         <span className="font-medium text-gray-900">
@@ -21407,10 +21813,10 @@ Estamos te aguardando! 😎✂️`;
                     </div>
 
                     {/* Lista de Despesas */}
-                    <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                    <div className="bg-rose-50/70 border border-rose-200 rounded-lg p-4 mb-6">
                       <button
                         onClick={() => setShowExpensesList(!showExpensesList)}
-                        className="flex items-center justify-between w-full text-left p-3 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                        className="flex items-center justify-between w-full text-left p-3 bg-rose-100/70 rounded-lg border border-rose-200 hover:bg-rose-100 transition-colors"
                       >
                         <div className="flex items-center gap-2">
                           <Receipt className="h-5 w-5 text-gray-600" />
@@ -21430,7 +21836,7 @@ Estamos te aguardando! 😎✂️`;
                             <p className="text-gray-500 text-center py-4">Nenhuma despesa cadastrada</p>
                           ) : (
                             expenses.map(expense => (
-                              <div key={expense.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+                              <div key={expense.id} className="flex items-center justify-between p-3 bg-rose-50 rounded-lg border border-rose-200">
                                 <div>
                                   <p className="font-medium text-gray-900">{expense.name}</p>
                                   <p className="text-sm text-gray-600">
@@ -27184,6 +27590,7 @@ Estamos te aguardando! 😎✂️`;
           use15MinuteInterval={use15MinuteInterval}
           use20MinuteSchedule={use20MinuteSchedule}
           use60MinuteSchedule={use60MinuteSchedule}
+          closedTimeEnabled={closedTimeEnabled}
         />
       )}
 

@@ -38,6 +38,7 @@ interface TimeSlotSelectorProps {
   use15MinuteInterval?: boolean; // Nova prop para configuração de intervalo
   use20MinuteSchedule?: boolean; // Nova prop para horários de 20 em 20 minutos
   use60MinuteSchedule?: boolean; // Nova prop para horários de 1 em 1 hora
+  closedTimeEnabled?: boolean; // Se true, mantém grade fechada (não libera fim fora do grid)
   filterPastTimes?: boolean; // Nova prop para filtrar horários passados
   selectedProfessional?: string; // Profissional selecionado
   professionalAbsences?: string[]; // Dias de ausência do profissional
@@ -65,6 +66,7 @@ export function TimeSlotSelector({
   use15MinuteInterval = false, // Valor padrão false (15 em 15 min)
   use20MinuteSchedule = false, // Valor padrão false (horários de 20 em 20 min)
   use60MinuteSchedule = false, // Valor padrão false (horários de 1 em 1 hora)
+  closedTimeEnabled = false,
   filterPastTimes = false, // Valor padrão false (não filtrar horários passados)
   selectedProfessional,
   professionalAbsences = [],
@@ -230,11 +232,15 @@ export function TimeSlotSelector({
       return 15;
     })();
 
-    // Horários de término dos agendamentos que não caem no grid (ex: 13:50 com grid 20min) — para exibir como slot disponível
+    // Quando "tempo fechado" está DESMARCADO, libera próximo slot no horário exato de término
+    // mesmo fora do grid (ex: 09:40 com grade de 1h).
+    // Quando MARCADO, mantém agenda fechada no grid (não injeta horários off-grid).
     const offGridEndMinutes = new Set<number>();
-    for (const apt of relevantAppointments) {
-      const aptEnd = timeToMinutes(apt.appointment_time) + (apt.duration || 30);
-      if (aptEnd % interval !== 0) offGridEndMinutes.add(aptEnd);
+    if (!closedTimeEnabled) {
+      for (const apt of relevantAppointments) {
+        const aptEnd = timeToMinutes(apt.appointment_time) + (apt.duration || 30);
+        if (aptEnd % interval !== 0) offGridEndMinutes.add(aptEnd);
+      }
     }
 
     const buildPeriodSlotMinutes = (periodStart: number, periodEnd: number): number[] => {
