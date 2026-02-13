@@ -28,6 +28,7 @@ import { SubscribersManager } from '../components/SubscribersManager'; // Import
 import { TimeSelector } from '../components/TimeSelector';
 import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
 import { YouTubeResumePlayer } from '../components/YouTubeResumePlayer';
+import { toast as hotToast } from 'react-hot-toast';
 import { useToast } from '../components/ui/Toaster';
 // UpdateButton removido - sistema automático já cuida de tudo
 import { EstablishmentWhatsappRemindersInfo } from '../../modules/whatsapp-reminders/ui/EstablishmentWhatsappRemindersInfo';
@@ -2662,50 +2663,68 @@ const EstablishmentDashboard = () => {
       text: 'Aqui você pode adicionar serviços adicionais ao atendimento.',
     },
     {
+      id: 'detalhes-concluido',
+      title: '7.3 Concluído',
+      selector: '[data-tutorial-id="appointments-detalhes-concluido"]',
+      text: 'Aqui você marca o agendamento como concluído após o atendimento. Importante: se não colocar como concluído o serviço, o sistema não reconhece que você recebeu o valor.',
+    },
+    {
+      id: 'detalhes-pendente',
+      title: '7.4 Pendente',
+      selector: '[data-tutorial-id="appointments-detalhes-pendente"]',
+      text: 'Aqui você marca o agendamento como pendente, por exemplo se o cliente ainda vai pagar.',
+    },
+    {
       id: 'detalhes-transferir',
-      title: '7.3 Transferir',
+      title: '7.5 Transferir',
       selector: '[data-tutorial-id="appointments-detalhes-transferir"]',
       text: 'Aqui você pode transferir para outro profissional.',
     },
     {
       id: 'detalhes-terminei-antes',
-      title: '7.4 Terminei antes',
+      title: '7.6 Terminei antes',
       selector: '[data-tutorial-id="appointments-detalhes-terminei-antes"]',
       text: 'Aqui você libera o horário caso finalize antes.',
     },
     {
       id: 'detalhes-cancelar',
-      title: '7.5 Cancelar',
+      title: '7.7 Cancelar',
       selector: '[data-tutorial-id="appointments-detalhes-cancelar"]',
       text: 'Aqui você cancela o agendamento e libera o horário.',
     },
     {
       id: 'detalhes-imprevisto',
-      title: '7.6 Imprevisto',
+      title: '7.8 Imprevisto',
       selector: '[data-tutorial-id="appointments-detalhes-imprevisto"]',
       text: 'Aqui você envia uma mensagem ao cliente informando impossibilidade de atendimento.',
     },
     {
+      id: 'detalhes-cliente-faltou',
+      title: '7.9 Cliente Faltou',
+      selector: '[data-tutorial-id="appointments-detalhes-cliente-faltou"]',
+      text: 'Aqui você registra que o cliente não compareceu; o agendamento será cancelado.',
+    },
+    {
       id: 'detalhes-assinatura',
-      title: '7.7 Atendimento por assinatura',
+      title: '7.10 Atendimento por assinatura',
       selector: '[data-tutorial-id="appointments-detalhes-assinatura"]',
       text: 'Aqui você sincroniza o atendimento com clientes assinantes.',
     },
     {
       id: 'detalhes-trocar-horario',
-      title: '7.8 Trocar horário',
+      title: '7.11 Trocar horário',
       selector: '[data-tutorial-id="appointments-detalhes-trocar-horario"]',
       text: 'Aqui você altera para outro horário ou dia.',
     },
     {
       id: 'detalhes-trocar-servico',
-      title: '7.9 Trocar serviço',
+      title: '7.12 Trocar serviço',
       selector: '[data-tutorial-id="appointments-detalhes-trocar-servico"]',
       text: 'Aqui você modifica o serviço escolhido pelo cliente.',
     },
     {
       id: 'detalhes-observacoes',
-      title: '7.10 Observações',
+      title: '7.13 Observações',
       selector: '[data-tutorial-id="appointments-detalhes-observacoes"]',
       text: 'Aqui você adiciona anotações, por exemplo: cliente não pagou.',
     },
@@ -2891,7 +2910,14 @@ const EstablishmentDashboard = () => {
 
     // Etapa 1: Menu > Meus Agendamentos
     if (appointmentsTutorialStep === 0) {
-      setAppointmentsTutorialStep(1);
+      // Simula clique real no item "Meus Agendamentos" para recolher o sidebar
+      // e manter o comportamento visual esperado no mobile.
+      const menuAppointmentsButton = document.querySelector('[data-tutorial-id="menu-appointments"]') as HTMLButtonElement | null;
+      menuAppointmentsButton?.click();
+      setActiveTab('appointments');
+      window.setTimeout(() => {
+        setAppointmentsTutorialStep(1);
+      }, 120);
       return;
     }
 
@@ -2961,6 +2987,9 @@ const EstablishmentDashboard = () => {
         // Isso evita ficar preso na tela de clientes em PWA/mobile.
         setShowReservarClienteModal(false);
         setActiveTab('appointments');
+        // Recolhe o sidebar como se tivesse clicado em Meus Agendamentos (mobile/PWA)
+        const menuAppointmentsBtn = document.querySelector('[data-tutorial-id="menu-appointments"]') as HTMLButtonElement | null;
+        menuAppointmentsBtn?.click();
 
         const currentAvulsoCount = await countTodayAvulsoAppointments();
         if (currentAvulsoCount === null) return;
@@ -2981,6 +3010,9 @@ const EstablishmentDashboard = () => {
 
       setAppointmentsTutorialClientsCompleted(false);
       setAppointmentsTutorialDetailsOpened(false);
+      // Recolhe o sidebar como se tivesse clicado em Meus Agendamentos antes de ir para Detalhes
+      const menuBtnStep6 = document.querySelector('[data-tutorial-id="menu-appointments"]') as HTMLButtonElement | null;
+      menuBtnStep6?.click();
       setAppointmentsTutorialStep(6);
       return;
     }
@@ -3013,6 +3045,7 @@ const EstablishmentDashboard = () => {
     countTodayAvulsoAppointments,
     closeAppointmentsTutorial,
     isAppointmentsTutorialLastStep,
+    setActiveTab,
     setShowReservarClienteModal,
     toast,
     showAppointmentsTutorial,
@@ -15158,7 +15191,7 @@ Estamos te aguardando! 😎✂️`;
         />
 
         {/* Conteúdo principal */}
-        <div className="flex-1 md:ml-0 transition-all duration-300 min-w-0 pt-14 md:pt-0">
+        <div className="flex-1 ml-16 md:ml-0 transition-all duration-300 min-w-0 pt-0">
           {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
           <div className="w-full mb-4 flex justify-center md:hidden">
             <img
@@ -15518,6 +15551,20 @@ Estamos te aguardando! 😎✂️`;
                       onAppointmentDetailsOpen={() => {
                         if (showAppointmentsTutorial && appointmentsTutorialStep === 6) {
                           setAppointmentsTutorialDetailsOpened(true);
+                          hotToast.success('🎉 Boa! Agora clique em Próximo.', {
+                            duration: 8000,
+                            position: 'top-center',
+                            style: {
+                              fontSize: '20px',
+                              fontWeight: '800',
+                              background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                              color: '#fff',
+                              padding: '20px 28px',
+                              border: '3px solid #fbbf24',
+                              borderRadius: '12px',
+                              boxShadow: '0 8px 32px rgba(22, 163, 74, 0.6), 0 0 0 4px rgba(251, 191, 36, 0.3)',
+                            },
+                          });
                         }
                       }}
                       useLightLayout={useLightLayout}
@@ -27285,6 +27332,9 @@ Estamos te aguardando! 😎✂️`;
               setAppointmentsTutorialClientsCompleted(true);
               setAppointmentsTutorialAvulsoBaselineCount(null);
               setActiveTab('appointments');
+              // Recolhe o sidebar como se o usuário tivesse clicado em Meus Agendamentos (mobile/PWA)
+              const menuBtn = document.querySelector('[data-tutorial-id="menu-appointments"]') as HTMLButtonElement | null;
+              menuBtn?.click();
             }}
             onClose={() => {
               console.log('🔍 Fechando modal ReservarCliente');

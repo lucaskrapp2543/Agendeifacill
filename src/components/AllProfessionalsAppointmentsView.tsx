@@ -2983,6 +2983,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 e.stopPropagation();
                                                 handleUpdateAppointmentStatus(apt.id, 'completed');
                                               }}
+                                              data-tutorial-id="appointments-detalhes-concluido"
                                               className={`px-2 py-1.5 text-xs text-white rounded transition-colors ${apt.is_squeeze ? 'bg-gray-700 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'
                                                 }`}
                                             >
@@ -3001,6 +3002,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 e.stopPropagation();
                                                 handleUpdateAppointmentStatus(apt.id, 'pending');
                                               }}
+                                              data-tutorial-id="appointments-detalhes-pendente"
                                               className="px-2 py-1.5 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"
                                             >
                                               ⏳ PENDENTE
@@ -3085,6 +3087,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                   if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
                                                   onClientNoShow(apt);
                                                 }}
+                                                data-tutorial-id="appointments-detalhes-cliente-faltou"
                                                 className="px-2 py-1.5 text-xs bg-orange-700 text-white rounded hover:bg-orange-800"
                                                 title="Registrar que o cliente faltou (mesma função de Meus clientes)"
                                               >

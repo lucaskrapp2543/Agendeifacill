@@ -55,6 +55,7 @@ export default function BookingPage() {
     establishment?.custom_photo_6_url,
     establishment?.custom_photo_7_url,
   ].filter(Boolean); // Remove valores undefined/null
+  const hasCarouselPhotos = duplicatePhotos.length > 0;
 
   // Debug: verificar se as fotos estão sendo carregadas
   console.log('🔍 DEBUG FOTOS:');
@@ -72,12 +73,14 @@ export default function BookingPage() {
   });
 
   const goToPreviousDuplicate = () => {
+    if (!hasCarouselPhotos) return;
     setDuplicateCarouselIndex((prevIndex) =>
       prevIndex === 0 ? duplicatePhotos.length - 1 : prevIndex - 1
     );
   };
 
   const goToNextDuplicate = () => {
+    if (!hasCarouselPhotos) return;
     setDuplicateCarouselIndex((prevIndex) => (prevIndex + 1) % duplicatePhotos.length);
   };
 
@@ -717,15 +720,52 @@ export default function BookingPage() {
         }
       }
 
-      const { data, error } = await supabase
+      const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+
+      const preferredSelect =
+        'id,appointment_date,appointment_time,duration,status,is_avulso,professional,payment_status,pix_payment_status';
+      const legacySafeSelect =
+        'id,appointment_date,appointment_time,duration,status,is_avulso,professional';
+
+      let data: any[] = [];
+      let usedSchemaFallback = false;
+
+      const { data: preferredData, error: preferredError } = await supabase
         .from('appointments')
-        .select('*')
+        .select(preferredSelect)
         .eq('establishment_id', establishment.id)
+        .eq('appointment_date', selectedDateStr)
         .neq('status', 'cancelled');
 
-      if (error) throw error;
+      if (preferredError) {
+        const isMissingColumnError =
+          preferredError.code === '42703' ||
+          String(preferredError.message || '').toLowerCase().includes('does not exist');
 
-      console.log('📅 Agendamentos existentes carregados:', data);
+        if (!isMissingColumnError) throw preferredError;
+
+        usedSchemaFallback = true;
+        console.warn('⚠️ BookingPage: fallback de schema ativado para appointments (42703).');
+
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('appointments')
+          .select(legacySafeSelect)
+          .eq('establishment_id', establishment.id)
+          .eq('appointment_date', selectedDateStr)
+          .neq('status', 'cancelled');
+
+        if (fallbackError) throw fallbackError;
+        data = fallbackData || [];
+      } else {
+        data = preferredData || [];
+      }
+
+      console.log('📅 Agendamentos existentes carregados (booking):', {
+        establishmentId: establishment.id,
+        selectedDate: selectedDateStr,
+        usedSchemaFallback,
+        total: (data || []).length
+      });
       setExistingAppointments(data || []);
     } catch (error: any) {
       console.error('Error fetching existing appointments:', error);
@@ -1927,7 +1967,7 @@ export default function BookingPage() {
 
 
           {/* Carrossel atrás do perfil (se configurado) */}
-          {establishment?.carousel_position === 'behind' && (
+          {establishment?.carousel_position === 'behind' && hasCarouselPhotos && (
             <div className="relative mb-12">
               {/* Container do carrossel */}
               <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100 border-2 border-gray-300 shadow-lg">
@@ -2005,7 +2045,7 @@ export default function BookingPage() {
           )}
 
           {/* Logo do Estabelecimento - Só aparece quando carrossel não está atrás */}
-          {establishment?.carousel_position !== 'behind' && (
+          {(establishment?.carousel_position !== 'behind' || !hasCarouselPhotos) && (
             <div className="flex justify-center mb-6">
               <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white/15 shadow-2xl bg-black/30">
                 <img
@@ -2022,7 +2062,7 @@ export default function BookingPage() {
           )}
 
           {/* Informações do Estabelecimento */}
-          <div className="text-center space-y-2 relative z-30" style={{ marginTop: establishment?.carousel_position === 'behind' ? '80px' : '20px' }}>
+          <div className="text-center space-y-2 relative z-30" style={{ marginTop: establishment?.carousel_position === 'behind' && hasCarouselPhotos ? '80px' : '20px' }}>
             <h1 className="text-2xl font-extrabold tracking-tight text-white">{establishment?.name}</h1>
             {establishment?.description && (
               <p className="text-white/70">
@@ -2561,7 +2601,7 @@ export default function BookingPage() {
               )}
 
               {/* Carrossel de Fotos embaixo (se configurado ou padrão) */}
-              {(establishment?.carousel_position === 'below' || !establishment?.carousel_position) && (
+              {(establishment?.carousel_position === 'below' || !establishment?.carousel_position) && hasCarouselPhotos && (
                 <div className="mt-4 mb-2 rounded-lg overflow-hidden">
                   <div className="relative">
                     <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100">

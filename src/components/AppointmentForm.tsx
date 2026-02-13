@@ -1594,10 +1594,36 @@ export function AppointmentForm({
   const businessHours = establishment.business_hours?.[dayOfWeek] || defaultBusinessHours;
 
   // Seção 6. HORÁRIO
-  // Filtrar agendamentos existentes com base no profissional selecionado
+  // Compatibilidade (dados legados): alguns estabelecimentos antigos podem ter
+  // profissional salvo como id, professional_id ou até nome.
+  const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+  const norm = (v: unknown) => String(v ?? '').trim().toLowerCase();
+  const selectedProfessionalIdNorm = norm(selectedProfessional?.id);
+  const selectedProfessionalNameNorm = norm((selectedProfessional as any)?.name);
+
   const filteredExistingAppointments = selectedProfessional
-    ? existingAppointments.filter(app => app.professional === selectedProfessional.id)
-    : []; // Se nenhum profissional for selecionado, não há agendamentos a bloquear
+    ? existingAppointments.filter((app: any) => {
+      const appDateStr = app?.appointment_date == null ? '' : String(app.appointment_date).slice(0, 10);
+      if (appDateStr !== selectedDateStr) return false;
+
+      const appProfessionalNorm = norm(app?.professional);
+      const appProfessionalIdNorm = norm(app?.professional_id);
+      const appProfessionalNameNorm = norm(app?.professional_name);
+
+      const matchesById =
+        appProfessionalNorm === selectedProfessionalIdNorm ||
+        appProfessionalIdNorm === selectedProfessionalIdNorm;
+
+      const matchesByName =
+        selectedProfessionalNameNorm.length > 0 &&
+        (
+          appProfessionalNorm === selectedProfessionalNameNorm ||
+          appProfessionalNameNorm === selectedProfessionalNameNorm
+        );
+
+      return matchesById || matchesByName;
+    })
+    : [];
 
 
 

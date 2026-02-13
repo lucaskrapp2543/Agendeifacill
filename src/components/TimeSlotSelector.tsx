@@ -189,11 +189,11 @@ export function TimeSlotSelector({
       }];
     }
 
-    // Filtrar agendamentos para o dia específico
-    const relevantAppointments = existingAppointments.filter(apt =>
-      apt.appointment_date === selectedDateString &&
-      apt.status !== 'cancelled'
-    );
+    // Filtrar agendamentos para o dia específico (normalizar appointment_date: pode vir ISO ou yyyy-MM-dd)
+    const relevantAppointments = existingAppointments.filter(apt => {
+      const aptDate = apt.appointment_date == null ? '' : String(apt.appointment_date).slice(0, 10);
+      return aptDate === selectedDateString && apt.status !== 'cancelled';
+    });
 
     console.log('🕒 TimeSlotSelector - Gerando horários:');
     console.log('  - effectiveBusinessHours:', effectiveBusinessHours);
