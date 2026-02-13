@@ -378,24 +378,69 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (!apt) return;
 
       try {
+        const toNumberSafe = (value: any, fallback = 0): number => {
+          if (typeof value === 'number' && Number.isFinite(value)) return value;
+          const raw = String(value ?? '').trim();
+          if (!raw) return fallback;
+          // Suporta "120,50", "R$ 120,50", "120.50"
+          const normalized = raw
+            .replace(/\s/g, '')
+            .replace(/[Rr]\$/g, '')
+            .replace(/\./g, '')
+            .replace(',', '.')
+            .replace(/[^0-9.-]/g, '');
+          const parsed = Number(normalized);
+          return Number.isFinite(parsed) ? parsed : fallback;
+        };
+
         const serviceNames = (services || []).map((s) => String(s?.name || '').trim()).filter(Boolean);
-        const basePrice = (services || []).reduce((sum, s) => sum + Number(s?.price || 0), 0);
-        const baseDuration = (services || []).reduce((sum, s) => sum + Number(s?.duration || 0), 0);
+        const basePrice = (services || []).reduce((sum, s) => sum + toNumberSafe((s as any)?.price, 0), 0);
+        const baseDuration = (services || []).reduce((sum, s) => sum + toNumberSafe((s as any)?.duration, 0), 0);
 
         const extraProductsTotal = (apt.additional_products || []).reduce(
-          (sum: number, p: any) => sum + Number(p?.price || 0),
+          (sum: number, p: any) => sum + toNumberSafe(p?.price, 0),
           0
         );
         const soldProductsTotal = (apt.sold_products || []).reduce(
-          (sum: number, p: any) => sum + Number(p?.total || 0),
+          (sum: number, p: any) => sum + toNumberSafe(p?.total, 0),
           0
         );
-        const nextTotal = Number(basePrice || 0) + extraProductsTotal + soldProductsTotal;
+        const nextTotal = toNumberSafe(basePrice, 0) + extraProductsTotal + soldProductsTotal;
+        const nextDuration = Math.max(1, Math.round(toNumberSafe(baseDuration, 30)));
+
+        // Evita erro confuso do backend: valida conflito ignorando o próprio agendamento
+        const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+        const startToMinutes = (time: string) => {
+          const [h, m] = String(time || '00:00').split(':').map(Number);
+          return h * 60 + m;
+        };
+        const targetStart = startToMinutes(apt.appointment_time);
+        const targetEnd = targetStart + nextDuration;
+        const conflicting = (appointments || []).find((other: any) => {
+          if (!other) return false;
+          if (String(other.id) === String(apt.id)) return false; // ignorar ele mesmo
+          if (String(other.professional || '') !== String(apt.professional || '')) return false;
+          if (String(other.appointment_date || '').slice(0, 10) !== selectedDateStr) return false;
+          if (String(other.status || '').toLowerCase() === 'cancelled') return false;
+
+          const otherStart = startToMinutes(other.appointment_time);
+          const otherDuration = Math.max(1, Math.round(toNumberSafe(other.duration, 30)));
+          const otherEnd = otherStart + otherDuration;
+          return !(targetEnd <= otherStart || targetStart >= otherEnd);
+        });
+
+        if (conflicting) {
+          const conflictMsg = `Esse serviço não cabe no mesmo horário. Ele conflita com ${String(conflicting.appointment_time || '')} (${String(conflicting.client_name || 'outro cliente')}).`;
+          toast.error(conflictMsg);
+          const handledError: any = new Error(conflictMsg);
+          handledError.handled = true;
+          throw handledError;
+        }
 
         const payload: any = {
           service: serviceNames.join(', '),
-          price: Number(basePrice || 0),
-          duration: Number(baseDuration || 30),
+          price: toNumberSafe(basePrice, 0),
+          duration: nextDuration,
           total_price: nextTotal,
         };
 
@@ -407,14 +452,47 @@ export const AllProfessionalsAppointmentsView: React.FC<
             delete fallbackPayload.total_price;
             ({ error } = await supabase.from('appointments').update(fallbackPayload).eq('id', apt.id));
           }
+          // Compatibilidade para schemas legados: alguns bancos usam service_name/service_price/service_duration_minutes
+          if (error) {
+            const msg2 = String((error as any)?.message || '').toLowerCase();
+            const isSchemaColumnError =
+              (error as any)?.code === '42703' ||
+              msg2.includes('column') ||
+              msg2.includes('schema cache');
+
+            if (isSchemaColumnError) {
+              const legacyPayload: any = {
+                service_name: payload.service,
+                service_price: payload.price,
+                service_duration_minutes: payload.duration,
+                total_price: payload.total_price,
+              };
+              ({ error } = await supabase.from('appointments').update(legacyPayload).eq('id', apt.id));
+
+              if (error) {
+                const legacyWithoutTotal = { ...legacyPayload };
+                delete legacyWithoutTotal.total_price;
+                ({ error } = await supabase.from('appointments').update(legacyWithoutTotal).eq('id', apt.id));
+              }
+            }
+          }
         }
         if (error) throw error;
 
         toast.success('Serviço alterado com sucesso!');
         if (onAppointmentUpdate) onAppointmentUpdate();
       } catch (e) {
-        console.error('❌ Erro ao trocar serviço:', e);
-        toast.error('Erro ao trocar serviço. Tente novamente.');
+        const err: any = e;
+        console.error('❌ Erro ao trocar serviço:', {
+          message: err?.message,
+          code: err?.code,
+          details: err?.details,
+          hint: err?.hint,
+          raw: err,
+        });
+        if (err?.handled) throw e;
+        const detailMessage = [err?.message, err?.details, err?.hint].filter(Boolean).join(' | ');
+        toast.error(detailMessage || 'Erro ao trocar serviço. Tente novamente.');
         throw e;
       }
     };
