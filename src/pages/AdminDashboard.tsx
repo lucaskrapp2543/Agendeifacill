@@ -71,6 +71,9 @@ const AdminDashboard = () => {
   const [qtdPixPagoPorEstabelecimento, setQtdPixPagoPorEstabelecimento] = useState<Record<string, number>>({});
   const [isPayingByEstablishment, setIsPayingByEstablishment] = useState<Record<string, boolean>>({});
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
+  const [showClientesPagosHistoryModal, setShowClientesPagosHistoryModal] = useState(false);
+  const [showClientesNovosHistoryModal, setShowClientesNovosHistoryModal] = useState(false);
+  const [isAdjustingRenewalByEstablishment, setIsAdjustingRenewalByEstablishment] = useState<Record<string, boolean>>({});
   const [payoutHistoryEstablishment, setPayoutHistoryEstablishment] = useState<Establishment | null>(null);
   const [payoutHistoryRows, setPayoutHistoryRows] = useState<any[]>([]);
   const [isLoadingPayoutHistory, setIsLoadingPayoutHistory] = useState(false);
@@ -313,6 +316,10 @@ const AdminDashboard = () => {
   const [clientsMonth, setClientsMonth] = useState<Date>(() => new Date());
   const [clientsMonthCount, setClientsMonthCount] = useState<number>(0);
   const [isLoadingClientsMonth, setIsLoadingClientsMonth] = useState(false);
+  const [saldoLucroMonth, setSaldoLucroMonth] = useState<Date>(() => new Date());
+  const [showSaldoLucroInfo, setShowSaldoLucroInfo] = useState(false);
+  const [saldoMesMonth, setSaldoMesMonth] = useState<Date>(() => new Date());
+  const [clientesMeusPagosMonth, setClientesMeusPagosMonth] = useState<Date>(() => new Date());
 
   // ✅ Saldo do dia: permitir navegar por dia (hoje / dia anterior / etc.)
   const [saldoDiaDate, setSaldoDiaDate] = useState<Date>(() => new Date());
@@ -2344,19 +2351,193 @@ const AdminDashboard = () => {
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
 
-  // Saldo do mês: soma do lucro manual apenas de quem PAGOU neste mês (do dia 1 até AGORA)
+  // Saldo (lucro) por mês selecionável
   const now = new Date();
-  const { start: monthStart } = getMonthRange(now);
-  const paidThisMonth = establishments.filter(est => {
-    if (!est.payment_paid_at) return false;
-    const t = new Date(est.payment_paid_at).getTime();
-    if (!Number.isFinite(t)) return false;
-    return t >= monthStart.getTime() && t <= now.getTime();
-  });
-  const saldoMesProfit = paidThisMonth.reduce((sum, est) => {
+  const isPaidInDateRange = (est: Establishment, rangeStart: Date, rangeEnd: Date) => {
+    const paidAtTime = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
+    if (Number.isFinite(paidAtTime)) {
+      return paidAtTime >= rangeStart.getTime() && paidAtTime <= rangeEnd.getTime();
+    }
+
+    // Fallback legado: quando payment_paid_at não existia/foi usado,
+    // considera novo no mês com vencimento avançado (indicativo de 1º pagamento).
+    const createdAt = new Date(est.created_at).getTime();
+    const dueAt = est.payment_due_date ? new Date(est.payment_due_date).getTime() : NaN;
+    const isCreatedInMonth =
+      Number.isFinite(createdAt) &&
+      createdAt >= rangeStart.getTime() &&
+      createdAt <= rangeEnd.getTime();
+    const hasAdvancedDueDate = Number.isFinite(dueAt) && Number.isFinite(createdAt) && dueAt > createdAt;
+    return isCreatedInMonth && hasAdvancedDueDate;
+  };
+  const { start: saldoLucroMonthStart, end: saldoLucroMonthEndRaw } = getMonthRange(saldoLucroMonth);
+  const saldoLucroMonthEnd = isSameMonthYear(saldoLucroMonth, now) ? now : saldoLucroMonthEndRaw;
+  const paidInSaldoLucroMonth = establishments.filter(est => isPaidInDateRange(est, saldoLucroMonthStart, saldoLucroMonthEnd));
+  const totalAdminProfitInMonth = paidInSaldoLucroMonth.reduce((sum, est) => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
+
+  // Saldo do mês: soma do lucro manual apenas de quem PAGOU neste mês (do dia 1 até AGORA)
+  const { start: saldoMesMonthStart, end: saldoMesMonthEndRaw } = getMonthRange(saldoMesMonth);
+  const saldoMesMonthEnd = isSameMonthYear(saldoMesMonth, now) ? now : saldoMesMonthEndRaw;
+  const paidInSaldoMesMonth = establishments.filter(est => {
+    return isPaidInDateRange(est, saldoMesMonthStart, saldoMesMonthEnd);
+  });
+  const saldoMesProfit = paidInSaldoMesMonth.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  const newClientsInSaldoMesMonth = establishments.filter(est => {
+    const createdAt = new Date(est.created_at).getTime();
+    if (!Number.isFinite(createdAt)) return false;
+    return createdAt >= saldoMesMonthStart.getTime() && createdAt <= saldoMesMonthEnd.getTime();
+  });
+  const newClientsAuditRows = newClientsInSaldoMesMonth.map(est => {
+    const paidAtTime = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
+    if (Number.isFinite(paidAtTime)) {
+      const paidInPeriod = paidAtTime >= saldoMesMonthStart.getTime() && paidAtTime <= saldoMesMonthEnd.getTime();
+      return {
+        establishment: est,
+        included: paidInPeriod,
+        reason: paidInPeriod ? 'payment_paid_at no período' : 'payment_paid_at fora do período'
+      };
+    }
+
+    const createdAt = new Date(est.created_at).getTime();
+    const dueAt = est.payment_due_date ? new Date(est.payment_due_date).getTime() : NaN;
+    const hasAdvancedDueDate = Number.isFinite(dueAt) && Number.isFinite(createdAt) && dueAt > createdAt;
+    return {
+      establishment: est,
+      included: hasAdvancedDueDate,
+      reason: hasAdvancedDueDate ? 'fallback legado (vencimento avançado)' : 'sem evidência de pagamento no período'
+    };
+  });
+  const paidNewClientsInSaldoMesMonth = newClientsAuditRows
+    .filter(row => row.included)
+    .map(row => row.establishment);
+  const excludedNewClientsInSaldoMesMonth = newClientsAuditRows
+    .filter(row => !row.included)
+    .map(row => ({ establishment: row.establishment, reason: row.reason }));
+  const paidNewClientsInSaldoMesMonthSorted = [...paidNewClientsInSaldoMesMonth].sort((a, b) => {
+    const ta = a.payment_paid_at ? new Date(a.payment_paid_at).getTime() : 0;
+    const tb = b.payment_paid_at ? new Date(b.payment_paid_at).getTime() : 0;
+    return tb - ta;
+  });
+  const saldoMesClientesNovosProfit = paidNewClientsInSaldoMesMonth.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+
+  // Clientes meus pagos por mês selecionável (renovações apenas)
+  const { start: clientesMeusPagosMonthStart, end: clientesMeusPagosMonthEndRaw } = getMonthRange(clientesMeusPagosMonth);
+  const clientesMeusPagosMonthEnd = isSameMonthYear(clientesMeusPagosMonth, now) ? now : clientesMeusPagosMonthEndRaw;
+  const parseDateOnlyLocal = (value?: string | null): number => {
+    const raw = String(value || '').trim();
+    if (!raw) return NaN;
+    // Corrige timezone em datas que podem vir como:
+    // - "yyyy-MM-dd"
+    // - "yyyy-MM-ddTHH:mm:ssZ"
+    // Sempre usa somente a parte da data (YYYY-MM-DD).
+    const onlyDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+    if (onlyDate) {
+      const y = Number(onlyDate[1]);
+      const m = Number(onlyDate[2]) - 1;
+      const d = Number(onlyDate[3]);
+      return new Date(y, m, d, 12, 0, 0, 0).getTime();
+    }
+    const t = new Date(raw).getTime();
+    return Number.isFinite(t) ? t : NaN;
+  };
+  const formatDateOnlyBR = (value?: string | null): string => {
+    const t = parseDateOnlyLocal(value);
+    if (!Number.isFinite(t)) return '—';
+    return format(new Date(t), 'dd/MM/yyyy');
+  };
+  // Usa somente a lista visível na tela (mesmo critério da tabela),
+  // para não incluir lixeira/itens fora do filtro atual.
+  const visibleEstablishments = filteredEstablishments;
+  const renewalExpectedInClientesMeusPagosMonth = visibleEstablishments.filter(est => {
+    const createdAt = new Date(est.created_at).getTime();
+    if (!Number.isFinite(createdAt) || createdAt >= clientesMeusPagosMonthStart.getTime()) return false;
+    if (est.plan_type !== 'monthly') return false;
+    const dueAt = parseDateOnlyLocal(est.payment_due_date);
+    if (!Number.isFinite(dueAt)) return false;
+    // Regra pedida: somente quem vence NO mês selecionado (nem antes, nem depois).
+    return dueAt >= clientesMeusPagosMonthStart.getTime() && dueAt <= clientesMeusPagosMonthEndRaw.getTime();
+  });
+  const paidRenewalsInClientesMeusPagosMonth = visibleEstablishments.filter(est => {
+    const createdAt = new Date(est.created_at).getTime();
+    if (!Number.isFinite(createdAt) || createdAt >= clientesMeusPagosMonthStart.getTime()) return false;
+    if (est.plan_type !== 'monthly') return false;
+    if (!est.payment_paid_at) return false;
+    const paidAt = new Date(est.payment_paid_at).getTime();
+    if (!Number.isFinite(paidAt)) return false;
+    return paidAt >= clientesMeusPagosMonthStart.getTime() && paidAt <= clientesMeusPagosMonthEnd.getTime();
+  });
+  const paidRenewalsInClientesMeusPagosMonthSorted = [...paidRenewalsInClientesMeusPagosMonth].sort((a, b) => {
+    const ta = a.payment_paid_at ? new Date(a.payment_paid_at).getTime() : 0;
+    const tb = b.payment_paid_at ? new Date(b.payment_paid_at).getTime() : 0;
+    return tb - ta;
+  });
+  const clientesMeusPagosMesSelected = paidRenewalsInClientesMeusPagosMonth.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  const paidRenewalIdsInClientesMeusPagosMonth = new Set(paidRenewalsInClientesMeusPagosMonth.map(est => est.id));
+  const renewalMissingPaymentInClientesMeusPagosMonth = renewalExpectedInClientesMeusPagosMonth.filter(
+    est => !paidRenewalIdsInClientesMeusPagosMonth.has(est.id)
+  );
+  const renewalMissingPaymentInClientesMeusPagosMonthSorted = [...renewalMissingPaymentInClientesMeusPagosMonth].sort((a, b) => {
+    const ta = parseDateOnlyLocal(a.payment_due_date);
+    const tb = parseDateOnlyLocal(b.payment_due_date);
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
+  });
+  const renewalMissingPaymentValueInClientesMeusPagosMonth = renewalMissingPaymentInClientesMeusPagosMonth.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  const setRenewalInSelectedMonth = async (establishment: Establishment, shouldInclude: boolean) => {
+    const key = `renewal:${establishment.id}`;
+    setIsAdjustingRenewalByEstablishment(prev => ({ ...prev, [key]: true }));
+    try {
+      let targetDate: Date;
+      if (shouldInclude) {
+        targetDate = isSameMonthYear(clientesMeusPagosMonth, now)
+          ? new Date()
+          : new Date(clientesMeusPagosMonthStart.getFullYear(), clientesMeusPagosMonthStart.getMonth(), 1, 12, 0, 0, 0);
+      } else {
+        // Remove do mês selecionado jogando a marcação para 1 minuto antes do início do mês.
+        targetDate = new Date(clientesMeusPagosMonthStart.getTime() - 60 * 1000);
+      }
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({ payment_paid_at: targetDate.toISOString() })
+        .eq('id', establishment.id);
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (/payment_paid_at/i.test(msg) || /column/i.test(msg)) {
+          toast.error('Campo payment_paid_at não existe no banco. Aplique a migration no Supabase.');
+        } else {
+          toast.error('Erro ao ajustar renovação do mês.');
+        }
+        return;
+      }
+
+      setEstablishments(prev =>
+        prev.map(e => (e.id === establishment.id ? { ...e, payment_paid_at: targetDate.toISOString() } : e))
+      );
+      toast.success(shouldInclude ? 'Adicionado nas renovações do mês.' : 'Removido das renovações do mês.');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao ajustar renovação do mês.');
+    } finally {
+      setIsAdjustingRenewalByEstablishment(prev => ({ ...prev, [key]: false }));
+    }
+  };
 
   // Saldo do dia (HOJE): soma do lucro manual apenas de quem PAGOU HOJE
   const dayStart = startOfDay(saldoDiaDate);
@@ -2664,10 +2845,49 @@ const AdminDashboard = () => {
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <DollarSign className="h-8 w-8 text-emerald-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Saldo (lucro)</p>
-                <p className="text-2xl font-bold text-gray-900">{fmtBRL(totalAdminProfit)}</p>
-                <p className="text-xs text-gray-500 mt-1">Soma dos valores manuais (não inclui lixeira)</p>
+              <div className="ml-4 w-full">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-600">Saldo (lucro)</p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSaldoLucroMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                      className="p-1 rounded hover:bg-gray-100 text-gray-600"
+                      title="Mês anterior"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSaldoLucroMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                      disabled={isSameMonthYear(saldoLucroMonth, new Date())}
+                      className="p-1 rounded hover:bg-gray-100 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Próximo mês"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-1 capitalize">
+                  {saldoLucroMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-2xl font-bold text-gray-900">{fmtBRL(totalAdminProfitInMonth)}</p>
+                <div className="text-xs text-gray-500 mt-1">
+                  <span>{paidInSaldoLucroMonth.length} pago(s) • total geral {fmtBRL(totalAdminProfit)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSaldoLucroInfo(prev => !prev)}
+                    className="ml-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-gray-400 px-1 text-[10px] font-bold text-gray-600 hover:bg-gray-100"
+                    title="Explicação do total geral"
+                  >
+                    !
+                  </button>
+                </div>
+                {showSaldoLucroInfo && (
+                  <p className="text-[11px] text-gray-600 mt-1 bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                    saldo com base mês passado, se ninguem cancelar esse é o saldo a receber
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -2675,12 +2895,133 @@ const AdminDashboard = () => {
           <div className="bg-green-50 border border-green-200 rounded-lg shadow p-6">
             <div className="flex items-center">
               <DollarSign className="h-8 w-8 text-green-700" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-green-900">Saldo mês</p>
+              <div className="ml-4 w-full">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-green-900">Saldo mês</p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSaldoMesMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                      className="p-1 rounded hover:bg-green-100 text-green-800"
+                      title="Mês anterior"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSaldoMesMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                      disabled={isSameMonthYear(saldoMesMonth, new Date())}
+                      className="p-1 rounded hover:bg-green-100 text-green-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Próximo mês"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-green-800/80 mt-1 capitalize">
+                  {saldoMesMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </p>
                 <p className="text-2xl font-bold text-green-900">{fmtBRL(saldoMesProfit)}</p>
                 <p className="text-xs text-green-800/80 mt-1">
-                  {paidThisMonth.length} pago(s) de{' '}
-                  {monthStart.toLocaleDateString('pt-BR')} até {now.toLocaleDateString('pt-BR')}
+                  {paidInSaldoMesMonth.length} pago(s) de{' '}
+                  {saldoMesMonthStart.toLocaleDateString('pt-BR')} até {saldoMesMonthEnd.toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-teal-50 border border-teal-200 rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <DollarSign className="h-8 w-8 text-teal-700" />
+              <div className="ml-4 w-full">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-teal-900">Saldo mês clientes novos</p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSaldoMesMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                      className="p-1 rounded hover:bg-teal-100 text-teal-800"
+                      title="Mês anterior"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSaldoMesMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                      disabled={isSameMonthYear(saldoMesMonth, new Date())}
+                      className="p-1 rounded hover:bg-teal-100 text-teal-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Próximo mês"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowClientesNovosHistoryModal(true)}
+                      className="text-[11px] px-2 py-1 rounded border border-teal-300 text-teal-800 hover:bg-teal-100"
+                      title="Ver auditoria dos clientes novos no período"
+                    >
+                      Histórico
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-teal-800/80 mt-1 capitalize">
+                  {saldoMesMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-2xl font-bold text-teal-900">{fmtBRL(saldoMesClientesNovosProfit)}</p>
+                <p className="text-xs text-teal-800/80 mt-1">
+                  {paidNewClientsInSaldoMesMonth.length} pago(s) • {excludedNewClientsInSaldoMesMonth.length} fora da regra
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <Users className="h-8 w-8 text-emerald-700" />
+              <div className="ml-4 w-full">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-emerald-900">Renovações pagas esse mês</p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setClientesMeusPagosMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+                      }
+                      className="p-1 rounded hover:bg-emerald-100 text-emerald-800"
+                      title="Mês anterior"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setClientesMeusPagosMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+                      }
+                      disabled={isSameMonthYear(clientesMeusPagosMonth, new Date())}
+                      className="p-1 rounded hover:bg-emerald-100 text-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Próximo mês"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowClientesPagosHistoryModal(true)}
+                      className="text-[11px] px-2 py-1 rounded border border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                      title="Ver estabelecimentos incluídos neste cálculo"
+                    >
+                      Histórico
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-emerald-800/80 mt-1 capitalize">
+                  {clientesMeusPagosMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-2xl font-bold text-emerald-900">{fmtBRL(clientesMeusPagosMesSelected)}</p>
+                <p className="text-xs text-emerald-800/80 mt-1">
+                  {paidRenewalsInClientesMeusPagosMonth.length} renovação(ões) • não inclui novos do mês selecionado
+                </p>
+                <p className="text-xs text-amber-800 mt-1">
+                  Faltam (vencem até fim do mês): {fmtBRL(renewalMissingPaymentValueInClientesMeusPagosMonth)} ({renewalMissingPaymentInClientesMeusPagosMonth.length})
                 </p>
               </div>
             </div>
@@ -3532,6 +3873,259 @@ const AdminDashboard = () => {
                           </table>
                         </div>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal - Histórico de Renovações pagas esse mês */}
+              {showClientesPagosHistoryModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-auto">
+                    <div className="flex items-center justify-between px-4 py-3 border-b">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Histórico - Renovações pagas esse mês</div>
+                        <div className="text-xs text-gray-600">
+                          Renovados de {clientesMeusPagosMonthStart.toLocaleDateString('pt-BR')} até{' '}
+                          {clientesMeusPagosMonthEnd.toLocaleDateString('pt-BR')}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowClientesPagosHistoryModal(false)}
+                        className="p-2 rounded hover:bg-gray-100"
+                        title="Fechar"
+                      >
+                        <X className="h-5 w-5 text-gray-600" />
+                      </button>
+                    </div>
+
+                    <div className="p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                        <div className="p-3 rounded border bg-emerald-50">
+                          <div className="text-[11px] text-emerald-800">Total recebido (renovações)</div>
+                          <div className="text-sm font-extrabold text-emerald-900">{fmtBRL(clientesMeusPagosMesSelected)}</div>
+                        </div>
+                        <div className="p-3 rounded border bg-gray-50">
+                          <div className="text-[11px] text-gray-600">Quantidade de estabelecimentos</div>
+                          <div className="text-sm font-extrabold text-gray-900">{paidRenewalsInClientesMeusPagosMonthSorted.length}</div>
+                        </div>
+                        <div className="p-3 rounded border bg-amber-50">
+                          <div className="text-[11px] text-amber-800">Faltam (vencem até fim do mês)</div>
+                          <div className="text-sm font-extrabold text-amber-900">
+                            {fmtBRL(renewalMissingPaymentValueInClientesMeusPagosMonth)} ({renewalMissingPaymentInClientesMeusPagosMonth.length})
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="border rounded">
+                          <div className="px-3 py-2 bg-emerald-50 border-b text-xs font-semibold text-emerald-900">
+                            Pagaram renovação no mês
+                          </div>
+                          {paidRenewalsInClientesMeusPagosMonthSorted.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-600">Nenhuma renovação paga encontrada neste mês.</div>
+                          ) : (
+                            <div className="overflow-auto">
+                              <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estabelecimento</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pago em</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ação</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200">
+                                  {paidRenewalsInClientesMeusPagosMonthSorted.map((establishment) => (
+                                    <tr key={establishment.id}>
+                                      <td className="px-3 py-2 text-xs text-gray-800">
+                                        {establishment.name} <span className="text-gray-500">({establishment.code})</span>
+                                      </td>
+                                      <td className="px-3 py-2 text-xs text-gray-700">
+                                        {establishment.payment_paid_at
+                                          ? new Date(establishment.payment_paid_at).toLocaleString('pt-BR')
+                                          : '—'}
+                                      </td>
+                                      <td className="px-3 py-2 text-xs font-bold text-gray-900">
+                                        {fmtBRL(Number(establishment.admin_profit_value ?? 0))}
+                                      </td>
+                                      <td className="px-3 py-2 text-xs">
+                                        <button
+                                          type="button"
+                                          onClick={() => setRenewalInSelectedMonth(establishment, false)}
+                                          disabled={isAdjustingRenewalByEstablishment[`renewal:${establishment.id}`]}
+                                          className="px-2 py-1 rounded border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                                        >
+                                          Remover do mês
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="border rounded">
+                          <div className="px-3 py-2 bg-amber-50 border-b text-xs font-semibold text-amber-900">
+                            Faltam (vencem no mês)
+                          </div>
+                          {renewalMissingPaymentInClientesMeusPagosMonthSorted.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-600">Nenhum faltante neste mês.</div>
+                          ) : (
+                            <div className="overflow-auto">
+                              <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estabelecimento</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Vencimento</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ação</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200">
+                                  {renewalMissingPaymentInClientesMeusPagosMonthSorted.map((establishment) => (
+                                    <tr key={`missing:${establishment.id}`}>
+                                      <td className="px-3 py-2 text-xs text-gray-800">
+                                        {establishment.name} <span className="text-gray-500">({establishment.code})</span>
+                                      </td>
+                                      <td className="px-3 py-2 text-xs text-gray-700">
+                                        {formatDateOnlyBR(establishment.payment_due_date)}
+                                      </td>
+                                      <td className="px-3 py-2 text-xs text-gray-700">{establishment.payment_status || '—'}</td>
+                                      <td className="px-3 py-2 text-xs font-bold text-gray-900">
+                                        {fmtBRL(Number(establishment.admin_profit_value ?? 0))}
+                                      </td>
+                                      <td className="px-3 py-2 text-xs">
+                                        <button
+                                          type="button"
+                                          onClick={() => setRenewalInSelectedMonth(establishment, true)}
+                                          disabled={isAdjustingRenewalByEstablishment[`renewal:${establishment.id}`]}
+                                          className="px-2 py-1 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                                        >
+                                          Adicionar no mês
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal - Histórico de Saldo mês clientes novos */}
+              {showClientesNovosHistoryModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-auto">
+                    <div className="flex items-center justify-between px-4 py-3 border-b">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Histórico - Saldo mês clientes novos</div>
+                        <div className="text-xs text-gray-600">
+                          Período: {saldoMesMonthStart.toLocaleDateString('pt-BR')} até {saldoMesMonthEnd.toLocaleDateString('pt-BR')}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowClientesNovosHistoryModal(false)}
+                        className="p-2 rounded hover:bg-gray-100"
+                        title="Fechar"
+                      >
+                        <X className="h-5 w-5 text-gray-600" />
+                      </button>
+                    </div>
+
+                    <div className="p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                        <div className="p-3 rounded border bg-teal-50">
+                          <div className="text-[11px] text-teal-800">Entraram no cálculo</div>
+                          <div className="text-sm font-extrabold text-teal-900">{paidNewClientsInSaldoMesMonthSorted.length}</div>
+                        </div>
+                        <div className="p-3 rounded border bg-rose-50">
+                          <div className="text-[11px] text-rose-700">Ficaram de fora</div>
+                          <div className="text-sm font-extrabold text-rose-900">{excludedNewClientsInSaldoMesMonth.length}</div>
+                        </div>
+                        <div className="p-3 rounded border bg-gray-50">
+                          <div className="text-[11px] text-gray-600">Total recebido (novos)</div>
+                          <div className="text-sm font-extrabold text-gray-900">{fmtBRL(saldoMesClientesNovosProfit)}</div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="border rounded">
+                          <div className="px-3 py-2 bg-teal-50 border-b text-xs font-semibold text-teal-900">
+                            Entraram no cálculo
+                          </div>
+                          {paidNewClientsInSaldoMesMonthSorted.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-600">Nenhum cliente novo entrou no cálculo neste período.</div>
+                          ) : (
+                            <div className="overflow-auto">
+                              <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estabelecimento</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pago em</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200">
+                                  {paidNewClientsInSaldoMesMonthSorted.map((establishment) => (
+                                    <tr key={establishment.id}>
+                                      <td className="px-3 py-2 text-xs text-gray-800">
+                                        {establishment.name} <span className="text-gray-500">({establishment.code})</span>
+                                      </td>
+                                      <td className="px-3 py-2 text-xs text-gray-700">
+                                        {establishment.payment_paid_at
+                                          ? new Date(establishment.payment_paid_at).toLocaleString('pt-BR')
+                                          : 'Fallback legado'}
+                                      </td>
+                                      <td className="px-3 py-2 text-xs font-bold text-gray-900">
+                                        {fmtBRL(Number(establishment.admin_profit_value ?? 0))}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="border rounded">
+                          <div className="px-3 py-2 bg-rose-50 border-b text-xs font-semibold text-rose-900">
+                            Ficaram de fora (com motivo)
+                          </div>
+                          {excludedNewClientsInSaldoMesMonth.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-600">Nenhum cliente novo ficou de fora neste período.</div>
+                          ) : (
+                            <div className="overflow-auto">
+                              <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estabelecimento</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200">
+                                  {excludedNewClientsInSaldoMesMonth.map((row) => (
+                                    <tr key={`excluded:${row.establishment.id}`}>
+                                      <td className="px-3 py-2 text-xs text-gray-800">
+                                        {row.establishment.name} <span className="text-gray-500">({row.establishment.code})</span>
+                                      </td>
+                                      <td className="px-3 py-2 text-xs text-gray-700">{row.reason}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
