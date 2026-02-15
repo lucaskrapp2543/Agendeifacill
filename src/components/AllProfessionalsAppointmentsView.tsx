@@ -66,6 +66,12 @@ interface Appointment {
   is_squeeze?: boolean; // Indica se é um encaixe
 }
 
+interface ServiceSubcategoryLabel {
+  name: string;
+  label_name?: string;
+  label_color?: string;
+}
+
 interface TimeSlot {
   time: string;
   appointment?: Appointment;
@@ -117,6 +123,7 @@ interface AllProfessionalsAppointmentsViewProps {
   pendingOpenBarbershopCash?: boolean;
   onConsumePendingOpenBarbershopCash?: () => void;
   onRequestBarbershopCashAccess?: () => void;
+  serviceSubcategories?: ServiceSubcategoryLabel[];
 }
 
 export const AllProfessionalsAppointmentsView: React.FC<
@@ -153,6 +160,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   pendingOpenBarbershopCash = false,
   onConsumePendingOpenBarbershopCash,
   onRequestBarbershopCashAccess,
+  serviceSubcategories = [],
 }) => {
     console.log('📋 AllProfessionalsAppointmentsView - Total de appointments recebidos:', appointments.length);
     console.log('📅 Data selecionada:', selectedDate.toISOString());
@@ -741,6 +749,59 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const base = (name || '').trim().toUpperCase() === 'ASSINANTE' || !(name || '').trim() ? 'Assinante' : name;
       const alreadyHasLabel = (name || '').includes('(ASSINANTE)');
       return alreadyHasLabel ? `${base} 👑` : `${base} (ASSINANTE) 👑`;
+    };
+
+    const normalizeServiceKey = (value: string): string => {
+      return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+    };
+
+    const normalizeLabelColor = (rawColor?: string): string => {
+      const color = String(rawColor || '').trim();
+      return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : '#111827';
+    };
+
+    const getLabelTextColor = (hexColor?: string): string => {
+      const normalized = normalizeLabelColor(hexColor).slice(1);
+      const r = parseInt(normalized.slice(0, 2), 16);
+      const g = parseInt(normalized.slice(2, 4), 16);
+      const b = parseInt(normalized.slice(4, 6), 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.65 ? '#111827' : '#FFFFFF';
+    };
+
+    const getAppointmentServiceLabels = (apt: Appointment): Array<{ name: string; color: string }> => {
+      if (!apt?.service || serviceSubcategories.length === 0) return [];
+      const normalizedParts = String(apt.service)
+        .split(',')
+        .map((part) => normalizeServiceKey(part))
+        .filter(Boolean);
+      if (normalizedParts.length === 0) return [];
+
+      const directMatches = serviceSubcategories.filter((subcategory) => {
+        const key = normalizeServiceKey(subcategory.name);
+        return normalizedParts.includes(key);
+      });
+
+      const candidates = directMatches.length > 0
+        ? directMatches
+        : serviceSubcategories.filter((subcategory) => {
+          const key = normalizeServiceKey(subcategory.name);
+          return normalizedParts.some((part) => part.includes(key) || key.includes(part));
+        });
+
+      const unique = new Map<string, { name: string; color: string }>();
+      for (const candidate of candidates) {
+        const labelName = String(candidate.label_name || '').trim();
+        if (!labelName) continue;
+        const color = normalizeLabelColor(candidate.label_color);
+        const mapKey = `${labelName}__${color}`;
+        if (!unique.has(mapKey)) unique.set(mapKey, { name: labelName, color });
+      }
+      return Array.from(unique.values()).slice(0, 2);
     };
 
     const isAvulsoLike = (apt: Appointment): boolean => {
@@ -2679,6 +2740,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               // Agendamento real
                               const apt = slot.appointment;
                               const isExpanded = expandedAppointments[apt.id];
+                              const serviceLabels = getAppointmentServiceLabels(apt);
 
                               return (
                                 <div
@@ -2711,6 +2773,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <span className="truncate">
                                             {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientNameWithSubscriberLabel(apt)}
                                           </span>
+                                          {serviceLabels.map((label) => (
+                                            <span
+                                              key={`${apt.id}-${label.name}-${label.color}`}
+                                              className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-white/30 shrink-0"
+                                              style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
+                                              title={`Etiqueta: ${label.name}`}
+                                            >
+                                              {label.name}
+                                            </span>
+                                          ))}
                                           {isAvulsoLike(apt) && !apt.is_squeeze && (
                                             <button
                                               type="button"
@@ -2763,6 +2835,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <span className="text-white font-semibold">
                                             {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientNameWithSubscriberLabel(apt)}
                                           </span>
+                                          {serviceLabels.map((label) => (
+                                            <span
+                                              key={`expanded-${apt.id}-${label.name}-${label.color}`}
+                                              className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-white/30"
+                                              style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
+                                              title={`Etiqueta: ${label.name}`}
+                                            >
+                                              {label.name}
+                                            </span>
+                                          ))}
                                           {isAvulsoLike(apt) && !apt.is_squeeze && editingAvulsoNameId !== apt.id && (
                                             <button
                                               type="button"
@@ -3295,7 +3377,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                             {hiddenOpen && (
                               <div className="mt-2 space-y-2">
-                                {hiddenAppointments.map((apt) => (
+                                {hiddenAppointments.map((apt) => {
+                                  const hiddenServiceLabels = getAppointmentServiceLabels(apt);
+                                  return (
                                   <div
                                     key={`hidden-${apt.id}`}
                                     className="rounded-lg border border-amber-200 bg-amber-50 p-3"
@@ -3308,6 +3392,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <div className="text-[11px] text-amber-900/90 truncate">
                                           {apt.service}
                                         </div>
+                                        {hiddenServiceLabels.length > 0 && (
+                                          <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                            {hiddenServiceLabels.map((label) => (
+                                              <span
+                                                key={`hidden-${apt.id}-${label.name}-${label.color}`}
+                                                className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-amber-900/20"
+                                                style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
+                                                title={`Etiqueta: ${label.name}`}
+                                              >
+                                                {label.name}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
                                       <div className="shrink-0 text-[11px] font-extrabold text-amber-900">
                                         {formatCurrency(calculateTotalPrice(apt))}
@@ -3327,7 +3425,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       Esse agendamento está fora do intervalo configurado da agenda e por isso não aparece nos horários normais.
                                     </div>
                                   </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )}
                           </div>

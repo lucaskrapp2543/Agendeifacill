@@ -12,6 +12,8 @@ interface Expense {
   amount: number;
   professional?: string;
   professional_id?: string;
+  observation?: string | null;
+  expense_context?: 'financial' | 'sidebar' | null;
   expense_date: string;
   created_at: string;
   updated_at: string;
@@ -42,7 +44,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-  const [newExpense, setNewExpense] = useState({ name: '', amount: '', professional: '', professional_id: '', expense_date: '' });
+  const [newExpense, setNewExpense] = useState({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
   const { toast } = useToast();
 
   // Carregar despesas
@@ -62,13 +64,31 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       console.log('📅 Período:', startDate.toISOString(), 'até', endDate.toISOString());
 
       // Filtrar despesas por mês usando created_at (data de criação)
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('establishment_expenses')
         .select('*')
         .eq('establishment_id', establishmentId)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
+        .or('expense_context.is.null,expense_context.eq.sidebar')
         .order('created_at', { ascending: false });
+
+      // Compatibilidade com bancos antigos sem a coluna expense_context
+      if (error && String(error.message || '').toLowerCase().includes('expense_context')) {
+        const legacyResult = await supabase
+          .from('establishment_expenses')
+          .select('*')
+          .eq('establishment_id', establishmentId)
+          .gte('created_at', startDate.toISOString())
+          .lte('created_at', endDate.toISOString())
+          .order('created_at', { ascending: false });
+
+        data = (legacyResult.data || []).filter((expense: any) => {
+          const professionalName = String(expense?.professional || '').trim();
+          return Boolean(expense?.professional_id) || professionalName.length > 0;
+        });
+        error = legacyResult.error as any;
+      }
 
       if (error) {
         console.error('❌ Erro ao carregar despesas:', error);
@@ -123,17 +143,34 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
     }
 
     try {
-      const { data, error } = await supabase
+      const normalizedObservation = newExpense.observation.trim().slice(0, 150);
+      const payload: any = {
+        establishment_id: establishmentId,
+        name: newExpense.name.trim(),
+        amount: amount,
+        professional: newExpense.professional.trim() || null,
+        professional_id: newExpense.professional_id || null,
+        observation: normalizedObservation.length > 0 ? normalizedObservation : null,
+        expense_context: 'sidebar',
+      };
+
+      let { data, error } = await supabase
         .from('establishment_expenses')
-        .insert({
-          establishment_id: establishmentId,
-          name: newExpense.name.trim(),
-          amount: amount,
-          professional: newExpense.professional.trim() || null,
-          professional_id: newExpense.professional_id || null
-        })
+        .insert(payload)
         .select()
         .single();
+
+      const addErrMsg = String(error?.message || '').toLowerCase();
+      if (error && (addErrMsg.includes('observation') || addErrMsg.includes('expense_context'))) {
+        const fallbackPayload: any = { ...payload };
+        delete fallbackPayload.observation;
+        delete fallbackPayload.expense_context;
+        ({ data, error } = await supabase
+          .from('establishment_expenses')
+          .insert(fallbackPayload)
+          .select()
+          .single());
+      }
 
       if (error) {
         console.error('Erro ao adicionar despesa:', error);
@@ -142,7 +179,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       }
 
       setExpenses(prev => [data, ...prev]);
-      setNewExpense({ name: '', amount: '', professional: '', expense_date: '' });
+      setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
       setShowAddModal(false);
       toast('Despesa adicionada com sucesso!', 'success');
     } catch (error) {
@@ -165,17 +202,35 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
     }
 
     try {
-      const { data, error } = await supabase
+      const normalizedObservation = newExpense.observation.trim().slice(0, 150);
+      const payload: any = {
+        name: newExpense.name.trim(),
+        amount: amount,
+        professional: newExpense.professional.trim() || null,
+        professional_id: newExpense.professional_id || null,
+        observation: normalizedObservation.length > 0 ? normalizedObservation : null,
+        expense_context: 'sidebar',
+      };
+
+      let { data, error } = await supabase
         .from('establishment_expenses')
-        .update({
-          name: newExpense.name.trim(),
-          amount: amount,
-          professional: newExpense.professional.trim() || null,
-          professional_id: newExpense.professional_id || null
-        })
+        .update(payload)
         .eq('id', editingExpense.id)
         .select()
         .single();
+
+      const editErrMsg = String(error?.message || '').toLowerCase();
+      if (error && (editErrMsg.includes('observation') || editErrMsg.includes('expense_context'))) {
+        const fallbackPayload: any = { ...payload };
+        delete fallbackPayload.observation;
+        delete fallbackPayload.expense_context;
+        ({ data, error } = await supabase
+          .from('establishment_expenses')
+          .update(fallbackPayload)
+          .eq('id', editingExpense.id)
+          .select()
+          .single());
+      }
 
       if (error) {
         console.error('Erro ao editar despesa:', error);
@@ -185,7 +240,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
 
       setExpenses(prev => prev.map(exp => exp.id === editingExpense.id ? data : exp));
       setEditingExpense(null);
-      setNewExpense({ name: '', amount: '', professional: '', expense_date: '' });
+      setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
       setShowEditModal(false);
       toast('Despesa editada com sucesso!', 'success');
     } catch (error) {
@@ -228,7 +283,8 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       amount: expense.amount.toString(),
       professional: expense.professional || '',
       professional_id: expense.professional_id || '',
-      expense_date: expense.expense_date || ''
+      expense_date: expense.expense_date || '',
+      observation: expense.observation || ''
     });
     setShowEditModal(true);
   };
@@ -386,6 +442,11 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                 <div key={expense.id} className="flex items-center justify-between p-4 border border-gray-700 rounded-lg hover:bg-[#1a1b1c] bg-[#1a1b1c]">
                   <div className="flex-1">
                     <h3 className="font-medium text-white">{expense.name}</h3>
+                    {expense.observation && (
+                      <p className="text-sm text-gray-400 mt-1 break-words">
+                        📝 {expense.observation}
+                      </p>
+                    )}
                     <div className="flex items-center gap-4 text-sm text-gray-400">
                       <span>{formatDate(expense.created_at)}</span>
                       {expense.professional && (
@@ -484,13 +545,29 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                   className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c] placeholder-gray-500"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Observação (opcional)
+                </label>
+                <textarea
+                  value={newExpense.observation}
+                  onChange={(e) => setNewExpense(prev => ({ ...prev, observation: e.target.value.slice(0, 150) }))}
+                  placeholder="Escreva uma observação (até 150 caracteres)"
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c] placeholder-gray-500 resize-none"
+                  rows={3}
+                  maxLength={150}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  {newExpense.observation.length}/150
+                </p>
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => {
                   setShowAddModal(false);
-                  setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '' });
+                  setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
                 }}
                 className="flex-1 px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-[#1a1b1c] transition-colors"
               >
@@ -568,6 +645,22 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                   className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c] placeholder-gray-500"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Observação (opcional)
+                </label>
+                <textarea
+                  value={newExpense.observation}
+                  onChange={(e) => setNewExpense(prev => ({ ...prev, observation: e.target.value.slice(0, 150) }))}
+                  placeholder="Escreva uma observação (até 150 caracteres)"
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c] placeholder-gray-500 resize-none"
+                  rows={3}
+                  maxLength={150}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  {newExpense.observation.length}/150
+                </p>
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -575,7 +668,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                 onClick={() => {
                   setShowEditModal(false);
                   setEditingExpense(null);
-                  setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '' });
+                  setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
                 }}
                 className="flex-1 px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-[#1a1b1c] transition-colors"
               >

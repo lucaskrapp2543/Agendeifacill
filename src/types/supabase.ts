@@ -184,6 +184,8 @@ export interface Database {
           end_date: string;
           payment_status: 'paid' | 'unpaid';
           last_payment_date: string | null;
+          subscriber_payment_method?: string | null;
+          subscriber_observation?: string | null;
         };
         Insert: {
           client_id: string;
@@ -193,10 +195,14 @@ export interface Database {
           end_date: string;
           payment_status?: 'paid' | 'unpaid';
           last_payment_date?: string;
+          subscriber_payment_method?: string | null;
+          subscriber_observation?: string | null;
         };
         Update: {
           payment_status?: 'paid' | 'unpaid';
           last_payment_date?: string;
+          subscriber_payment_method?: string | null;
+          subscriber_observation?: string | null;
         };
       };
       profiles: {
@@ -217,6 +223,9 @@ export interface Database {
           name: string;
           amount: number;
           professional?: string;
+          professional_id?: string;
+          observation?: string | null;
+          expense_context?: 'financial' | 'sidebar' | null;
           expense_date: string;
           created_at: string;
           updated_at: string;
@@ -226,12 +235,18 @@ export interface Database {
           name: string;
           amount: number;
           professional?: string;
+          professional_id?: string;
+          observation?: string | null;
+          expense_context?: 'financial' | 'sidebar' | null;
           expense_date: string;
         };
         Update: {
           name?: string;
           amount?: number;
           professional?: string;
+          professional_id?: string;
+          observation?: string | null;
+          expense_context?: 'financial' | 'sidebar' | null;
           expense_date?: string;
         };
       }

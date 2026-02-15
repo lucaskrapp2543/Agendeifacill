@@ -1,8 +1,9 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { AlertTriangle, Bell, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
+import { AlertTriangle, Bell, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Tag, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
@@ -223,6 +224,8 @@ interface ServiceSubcategory {
   display_order: number;
   hidden_from_booking?: boolean;
   oculto_da_reserva?: boolean;
+  label_name?: string;
+  label_color?: string;
   created_at: string;
   updated_at: string;
 }
@@ -3282,10 +3285,18 @@ const EstablishmentDashboard = () => {
   const [expensesTotal, setExpensesTotal] = useState(0);
   const [allProfessionalPayments, setAllProfessionalPayments] = useState<any[]>([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [showDeletedProfessionalsModal, setShowDeletedProfessionalsModal] = useState(false);
   const [showExpensesList, setShowExpensesList] = useState(false);
   const [newExpenseName, setNewExpenseName] = useState('');
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [newExpenseObservation, setNewExpenseObservation] = useState('');
+  const [showFinancialReportTypeModal, setShowFinancialReportTypeModal] = useState(false);
+  const [isGeneratingFinancialReport, setIsGeneratingFinancialReport] = useState(false);
+  const [editExpenseName, setEditExpenseName] = useState('');
+  const [editExpenseAmount, setEditExpenseAmount] = useState('');
+  const [editExpenseObservation, setEditExpenseObservation] = useState('');
   const [openExtraProductsDropdown, setOpenExtraProductsDropdown] = useState<string | null>(null);
   const [openDailyRevenueDropdown, setOpenDailyRevenueDropdown] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
@@ -3875,11 +3886,14 @@ const EstablishmentDashboard = () => {
   const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
   const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
   const [showEditSubcategoryModal, setShowEditSubcategoryModal] = useState(false);
+  const [showSubcategoryLabelModal, setShowSubcategoryLabelModal] = useState(false);
   const [showDiscountCouponsModal, setShowDiscountCouponsModal] = useState(false);
   const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState({ name: '' });
   const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
   const [editingSubcategory, setEditingSubcategory] = useState<ServiceSubcategory | null>(null);
+  const [selectedSubcategoryForLabel, setSelectedSubcategoryForLabel] = useState<ServiceSubcategory | null>(null);
+  const [subcategoryLabelDraft, setSubcategoryLabelDraft] = useState({ name: '', color: '#111827' });
   const [isEditingSubcategoryCustomDuration, setIsEditingSubcategoryCustomDuration] = useState(false);
   const [newSubcategory, setNewSubcategory] = useState({
     name: '',
@@ -5016,6 +5030,8 @@ const EstablishmentDashboard = () => {
           display_order: Number(item?.display_order || 0),
           hidden_from_booking: typeof item?.hidden_from_booking === 'boolean' ? item.hidden_from_booking : undefined,
           oculto_da_reserva: typeof item?.oculto_da_reserva === 'boolean' ? item.oculto_da_reserva : undefined,
+          label_name: typeof item?.label_name === 'string' ? item.label_name : undefined,
+          label_color: typeof item?.label_color === 'string' ? item.label_color : undefined,
           created_at: String(item?.created_at || ''),
           updated_at: String(item?.updated_at || ''),
         }))
@@ -5583,6 +5599,75 @@ const EstablishmentDashboard = () => {
     } catch (error: any) {
       console.error('Erro ao editar subcategoria:', error);
       toast('Erro ao editar serviço', 'error');
+    }
+  };
+
+  const normalizeLabelColor = (rawColor?: string): string => {
+    const color = String(rawColor || '').trim();
+    return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : '#111827';
+  };
+
+  const getLabelTextColor = (hexColor?: string): string => {
+    const normalized = normalizeLabelColor(hexColor).slice(1);
+    const r = parseInt(normalized.slice(0, 2), 16);
+    const g = parseInt(normalized.slice(2, 4), 16);
+    const b = parseInt(normalized.slice(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.65 ? '#111827' : '#FFFFFF';
+  };
+
+  const handleOpenSubcategoryLabelModal = (subcategory: ServiceSubcategory) => {
+    setSelectedSubcategoryForLabel(subcategory);
+    setSubcategoryLabelDraft({
+      name: String(subcategory.label_name || ''),
+      color: normalizeLabelColor(subcategory.label_color),
+    });
+    setShowSubcategoryLabelModal(true);
+  };
+
+  const handleSaveSubcategoryLabel = async () => {
+    if (!selectedSubcategoryForLabel?.id) return;
+
+    const labelName = subcategoryLabelDraft.name.trim();
+    const labelColor = normalizeLabelColor(subcategoryLabelDraft.color);
+
+    try {
+      const payload = {
+        label_name: labelName.length > 0 ? labelName : null,
+        label_color: labelName.length > 0 ? labelColor : null,
+      };
+
+      const { error } = await supabase
+        .from('service_subcategories')
+        .update(payload as any)
+        .eq('id', selectedSubcategoryForLabel.id);
+
+      if (error) {
+        console.error('Erro ao salvar etiqueta do serviço:', error);
+        const details = [error.message, error.code, error.details, error.hint].filter(Boolean).join(' | ');
+        toast(`Erro ao salvar etiqueta: ${details || 'Erro desconhecido'}`, 'error');
+        return;
+      }
+
+      setServiceSubcategories((prev) =>
+        prev.map((subcategory) =>
+          subcategory.id === selectedSubcategoryForLabel.id
+            ? {
+              ...subcategory,
+              label_name: payload.label_name || undefined,
+              label_color: payload.label_color || undefined,
+            }
+            : subcategory
+        )
+      );
+
+      setShowSubcategoryLabelModal(false);
+      setSelectedSubcategoryForLabel(null);
+      toast(labelName ? 'Etiqueta salva com sucesso!' : 'Etiqueta removida com sucesso!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao salvar etiqueta do serviço:', error);
+      const details = [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ');
+      toast(`Erro ao salvar etiqueta: ${details || 'Erro desconhecido'}`, 'error');
     }
   };
 
@@ -10151,13 +10236,20 @@ Estamos te aguardando! 😎✂️`;
     }
 
     try {
-      await addExpense(establishment!.id, newExpenseName.trim(), amount);
+      await addExpense(
+        establishment!.id,
+        newExpenseName.trim(),
+        amount,
+        newExpenseObservation.trim().slice(0, 150),
+        'financial'
+      );
 
       toast('Despesa adicionada com sucesso!', 'success');
 
       // Limpar formulário
       setNewExpenseName('');
       setNewExpenseAmount('');
+      setNewExpenseObservation('');
       setShowAddExpenseModal(false);
 
       // Recarregar despesas
@@ -10176,6 +10268,68 @@ Estamos te aguardando! 😎✂️`;
     } catch (error) {
       console.error('❌ Erro ao remover despesa:', error);
       toast('Erro ao remover despesa', 'error');
+    }
+  };
+
+  const handleOpenEditExpense = (expense: any) => {
+    setEditingExpenseId(String(expense?.id || ''));
+    setEditExpenseName(String(expense?.name || ''));
+    setEditExpenseAmount(String(Number(expense?.amount || 0)).replace('.', ','));
+    setEditExpenseObservation(String(expense?.observation || ''));
+    setShowEditExpenseModal(true);
+  };
+
+  const handleSaveEditExpense = async () => {
+    if (!editingExpenseId) return;
+    if (!editExpenseName.trim() || !editExpenseAmount.trim()) {
+      toast('Nome e valor são obrigatórios!', 'error');
+      return;
+    }
+
+    const amount = parseFloat(editExpenseAmount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+      toast('Valor deve ser um número positivo!', 'error');
+      return;
+    }
+
+    const payload: any = {
+      name: editExpenseName.trim(),
+      amount,
+      observation: editExpenseObservation.trim().slice(0, 150) || null,
+      expense_context: 'financial',
+    };
+
+    try {
+      let { error } = await supabase
+        .from('establishment_expenses')
+        .update(payload)
+        .eq('id', editingExpenseId);
+
+      const errMsg = String(error?.message || '').toLowerCase();
+      if (error && (errMsg.includes('observation') || errMsg.includes('expense_context'))) {
+        const fallbackPayload: any = { ...payload };
+        delete fallbackPayload.observation;
+        delete fallbackPayload.expense_context;
+        ({ error } = await supabase
+          .from('establishment_expenses')
+          .update(fallbackPayload)
+          .eq('id', editingExpenseId));
+      }
+
+      if (error) {
+        throw error;
+      }
+
+      toast('Despesa editada com sucesso!', 'success');
+      setShowEditExpenseModal(false);
+      setEditingExpenseId(null);
+      setEditExpenseName('');
+      setEditExpenseAmount('');
+      setEditExpenseObservation('');
+      await loadExpenses();
+    } catch (error) {
+      console.error('❌ Erro ao editar despesa:', error);
+      toast('Erro ao editar despesa', 'error');
     }
   };
 
@@ -14509,6 +14663,234 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  const handleDownloadFinancialReport = (isDetailed: boolean) => {
+    if (!establishment) return;
+
+    try {
+      setIsGeneratingFinancialReport(true);
+
+      const selectedMonthLabel = format(selectedMonth, 'MMMM yyyy', { locale: ptBR });
+      const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+      const monthEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+      const isDateInMonth = (value?: string) => {
+        if (!value) return false;
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return false;
+        return d >= monthStart && d <= monthEnd;
+      };
+      const formatDateSafe = (value?: string, pattern = 'dd/MM/yyyy') => {
+        if (!value) return '';
+        try {
+          return format(parseISO(String(value)), pattern);
+        } catch {
+          return '';
+        }
+      };
+
+      const productsGrossRevenue = products.reduce((total, product) => {
+        const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
+        return total + (product.sale_price * periodQuantity);
+      }, 0);
+      const productsNetProfit = products.reduce((total, product) => {
+        const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
+        return total + ((product.sale_price - product.cost_price) * periodQuantity);
+      }, 0);
+      const productsTotalUnits = products.reduce((total, product) => total + (dashboardProductSalesByPeriod[product.id] || 0), 0);
+      const totalProductsWithSales = products.filter(product => (dashboardProductSalesByPeriod[product.id] || 0) > 0).length;
+
+      const appointmentsGrossCurrent = calculateTotalGrossForMonth(monthlyAppointments, selectedMonth);
+      const appointmentsLiquidCurrent = calculateTotalEstablishmentLiquidForMonth(monthlyAppointments, expensesTotal, selectedMonth);
+      const totalBrutoMes = appointmentsGrossCurrent + subscribersFinancialSummary.totalArrecadado + productsGrossRevenue;
+      const totalLiquidoMes = appointmentsLiquidCurrent + subscribersFinancialSummary.lucroLiquido + productsNetProfit;
+      const totalDescontosMes = totalBrutoMes - totalLiquidoMes;
+
+      const workbook = XLSX.utils.book_new();
+      const formatMoneyForExcel = (value: number) => formatCurrency(Number(value || 0));
+      const appendSheetWithLayout = (sheetName: string, rows: Record<string, any>[]) => {
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const ref = worksheet['!ref'];
+        if (ref) {
+          const range = XLSX.utils.decode_range(ref);
+          const colCount = range.e.c - range.s.c + 1;
+          worksheet['!cols'] = Array.from({ length: colCount }, (_, colIndex) => {
+            let maxLength = 12;
+            for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
+              const cellAddress = XLSX.utils.encode_cell({ c: colIndex, r: rowIndex });
+              const cellValue = worksheet[cellAddress]?.v;
+              const cellLength = String(cellValue ?? '').length;
+              if (cellLength > maxLength) maxLength = cellLength;
+            }
+            return { wch: Math.min(70, maxLength + 2) };
+          });
+        }
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      };
+
+      const summaryRows = [
+        { Item: 'Estabelecimento', Valor: establishment.name || 'Sem nome' },
+        { Item: 'Período', Valor: selectedMonthLabel },
+        { Item: 'Tipo do relatório', Valor: isDetailed ? 'Extremamente detalhado' : 'Normal' },
+        { Item: 'Gerado em', Valor: format(new Date(), "dd/MM/yyyy 'às' HH:mm") },
+        { Item: 'Bruto total do mês', Valor: formatMoneyForExcel(totalBrutoMes) },
+        { Item: 'Líquido total do mês', Valor: formatMoneyForExcel(totalLiquidoMes) },
+        { Item: 'Descontos totais do mês', Valor: formatMoneyForExcel(totalDescontosMes) },
+        { Item: 'Agendamentos/serviços (bruto)', Valor: formatMoneyForExcel(appointmentsGrossCurrent) },
+        { Item: 'Agendamentos/serviços (líquido estabelecimento)', Valor: formatMoneyForExcel(appointmentsLiquidCurrent) },
+        { Item: 'Assinaturas (bruto)', Valor: formatMoneyForExcel(subscribersFinancialSummary.totalArrecadado || 0) },
+        { Item: 'Assinaturas (líquido)', Valor: formatMoneyForExcel(subscribersFinancialSummary.lucroLiquido || 0) },
+        { Item: 'Saldo assinantes', Valor: formatMoneyForExcel(subscribersFinancialSummary.saldoAssinantes || 0) },
+        { Item: 'Produtos (bruto)', Valor: formatMoneyForExcel(productsGrossRevenue) },
+        { Item: 'Produtos (lucro líquido)', Valor: formatMoneyForExcel(productsNetProfit) },
+        { Item: 'Taxas de cartão no mês', Valor: formatMoneyForExcel(calculateTotalCardTaxes(monthlyAppointments)) },
+        { Item: 'Total despesas do mês', Valor: formatMoneyForExcel(expensesTotal) },
+      ];
+      appendSheetWithLayout('Resumo_Geral', summaryRows);
+
+      const expenseRows = expenses.map((expense: any) => ({
+        Data: formatDateSafe(String(expense.created_at)),
+        'Nome da despesa': String(expense.name || ''),
+        'Valor (R$)': formatMoneyForExcel(Number(expense.amount || 0)),
+        Observacao: String(expense.observation || ''),
+      }));
+      appendSheetWithLayout(
+        'Despesas',
+        expenseRows.length ? expenseRows : [{ Data: '', 'Nome da despesa': 'Sem despesas no período', 'Valor (R$)': formatMoneyForExcel(0), Observacao: '' }]
+      );
+
+      const paymentsAllRows = (allProfessionalPayments || [])
+        .map((payment: any) => ({
+          'Data do pagamento': formatDateSafe(String(payment?.payment_date || '')),
+          Profissional: String(payment?.professional_name || payment?.professional || ''),
+          'Valor pago (R$)': formatMoneyForExcel(Number(payment?.amount || 0)),
+          Origem: String(payment?.payment_source || ''),
+          Descricao: String(payment?.description || ''),
+          'Criado em': formatDateSafe(String(payment?.created_at || ''), 'dd/MM/yyyy HH:mm'),
+        }));
+      appendSheetWithLayout(
+        'Historico_Pagamentos',
+        paymentsAllRows.length ? paymentsAllRows : [{ 'Data do pagamento': '', Profissional: 'Sem pagamentos', 'Valor pago (R$)': formatMoneyForExcel(0), Origem: '', Descricao: '', 'Criado em': '' }]
+      );
+
+      const paymentsMonth = (allProfessionalPayments || []).filter((payment: any) =>
+        isDateInMonth(String(payment?.payment_date || payment?.created_at || ''))
+      );
+
+      const professionalRows = professionals.map((professional) => {
+        const completedApts = monthlyAppointments.filter((apt) =>
+          appointmentBelongsToProfessional(apt, professional) && apt.status === 'completed'
+        );
+        const gross = completedApts.reduce((sum, apt) => {
+          if (isClientPaidSubscriber(apt.client_whatsapp)) return sum;
+          return sum + getAppointmentRevenueBase(apt);
+        }, 0);
+        const net = calculateProfessionalNetValue(professional.name, monthlyAppointments);
+        const paid = paymentsMonth
+          .filter((payment: any) => {
+            const paymentProfessionalId = String(payment?.professional_id || '');
+            const paymentProfessionalName = String(payment?.professional_name || payment?.professional || '');
+            return paymentProfessionalId === professional.id || paymentProfessionalName === professional.name;
+          })
+          .reduce((sum: number, payment: any) => sum + Number(payment?.amount || 0), 0);
+
+        return {
+          Profissional: professional.name,
+          'Percentual (%)': Number(professional.percentage || 0),
+          'Atendimentos concluídos': completedApts.length,
+          'Receita bruta (R$)': formatMoneyForExcel(gross),
+          'Líquido do profissional (R$)': formatMoneyForExcel(net),
+          'Pagamentos realizados no mês (R$)': formatMoneyForExcel(paid),
+          'Saldo a pagar (R$)': formatMoneyForExcel(net - paid),
+        };
+      });
+      appendSheetWithLayout(
+        'Profissionais_Resumo',
+        professionalRows.length ? professionalRows : [{ Profissional: 'Sem profissionais', 'Percentual (%)': 0, 'Atendimentos concluídos': 0, 'Receita bruta (R$)': formatMoneyForExcel(0), 'Líquido do profissional (R$)': formatMoneyForExcel(0), 'Pagamentos realizados no mês (R$)': formatMoneyForExcel(0), 'Saldo a pagar (R$)': formatMoneyForExcel(0) }]
+      );
+
+      const subscribersRows = [
+        {
+          'Total de assinantes': Number(subscribersFinancialSummary.totalAssinantes || 0),
+          'Assinantes não pagos': Number(subscribersFinancialSummary.assinantesNaoPagos || 0),
+          'Faturamento bruto assinaturas (R$)': formatMoneyForExcel(subscribersFinancialSummary.totalArrecadado || 0),
+          'Lucro líquido assinaturas (R$)': formatMoneyForExcel(subscribersFinancialSummary.lucroLiquido || 0),
+          'Saldo assinantes (R$)': formatMoneyForExcel(subscribersFinancialSummary.saldoAssinantes || 0),
+        }
+      ];
+      appendSheetWithLayout('Assinaturas', subscribersRows);
+
+      const productsRows = [
+        {
+          'Faturamento bruto produtos (R$)': formatMoneyForExcel(productsGrossRevenue),
+          'Lucro líquido produtos (R$)': formatMoneyForExcel(productsNetProfit),
+          'Total de unidades vendidas': Number(productsTotalUnits),
+          'Produtos com venda': Number(totalProductsWithSales),
+        }
+      ];
+      appendSheetWithLayout('Produtos', productsRows);
+
+      if (isDetailed) {
+        const detailedRows = monthlyAppointments
+          .filter((apt) => apt.status === 'completed')
+          .sort((a, b) => {
+            const ad = `${a.appointment_date} ${a.appointment_time}`;
+            const bd = `${b.appointment_date} ${b.appointment_time}`;
+            return ad.localeCompare(bd);
+          })
+          .map((apt) => {
+            const prof = professionals.find((p) => appointmentBelongsToProfessional(apt, p));
+            const additionalServicesTotal = (apt.additional_products || []).reduce((sum, p) => sum + Number(p.price || 0), 0);
+            const productsV2Total = (apt.sold_products || []).reduce((sum, p) => sum + Number(p.total || 0), 0);
+            const baseRevenue = getAppointmentRevenueBase(apt);
+            const grossService = Number(apt.price || 0);
+            const professionalPercent = Number(prof?.percentage ?? getProfessionalPercentageByName(apt.professional) ?? 0);
+            const netForProfessional = isClientPaidSubscriber(apt.client_whatsapp) ? 0 : calculateNetValueWithCardTax(apt);
+            const taxPercent = (apt.payment_method === 'credito' || apt.payment_method === 'debito')
+              ? getPaymentMethodTax(apt.payment_method || '', apt.card_brand)
+              : 0;
+            const cardTaxValue = (baseRevenue * taxPercent) / 100;
+
+            return {
+              Data: formatDateSafe(String(apt.appointment_date)),
+              Horario: String(apt.appointment_time || ''),
+              Profissional: String(prof?.name || apt.professional || ''),
+              Cliente: String(apt.client_name || ''),
+              Servico: String(apt.service || ''),
+              'Método de pagamento': String(apt.payment_method || ''),
+              'Bandeira do cartão': String(apt.card_brand || ''),
+              'Valor serviço base (R$)': formatMoneyForExcel(grossService),
+              'Valor serviços extras (R$)': formatMoneyForExcel(additionalServicesTotal),
+              'Valor produtos V2 (R$)': formatMoneyForExcel(productsV2Total),
+              'Valor base receita profissional (R$)': formatMoneyForExcel(baseRevenue),
+              'Percentual profissional (%)': Number(professionalPercent.toFixed(2)),
+              'Taxa cartão (%)': Number(taxPercent.toFixed(2)),
+              'Taxa cartão valor (R$)': formatMoneyForExcel(cardTaxValue),
+              'Líquido profissional estimado (R$)': formatMoneyForExcel(netForProfessional),
+              'Total cobrado cliente (R$)': formatMoneyForExcel(calculateClientTotalPayment(apt)),
+              'Total cliente líquido pós taxa (R$)': formatMoneyForExcel(calculateClientNetPayment(apt)),
+              'Assinante pago': isClientPaidSubscriber(apt.client_whatsapp) ? 'SIM' : 'NAO',
+            };
+          });
+
+        appendSheetWithLayout(
+          'Atendimentos_1a1',
+          detailedRows.length ? detailedRows : [{ Data: '', Horario: '', Profissional: 'Sem atendimentos no período', Cliente: '', Servico: '', 'Método de pagamento': '', 'Bandeira do cartão': '', 'Valor serviço base (R$)': formatMoneyForExcel(0), 'Valor serviços extras (R$)': formatMoneyForExcel(0), 'Valor produtos V2 (R$)': formatMoneyForExcel(0), 'Valor base receita profissional (R$)': formatMoneyForExcel(0), 'Percentual profissional (%)': 0, 'Taxa cartão (%)': 0, 'Taxa cartão valor (R$)': formatMoneyForExcel(0), 'Líquido profissional estimado (R$)': formatMoneyForExcel(0), 'Total cobrado cliente (R$)': formatMoneyForExcel(0), 'Total cliente líquido pós taxa (R$)': formatMoneyForExcel(0), 'Assinante pago': '' }]
+        );
+      }
+
+      const safeName = String(establishment.name || 'estabelecimento').replace(/[^\w\-]+/g, '_');
+      const monthSlug = format(selectedMonth, 'yyyy_MM');
+      const fileName = `relatorio_financeiro_${safeName}_${monthSlug}_${isDetailed ? 'detalhado' : 'normal'}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+      toast(`Relatório ${isDetailed ? 'detalhado' : 'normal'} baixado com sucesso!`, 'success');
+    } catch (error) {
+      console.error('Erro ao gerar relatório financeiro:', error);
+      toast('Erro ao gerar relatório financeiro', 'error');
+    } finally {
+      setIsGeneratingFinancialReport(false);
+      setShowFinancialReportTypeModal(false);
+    }
+  };
+
   // Função para obter a taxa do método de pagamento
   const getPaymentMethodTax = (method: string, cardBrand?: string) => {
     // Se for cartão e tiver bandeira definida, usar taxa da bandeira
@@ -15742,6 +16124,7 @@ Estamos te aguardando! 😎✂️`;
                       use15MinuteInterval={use15MinuteInterval}
                       use20MinuteSchedule={use20MinuteSchedule}
                       use60MinuteSchedule={use60MinuteSchedule}
+                      serviceSubcategories={serviceSubcategories}
                       onDateChange={(newDate) => setSelectedDate(newDate)}
                       onAppointmentUpdate={() => {
                         fetchAppointments();
@@ -21510,6 +21893,14 @@ Estamos te aguardando! 😎✂️`;
                       <h2 className="text-2xl font-bold text-gray-900">Dashboard Financeiro</h2>
                       <div className="flex gap-2">
                         <button
+                          onClick={() => setShowFinancialReportTypeModal(true)}
+                          disabled={isGeneratingFinancialReport}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <Receipt className="h-4 w-4" />
+                          {isGeneratingFinancialReport ? 'Gerando...' : 'Baixar relatório completo'}
+                        </button>
+                        <button
                           onClick={() => setShowAddExpenseModal(true)}
                           className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
                         >
@@ -21839,6 +22230,11 @@ Estamos te aguardando! 😎✂️`;
                               <div key={expense.id} className="flex items-center justify-between p-3 bg-rose-50 rounded-lg border border-rose-200">
                                 <div>
                                   <p className="font-medium text-gray-900">{expense.name}</p>
+                                  {String(expense.observation || '').trim() && (
+                                    <p className="text-xs text-gray-600 mt-1 break-words">
+                                      📝 {String(expense.observation).trim()}
+                                    </p>
+                                  )}
                                   <p className="text-sm text-gray-600">
                                     {new Date(expense.created_at).toLocaleDateString('pt-BR')}
                                   </p>
@@ -21847,6 +22243,13 @@ Estamos te aguardando! 😎✂️`;
                                   <span className="font-semibold text-red-600">
                                     {formatCurrency(expense.amount)}
                                   </span>
+                                  <button
+                                    onClick={() => handleOpenEditExpense(expense)}
+                                    className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
+                                    title="Editar despesa"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </button>
                                   <button
                                     onClick={() => handleDeleteExpense(expense.id)}
                                     className="p-1 text-red-500 hover:text-red-700 transition-colors"
@@ -23849,6 +24252,55 @@ Estamos te aguardando! 😎✂️`;
             </div>
           )}
 
+          {/* Modal para escolher tipo de relatório financeiro */}
+          {showFinancialReportTypeModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Baixar relatório completo</h3>
+                  <button
+                    onClick={() => setShowFinancialReportTypeModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                    disabled={isGeneratingFinancialReport}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <p className="text-sm text-gray-700 mb-1">
+                  Escolha o tipo do relatório para exportar em Excel:
+                </p>
+                <p className="text-xs text-gray-500 mb-5">
+                  O detalhado inclui atendimento por atendimento (1 a 1), com valores de serviço, taxas e repasses.
+                </p>
+
+                <div className="grid grid-cols-1 gap-3">
+                  <button
+                    onClick={() => handleDownloadFinancialReport(false)}
+                    disabled={isGeneratingFinancialReport}
+                    className="w-full px-4 py-3 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Relatório normal
+                  </button>
+                  <button
+                    onClick={() => handleDownloadFinancialReport(true)}
+                    disabled={isGeneratingFinancialReport}
+                    className="w-full px-4 py-3 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Relatório extremamente detalhado
+                  </button>
+                  <button
+                    onClick={() => setShowFinancialReportTypeModal(false)}
+                    disabled={isGeneratingFinancialReport}
+                    className="w-full px-4 py-2 rounded-lg text-gray-600 hover:text-gray-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Modal para adicionar despesa */}
           {showAddExpenseModal && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -23856,7 +24308,10 @@ Estamos te aguardando! 😎✂️`;
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-900">Adicionar Despesa</h3>
                   <button
-                    onClick={() => setShowAddExpenseModal(false)}
+                    onClick={() => {
+                      setShowAddExpenseModal(false);
+                      setNewExpenseObservation('');
+                    }}
                     className="text-gray-400 hover:text-gray-600"
                   >
                     <X className="h-5 w-5" />
@@ -23895,10 +24350,31 @@ Estamos te aguardando! 😎✂️`;
                       />
                     </div>
 
+                    <div>
+                      <label htmlFor="expenseObservation" className="block text-sm font-medium text-gray-700 mb-1">
+                        Observação (opcional)
+                      </label>
+                      <textarea
+                        id="expenseObservation"
+                        value={newExpenseObservation}
+                        onChange={(e) => setNewExpenseObservation(e.target.value.slice(0, 150))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white resize-none"
+                        placeholder="Escreva uma observação (até 150 caracteres)"
+                        rows={3}
+                        maxLength={150}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {newExpenseObservation.length}/150
+                      </p>
+                    </div>
+
                     <div className="flex gap-3 pt-4">
                       <button
                         type="button"
-                        onClick={() => setShowAddExpenseModal(false)}
+                        onClick={() => {
+                          setShowAddExpenseModal(false);
+                          setNewExpenseObservation('');
+                        }}
                         className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         Cancelar
@@ -23908,6 +24384,97 @@ Estamos te aguardando! 😎✂️`;
                         className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         Adicionar
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal para editar despesa */}
+          {showEditExpenseModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Editar Despesa</h3>
+                  <button
+                    onClick={() => {
+                      setShowEditExpenseModal(false);
+                      setEditingExpenseId(null);
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={(e) => { e.preventDefault(); handleSaveEditExpense(); }}>
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="editExpenseName" className="block text-sm font-medium text-gray-700 mb-1">
+                        Nome da Despesa
+                      </label>
+                      <input
+                        type="text"
+                        id="editExpenseName"
+                        value={editExpenseName}
+                        onChange={(e) => setEditExpenseName(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                        placeholder="Ex: Aluguel, Luz, Internet..."
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="editExpenseAmount" className="block text-sm font-medium text-gray-700 mb-1">
+                        Valor da Despesa
+                      </label>
+                      <input
+                        type="text"
+                        id="editExpenseAmount"
+                        value={editExpenseAmount}
+                        onChange={(e) => setEditExpenseAmount(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                        placeholder="0,00"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="editExpenseObservation" className="block text-sm font-medium text-gray-700 mb-1">
+                        Observação (opcional)
+                      </label>
+                      <textarea
+                        id="editExpenseObservation"
+                        value={editExpenseObservation}
+                        onChange={(e) => setEditExpenseObservation(e.target.value.slice(0, 150))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white resize-none"
+                        placeholder="Escreva uma observação (até 150 caracteres)"
+                        rows={3}
+                        maxLength={150}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {editExpenseObservation.length}/150
+                      </p>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowEditExpenseModal(false);
+                          setEditingExpenseId(null);
+                        }}
+                        className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Salvar
                       </button>
                     </div>
                   </div>
@@ -25151,6 +25718,18 @@ Estamos te aguardando! 😎✂️`;
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-2 min-w-0">
                                     <h4 className="font-medium text-gray-900 truncate">{subcategory.name}</h4>
+                                    {subcategory.label_name && (
+                                      <span
+                                        className="px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-gray-300"
+                                        style={{
+                                          backgroundColor: normalizeLabelColor(subcategory.label_color),
+                                          color: getLabelTextColor(subcategory.label_color),
+                                        }}
+                                        title={`Etiqueta: ${subcategory.label_name}`}
+                                      >
+                                        {subcategory.label_name}
+                                      </span>
+                                    )}
                                     {isOcultoNoBooking(subcategory as any) && (
                                       <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-amber-300 bg-amber-50 text-amber-900">
                                         👁️ Oculto no Booking
@@ -25257,6 +25836,13 @@ Estamos te aguardando! 😎✂️`;
                                       title="Editar serviço"
                                     >
                                       <Edit className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleOpenSubcategoryLabelModal(subcategory)}
+                                      className="p-1 text-gray-700 hover:bg-gray-200 rounded transition-colors"
+                                      title="Configurar etiqueta do serviço"
+                                    >
+                                      <Tag className="h-3 w-3" />
                                     </button>
                                     <button
                                       onClick={() => {
@@ -27341,6 +27927,95 @@ Estamos te aguardando! 😎✂️`;
                     className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                   >
                     Salvar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Modal para Etiqueta do Serviço */}
+      {
+        showSubcategoryLabelModal && selectedSubcategoryForLabel && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Etiqueta do Serviço</h3>
+                <button
+                  onClick={() => {
+                    setShowSubcategoryLabelModal(false);
+                    setSelectedSubcategoryForLabel(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="p-3 rounded-lg border border-gray-200 bg-gray-50">
+                  <p className="text-sm text-gray-700">
+                    Serviço: <strong className="text-gray-900">{selectedSubcategoryForLabel.name}</strong>
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome da Etiqueta
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={40}
+                    value={subcategoryLabelDraft.name}
+                    onChange={(e) => setSubcategoryLabelDraft((prev) => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-black bg-white"
+                    placeholder="Ex: Serviço Assinatura"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Deixe em branco para remover a etiqueta.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Cor da Etiqueta
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={normalizeLabelColor(subcategoryLabelDraft.color)}
+                      onChange={(e) => setSubcategoryLabelDraft((prev) => ({ ...prev, color: e.target.value }))}
+                      className="h-10 w-16 p-1 border border-gray-300 rounded cursor-pointer bg-white"
+                    />
+                    <span
+                      className="px-3 py-1 rounded-full text-xs font-extrabold border border-gray-300"
+                      style={{
+                        backgroundColor: normalizeLabelColor(subcategoryLabelDraft.color),
+                        color: getLabelTextColor(subcategoryLabelDraft.color),
+                      }}
+                    >
+                      {subcategoryLabelDraft.name.trim() || 'Prévia da etiqueta'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSubcategoryLabelModal(false);
+                      setSelectedSubcategoryForLabel(null);
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSaveSubcategoryLabel}
+                    className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    Salvar Etiqueta
                   </button>
                 </div>
               </div>

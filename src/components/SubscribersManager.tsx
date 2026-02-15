@@ -28,6 +28,14 @@ interface Client {
   isSubscriber: boolean;
 }
 
+interface KnownClientSuggestion {
+  name: string;
+  nameKey: string;
+  phone: string;
+  phoneDigits: string;
+  email: string;
+}
+
 interface SubscribersManagerProps {
   establishmentId: string;
   clients: Client[]; // Usar Client ao invés de Profile
@@ -41,6 +49,7 @@ interface SubscribersManagerProps {
     use_mercadopago_subscription_pix?: boolean;
     mercadopago_access_token?: string | null;
     show_subscriptions_fullpage?: boolean;
+    payment_methods_enabled?: string[] | null;
   };
   onEstablishmentUpdate?: () => void;
 }
@@ -70,9 +79,130 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newClientName, setNewClientName] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientEmail, setNewClientEmail] = useState('');
+  const [newSubscriberPaymentMethod, setNewSubscriberPaymentMethod] = useState('');
+  const [newSubscriberObservation, setNewSubscriberObservation] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+
+  const normalizeNameKey = (value: string): string =>
+    String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+
+  const normalizePhoneDigits = (value: string): string =>
+    String(value || '').replace(/\D/g, '');
+
+  const knownClients = useMemo<KnownClientSuggestion[]>(() => {
+    const byNameAndPhone = new Map<string, KnownClientSuggestion>();
+
+    const upsert = (rawName: unknown, rawPhone: unknown, rawEmail?: unknown) => {
+      const name = String(rawName || '').trim();
+      const phone = String(rawPhone || '').trim();
+      const email = String(rawEmail || '').trim();
+      const nameKey = normalizeNameKey(name);
+      const phoneDigits = normalizePhoneDigits(phone);
+      if (!nameKey && !phoneDigits) return;
+
+      const key = `${nameKey}__${phoneDigits}`;
+      const current = byNameAndPhone.get(key);
+      if (!current) {
+        byNameAndPhone.set(key, {
+          name: name || 'Cliente',
+          nameKey,
+          phone,
+          phoneDigits,
+          email,
+        });
+        return;
+      }
+
+      if (!current.phone && phone) current.phone = phone;
+      if (!current.phoneDigits && phoneDigits) current.phoneDigits = phoneDigits;
+      if (!current.email && email) current.email = email;
+      if ((!current.name || current.name === 'Cliente') && name) {
+        current.name = name;
+        current.nameKey = nameKey;
+      }
+    };
+
+    for (const client of clients || []) {
+      upsert(client?.name, client?.whatsapp);
+    }
+
+    for (const cs of clientSubscriptions || []) {
+      const row = cs as any;
+      upsert(row?.profiles?.full_name || row?.client_name, row?.client_whatsapp || row?.subscriber_whatsapp, row?.profiles?.email || row?.subscriber_email);
+    }
+
+    return Array.from(byNameAndPhone.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [clients, clientSubscriptions]);
+
+  const knownClientNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const c of knownClients) {
+      if (c.name.trim()) names.add(c.name.trim());
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [knownClients]);
+
+  const knownClientPhones = useMemo(() => {
+    const phones = new Set<string>();
+    for (const c of knownClients) {
+      if (c.phone.trim()) phones.add(c.phone.trim());
+    }
+    return Array.from(phones);
+  }, [knownClients]);
+
+  const availablePaymentMethods = useMemo(() => {
+    const defaultMethods = ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local'];
+    const enabled = Array.isArray(establishment?.payment_methods_enabled)
+      ? (establishment?.payment_methods_enabled || []).map((m) => String(m || '').trim().toLowerCase()).filter(Boolean)
+      : [];
+
+    const merged = Array.from(new Set([...defaultMethods, ...enabled]));
+    return merged;
+  }, [establishment?.payment_methods_enabled]);
+
+  const getPaymentMethodLabel = (method: string): string => {
+    const key = String(method || '').trim().toLowerCase();
+    if (key === 'pix') return 'PIX';
+    if (key === 'credito') return 'Cartão de Crédito';
+    if (key === 'debito') return 'Cartão de Débito';
+    if (key === 'dinheiro') return 'Dinheiro';
+    if (key === 'pagar_local') return 'Pagar no Local';
+    return method;
+  };
+
+  const applyKnownClientSuggestion = (suggestion: KnownClientSuggestion, source: 'name' | 'phone') => {
+    if (source === 'name' && suggestion.phone) {
+      setNewClientPhone(suggestion.phone);
+    }
+    if (source === 'phone' && suggestion.name) {
+      setNewClientName(suggestion.name);
+    }
+    if (!newClientEmail.trim() && suggestion.email) {
+      setNewClientEmail(suggestion.email);
+    }
+  };
+
+  const findKnownClientByName = (rawName: string): KnownClientSuggestion | undefined => {
+    const key = normalizeNameKey(rawName);
+    if (!key) return undefined;
+    return knownClients.find((c) => c.nameKey === key);
+  };
+
+  const findKnownClientByPhone = (rawPhone: string): KnownClientSuggestion | undefined => {
+    const digits = normalizePhoneDigits(rawPhone);
+    if (!digits) return undefined;
+    return knownClients.find((c) =>
+      c.phoneDigits === digits ||
+      c.phoneDigits.endsWith(digits) ||
+      digits.endsWith(c.phoneDigits)
+    );
+  };
 
   // Estado para controlar limitação de agendamentos de assinantes
   const [limitSubscriberBookings, setLimitSubscriberBookings] = useState(
@@ -183,6 +313,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [selectedClientForEdit, setSelectedClientForEdit] = useState<ClientSubscription | null>(null);
   const [newEndDate, setNewEndDate] = useState('');
   const [newStartDate, setNewStartDate] = useState('');
+  const [editSubscriberPaymentMethod, setEditSubscriberPaymentMethod] = useState('');
+  const [editSubscriberObservation, setEditSubscriberObservation] = useState('');
   const [isSavingEndDate, setIsSavingEndDate] = useState(false);
 
   // Estados para modal de limite simples
@@ -1295,6 +1427,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         name: newClientName,
         phone: newClientPhone,
         email: newClientEmail,
+        paymentMethod: newSubscriberPaymentMethod,
+        observation: newSubscriberObservation,
         startDate,
         endDate,
         subscriptionId: selectedSubscriptionToAdd
@@ -1308,6 +1442,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         name: newClientName,
         whatsapp: normalizedPhone,
         email: newClientEmail || undefined,
+        payment_method: newSubscriberPaymentMethod || undefined,
+        observation: newSubscriberObservation.trim().slice(0, 150) || undefined,
         subscription_id: selectedSubscriptionToAdd,
         establishment_id: establishmentId,
         start_date: startDate,
@@ -1325,6 +1461,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewClientName('');
       setNewClientPhone('');
       setNewClientEmail('');
+      setNewSubscriberPaymentMethod('');
+      setNewSubscriberObservation('');
       setStartDate('');
       setEndDate('');
 
@@ -1685,15 +1823,30 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       };
 
       // Atualizar no banco de dados
-      const { error } = await supabase
+      let { error } = await supabase
         .from('client_subscriptions')
         .update({
           start_date: newStartDate,
           end_date: newEndDate,
           payment_status: newStatus,
+          subscriber_payment_method: editSubscriberPaymentMethod || null,
+          subscriber_observation: editSubscriberObservation.trim().slice(0, 150) || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', selectedClientForEdit.id);
+
+      const errMsg = String(error?.message || '').toLowerCase();
+      if (error && (errMsg.includes('subscriber_payment_method') || errMsg.includes('subscriber_observation'))) {
+        ({ error } = await supabase
+          .from('client_subscriptions')
+          .update({
+            start_date: newStartDate,
+            end_date: newEndDate,
+            payment_status: newStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', selectedClientForEdit.id));
+      }
 
       if (error) {
         throw error;
@@ -1714,6 +1867,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setSelectedClientForEdit(null);
       setNewEndDate('');
       setNewStartDate('');
+      setEditSubscriberPaymentMethod('');
+      setEditSubscriberObservation('');
 
       // Recarregar dados
       await fetchClientSubscriptions();
@@ -1731,6 +1886,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setSelectedClientForEdit(clientSubscription);
     setNewEndDate(clientSubscription.end_date);
     setNewStartDate(clientSubscription.start_date);
+    setEditSubscriberPaymentMethod(String((clientSubscription as any)?.subscriber_payment_method || ''));
+    setEditSubscriberObservation(String((clientSubscription as any)?.subscriber_observation || ''));
     setShowEditEndDateModal(true);
   };
 
@@ -3070,11 +3227,29 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               type="text"
               id="newClientName"
               value={newClientName}
-              onChange={(e) => setNewClientName(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setNewClientName(value);
+                const suggestion = findKnownClientByName(value);
+                if (suggestion) applyKnownClientSuggestion(suggestion, 'name');
+              }}
+              onBlur={(e) => {
+                const suggestion = findKnownClientByName(e.target.value);
+                if (suggestion) applyKnownClientSuggestion(suggestion, 'name');
+              }}
+              list="knownClientNamesList"
               className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               placeholder="Digite o nome do cliente"
               required
             />
+            <datalist id="knownClientNamesList">
+              {knownClientNames.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            <p className="text-xs text-gray-500 mt-1">
+              Ao digitar, sugerimos clientes já cadastrados em Meus Clientes.
+            </p>
           </div>
           <div>
             <label htmlFor="newClientPhone" className="block text-sm font-medium text-gray-400 mb-1">Número de Telefone</label>
@@ -3082,11 +3257,29 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               type="tel"
               id="newClientPhone"
               value={newClientPhone}
-              onChange={(e) => setNewClientPhone(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setNewClientPhone(value);
+                const suggestion = findKnownClientByPhone(value);
+                if (suggestion) applyKnownClientSuggestion(suggestion, 'phone');
+              }}
+              onBlur={(e) => {
+                const suggestion = findKnownClientByPhone(e.target.value);
+                if (suggestion) applyKnownClientSuggestion(suggestion, 'phone');
+              }}
+              list="knownClientPhonesList"
               className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               placeholder="Digite o número de telefone"
               required
             />
+            <datalist id="knownClientPhonesList">
+              {knownClientPhones.map((phone) => (
+                <option key={phone} value={phone} />
+              ))}
+            </datalist>
+            <p className="text-xs text-gray-500 mt-1">
+              Se o número já existir, nome e e-mail são preenchidos automaticamente.
+            </p>
           </div>
           <div>
             <label htmlFor="newClientEmail" className="block text-sm font-medium text-gray-400 mb-1">E-mail</label>
@@ -3099,6 +3292,37 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               placeholder="Digite o e-mail do cliente"
               required
             />
+          </div>
+          <div>
+            <label htmlFor="newSubscriberPaymentMethod" className="block text-sm font-medium text-gray-400 mb-1">Forma de Pagamento (opcional)</label>
+            <select
+              id="newSubscriberPaymentMethod"
+              value={newSubscriberPaymentMethod}
+              onChange={(e) => setNewSubscriberPaymentMethod(e.target.value)}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-gray-500"
+            >
+              <option value="">Selecione (opcional)</option>
+              {availablePaymentMethods.map((method) => (
+                <option key={method} value={method}>
+                  {getPaymentMethodLabel(method)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="newSubscriberObservation" className="block text-sm font-medium text-gray-400 mb-1">Observação (opcional)</label>
+            <textarea
+              id="newSubscriberObservation"
+              value={newSubscriberObservation}
+              onChange={(e) => setNewSubscriberObservation(e.target.value.slice(0, 150))}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500 text-white resize-none"
+              placeholder="Escreva uma observação (até 150 caracteres)"
+              rows={3}
+              maxLength={150}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              {newSubscriberObservation.length}/150
+            </p>
           </div>
           <div>
             <label htmlFor="startDate" className="block text-sm font-medium text-gray-400 mb-1">Data de Início</label>
@@ -3256,6 +3480,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <span className="sm:inline">{cs.subscriptions?.name || 'Plano não identificado'}</span><br className="sm:hidden" />
                       <span className="sm:inline sm:ml-1">- {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}</span>
                     </div>
+                    {String((cs as any)?.subscriber_payment_method || '').trim() && (
+                      <div className={`text-xs sm:text-sm ${textColor}/90`}>
+                        <span className="font-medium">Forma de Pagamento:</span>{' '}
+                        {getPaymentMethodLabel(String((cs as any).subscriber_payment_method))}
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
                       <div className={`${textColor}/90`}>
                         <span className="font-medium">Início:</span><br />
@@ -3270,6 +3500,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
                   {/* Informações de contato - Layout melhorado para mobile */}
                   <div className="space-y-2 mb-4">
+                    {String((cs as any)?.subscriber_observation || '').trim() && (
+                      <div className={`text-xs sm:text-sm ${textColor}/80 break-words`}>
+                        📝 {String((cs as any).subscriber_observation).trim()}
+                      </div>
+                    )}
                     {cs.client_whatsapp && cs.client_whatsapp !== 'N/A' && (() => {
                       // Limpar e formatar o número para o WhatsApp
                       let cleanNumber = cs.client_whatsapp.replace(/\D/g, '');
@@ -3675,6 +3910,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setSelectedClientForEdit(null);
                   setNewEndDate('');
                   setNewStartDate('');
+                  setEditSubscriberPaymentMethod('');
+                  setEditSubscriberObservation('');
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
@@ -3722,6 +3959,43 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 />
               </div>
 
+              <div>
+                <label htmlFor="editSubscriberPaymentMethod" className="block text-sm font-medium text-gray-400 mb-1">
+                  Forma de Pagamento (opcional)
+                </label>
+                <select
+                  id="editSubscriberPaymentMethod"
+                  value={editSubscriberPaymentMethod}
+                  onChange={(e) => setEditSubscriberPaymentMethod(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                >
+                  <option value="">Selecione (opcional)</option>
+                  {availablePaymentMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {getPaymentMethodLabel(method)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="editSubscriberObservation" className="block text-sm font-medium text-gray-400 mb-1">
+                  Observação (opcional)
+                </label>
+                <textarea
+                  id="editSubscriberObservation"
+                  value={editSubscriberObservation}
+                  onChange={(e) => setEditSubscriberObservation(e.target.value.slice(0, 150))}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white resize-none"
+                  placeholder="Escreva uma observação (até 150 caracteres)"
+                  rows={3}
+                  maxLength={150}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  {editSubscriberObservation.length}/150
+                </p>
+              </div>
+
               {/* Informações sobre o impacto da mudança */}
               {newStartDate && newEndDate && (() => {
                 const today = new Date();
@@ -3763,6 +4037,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     setSelectedClientForEdit(null);
                     setNewEndDate('');
                     setNewStartDate('');
+                    setEditSubscriberPaymentMethod('');
+                    setEditSubscriberObservation('');
                   }}
                   className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
                 >

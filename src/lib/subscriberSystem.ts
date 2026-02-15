@@ -26,6 +26,8 @@ export interface CreateSubscriberData {
   establishment_id: string;
   start_date: string;
   end_date: string;
+  payment_method?: string;
+  observation?: string;
 }
 
 /**
@@ -34,29 +36,46 @@ export interface CreateSubscriberData {
 export const createIndependentSubscriber = async (data: CreateSubscriberData) => {
   try {
     console.log('🆕 Criando assinante independente:', data);
+    const normalizedObservation = String(data.observation || '').trim().slice(0, 150);
+    const payload: any = {
+      client_id: uuidv4(), // Gerar UUID válido para assinantes
+      subscription_id: data.subscription_id,
+      establishment_id: data.establishment_id,
+      start_date: data.start_date,
+      end_date: data.end_date,
+      payment_status: 'unpaid',
+      last_payment_date: null,
+      // Novos campos para dados completos do assinante
+      subscriber_name: data.name,
+      subscriber_whatsapp: data.whatsapp,
+      subscriber_email: data.email || null,
+      subscriber_payment_method: String(data.payment_method || '').trim() || null,
+      subscriber_observation: normalizedObservation || null,
+    };
 
-    const { data: result, error } = await supabase
+    let { data: result, error } = await supabase
       .from('client_subscriptions')
-      .insert([
-        {
-          client_id: uuidv4(), // Gerar UUID válido para assinantes
-          subscription_id: data.subscription_id,
-          establishment_id: data.establishment_id,
-          start_date: data.start_date,
-          end_date: data.end_date,
-          payment_status: 'unpaid',
-          last_payment_date: null,
-          // Novos campos para dados completos do assinante
-          subscriber_name: data.name,
-          subscriber_whatsapp: data.whatsapp,
-          subscriber_email: data.email || null
-        }
-      ])
+      .insert([payload])
       .select(`
         *,
         subscriptions (name, value, duration_months)
       `)
       .single();
+
+    const errMsg = String(error?.message || '').toLowerCase();
+    if (error && (errMsg.includes('subscriber_payment_method') || errMsg.includes('subscriber_observation'))) {
+      const fallbackPayload: any = { ...payload };
+      delete fallbackPayload.subscriber_payment_method;
+      delete fallbackPayload.subscriber_observation;
+      ({ data: result, error } = await supabase
+        .from('client_subscriptions')
+        .insert([fallbackPayload])
+        .select(`
+          *,
+          subscriptions (name, value, duration_months)
+        `)
+        .single());
+    }
 
     if (error) {
       console.error('❌ Erro ao criar assinante:', error);

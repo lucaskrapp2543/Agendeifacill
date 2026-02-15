@@ -2605,18 +2605,37 @@ export const getEstablishmentGoals = async (
 export const addExpense = async (
   establishmentId: string,
   name: string,
-  amount: number
+  amount: number,
+  observation?: string,
+  source: 'financial' | 'sidebar' = 'sidebar'
 ) => {
   try {
-    const { data, error } = await supabase
+    const normalizedObservation = String(observation || '').trim().slice(0, 150);
+    const payload: any = {
+      establishment_id: establishmentId,
+      name: name,
+      amount: amount,
+      observation: normalizedObservation.length > 0 ? normalizedObservation : null,
+      expense_context: source,
+    };
+
+    let { data, error } = await supabase
       .from('establishment_expenses')
-      .insert({
-        establishment_id: establishmentId,
-        name: name,
-        amount: amount
-      })
+      .insert(payload)
       .select()
       .single();
+
+    const errMsg = String(error?.message || '').toLowerCase();
+    if (error && (errMsg.includes('observation') || errMsg.includes('expense_context'))) {
+      const fallbackPayload: any = { ...payload };
+      delete fallbackPayload.observation;
+      delete fallbackPayload.expense_context;
+      ({ data, error } = await supabase
+        .from('establishment_expenses')
+        .insert(fallbackPayload)
+        .select()
+        .single());
+    }
 
     if (error) {
       console.error('Erro ao adicionar despesa:', error);
