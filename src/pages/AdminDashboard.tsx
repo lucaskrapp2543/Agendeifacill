@@ -2260,6 +2260,42 @@ const AdminDashboard = () => {
     },
     { prata: 0, ouro: 0, diamante: 0, outros: 0 }
   );
+  const PLANO_PRATA_COBRANCA = 27.9;
+  const PLANO_OURO_COBRANCA = 47.9;
+  const PLANO_DIAMANTE_COBRANCA_69 = 69.9;
+  const PLANO_DIAMANTE_COBRANCA_77 = 77.9;
+  const getPlanBillingValue = (est: Establishment): number => {
+    const k = getPlanKey(est);
+    const v = Number((est as any)?.admin_profit_value ?? 0);
+    const rounded = Number.isFinite(v) ? Math.round(v) : 0;
+
+    if (k === 'prata') return PLANO_PRATA_COBRANCA;
+    if (k === 'ouro') return PLANO_OURO_COBRANCA;
+    if (k === 'diamante') {
+      // Diamante pode variar entre 69 e 77 (mapeado pelo valor interno do admin).
+      if (rounded === 43) return PLANO_DIAMANTE_COBRANCA_69;
+      if (rounded === 51) return PLANO_DIAMANTE_COBRANCA_77;
+      if (v >= 75) return PLANO_DIAMANTE_COBRANCA_77;
+      if (v >= 69) return PLANO_DIAMANTE_COBRANCA_69;
+      return PLANO_DIAMANTE_COBRANCA_77;
+    }
+
+    return Number.isFinite(v) ? v : 0;
+  };
+  const planAccumulatedValues = baseFilteredEstablishments.reduce(
+    (acc, est) => {
+      const k = getPlanKey(est);
+      const billingValue = getPlanBillingValue(est);
+      acc[k] += Number.isFinite(billingValue) ? billingValue : 0;
+      return acc;
+    },
+    { prata: 0, ouro: 0, diamante: 0, outros: 0 }
+  );
+  const planAccumulatedTotal =
+    planAccumulatedValues.prata +
+    planAccumulatedValues.ouro +
+    planAccumulatedValues.diamante +
+    planAccumulatedValues.outros;
 
   const activeCount = baseFilteredEstablishments.reduce((acc, est) => acc + (isActiveEstablishment(est) ? 1 : 0), 0);
   const inactiveCount = Math.max(0, baseFilteredEstablishments.length - activeCount);
@@ -3265,6 +3301,23 @@ const AdminDashboard = () => {
               <strong>Inativos:</strong> {inactiveCount}
               {filterActivity === 'inactive' ? <span className="text-[10px] font-semibold opacity-70">(filtrando)</span> : null}
             </button>
+          </div>
+          <div className="mt-1 text-xs text-gray-700 flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              <strong>Acumulado Prata:</strong> {fmtBRL(planAccumulatedValues.prata)}
+            </span>
+            <span>
+              <strong>Acumulado Ouro:</strong> {fmtBRL(planAccumulatedValues.ouro)}
+            </span>
+            <span>
+              <strong>Acumulado Diamante:</strong> {fmtBRL(planAccumulatedValues.diamante)}
+            </span>
+            <span>
+              <strong>Acumulado Outros:</strong> {fmtBRL(planAccumulatedValues.outros)}
+            </span>
+            <span className="font-semibold text-gray-900">
+              <strong>Total acumulado:</strong> {fmtBRL(planAccumulatedTotal)}
+            </span>
           </div>
         </div>
 

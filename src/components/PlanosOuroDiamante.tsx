@@ -15,8 +15,8 @@ type ItemRecurso = {
 };
 
 const recursos: ItemRecurso[] = [
-  { texto: 'Profissionais ilimitado', inclusoNoOuro: true, inclusoNoDiamante: true },
-  { texto: 'Agendamentos ilimitado', inclusoNoOuro: true, inclusoNoDiamante: true },
+  { texto: 'Profissionais ilimitados', inclusoNoOuro: true, inclusoNoDiamante: true },
+  { texto: 'Agendamentos ilimitados', inclusoNoOuro: true, inclusoNoDiamante: true },
   { texto: 'Página de agendamentos exclusiva sua', inclusoNoOuro: true, inclusoNoDiamante: true },
   { texto: 'Sistema de fila de espera', inclusoNoOuro: true, inclusoNoDiamante: true },
   { texto: 'Sistema de estoque', inclusoNoOuro: true, inclusoNoDiamante: true },
@@ -38,6 +38,30 @@ const recursos: ItemRecurso[] = [
   },
   {
     texto: 'Lembretes automáticos para clientes 1h antes no WhatsApp',
+    inclusoNoOuro: false,
+    inclusoNoDiamante: true,
+    destacado: true
+  },
+  {
+    texto: 'Lembretes automáticos para clientes na fila de espera',
+    inclusoNoOuro: false,
+    inclusoNoDiamante: true,
+    destacado: true
+  },
+  {
+    texto: 'Repescagem automática de clientes sumidos',
+    inclusoNoOuro: false,
+    inclusoNoDiamante: true,
+    destacado: true
+  },
+  {
+    texto: 'Mensagem de parabéns automática para clientes',
+    inclusoNoOuro: false,
+    inclusoNoDiamante: true,
+    destacado: true
+  },
+  {
+    texto: 'Mensagem automática após atendimento para cliente avaliar você no Google',
     inclusoNoOuro: false,
     inclusoNoDiamante: true,
     destacado: true

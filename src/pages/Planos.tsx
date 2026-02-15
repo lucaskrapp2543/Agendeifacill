@@ -7,7 +7,7 @@ export default function Planos() {
   const waLink = (mensagem: string) => `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(mensagem)}`;
 
   // ✅ Popups (somente na página /planos)
-  const [socialProof, setSocialProof] = useState<{ name: string; plan: 'prata' | 'ouro' | 'diamante' } | null>(
+  const [socialProof, setSocialProof] = useState<{ name: string; plan: 'ouro' | 'diamante' } | null>(
     null
   );
   const [socialProofVisible, setSocialProofVisible] = useState(false);
@@ -46,7 +46,7 @@ export default function Planos() {
       'Thiago',
       'Carolina'
     ];
-    const plans: Array<'prata' | 'ouro' | 'diamante'> = ['prata', 'ouro', 'diamante'];
+    const plans: Array<'ouro' | 'diamante'> = ['ouro', 'diamante'];
 
     const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -77,14 +77,12 @@ export default function Planos() {
     };
   }, []);
 
-  const planLabel = (p: 'prata' | 'ouro' | 'diamante') => {
-    if (p === 'prata') return 'prata';
+  const planLabel = (p: 'ouro' | 'diamante') => {
     if (p === 'ouro') return 'ouro';
     return 'diamante';
   };
 
-  const planBadgeClasses = (p: 'prata' | 'ouro' | 'diamante') => {
-    if (p === 'prata') return 'bg-gray-200 text-gray-900';
+  const planBadgeClasses = (p: 'ouro' | 'diamante') => {
     if (p === 'ouro') return 'bg-amber-300 text-black';
     return 'bg-sky-200 text-sky-900';
   };
@@ -113,7 +111,7 @@ export default function Planos() {
               <br />
               É MENSALIDADE
               <br />
-              ESTILO NETFLIX PAGA O MES QUE USAR
+              ESTILO NETFLIX PAGA O MÊS QUE USAR
             </div>
             <div className="mt-4 text-white/80 leading-relaxed">
               Zero burocracia para cancelar.
@@ -136,7 +134,15 @@ export default function Planos() {
           />
         </div>
 
-        <PlanosCards whatsappNumber="5548991484275" />
+        <div className="max-w-4xl mx-auto mb-6 sm:mb-8 text-center">
+          <p className="inline-block px-4 py-2 rounded-2xl border border-cyan-300/30 bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-indigo-500/20 shadow-[0_0_35px_rgba(56,189,248,0.25)]">
+            <span className="text-lg sm:text-2xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-200 via-white to-cyan-200 bg-clip-text text-transparent">
+              TUDO QUE UMA BARBEARIA E SALAO DE BELEZA PRECISA ESTA AQUI
+            </span>
+          </p>
+        </div>
+
+        <PlanosCards whatsappNumber="5548991484275" hidePrata />
 
         {/* ✅ Botão abaixo do plano Diamante */}
         <div className="max-w-2xl mx-auto mt-8">
