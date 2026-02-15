@@ -2183,7 +2183,7 @@ const AdminDashboard = () => {
 
   // Plano por valor (admin_profit_value) - usado para filtros e contagens
   const PLANO_PRATA_VALOR = 27;
-  const PLANO_OURO_VALOR = 47;
+  const PLANO_OURO_VALORES = new Set([47, 37]);
   const PLANO_DIAMANTE_VALORES = new Set([43, 51]);
 
   const getPlanKey = (est: Establishment): 'prata' | 'ouro' | 'diamante' | 'outros' => {
@@ -2191,7 +2191,7 @@ const AdminDashboard = () => {
     const v = Number((est as any)?.admin_profit_value ?? 0);
     const intValue = Number.isFinite(v) ? Math.round(v) : 0;
     if (PLANO_DIAMANTE_VALORES.has(intValue)) return 'diamante';
-    if (intValue === PLANO_OURO_VALOR) return 'ouro';
+    if (PLANO_OURO_VALORES.has(intValue)) return 'ouro';
     if (intValue === PLANO_PRATA_VALOR || isPrataAtivo) return 'prata';
     return 'outros';
   };
@@ -2224,7 +2224,7 @@ const AdminDashboard = () => {
       establishment.plan_type || '',
       statusLabel,
       planLabel,
-      // permitir buscar pelo valor manual (admin) digitando "27" / "47" / "51" etc.
+      // permitir buscar pelo valor manual (admin) digitando "27" / "37" / "47" / "51" etc.
       profitValueInt ? String(profitValueInt) : '',
     ].map(normalizarTexto);
 
@@ -2238,7 +2238,7 @@ const AdminDashboard = () => {
           if (profitCents != null && profitCents === cents) return true;
           return false;
         }
-        // Busca numérica simples (ex: "27", "47", "51") por valor arredondado
+        // Busca numérica simples (ex: "27", "37", "47", "51") por valor arredondado
         const numeric = Number(String(tok).replace(',', '.'));
         if (Number.isFinite(numeric) && profitValueInt && Math.round(numeric) === profitValueInt) {
           return true;
@@ -2261,7 +2261,8 @@ const AdminDashboard = () => {
     { prata: 0, ouro: 0, diamante: 0, outros: 0 }
   );
   const PLANO_PRATA_COBRANCA = 27.9;
-  const PLANO_OURO_COBRANCA = 47.9;
+  const PLANO_OURO_COBRANCA_PADRAO = 47.9;
+  const PLANO_OURO_COBRANCA_PROMO = 37.4;
   const PLANO_DIAMANTE_COBRANCA_69 = 69.9;
   const PLANO_DIAMANTE_COBRANCA_77 = 77.9;
   const getPlanBillingValue = (est: Establishment): number => {
@@ -2270,7 +2271,10 @@ const AdminDashboard = () => {
     const rounded = Number.isFinite(v) ? Math.round(v) : 0;
 
     if (k === 'prata') return PLANO_PRATA_COBRANCA;
-    if (k === 'ouro') return PLANO_OURO_COBRANCA;
+    if (k === 'ouro') {
+      const isOuroPromo = rounded === 37 || Math.abs(v - 37.4) < 0.2;
+      return isOuroPromo ? PLANO_OURO_COBRANCA_PROMO : PLANO_OURO_COBRANCA_PADRAO;
+    }
     if (k === 'diamante') {
       // Diamante pode variar entre 69 e 77 (mapeado pelo valor interno do admin).
       if (rounded === 43) return PLANO_DIAMANTE_COBRANCA_69;
@@ -2345,12 +2349,13 @@ const AdminDashboard = () => {
     const isPrataAtivo = Boolean(establishment.plan_prata_active);
     const centsPrata = 2790;
     const centsOuro = 4790;
+    const centsOuroPromo = 3740;
     const centsDiamante = 7790;
 
     const planLabel =
       profitCents === centsDiamante
         ? 'diamante'
-        : profitCents === centsOuro
+        : profitCents === centsOuro || profitCents === centsOuroPromo
           ? 'ouro'
           : profitCents === centsPrata || isPrataAtivo
             ? 'prata'
@@ -3209,7 +3214,7 @@ const AdminDashboard = () => {
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Buscar por nome, código, e-mail, WhatsApp, status (pago/vencido), plano (prata/ouro/diamante) ou valor (ex: 27 / 47 / 51)"
+                  placeholder="Buscar por nome, código, e-mail, WhatsApp, status (pago/vencido), plano (prata/ouro/diamante) ou valor (ex: 27 / 37 / 47 / 51)"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900 bg-white"
