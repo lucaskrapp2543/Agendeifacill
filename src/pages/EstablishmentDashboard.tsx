@@ -4159,8 +4159,13 @@ const EstablishmentDashboard = () => {
 
         if (appointmentsError) {
           console.error('Erro ao buscar appointments do período:', appointmentsError);
-          if (target === 'dashboard') setDashboardProductSalesByPeriod({});
-          else setProductSalesByPeriod({});
+          if (target === 'dashboard') {
+            setDashboardProductSalesByPeriod({});
+            setDashboardProductPayoutByPeriod({});
+          } else {
+            setProductSalesByPeriod({});
+            setProductPayoutByPeriod({});
+          }
           return;
         }
 
@@ -4271,6 +4276,13 @@ const EstablishmentDashboard = () => {
       }
     } catch (error) {
       console.error('Erro ao buscar vendas por período:', error);
+      if (target === 'dashboard') {
+        setDashboardProductSalesByPeriod({});
+        setDashboardProductPayoutByPeriod({});
+      } else {
+        setProductSalesByPeriod({});
+        setProductPayoutByPeriod({});
+      }
     }
   };
 
@@ -8812,6 +8824,13 @@ Estamos te aguardando! 😎✂️`;
       setShowPromotionPopup(false);
     }
   }, [establishment, activeTab]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (activeTab !== 'products' && activeTab !== 'financial-dashboard') return;
+    fetchProductSalesByPeriod(selectedProductsMonth, 'products');
+    fetchProductSalesByPeriod(selectedMonth, 'dashboard');
+  }, [products, establishment?.id, activeTab, selectedProductsMonth, selectedMonth]);
 
   // Detectar resultado do OAuth Mercado Pago (com proteção contra múltiplas execuções)
   const mpCallbackProcessedRef = useRef<string>('');
