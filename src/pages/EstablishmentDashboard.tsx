@@ -26,6 +26,7 @@ import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
+import { TopMonthlyWinnerCard, type TopMonthlyWinnerCardData } from '../components/TopMonthlyWinnerCard';
 import { TimeSelector } from '../components/TimeSelector';
 import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
 import { YouTubeResumePlayer } from '../components/YouTubeResumePlayer';
@@ -147,6 +148,7 @@ interface Establishment {
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
+  hide_from_top10_ranking?: boolean; // Se true, estabelecimento não participa do TOP 10 global
 }
 
 type TabType =
@@ -164,6 +166,7 @@ type TabType =
   | 'ranking'
   | 'missing-clients'
   | 'draw'
+  | 'top10-clientes'
   | 'passo-a-passo'
   | 'fila-espera'
   | 'placa-barbearia'
@@ -324,6 +327,18 @@ interface ClientSubscription {
   profiles: { full_name: string };
 }
 
+interface TopBarbershopLeaderboardRow {
+  establishmentId: string;
+  establishmentName: string;
+  establishmentCode: string;
+  appointmentCount: number;
+  previousCount: number;
+  jumpInPeriod: number;
+}
+
+const TOP10_SOCIAL_PROOF_MIN_OUTSIDE = 2367;
+const TOP_LEADERBOARD_SIZE = 5;
+
 const EstablishmentDashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -336,6 +351,17 @@ const EstablishmentDashboard = () => {
   // Estados básicos
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('passo-a-passo');
+  const [top10LeaderboardRows, setTop10LeaderboardRows] = useState<TopBarbershopLeaderboardRow[]>([]);
+  const [top10LeaderboardTotalBarbershops, setTop10LeaderboardTotalBarbershops] = useState(0);
+  const [isLoadingTop10Leaderboard, setIsLoadingTop10Leaderboard] = useState(false);
+  const [isUpdatingTop10Visibility, setIsUpdatingTop10Visibility] = useState(false);
+  const [top10HideFeatureAvailable, setTop10HideFeatureAvailable] = useState(true);
+  const [top10LeaderboardError, setTop10LeaderboardError] = useState('');
+  const [top10LeaderboardLastUpdatedAt, setTop10LeaderboardLastUpdatedAt] = useState<string | null>(null);
+  const [top10LeaderboardNextRefreshAt, setTop10LeaderboardNextRefreshAt] = useState<string | null>(null);
+  const [monthlyTopWinner, setMonthlyTopWinner] = useState<TopMonthlyWinnerCardData | null>(null);
+  const [isLoadingMonthlyTopWinner, setIsLoadingMonthlyTopWinner] = useState(false);
+  const [dismissedTop1MonthKey, setDismissedTop1MonthKey] = useState<string | null>(null);
   const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [isEstablishmentLoading, setIsEstablishmentLoading] = useState(true);
@@ -14980,6 +15006,560 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  const normalizeInstagramUrl = (rawValue?: string | null): string | null => {
+    const raw = String(rawValue || '').trim();
+    if (!raw) return null;
+
+    const maybeHandle = raw.replace(/^@+/, '').trim();
+    if (raw.startsWith('@') && maybeHandle) {
+      return `https://www.instagram.com/${maybeHandle}`;
+    }
+
+    if (/^https?:\/\//i.test(raw)) {
+      return raw;
+    }
+
+    if (/instagram\.com/i.test(raw)) {
+      return `https://${raw.replace(/^\/+/, '')}`;
+    }
+
+    if (/^[a-z0-9._]+$/i.test(raw)) {
+      return `https://www.instagram.com/${raw}`;
+    }
+
+    return null;
+  };
+
+  const resolveAppointmentSortTime = (appointment: {
+    appointment_date?: string | null;
+    appointment_time?: string | null;
+    created_at?: string | null;
+  }): number => {
+    const dateRaw = String(appointment.appointment_date || '').trim();
+    const timeRaw = String(appointment.appointment_time || '').trim();
+    if (dateRaw) {
+      const normalizedTime = /^\d{2}:\d{2}(:\d{2})?$/.test(timeRaw)
+        ? (timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw)
+        : '23:59:59';
+      const parsedByDateAndTime = new Date(`${dateRaw}T${normalizedTime}`);
+      if (!Number.isNaN(parsedByDateAndTime.getTime())) {
+        return parsedByDateAndTime.getTime();
+      }
+    }
+    const createdAtRaw = String(appointment.created_at || '').trim();
+    if (createdAtRaw) {
+      const parsedCreatedAt = new Date(createdAtRaw);
+      if (!Number.isNaN(parsedCreatedAt.getTime())) {
+        return parsedCreatedAt.getTime();
+      }
+    }
+    return Number.MAX_SAFE_INTEGER;
+  };
+
+  const loadMonthlyTopWinner = useCallback(async (forceRefresh = false) => {
+    try {
+      setIsLoadingMonthlyTopWinner(true);
+      const now = new Date();
+      const monthStart = startOfMonth(now);
+      const monthEnd = endOfMonth(now);
+      const monthKey = format(monthStart, 'yyyy-MM');
+      const cacheKey = `agendeifacil_top1_mensal_${monthKey}`;
+
+      type MonthlyTopCache = {
+        monthKey: string;
+        savedAt: string;
+        winner: TopMonthlyWinnerCardData | null;
+      };
+
+      if (!forceRefresh) {
+        try {
+          const cachedRaw = localStorage.getItem(cacheKey);
+          if (cachedRaw) {
+            const cached = JSON.parse(cachedRaw) as MonthlyTopCache;
+            if (cached?.monthKey === monthKey) {
+              setMonthlyTopWinner(cached.winner || null);
+              return;
+            }
+          }
+        } catch {
+          // ignora cache quebrado
+        }
+      }
+
+      const fetchAllPaged = async <T,>(queryBuilderFactory: () => any): Promise<T[]> => {
+        const all: T[] = [];
+        let from = 0;
+        const step = 1000;
+        while (true) {
+          const { data, error } = await queryBuilderFactory().range(from, from + step - 1);
+          if (error) throw error;
+          const chunk = (data || []) as T[];
+          if (chunk.length === 0) break;
+          all.push(...chunk);
+          if (chunk.length < step) break;
+          from += step;
+          if (from > 250000) break;
+        }
+        return all;
+      };
+
+      let establishmentsRaw: Array<{
+        id: string;
+        name: string;
+        code: string | null;
+        logo_url?: string | null;
+        profile_image_url?: string | null;
+        social_media_link?: string | null;
+        hide_from_top10_ranking?: boolean | null;
+      }> = [];
+      try {
+        establishmentsRaw = await fetchAllPaged(() =>
+          supabase
+            .from('establishments')
+            .select('id,name,code,logo_url,profile_image_url,social_media_link,hide_from_top10_ranking')
+            .or('is_deleted.is.null,is_deleted.eq.false')
+        );
+      } catch (rawError: any) {
+        const message = String(rawError?.message || '').toLowerCase();
+        const details = String(rawError?.details || '').toLowerCase();
+        const missingHideColumn =
+          message.includes('hide_from_top10_ranking') ||
+          details.includes('hide_from_top10_ranking');
+        if (!missingHideColumn) throw rawError;
+        establishmentsRaw = await fetchAllPaged(() =>
+          supabase
+            .from('establishments')
+            .select('id,name,code,logo_url,profile_image_url,social_media_link')
+            .or('is_deleted.is.null,is_deleted.eq.false')
+        );
+      }
+
+      const eligibleEstablishments = establishmentsRaw.filter((est) => !Boolean(est.hide_from_top10_ranking));
+      const establishmentMap = new Map(
+        eligibleEstablishments.map((est) => [String(est.id), est] as const)
+      );
+
+      const appointmentsRaw = await fetchAllPaged<{
+        establishment_id: string | null;
+        appointment_date: string | null;
+        appointment_time: string | null;
+        created_at: string | null;
+      }>(() =>
+        supabase
+          .from('appointments')
+          .select('establishment_id,appointment_date,appointment_time,created_at')
+          .gte('appointment_date', format(monthStart, 'yyyy-MM-dd'))
+          .lte('appointment_date', format(monthEnd, 'yyyy-MM-dd'))
+      );
+
+      const validAppointments = appointmentsRaw
+        .map((row) => ({ ...row, establishment_id: String(row.establishment_id || '').trim() }))
+        .filter((row) => row.establishment_id && establishmentMap.has(row.establishment_id));
+
+      if (validAppointments.length === 0) {
+        setMonthlyTopWinner(null);
+        localStorage.setItem(cacheKey, JSON.stringify({ monthKey, savedAt: now.toISOString(), winner: null } as MonthlyTopCache));
+        return;
+      }
+
+      const totalCountByEstablishment = new Map<string, number>();
+      validAppointments.forEach((row) => {
+        const estId = row.establishment_id;
+        totalCountByEstablishment.set(estId, (totalCountByEstablishment.get(estId) || 0) + 1);
+      });
+
+      const appointmentsSorted = [...validAppointments].sort((a, b) => {
+        const ta = resolveAppointmentSortTime(a);
+        const tb = resolveAppointmentSortTime(b);
+        if (ta !== tb) return ta - tb;
+        return String(a.establishment_id).localeCompare(String(b.establishment_id));
+      });
+
+      const runningCountByEstablishment = new Map<string, number>();
+      const reachedFinalCountAt = new Map<string, number>();
+      appointmentsSorted.forEach((row) => {
+        const estId = row.establishment_id;
+        const nextCount = (runningCountByEstablishment.get(estId) || 0) + 1;
+        runningCountByEstablishment.set(estId, nextCount);
+        const finalCount = totalCountByEstablishment.get(estId) || 0;
+        if (nextCount >= finalCount && !reachedFinalCountAt.has(estId)) {
+          reachedFinalCountAt.set(estId, resolveAppointmentSortTime(row));
+        }
+      });
+
+      const topCount = Math.max(...Array.from(totalCountByEstablishment.values()));
+      if (!Number.isFinite(topCount) || topCount <= 0) {
+        setMonthlyTopWinner(null);
+        localStorage.setItem(cacheKey, JSON.stringify({ monthKey, savedAt: now.toISOString(), winner: null } as MonthlyTopCache));
+        return;
+      }
+
+      const candidates = Array.from(totalCountByEstablishment.entries())
+        .filter(([, count]) => count === topCount)
+        .sort((a, b) => {
+          const reachedA = reachedFinalCountAt.get(a[0]) ?? Number.MAX_SAFE_INTEGER;
+          const reachedB = reachedFinalCountAt.get(b[0]) ?? Number.MAX_SAFE_INTEGER;
+          if (reachedA !== reachedB) return reachedA - reachedB;
+          const nameA = String(establishmentMap.get(a[0])?.name || '');
+          const nameB = String(establishmentMap.get(b[0])?.name || '');
+          return nameA.localeCompare(nameB, 'pt-BR');
+        });
+
+      const winnerId = String(candidates[0]?.[0] || '').trim();
+      const winnerInfo = establishmentMap.get(winnerId);
+      if (!winnerId || !winnerInfo) {
+        setMonthlyTopWinner(null);
+        localStorage.setItem(cacheKey, JSON.stringify({ monthKey, savedAt: now.toISOString(), winner: null } as MonthlyTopCache));
+        return;
+      }
+
+      const winner: TopMonthlyWinnerCardData = {
+        establishmentId: winnerId,
+        establishmentName: String(winnerInfo.name || 'Barbearia'),
+        establishmentCode: String(winnerInfo.code || ''),
+        appointmentCount: Number(topCount || 0),
+        instagramUrl: normalizeInstagramUrl((winnerInfo as any)?.social_media_link) || undefined,
+        imageUrl:
+          String((winnerInfo as any)?.logo_url || '').trim() ||
+          String((winnerInfo as any)?.profile_image_url || '').trim() ||
+          undefined,
+        isCurrentEstablishment: String(establishment?.id || '') === winnerId,
+      };
+
+      setMonthlyTopWinner(winner);
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({
+          monthKey,
+          savedAt: now.toISOString(),
+          winner,
+        } as MonthlyTopCache)
+      );
+    } catch (error) {
+      console.error('Erro ao carregar destaque Top 1 mensal:', error);
+      setMonthlyTopWinner(null);
+    } finally {
+      setIsLoadingMonthlyTopWinner(false);
+    }
+  }, [establishment?.id]);
+
+  const getTop1DismissStorageKey = useCallback((establishmentId: string) => {
+    return `agendeifacil_top1_hidden_until_next_month_${establishmentId}`;
+  }, []);
+
+  const getCurrentTop1MonthKey = () => format(startOfMonth(new Date()), 'yyyy-MM');
+
+  const handleDismissTop1CardUntilNextMonth = useCallback(() => {
+    if (!establishment?.id) return;
+    const confirmed = window.confirm('Não quero ver isso até o próximo mês. Confirmar?');
+    if (!confirmed) return;
+    const monthKey = getCurrentTop1MonthKey();
+    try {
+      localStorage.setItem(getTop1DismissStorageKey(establishment.id), monthKey);
+    } catch {
+      // ignorar erro de storage e aplicar em memória
+    }
+    setDismissedTop1MonthKey(monthKey);
+    toast('Destaque ocultado até o próximo mês.', 'success');
+  }, [establishment?.id, getTop1DismissStorageKey, toast]);
+
+  const loadTop10BarbershopsLeaderboard = useCallback(async (forceRefresh = false) => {
+    try {
+      setIsLoadingTop10Leaderboard(true);
+      setTop10LeaderboardError('');
+
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const monthKey = format(monthStart, 'yyyy-MM');
+      const snapshotStorageKey = `agendeifacil_top10_barbearias_${monthKey}`;
+      const snapshotWindowDays = 5;
+
+      const daysInMonth = monthEnd.getDate();
+      const dayOfMonth = now.getDate();
+      const closedBucketEndDayRaw = Math.floor(dayOfMonth / snapshotWindowDays) * snapshotWindowDays;
+      const closedBucketEndDay = closedBucketEndDayRaw > 0 ? Math.min(closedBucketEndDayRaw, daysInMonth) : dayOfMonth;
+      const bucketStartDay = closedBucketEndDay >= snapshotWindowDays ? closedBucketEndDay - (snapshotWindowDays - 1) : 1;
+      const bucketStartDate = new Date(now.getFullYear(), now.getMonth(), bucketStartDay, 0, 0, 0, 0);
+      const bucketEndDate = new Date(now.getFullYear(), now.getMonth(), closedBucketEndDay, 23, 59, 59, 999);
+
+      const nextBucketStartDay = Math.min(daysInMonth, closedBucketEndDay + 1);
+      const nextBucketEndDay = nextBucketStartDay + snapshotWindowDays - 1 <= daysInMonth
+        ? nextBucketStartDay + snapshotWindowDays - 1
+        : daysInMonth;
+      const nextRefreshDate = new Date(now.getFullYear(), now.getMonth(), nextBucketEndDay, 23, 59, 59, 999);
+      setTop10LeaderboardNextRefreshAt(nextRefreshDate.toISOString());
+
+      type StoredSnapshot = {
+        monthKey: string;
+        bucketStart: string;
+        bucketEnd: string;
+        savedAt: string;
+        rows: TopBarbershopLeaderboardRow[];
+        totalVisibleBarbershops?: number;
+      };
+
+      const parseSnapshot = (): StoredSnapshot | null => {
+        try {
+          const raw = localStorage.getItem(snapshotStorageKey);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw) as StoredSnapshot;
+          if (!parsed || parsed.monthKey !== monthKey || !Array.isArray(parsed.rows)) return null;
+          return parsed;
+        } catch {
+          return null;
+        }
+      };
+
+      const fetchVisibleBarbershopsCount = async (): Promise<number> => {
+        try {
+          const { count, error } = await supabase
+            .from('establishments')
+            .select('id', { count: 'exact', head: true })
+            .or('is_deleted.is.null,is_deleted.eq.false')
+            .eq('hide_from_top10_ranking', false);
+          if (error) throw error;
+          setTop10HideFeatureAvailable(true);
+          return Number(count || 0);
+        } catch (rawError: any) {
+          const rawErrorMessage = String(rawError?.message || '').toLowerCase();
+          const rawErrorDetails = String(rawError?.details || '').toLowerCase();
+          const missingHideColumn =
+            rawErrorMessage.includes('hide_from_top10_ranking') ||
+            rawErrorDetails.includes('hide_from_top10_ranking');
+          if (!missingHideColumn) throw rawError;
+
+          setTop10HideFeatureAvailable(false);
+          const { count, error } = await supabase
+            .from('establishments')
+            .select('id', { count: 'exact', head: true })
+            .or('is_deleted.is.null,is_deleted.eq.false');
+          if (error) throw error;
+          return Number(count || 0);
+        }
+      };
+
+      const cached = parseSnapshot();
+      if (
+        !forceRefresh &&
+        cached &&
+        cached.bucketStart === bucketStartDate.toISOString() &&
+        cached.bucketEnd === bucketEndDate.toISOString()
+      ) {
+        setTop10LeaderboardRows(cached.rows);
+        setTop10LeaderboardLastUpdatedAt(cached.savedAt);
+        setTop10HideFeatureAvailable(true);
+        if (typeof cached.totalVisibleBarbershops === 'number') {
+          setTop10LeaderboardTotalBarbershops(cached.totalVisibleBarbershops);
+        } else {
+          const visibleCount = await fetchVisibleBarbershopsCount();
+          setTop10LeaderboardTotalBarbershops(Math.max(visibleCount, cached.rows.length, 0));
+        }
+        return;
+      }
+
+      const fetchAllPaged = async <T,>(queryBuilderFactory: () => any): Promise<T[]> => {
+        const all: T[] = [];
+        let from = 0;
+        const step = 1000;
+        while (true) {
+          const { data, error } = await queryBuilderFactory().range(from, from + step - 1);
+          if (error) throw error;
+          const chunk = (data || []) as T[];
+          if (chunk.length === 0) break;
+          all.push(...chunk);
+          if (chunk.length < step) break;
+          from += step;
+          if (from > 200000) break;
+        }
+        return all;
+      };
+
+      let establishmentsRaw: Array<{ id: string; name: string; code: string | null; hide_from_top10_ranking?: boolean | null }> = [];
+      let hideColumnAvailableInDb = true;
+      try {
+        establishmentsRaw = await fetchAllPaged<{ id: string; name: string; code: string | null; hide_from_top10_ranking?: boolean | null }>(() =>
+          supabase
+            .from('establishments')
+            .select('id,name,code,hide_from_top10_ranking')
+            .or('is_deleted.is.null,is_deleted.eq.false')
+        );
+      } catch (rawError: any) {
+        const rawErrorMessage = String(rawError?.message || '').toLowerCase();
+        const rawErrorDetails = String(rawError?.details || '').toLowerCase();
+        const missingHideColumn =
+          rawErrorMessage.includes('hide_from_top10_ranking') ||
+          rawErrorDetails.includes('hide_from_top10_ranking');
+        if (!missingHideColumn) throw rawError;
+        hideColumnAvailableInDb = false;
+        establishmentsRaw = await fetchAllPaged<{ id: string; name: string; code: string | null }>(() =>
+          supabase
+            .from('establishments')
+            .select('id,name,code')
+            .or('is_deleted.is.null,is_deleted.eq.false')
+        );
+      }
+      setTop10HideFeatureAvailable(hideColumnAvailableInDb);
+      const visibleEstablishments = establishmentsRaw.filter((est) => !Boolean(est.hide_from_top10_ranking));
+      const establishmentsMap = new Map<string, { name: string; code: string }>();
+      visibleEstablishments.forEach((est) => {
+        establishmentsMap.set(String(est.id), {
+          name: String(est.name || 'Barbearia'),
+          code: String(est.code || ''),
+        });
+      });
+      setTop10LeaderboardTotalBarbershops(visibleEstablishments.length);
+
+      const appointmentsRaw = await fetchAllPaged<{ establishment_id: string | null; appointment_date: string | null }>(() =>
+        supabase
+          .from('appointments')
+          .select('establishment_id,appointment_date')
+          .gte('appointment_date', format(monthStart, 'yyyy-MM-dd'))
+          .lte('appointment_date', format(bucketEndDate, 'yyyy-MM-dd'))
+      );
+
+      const countByEstablishment = new Map<string, number>();
+      appointmentsRaw.forEach((apt) => {
+        const establishmentId = String(apt.establishment_id || '').trim();
+        if (!establishmentId) return;
+        const appointmentDateRaw = String(apt.appointment_date || '').trim();
+        if (!appointmentDateRaw) return;
+        const aptDate = parseISO(`${appointmentDateRaw}T00:00:00`);
+        if (Number.isNaN(aptDate.getTime())) return;
+        if (aptDate < monthStart || aptDate > bucketEndDate) return;
+        countByEstablishment.set(establishmentId, (countByEstablishment.get(establishmentId) || 0) + 1);
+      });
+
+      const previousCounts = new Map<string, number>();
+      (cached?.rows || []).forEach((row) => previousCounts.set(row.establishmentId, Number(row.appointmentCount || 0)));
+
+      const rows: TopBarbershopLeaderboardRow[] = Array.from(countByEstablishment.entries())
+        .map(([establishmentId, appointmentCount]) => {
+          const estInfo = establishmentsMap.get(establishmentId);
+          if (!estInfo) return null;
+          const previousCount = previousCounts.get(establishmentId) || 0;
+          return {
+            establishmentId,
+            establishmentName: estInfo?.name || 'Barbearia',
+            establishmentCode: estInfo?.code || '',
+            appointmentCount: Number(appointmentCount || 0),
+            previousCount,
+            jumpInPeriod: Number(appointmentCount || 0) - previousCount,
+          };
+        })
+        .filter((row): row is TopBarbershopLeaderboardRow => Boolean(row))
+        .sort((a, b) => b.appointmentCount - a.appointmentCount)
+        .slice(0, TOP_LEADERBOARD_SIZE);
+
+      const snapshotToSave: StoredSnapshot = {
+        monthKey,
+        bucketStart: bucketStartDate.toISOString(),
+        bucketEnd: bucketEndDate.toISOString(),
+        savedAt: now.toISOString(),
+        rows,
+        totalVisibleBarbershops: visibleEstablishments.length,
+      };
+      localStorage.setItem(snapshotStorageKey, JSON.stringify(snapshotToSave));
+
+      setTop10LeaderboardRows(rows);
+      setTop10LeaderboardLastUpdatedAt(snapshotToSave.savedAt);
+    } catch (error: any) {
+      console.error('Erro ao carregar TOP 10 de barbearias:', error);
+      const message = String(error?.message || '');
+      const code = String(error?.code || '');
+      const details = String(error?.details || '');
+      const hint = String(error?.hint || '');
+      setTop10LeaderboardError(
+        [message, code && `code: ${code}`, details && `details: ${details}`, hint && `hint: ${hint}`]
+          .filter(Boolean)
+          .join(' | ') || 'Não foi possível carregar o ranking agora.'
+      );
+    } finally {
+      setIsLoadingTop10Leaderboard(false);
+    }
+  }, []);
+
+  const handleToggleTop10Visibility = useCallback(async () => {
+    if (!establishment?.id) return;
+    try {
+      setIsUpdatingTop10Visibility(true);
+      const nextHidden = !Boolean(establishment.hide_from_top10_ranking);
+      const { error } = await supabase
+        .from('establishments')
+        .update({ hide_from_top10_ranking: nextHidden } as any)
+        .eq('id', establishment.id);
+      if (error) {
+        const message = String(error.message || '');
+        const code = String(error.code || '');
+        const details = String(error.details || '');
+        const hint = String(error.hint || '');
+        throw new Error(
+          [message, code && `code: ${code}`, details && `details: ${details}`, hint && `hint: ${hint}`]
+            .filter(Boolean)
+            .join(' | ')
+        );
+      }
+      setEstablishment((prev) => (prev ? { ...prev, hide_from_top10_ranking: nextHidden } : prev));
+      setTop10HideFeatureAvailable(true);
+      toast(
+        nextHidden
+          ? 'Participação no TOP 5 desativada. Sua barbearia não entra no ranking.'
+          : 'Participação no TOP 5 ativada. Sua barbearia voltou para a competição.',
+        'success'
+      );
+      await loadTop10BarbershopsLeaderboard(true);
+    } catch (rawError: any) {
+      const message = String(rawError?.message || '');
+      const lowerMessage = message.toLowerCase();
+      const missingColumn = lowerMessage.includes('hide_from_top10_ranking');
+      if (missingColumn) {
+        setTop10HideFeatureAvailable(false);
+      }
+      toast(
+        missingColumn
+          ? 'Para ocultar no TOP 5, rode a migration no Supabase (coluna hide_from_top10_ranking).'
+          : `Erro ao atualizar visibilidade no TOP 5: ${message || 'falha desconhecida'}`,
+        'error'
+      );
+    } finally {
+      setIsUpdatingTop10Visibility(false);
+    }
+  }, [establishment, loadTop10BarbershopsLeaderboard, toast]);
+
+  useEffect(() => {
+    if (activeTab !== 'top10-clientes') return;
+    loadTop10BarbershopsLeaderboard();
+  }, [activeTab, loadTop10BarbershopsLeaderboard]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    loadMonthlyTopWinner();
+  }, [establishment?.id, loadMonthlyTopWinner]);
+
+  useEffect(() => {
+    if (!establishment?.id) {
+      setDismissedTop1MonthKey(null);
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(getTop1DismissStorageKey(establishment.id));
+      setDismissedTop1MonthKey(saved || null);
+    } catch {
+      setDismissedTop1MonthKey(null);
+    }
+  }, [establishment?.id, getTop1DismissStorageKey]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    const now = new Date();
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 10, 0);
+    const delayMs = Math.max(1_000, nextMonthStart.getTime() - now.getTime());
+    const timeoutId = window.setTimeout(() => {
+      loadMonthlyTopWinner(true);
+    }, delayMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [establishment?.id, loadMonthlyTopWinner]);
+
   const handleValidateDashboardPin = async (enteredPin: string, remember?: boolean) => {
     if (!establishment?.pin_password || establishment.pin_password.length === 0) {
       setIsDashboardUnlocked(true);
@@ -15486,6 +16066,9 @@ Estamos te aguardando! 😎✂️`;
     );
   }
 
+  const isTop1CardDismissedForCurrentMonth =
+    dismissedTop1MonthKey === format(startOfMonth(new Date()), 'yyyy-MM');
+
   // Renderização do dashboard quando há estabelecimento
   return (
     // Fundo principal sempre claro; o toggle só controla sidebar/elementos, não o fundo geral
@@ -15864,6 +16447,25 @@ Estamos te aguardando! 😎✂️`;
                 )}
               </div>
             </div>
+
+            {!isTop1CardDismissedForCurrentMonth && (isLoadingMonthlyTopWinner || monthlyTopWinner) && (
+              <div className="mb-5 sm:mb-6">
+                {isLoadingMonthlyTopWinner && !monthlyTopWinner ? (
+                  <div className="w-full rounded-2xl border border-amber-300/30 bg-gradient-to-r from-amber-900/25 to-slate-900/40 p-4 sm:p-5 animate-pulse">
+                    <div className="h-4 w-40 bg-amber-200/20 rounded mb-3" />
+                    <div className="h-6 w-72 max-w-full bg-white/15 rounded" />
+                  </div>
+                ) : monthlyTopWinner ? (
+                  <TopMonthlyWinnerCard
+                    winner={{
+                      ...monthlyTopWinner,
+                      isCurrentEstablishment: String(monthlyTopWinner.establishmentId) === String(establishment?.id || ''),
+                    }}
+                    onDismiss={handleDismissTop1CardUntilNextMonth}
+                  />
+                ) : null}
+              </div>
+            )}
 
             {/* Sino flutuante (somente mobile) - acima do botão de recarregar */}
             {establishment && (
@@ -17399,6 +18001,149 @@ Estamos te aguardando! 😎✂️`;
                       </p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {activeTab === 'top10-clientes' && (
+                <div className="space-y-6 w-full">
+                  <div className="bg-gradient-to-b from-[#0b1220] via-[#0a1020] to-[#080d1a] rounded-xl shadow-2xl max-w-4xl w-full p-4 sm:p-6 border border-cyan-500/30">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+                      <div>
+                        <h2 className="text-xl sm:text-2xl font-extrabold text-cyan-100">👑 TOP 5 barbearias do mês</h2>
+                        <p className="text-xs sm:text-sm text-cyan-200/80 mt-1">
+                          Ranking global com base em agendamentos do mês atual (competição atualizada a cada 5 dias).
+                        </p>
+                        <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-300/50 bg-amber-400/10 px-3 py-1">
+                          <span className="text-xs sm:text-sm font-extrabold text-amber-200">
+                            🏆 Prêmio: a cada 2 meses no Top 1, ganha o 3º mês de sistema grátis. Enquanto se manter no Top 1, fica destacado no sistema.
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-cyan-200/70 mt-2">
+                          Status da sua barbearia:{' '}
+                          <span className={Boolean(establishment?.hide_from_top10_ranking) ? 'text-rose-300 font-bold' : 'text-emerald-300 font-bold'}>
+                            {Boolean(establishment?.hide_from_top10_ranking) ? 'Oculta no TOP 5' : 'Participando do TOP 5'}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={handleToggleTop10Visibility}
+                          disabled={isUpdatingTop10Visibility}
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm font-bold disabled:opacity-50 ${
+                            Boolean(establishment?.hide_from_top10_ranking)
+                              ? 'border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/10'
+                              : 'border-rose-400/50 text-rose-100 hover:bg-rose-500/10'
+                          }`}
+                        >
+                          {isUpdatingTop10Visibility
+                            ? 'Salvando...'
+                            : Boolean(establishment?.hide_from_top10_ranking)
+                              ? 'Ativar participação no TOP 5'
+                              : 'Desativar participação no TOP 5'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => loadTop10BarbershopsLeaderboard(true)}
+                          disabled={isLoadingTop10Leaderboard}
+                          className="px-3 py-2 rounded-lg border border-cyan-400/50 text-cyan-100 hover:bg-cyan-500/10 transition-colors text-sm font-bold disabled:opacity-50"
+                        >
+                          {isLoadingTop10Leaderboard ? 'Atualizando...' : 'Atualizar ranking'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {!top10HideFeatureAvailable && (
+                      <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-100 text-xs p-3 break-words">
+                        Recurso de ocultar no TOP 5 indisponível no banco atual. Rode a migration para adicionar a coluna
+                        {' '}<code className="font-mono">hide_from_top10_ranking</code>{' '}na tabela <code className="font-mono">establishments</code>.
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                      <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3">
+                        <p className="text-[11px] text-cyan-200 uppercase tracking-wide">Última atualização</p>
+                        <p className="text-sm font-bold text-cyan-50">
+                          {top10LeaderboardLastUpdatedAt
+                            ? new Date(top10LeaderboardLastUpdatedAt).toLocaleString('pt-BR')
+                            : 'Ainda não atualizado'}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 p-3">
+                        <p className="text-[11px] text-indigo-200 uppercase tracking-wide">Próxima atualização (janela 5 dias)</p>
+                        <p className="text-sm font-bold text-indigo-50">
+                          {top10LeaderboardNextRefreshAt
+                            ? new Date(top10LeaderboardNextRefreshAt).toLocaleString('pt-BR')
+                            : 'Calculando...'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {top10LeaderboardError && (
+                      <div className="mb-4 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-100 text-xs p-3 break-words">
+                        Erro ao carregar ranking: {top10LeaderboardError}
+                      </div>
+                    )}
+
+                    {isLoadingTop10Leaderboard ? (
+                      <div className="py-10 text-center text-cyan-100 font-semibold">Carregando TOP 5...</div>
+                    ) : top10LeaderboardRows.length === 0 ? (
+                      <div className="py-10 text-center text-cyan-100/80">
+                        Nenhum dado disponível no momento para montar o ranking.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {top10LeaderboardRows.map((row, index) => {
+                          const isCurrentEstablishment = String(establishment?.id || '') === String(row.establishmentId);
+                          const jumpLabel = row.jumpInPeriod > 0 ? `+${row.jumpInPeriod}` : `${row.jumpInPeriod}`;
+                          return (
+                            <div
+                              key={row.establishmentId}
+                              className={`rounded-lg border p-3 flex items-center justify-between gap-3 ${
+                                isCurrentEstablishment
+                                  ? 'border-emerald-400 bg-emerald-500/10'
+                                  : 'border-cyan-700/60 bg-white/[0.03]'
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <p className="text-sm font-extrabold text-cyan-50 truncate">
+                                  #{index + 1} {row.establishmentName}
+                                  {row.establishmentCode ? ` (${row.establishmentCode})` : ''}
+                                  {isCurrentEstablishment ? ' • VOCÊ' : ''}
+                                </p>
+                                <p className="text-[11px] text-cyan-200/80 mt-1">
+                                  Salto da janela de 5 dias: <strong className={row.jumpInPeriod >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{jumpLabel}</strong>
+                                  {' '}| Antes: {row.previousCount}
+                                </p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-[11px] text-cyan-200 uppercase">Agendamentos</p>
+                                <p className="text-lg font-extrabold text-emerald-300">{row.appointmentCount}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        <div className="mt-4 rounded-lg border border-cyan-600/50 bg-cyan-500/10 p-3 text-center">
+                          <p className="text-xs sm:text-sm text-cyan-100 font-semibold">
+                            🚀 E ainda existem{' '}
+                            <span className="text-amber-300 font-extrabold">
+                              +{new Intl.NumberFormat('pt-BR').format(
+                                Math.max(
+                                  TOP10_SOCIAL_PROOF_MIN_OUTSIDE,
+                                  Math.max(0, (top10LeaderboardTotalBarbershops || 0) - top10LeaderboardRows.length)
+                                )
+                              )}
+                            </span>{' '}
+                            barbearias fora do TOP 5 competindo neste mês.
+                          </p>
+                          <p className="text-[11px] text-cyan-200/80 mt-1">
+                            O ranking mostra só os líderes, mas a disputa é geral no Agendei Fácil.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

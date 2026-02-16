@@ -71,6 +71,7 @@ export interface Database {
           show_subscriptions_fullpage?: boolean; // Mostrar assinaturas por completo no Booking
           use_60_minute_schedule?: boolean; // Mostrar horários de 1 em 1 hora no booking
           booking_min_advance_hours?: number; // Antecedencia minima (em horas) para agendamento no booking
+          hide_from_top10_ranking?: boolean; // Se true, estabelecimento não entra no ranking TOP 10
         }
       },
       premium_subscribers: {

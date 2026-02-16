@@ -85,6 +85,7 @@ const AdminDashboard = () => {
   const [filterPlan, setFilterPlan] = useState<'all' | 'prata' | 'ouro' | 'diamante' | 'outros'>('all');
   const [filterActivity, setFilterActivity] = useState<'all' | 'active' | 'inactive'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
+  const [deletedContainmentIds, setDeletedContainmentIds] = useState<string[]>([]);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
   const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
@@ -320,6 +321,8 @@ const AdminDashboard = () => {
   const [showSaldoLucroInfo, setShowSaldoLucroInfo] = useState(false);
   const [saldoMesMonth, setSaldoMesMonth] = useState<Date>(() => new Date());
   const [clientesMeusPagosMonth, setClientesMeusPagosMonth] = useState<Date>(() => new Date());
+  const [cardsRangeStart, setCardsRangeStart] = useState('');
+  const [cardsRangeEnd, setCardsRangeEnd] = useState('');
 
   // ✅ Saldo do dia: permitir navegar por dia (hoje / dia anterior / etc.)
   const [saldoDiaDate, setSaldoDiaDate] = useState<Date>(() => new Date());
@@ -327,6 +330,7 @@ const AdminDashboard = () => {
   const [qtdVendasPixMes, setQtdVendasPixMes] = useState<number>(0);
   const [lucroPixMesTotal, setLucroPixMesTotal] = useState<number>(0);
   const [isLoadingLucroPixMes, setIsLoadingLucroPixMes] = useState(false);
+  const DELETED_CONTAINMENT_STORAGE_KEY = 'admin_deleted_containment_ids_v1';
 
   const togglePagamentoAdiantadoAdmin = async (establishmentId: string, current: boolean) => {
     try {
@@ -1588,6 +1592,7 @@ const AdminDashboard = () => {
 
       // Remover da lista de estabelecimentos excluídos
       setDeletedEstablishments(prev => prev.filter(est => est.id !== establishmentId));
+      setDeletedContainmentIds(prev => prev.filter(id => id !== establishmentId));
 
       // Marcar como não excluído no banco de dados
       const { error } = await supabase
@@ -1607,6 +1612,19 @@ const AdminDashboard = () => {
         setDeletedEstablishments(prev => [...prev, establishmentToRestore]);
       }
     }
+  };
+
+  const moveDeletedToContainment = (establishmentId: string) => {
+    setDeletedContainmentIds((prev) => {
+      if (prev.includes(establishmentId)) return prev;
+      return [...prev, establishmentId];
+    });
+    toast.success('Movido para a lixeira de contenção.');
+  };
+
+  const moveDeletedBackToNormalTrash = (establishmentId: string) => {
+    setDeletedContainmentIds((prev) => prev.filter((id) => id !== establishmentId));
+    toast.success('Movido de volta para a lixeira normal.');
   };
 
   const isExpired = (dueDate: string) => {
@@ -1738,6 +1756,28 @@ const AdminDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientsMonth]);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DELETED_CONTAINMENT_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const safeIds = parsed.filter((id) => typeof id === 'string' && id.trim().length > 0);
+        setDeletedContainmentIds(safeIds);
+      }
+    } catch (error) {
+      console.warn('Falha ao carregar lixeira de contenção:', error);
+    }
+  }, [DELETED_CONTAINMENT_STORAGE_KEY]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DELETED_CONTAINMENT_STORAGE_KEY, JSON.stringify(deletedContainmentIds));
+    } catch (error) {
+      console.warn('Falha ao salvar lixeira de contenção:', error);
+    }
+  }, [DELETED_CONTAINMENT_STORAGE_KEY, deletedContainmentIds]);
+
   // Pré-preencher inputs com o valor salvo (sem sobrescrever quem estiver digitando)
   useEffect(() => {
     setProfitInputByEstablishment(prev => {
@@ -1764,6 +1804,11 @@ const AdminDashboard = () => {
       return next;
     });
   }, [establishments]);
+
+  useEffect(() => {
+    const deletedIds = new Set(deletedEstablishments.map((est) => est.id));
+    setDeletedContainmentIds((prev) => prev.filter((id) => deletedIds.has(id)));
+  }, [deletedEstablishments]);
 
   const parseBRLNumberInput = (raw: string): number => {
     const s = String(raw || '').trim();
@@ -2338,8 +2383,25 @@ const AdminDashboard = () => {
     return sum + calcularLucroPix(qtd);
   }, 0);
 
-  // Filtrar estabelecimentos da lixeira
-  const filteredDeletedEstablishments = deletedEstablishments.filter(establishment => {
+  // Filtrar estabelecimentos da lixeira (respeitando período global dos cards, quando ativo)
+  const deletedRangeStart = cardsRangeStart ? startOfDay(new Date(`${cardsRangeStart}T00:00:00`)) : null;
+  const deletedRangeEnd = cardsRangeEnd ? endOfDay(new Date(`${cardsRangeEnd}T00:00:00`)) : null;
+  const hasDeletedRange =
+    Boolean(deletedRangeStart && deletedRangeEnd) &&
+    Number.isFinite(deletedRangeStart!.getTime()) &&
+    Number.isFinite(deletedRangeEnd!.getTime()) &&
+    deletedRangeStart!.getTime() <= deletedRangeEnd!.getTime();
+  const deletedContainmentIdSet = new Set(deletedContainmentIds);
+  const deletedBaseForSearch = hasDeletedRange
+    ? deletedEstablishments.filter((est) => {
+      const createdAt = new Date(est.created_at).getTime();
+      if (!Number.isFinite(createdAt)) return false;
+      return createdAt >= deletedRangeStart!.getTime() && createdAt <= deletedRangeEnd!.getTime();
+    })
+    : deletedEstablishments;
+  const deletedNormalBase = deletedBaseForSearch.filter((est) => !deletedContainmentIdSet.has(est.id));
+  const deletedContainmentBase = deletedBaseForSearch.filter((est) => deletedContainmentIdSet.has(est.id));
+  const deletedSearchMatches = (establishment: Establishment) => {
     const rawTokens = String(searchTermDeleted || '')
       .split(/\s+/)
       .map(t => t.trim())
@@ -2384,7 +2446,9 @@ const AdminDashboard = () => {
         return haystack.some(h => h.includes(t));
       })
     );
-  });
+  };
+  const filteredDeletedEstablishments = deletedNormalBase.filter(deletedSearchMatches);
+  const filteredDeletedContainmentEstablishments = deletedContainmentBase.filter(deletedSearchMatches);
 
   // Saldo (lucro) manual total — não inclui lixeira pois establishments já vem filtrado
   const totalAdminProfit = establishments.reduce((sum, est) => {
@@ -2539,6 +2603,120 @@ const AdminDashboard = () => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
+
+  // Saldo do dia (HOJE): soma do lucro manual apenas de quem PAGOU HOJE
+  const dayStart = startOfDay(saldoDiaDate);
+  const dayEnd = endOfDay(saldoDiaDate);
+  const paidOnDay = establishments.filter(est => {
+    if (!est.payment_paid_at) return false;
+    const t = new Date(est.payment_paid_at).getTime();
+    if (!Number.isFinite(t)) return false;
+    return t >= dayStart.getTime() && t <= dayEnd.getTime();
+  });
+  const saldoDiaProfit = paidOnDay.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+
+  // Clientes (estabelecimentos) criados hoje (para controle rápido, sem query extra)
+  const clientesDiaCount = establishments.filter(est => {
+    const t = new Date(est.created_at).getTime();
+    if (!Number.isFinite(t)) return false;
+    return t >= dayStart.getTime() && t <= dayEnd.getTime();
+  }).length;
+
+  const cardsRangeStartDate = cardsRangeStart ? startOfDay(new Date(`${cardsRangeStart}T00:00:00`)) : null;
+  const cardsRangeEndDate = cardsRangeEnd ? endOfDay(new Date(`${cardsRangeEnd}T00:00:00`)) : null;
+  const hasCardsRange =
+    Boolean(cardsRangeStartDate && cardsRangeEndDate) &&
+    Number.isFinite(cardsRangeStartDate!.getTime()) &&
+    Number.isFinite(cardsRangeEndDate!.getTime()) &&
+    cardsRangeStartDate!.getTime() <= cardsRangeEndDate!.getTime();
+  const cardsRangeLabel =
+    hasCardsRange && cardsRangeStartDate && cardsRangeEndDate
+      ? `${format(cardsRangeStartDate, 'dd/MM/yyyy')} até ${format(cardsRangeEndDate, 'dd/MM/yyyy')}`
+      : '';
+  const isInCardsRange = (time: number) => {
+    if (!hasCardsRange || !cardsRangeStartDate || !cardsRangeEndDate) return true;
+    if (!Number.isFinite(time)) return false;
+    return time >= cardsRangeStartDate.getTime() && time <= cardsRangeEndDate.getTime();
+  };
+  const establishmentsInCardsRange = hasCardsRange
+    ? establishments.filter((est) => {
+      const createdAt = new Date(est.created_at).getTime();
+      const paidAt = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
+      const dueAt = parseDateOnlyLocal(est.payment_due_date);
+      return isInCardsRange(createdAt) || isInCardsRange(paidAt) || isInCardsRange(dueAt);
+    })
+    : establishments;
+  const deletedEstablishmentsInCardsRange = hasCardsRange
+    ? deletedEstablishments.filter((est) => isInCardsRange(new Date(est.created_at).getTime()))
+    : deletedEstablishments;
+  const paidInCardsRange = hasCardsRange
+    ? establishments.filter((est) => {
+      if (!est.payment_paid_at) return false;
+      return isInCardsRange(new Date(est.payment_paid_at).getTime());
+    })
+    : paidInSaldoLucroMonth;
+  const newInCardsRange = hasCardsRange
+    ? establishments.filter((est) => isInCardsRange(new Date(est.created_at).getTime()))
+    : [];
+  const paidNewInCardsRange = hasCardsRange
+    ? newInCardsRange.filter((est) => est.payment_paid_at && isInCardsRange(new Date(est.payment_paid_at).getTime()))
+    : [];
+  const paidRenewalsInCardsRange = hasCardsRange && cardsRangeStartDate
+    ? establishments.filter((est) => {
+      if (est.plan_type !== 'monthly') return false;
+      const createdAt = new Date(est.created_at).getTime();
+      if (!Number.isFinite(createdAt) || createdAt >= cardsRangeStartDate.getTime()) return false;
+      if (!est.payment_paid_at) return false;
+      return isInCardsRange(new Date(est.payment_paid_at).getTime());
+    })
+    : paidRenewalsInClientesMeusPagosMonth;
+  const renewalExpectedInCardsRange = hasCardsRange && cardsRangeStartDate
+    ? establishments.filter((est) => {
+      if (est.plan_type !== 'monthly') return false;
+      const createdAt = new Date(est.created_at).getTime();
+      if (!Number.isFinite(createdAt) || createdAt >= cardsRangeStartDate.getTime()) return false;
+      const dueAt = parseDateOnlyLocal(est.payment_due_date);
+      return isInCardsRange(dueAt);
+    })
+    : renewalExpectedInClientesMeusPagosMonth;
+  const paidRenewalsInCardsRangeIds = new Set(paidRenewalsInCardsRange.map((est) => est.id));
+  const renewalMissingPaymentInCardsRange = renewalExpectedInCardsRange.filter(
+    (est) => !paidRenewalsInCardsRangeIds.has(est.id)
+  );
+  const renewalMissingPaymentValueInCardsRange = renewalMissingPaymentInCardsRange.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  const saldoLucroValueDisplay = hasCardsRange
+    ? paidInCardsRange.reduce((sum, est) => {
+      const v = Number(est.admin_profit_value ?? 0);
+      return sum + (Number.isFinite(v) ? v : 0);
+    }, 0)
+    : totalAdminProfitInMonth;
+  const saldoMesValueDisplay = hasCardsRange ? saldoLucroValueDisplay : saldoMesProfit;
+  const saldoMesClientesNovosDisplay = hasCardsRange
+    ? paidNewInCardsRange.reduce((sum, est) => {
+      const v = Number(est.admin_profit_value ?? 0);
+      return sum + (Number.isFinite(v) ? v : 0);
+    }, 0)
+    : saldoMesClientesNovosProfit;
+  const renovacoesPagasValueDisplay = hasCardsRange ? paidRenewalsInCardsRange.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0) : clientesMeusPagosMesSelected;
+  const saldoDiaValueDisplay = hasCardsRange ? saldoLucroValueDisplay : saldoDiaProfit;
+  const totalEstablishmentsDisplay = hasCardsRange ? establishmentsInCardsRange.length : establishments.length;
+  const clientsMonthCountDisplay = hasCardsRange ? newInCardsRange.length : clientsMonthCount;
+  const pagamentosEmDiaDisplay = establishmentsInCardsRange.filter((e) => e.payment_status === 'paid').length;
+  const pendentesDisplay = establishmentsInCardsRange.filter((e) => e.payment_status === 'unpaid').length;
+  const vencidosDisplay = establishmentsInCardsRange.filter((e) =>
+    e.payment_status === 'expired' || isExpired(e.payment_due_date)
+  ).length;
+  const bloqueadosDisplay = establishmentsInCardsRange.filter((e) => e.is_blocked).length;
+  const lixeiraDisplay = hasCardsRange ? deletedEstablishmentsInCardsRange.length : deletedEstablishments.length;
   const setRenewalInSelectedMonth = async (establishment: Establishment, shouldInclude: boolean) => {
     const key = `renewal:${establishment.id}`;
     setIsAdjustingRenewalByEstablishment(prev => ({ ...prev, [key]: true }));
@@ -2579,27 +2757,6 @@ const AdminDashboard = () => {
       setIsAdjustingRenewalByEstablishment(prev => ({ ...prev, [key]: false }));
     }
   };
-
-  // Saldo do dia (HOJE): soma do lucro manual apenas de quem PAGOU HOJE
-  const dayStart = startOfDay(saldoDiaDate);
-  const dayEnd = endOfDay(saldoDiaDate);
-  const paidOnDay = establishments.filter(est => {
-    if (!est.payment_paid_at) return false;
-    const t = new Date(est.payment_paid_at).getTime();
-    if (!Number.isFinite(t)) return false;
-    return t >= dayStart.getTime() && t <= dayEnd.getTime();
-  });
-  const saldoDiaProfit = paidOnDay.reduce((sum, est) => {
-    const v = Number(est.admin_profit_value ?? 0);
-    return sum + (Number.isFinite(v) ? v : 0);
-  }, 0);
-
-  // Clientes (estabelecimentos) criados hoje (para controle rápido, sem query extra)
-  const clientesDiaCount = establishments.filter(est => {
-    const t = new Date(est.created_at).getTime();
-    if (!Number.isFinite(t)) return false;
-    return t >= dayStart.getTime() && t <= dayEnd.getTime();
-  }).length;
 
   // Mostrar loading enquanto verifica autenticação
   if (!user) {
@@ -2878,7 +3035,10 @@ const AdminDashboard = () => {
               <Building2 className="h-8 w-8 text-blue-600" />
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Total Estabelecimentos</p>
-                <p className="text-2xl font-bold text-gray-900">{establishments.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{totalEstablishmentsDisplay}</p>
+                {hasCardsRange && (
+                  <p className="text-[11px] text-gray-500 mt-1">Período: {cardsRangeLabel}</p>
+                )}
               </div>
             </div>
           </div>
@@ -2910,11 +3070,11 @@ const AdminDashboard = () => {
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-1 capitalize">
-                  {saldoLucroMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  {hasCardsRange ? `Período: ${cardsRangeLabel}` : saldoLucroMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </p>
-                <p className="text-2xl font-bold text-gray-900">{fmtBRL(totalAdminProfitInMonth)}</p>
+                <p className="text-2xl font-bold text-gray-900">{fmtBRL(saldoLucroValueDisplay)}</p>
                 <div className="text-xs text-gray-500 mt-1">
-                  <span>{paidInSaldoLucroMonth.length} pago(s) • total geral {fmtBRL(totalAdminProfit)}</span>
+                  <span>{hasCardsRange ? paidInCardsRange.length : paidInSaldoLucroMonth.length} pago(s) • total geral {fmtBRL(totalAdminProfit)}</span>
                   <button
                     type="button"
                     onClick={() => setShowSaldoLucroInfo(prev => !prev)}
@@ -2960,12 +3120,13 @@ const AdminDashboard = () => {
                   </div>
                 </div>
                 <p className="text-xs text-green-800/80 mt-1 capitalize">
-                  {saldoMesMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  {hasCardsRange ? `Período: ${cardsRangeLabel}` : saldoMesMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </p>
-                <p className="text-2xl font-bold text-green-900">{fmtBRL(saldoMesProfit)}</p>
+                <p className="text-2xl font-bold text-green-900">{fmtBRL(saldoMesValueDisplay)}</p>
                 <p className="text-xs text-green-800/80 mt-1">
-                  {paidInSaldoMesMonth.length} pago(s) de{' '}
-                  {saldoMesMonthStart.toLocaleDateString('pt-BR')} até {saldoMesMonthEnd.toLocaleDateString('pt-BR')}
+                  {hasCardsRange
+                    ? `${paidInCardsRange.length} pago(s) de ${cardsRangeLabel}`
+                    : `${paidInSaldoMesMonth.length} pago(s) de ${saldoMesMonthStart.toLocaleDateString('pt-BR')} até ${saldoMesMonthEnd.toLocaleDateString('pt-BR')}`}
                 </p>
               </div>
             </div>
@@ -3006,11 +3167,13 @@ const AdminDashboard = () => {
                   </div>
                 </div>
                 <p className="text-xs text-teal-800/80 mt-1 capitalize">
-                  {saldoMesMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  {hasCardsRange ? `Período: ${cardsRangeLabel}` : saldoMesMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </p>
-                <p className="text-2xl font-bold text-teal-900">{fmtBRL(saldoMesClientesNovosProfit)}</p>
+                <p className="text-2xl font-bold text-teal-900">{fmtBRL(saldoMesClientesNovosDisplay)}</p>
                 <p className="text-xs text-teal-800/80 mt-1">
-                  {paidNewClientsInSaldoMesMonth.length} pago(s) • {excludedNewClientsInSaldoMesMonth.length} fora da regra
+                  {hasCardsRange
+                    ? `${paidNewInCardsRange.length} pago(s) • ${Math.max(0, newInCardsRange.length - paidNewInCardsRange.length)} fora da regra`
+                    : `${paidNewClientsInSaldoMesMonth.length} pago(s) • ${excludedNewClientsInSaldoMesMonth.length} fora da regra`}
                 </p>
               </div>
             </div>
@@ -3055,14 +3218,18 @@ const AdminDashboard = () => {
                   </div>
                 </div>
                 <p className="text-xs text-emerald-800/80 mt-1 capitalize">
-                  {clientesMeusPagosMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  {hasCardsRange ? `Período: ${cardsRangeLabel}` : clientesMeusPagosMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </p>
-                <p className="text-2xl font-bold text-emerald-900">{fmtBRL(clientesMeusPagosMesSelected)}</p>
+                <p className="text-2xl font-bold text-emerald-900">{fmtBRL(renovacoesPagasValueDisplay)}</p>
                 <p className="text-xs text-emerald-800/80 mt-1">
-                  {paidRenewalsInClientesMeusPagosMonth.length} renovação(ões) • não inclui novos do mês selecionado
+                  {hasCardsRange
+                    ? `${paidRenewalsInCardsRange.length} renovação(ões) • não inclui novos do período`
+                    : `${paidRenewalsInClientesMeusPagosMonth.length} renovação(ões) • não inclui novos do mês selecionado`}
                 </p>
                 <p className="text-xs text-amber-800 mt-1">
-                  Faltam (vencem até fim do mês): {fmtBRL(renewalMissingPaymentValueInClientesMeusPagosMonth)} ({renewalMissingPaymentInClientesMeusPagosMonth.length})
+                  {hasCardsRange
+                    ? `Faltam (vencem no período): ${fmtBRL(renewalMissingPaymentValueInCardsRange)} (${renewalMissingPaymentInCardsRange.length})`
+                    : `Faltam (vencem até fim do mês): ${fmtBRL(renewalMissingPaymentValueInClientesMeusPagosMonth)} (${renewalMissingPaymentInClientesMeusPagosMonth.length})`}
                 </p>
               </div>
             </div>
@@ -3073,7 +3240,7 @@ const AdminDashboard = () => {
               <DollarSign className="h-8 w-8 text-emerald-700" />
               <div className="ml-4">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-emerald-900">Saldo do dia</p>
+                  <p className="text-sm font-medium text-emerald-900">{hasCardsRange ? 'Saldo do período' : 'Saldo do dia'}</p>
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
@@ -3095,11 +3262,13 @@ const AdminDashboard = () => {
                   </div>
                 </div>
                 <p className="text-xs text-emerald-800/80 mt-1">
-                  {isSameDay(saldoDiaDate, new Date()) ? 'Hoje' : format(saldoDiaDate, 'dd/MM/yyyy', { locale: ptBR })}
+                  {hasCardsRange ? cardsRangeLabel : (isSameDay(saldoDiaDate, new Date()) ? 'Hoje' : format(saldoDiaDate, 'dd/MM/yyyy', { locale: ptBR }))}
                 </p>
-                <p className="text-2xl font-bold text-emerald-900">{fmtBRL(saldoDiaProfit)}</p>
+                <p className="text-2xl font-bold text-emerald-900">{fmtBRL(saldoDiaValueDisplay)}</p>
                 <p className="text-xs text-emerald-800/80 mt-1">
-                  {paidOnDay.length} pago(s) • {clientesDiaCount} novo(s)
+                  {hasCardsRange
+                    ? `${paidInCardsRange.length} pago(s) • ${newInCardsRange.length} novo(s)`
+                    : `${paidOnDay.length} pago(s) • ${clientesDiaCount} novo(s)`}
                 </p>
               </div>
             </div>
@@ -3132,10 +3301,10 @@ const AdminDashboard = () => {
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-1 capitalize">
-                  {clientsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  {hasCardsRange ? `Período: ${cardsRangeLabel}` : clientsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </p>
                 <p className="text-2xl font-bold text-gray-900 mt-2">
-                  {isLoadingClientsMonth ? '...' : clientsMonthCount}
+                  {hasCardsRange ? clientsMonthCountDisplay : (isLoadingClientsMonth ? '...' : clientsMonthCount)}
                 </p>
               </div>
             </div>
@@ -3147,7 +3316,7 @@ const AdminDashboard = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Pagamentos em Dia</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {establishments.filter(e => e.payment_status === 'paid').length}
+                  {pagamentosEmDiaDisplay}
                 </p>
               </div>
             </div>
@@ -3159,7 +3328,7 @@ const AdminDashboard = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Pendentes</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {establishments.filter(e => e.payment_status === 'unpaid').length}
+                  {pendentesDisplay}
                 </p>
               </div>
             </div>
@@ -3171,9 +3340,7 @@ const AdminDashboard = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Vencidos</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {establishments.filter(e =>
-                    e.payment_status === 'expired' || isExpired(e.payment_due_date)
-                  ).length}
+                  {vencidosDisplay}
                 </p>
               </div>
             </div>
@@ -3185,7 +3352,7 @@ const AdminDashboard = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Bloqueados</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {establishments.filter(e => e.is_blocked).length}
+                  {bloqueadosDisplay}
                 </p>
               </div>
             </div>
@@ -3197,11 +3364,56 @@ const AdminDashboard = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Na Lixeira</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {deletedEstablishments.length}
+                  {lixeiraDisplay}
                 </p>
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4 mb-4">
+          <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Filtro global dos cards por período</p>
+              <p className="text-xs text-gray-500">Quando preencher De/Até, todos os cards acima passam a usar apenas esse intervalo.</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 sm:ml-auto">
+              <div>
+                <label className="block text-[11px] text-gray-600 mb-1">De</label>
+                <input
+                  type="date"
+                  value={cardsRangeStart}
+                  onChange={(e) => setCardsRangeStart(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-600 mb-1">Até</label>
+                <input
+                  type="date"
+                  value={cardsRangeEnd}
+                  onChange={(e) => setCardsRangeEnd(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCardsRangeStart('');
+                  setCardsRangeEnd('');
+                }}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm"
+              >
+                Limpar período
+              </button>
+            </div>
+          </div>
+          {cardsRangeStart && cardsRangeEnd && !hasCardsRange && (
+            <p className="text-xs text-red-600 mt-2">Intervalo inválido: a data final deve ser maior ou igual à inicial.</p>
+          )}
+          {hasCardsRange && (
+            <p className="text-xs text-emerald-700 mt-2">Período ativo nos cards: <strong>{cardsRangeLabel}</strong></p>
+          )}
         </div>
 
         {/* (removido) Custo por estabelecimento (storage + banco) */}
@@ -4197,12 +4409,12 @@ const AdminDashboard = () => {
               )}
 
               {/* Estabelecimentos Excluídos - Lixeira */}
-              {deletedEstablishments.length > 0 && (
+              {(deletedEstablishments.length > 0 || hasDeletedRange) && (
                 <div className="border-t border-gray-200 pt-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                       <Trash2 className="h-5 w-5 text-gray-500 mr-2" />
-                      Lixeira ({filteredDeletedEstablishments.length}/{deletedEstablishments.length})
+                      Lixeira ({filteredDeletedEstablishments.length}/{deletedNormalBase.length})
                     </h3>
                     <button
                       onClick={() => setShowDeleted(!showDeleted)}
@@ -4240,15 +4452,71 @@ const AdminDashboard = () => {
                                 </div>
                               </div>
                             </div>
-                            <button
-                              onClick={() => restoreEstablishment(establishment.id)}
-                              className="text-blue-600 hover:text-blue-900 text-xs px-3 py-1 border border-blue-300 rounded hover:bg-blue-50 flex items-center"
-                            >
-                              <RefreshCw className="h-3 w-3 mr-1" />
-                              Restaurar
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => moveDeletedToContainment(establishment.id)}
+                                className="text-rose-600 hover:text-rose-900 text-xs px-3 py-1 border border-rose-300 rounded hover:bg-rose-50 flex items-center"
+                                title="Mover para lixeira de contenção"
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" />
+                                Lixeira
+                              </button>
+                              <button
+                                onClick={() => restoreEstablishment(establishment.id)}
+                                className="text-blue-600 hover:text-blue-900 text-xs px-3 py-1 border border-blue-300 rounded hover:bg-blue-50 flex items-center"
+                              >
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                Restaurar
+                              </button>
+                            </div>
                           </div>
                         ))}
+                      </div>
+
+                      <div className="mt-6 border-t border-gray-200 pt-4">
+                        <h4 className="text-sm font-semibold text-rose-800 mb-3 flex items-center">
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Lixeira de contenção ({filteredDeletedContainmentEstablishments.length}/{deletedContainmentBase.length})
+                        </h4>
+                        {filteredDeletedContainmentEstablishments.length === 0 ? (
+                          <div className="text-xs text-gray-500 bg-white border border-dashed border-gray-300 rounded-lg p-3">
+                            Nenhum estabelecimento na contenção para este filtro/período.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {filteredDeletedContainmentEstablishments.map(establishment => (
+                              <div key={`containment:${establishment.id}`} className="flex items-center justify-between p-3 bg-white rounded-lg border border-rose-200">
+                                <div className="flex items-center space-x-4">
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-900">{establishment.name}</span>
+                                    <div className="flex space-x-2 mt-1">
+                                      <span className="text-xs text-gray-500">Código: {establishment.code}</span>
+                                      <span className="text-xs text-gray-500">•</span>
+                                      <span className="text-xs text-gray-500">{establishment.owner_email}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => moveDeletedBackToNormalTrash(establishment.id)}
+                                    className="text-gray-700 hover:text-gray-900 text-xs px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 flex items-center"
+                                    title="Voltar para lixeira normal"
+                                  >
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                    Voltar
+                                  </button>
+                                  <button
+                                    onClick={() => restoreEstablishment(establishment.id)}
+                                    className="text-blue-600 hover:text-blue-900 text-xs px-3 py-1 border border-blue-300 rounded hover:bg-blue-50 flex items-center"
+                                  >
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                    Restaurar
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

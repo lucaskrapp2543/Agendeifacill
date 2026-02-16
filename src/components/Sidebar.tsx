@@ -41,6 +41,7 @@ type TabType =
   | 'ranking'
   | 'missing-clients'
   | 'draw'
+  | 'top10-clientes'
   | 'passo-a-passo'
   | 'fila-espera'
   | 'placa-barbearia'
@@ -796,6 +797,44 @@ const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
           )}
+
+          {/* Botão Passo a Passo */}
+          <div className="relative">
+            <button
+              onClick={() => handleItemClick(() => onTabChange('top10-clientes'))}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'top10-clientes'
+                ? isLight
+                  ? 'bg-gray-900 text-white shadow-md'
+                  : 'bg-white text-black shadow-md'
+                : isLight
+                  ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
+                  : 'bg-transparent text-white'
+                }`}
+              title={isExpanded ? '' : 'TOP 5 clientes'}
+            >
+              <Crown
+                className={`h-5 w-5 flex-shrink-0 ${activeTab === 'top10-clientes'
+                  ? isLight
+                    ? 'text-white'
+                    : 'text-black'
+                  : isLight
+                    ? 'text-gray-700'
+                    : 'text-yellow-300'
+                  }`}
+              />
+              {isExpanded && (
+                <span className="text-sm font-medium whitespace-nowrap">
+                  👑 TOP 5 clientes
+                </span>
+              )}
+            </button>
+
+            {!isExpanded && (
+              <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
+                👑 TOP 5 clientes
+              </div>
+            )}
+          </div>
 
           {/* Botão Passo a Passo */}
           <div className="relative">
